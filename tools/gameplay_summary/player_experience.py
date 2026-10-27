@@ -182,6 +182,46 @@ def wilderness_worksite_player_experience(lines: list[str]) -> str | None:
     witness = _one_seeded(lines, "WILDERNESS CASTING BED ", _required(record, "seed"))
     if witness is None:
         raise ValueError("worksite project tradeoff lacks its finished physical workstation")
+    provision = _one_seeded(lines, "PLAYER PROJECT PROVISION ", _required(record, "seed"))
+    if provision is None:
+        raise ValueError("worksite project lost its direct-control provisions")
+    if (
+        _required(provision, "evidence") != "generated-direct-control"
+        or _required(provision, "automatic-other-source") != "false"
+        or _required(provision, "matter") != "conserved"
+    ):
+        raise ValueError("worksite provisions do not establish an exact controlled player choice")
+    picked, initial = _capture(
+        _required(provision, "choice"),
+        r"protein-wild-nuts:(\d+)mg from:(\d+)mg",
+        "chosen wild protein portion",
+    )
+    source, queue, forage = _capture(
+        _required(provision, "action"),
+        r"explicit-source:(\d+) buffered:(\d+)ct slow-work:(\d+)t",
+        "executed explicit gathering action",
+    )
+    carried, left = _capture(
+        _required(provision, "consequence"),
+        r"carried:(\d+)mg left-at-source:(\d+)mg",
+        "finite source and carried custody",
+    )
+    baseline_nuts, fire_nuts, exposed_nuts = _capture(
+        _required(record, "ecology"),
+        r"after-ration:(\d+)mg fire:(\d+)mg exposed:(\d+)mg",
+        "actual natural-food exposure during construction",
+    )
+    if (
+        not 0 < int(picked) == int(carried) < int(initial)
+        or int(initial) - int(picked) != int(left)
+        or int(source) == 0
+        or int(queue) == 0
+        or int(forage) == 0
+        or int(baseline_nuts) != int(left)
+        or int(fire_nuts) > int(baseline_nuts)
+        or int(exposed_nuts) > int(baseline_nuts)
+    ):
+        raise ValueError("worksite project lost real finite-source selection or local ecology")
     if (
         _required(record, "goal") != "specified-not-discovered"
         or _required(witness, "goal") != "specified-workstation"
@@ -190,6 +230,7 @@ def wilderness_worksite_player_experience(lines: list[str]) -> str | None:
         or _required(witness, "matter") != "conserved"
         or _required(record, "matter") != "conserved"
         or _required(record, "replay") != "exact"
+        or _required(record, "defer") != "[unneeded-pristine-service:true]"
     ):
         raise ValueError("worksite narrative mislabels project ownership or physical evidence")
     remaining, estimate = _capture(
@@ -231,11 +272,16 @@ def wilderness_worksite_player_experience(lines: list[str]) -> str | None:
         raise ValueError("worksite project failed to establish an earned preparation tradeoff")
     return (
         "PLAYER EXPERIENCE worksite-project goal=specified-not-discovered "
+        f"provision=[selected-protein:{_kg(picked)} left-in-world:{_kg(left)} "
+        f"buffer:{queue}ct gather:{forage}t] "
         f"forecast=[warmth:{remaining}t necessary-work:{estimate}t] "
         f"choice=[prepare-fire:{choice} extra:{preparation}t "
         f"stone:{_kg(stone)} fuel:{_kg(timber)}] "
         f"matched=[same-work:{work}t comfort:{protected}ppm-vs:{exposed}ppm "
         f"fire-left:{runway}t] "
+        f"local-ecology=[food-fire:{_kg(fire_nuts)} exposed:{_kg(exposed_nuts)} "
+        f"scout-difference:{int(fire_nuts) - int(exposed_nuts)}mg] "
+        "defer=[no-service-on-pristine-machine] "
         "outcome=[station:9.6kg metal-produced:0 next:molten-metal]"
     )
 

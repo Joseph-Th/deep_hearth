@@ -1,8 +1,10 @@
 //! Transient direct-control intents above locomotion ownership.
 
+use crate::core::quantity::Mass;
 use crate::inventory::StorageDefinitionId;
 use crate::logistics::{PlayerControlInput, PlayerQuickAccessSlot};
 use crate::spatial::ViewDirection;
+use crate::surface::SurfaceResourceId;
 
 /// Held primary-control intent sampled alongside one 20 Hz locomotion input.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +38,12 @@ pub enum SecondaryControlIntent {
     UseActive {
         direction: ViewDirection,
     },
+    /// Choose one observed local source and amount when empty-hand use is ambiguous.
+    GatherSurface {
+        resource: SurfaceResourceId,
+        mass: Mass,
+        direction: ViewDirection,
+    },
     /// Explicitly selected multi-material storage plan; material-stack selection alone cannot
     /// distinguish enclosures sharing the same timber or clay input.
     PlaceStorage {
@@ -48,6 +56,19 @@ impl SecondaryControlIntent {
     #[must_use]
     pub const fn use_active(direction: ViewDirection) -> Self {
         Self::UseActive { direction }
+    }
+
+    #[must_use]
+    pub const fn gather_surface(
+        resource: SurfaceResourceId,
+        mass: Mass,
+        direction: ViewDirection,
+    ) -> Self {
+        Self::GatherSurface {
+            resource,
+            mass,
+            direction,
+        }
     }
 
     #[must_use]

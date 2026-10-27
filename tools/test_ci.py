@@ -3312,36 +3312,60 @@ class GameplayReportContractTests(unittest.TestCase):
             "timber-fuel:1000000mg remaining-runway:895t] matched-at=256t "
             "consequence=[prepared-comfort:1000000ppm exposed-comfort:744000ppm] "
             "benefit=[comfort-delta:+256000ppm] "
+            "ecology=[after-ration:685922mg fire:685922mg exposed:685922mg] "
+            "defer=[unneeded-pristine-service:true] "
             "productive-output=[stationary-casting-bed:9.6kg metal-cast:0] "
             "next-dependency=obtain-molten-metal matter=conserved replay=exact"
         )
-        summary = gameplay_report_summary.wilderness_worksite_player_experience([witness, project])
+        provision = (
+            "PLAYER PROJECT PROVISION seed=0xA episode=coverage/rested/clay-worksite "
+            "evidence=generated-direct-control "
+            "choice=[protein-wild-nuts:150000mg from:835922mg] "
+            "action=[explicit-source:4 buffered:71ct slow-work:17t] "
+            "consequence=[carried:150000mg left-at-source:685922mg] "
+            "automatic-other-source=false matter=conserved"
+        )
+        records = [witness, project, provision]
+        summary = gameplay_report_summary.wilderness_worksite_player_experience(records)
         self.assertIsNotNone(summary)
         assert summary is not None
         self.assertIn("goal=specified-not-discovered", summary)
+        self.assertIn("provision=[selected-protein:0.15kg left-in-world:0.69kg buffer:71ct gather:17t]", summary)
         self.assertIn("choice=[prepare-fire:true extra:20t stone:1.00kg fuel:1.00kg]", summary)
         self.assertIn("comfort:1000000ppm-vs:744000ppm", summary)
+        self.assertIn("local-ecology=[food-fire:0.69kg exposed:0.69kg scout-difference:0mg]", summary)
+        self.assertIn("defer=[no-service-on-pristine-machine]", summary)
         self.assertIn("metal-produced:0 next:molten-metal", summary)
         with self.assertRaisesRegex(ValueError, "earned preparation tradeoff"):
             gameplay_report_summary.wilderness_worksite_player_experience([
-                witness, project.replace("same-acquisition-and-crafting:216t", "same-acquisition-and-crafting:10t")
+                witness, project.replace("same-acquisition-and-crafting:216t", "same-acquisition-and-crafting:10t"), provision
             ])
         with self.assertRaisesRegex(ValueError, "earned preparation tradeoff"):
             gameplay_report_summary.wilderness_worksite_player_experience([
-                witness, project.replace("choose-prework-fire:true", "choose-prework-fire:false")
+                witness, project.replace("choose-prework-fire:true", "choose-prework-fire:false"), provision
             ])
         with self.assertRaisesRegex(ValueError, "earned preparation tradeoff"):
             gameplay_report_summary.wilderness_worksite_player_experience([
-                witness, project.replace("benefit=[comfort-delta:+256000ppm]", "benefit=[comfort-delta:+1ppm]")
+                witness, project.replace("benefit=[comfort-delta:+256000ppm]", "benefit=[comfort-delta:+1ppm]"), provision
             ])
         with self.assertRaisesRegex(ValueError, "project ownership"):
             gameplay_report_summary.wilderness_worksite_player_experience([
-                witness, project.replace("specified-not-discovered", "spontaneously-discovered")
+                witness, project.replace("specified-not-discovered", "spontaneously-discovered"), provision
             ])
         with self.assertRaisesRegex(ValueError, "finished physical workstation"):
-            gameplay_report_summary.wilderness_worksite_player_experience([project])
+            gameplay_report_summary.wilderness_worksite_player_experience([project, provision])
         with self.assertRaisesRegex(ValueError, "duplicate PLAYER PROJECT TRADEOFF"):
-            gameplay_report_summary.wilderness_worksite_player_experience([witness, project, project])
+            gameplay_report_summary.wilderness_worksite_player_experience([witness, project, project, provision])
+        with self.assertRaisesRegex(ValueError, "finite-source selection or local ecology"):
+            gameplay_report_summary.wilderness_worksite_player_experience([
+                witness, project, provision.replace("left-at-source:685922mg", "left-at-source:835922mg")
+            ])
+        with self.assertRaisesRegex(ValueError, "finite-source selection or local ecology"):
+            gameplay_report_summary.wilderness_worksite_player_experience([
+                witness, project.replace("ecology=[after-ration:685922mg fire:685922mg exposed:685922mg]", "ecology=[after-ration:685922mg fire:900000mg exposed:685922mg]"), provision
+            ])
+        with self.assertRaisesRegex(ValueError, "direct-control provisions"):
+            gameplay_report_summary.wilderness_worksite_player_experience([witness, project])
 
     def test_fieldwork_player_experience_reports_actor_risk_and_delayed_consequence(self) -> None:
         lines = [

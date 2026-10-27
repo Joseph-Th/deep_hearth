@@ -96,7 +96,8 @@ pub(crate) use pending_primary::{
 };
 pub use pending_secondary::PlayerPendingSecondaryUseError;
 pub(crate) use pending_secondary::{
-    take_player_pending_secondary_use, validate_buffer_player_secondary_use,
+    take_player_pending_secondary_use, validate_buffer_player_secondary_surface_gathering,
+    validate_buffer_player_secondary_use,
 };
 pub use quick_move::{
     PlayerQuickMoveError, PlayerQuickMoveOutcome, ValidatedPlayerQuickMove,

@@ -1,16 +1,18 @@
 //! Empty-hand gathering and drinking, selected food, and local combustion interactions.
 
 use crate::content::{FORM_BOARD, FORM_LOG, MATERIAL_WOOD};
+use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::energy::{validate_assemble_energy_store, validate_combust_selected_fuel};
 use crate::inventory::project_material_stacks;
 use crate::logistics::PlayerActiveSelection;
 use crate::material::CommodityKey;
+use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
 use crate::spatial::ViewDirection;
 use crate::surface::{
-    PlayerSurfaceGatheringOption, player_surface_gathering_options,
-    validate_start_player_surface_gathering_option,
+    PlayerSurfaceGatheringOption, SurfaceGatheringError, SurfaceResourceId,
+    player_surface_gathering_options, validate_start_player_surface_gathering_option,
 };
 use crate::survival::{
     available_local_drink_sources, validate_drink_store_to_full, validate_eat_stack_to_full,
@@ -136,6 +138,82 @@ fn attempt_direct_surface_gathering(
                 }
             };
             SecondaryActionOutcome::SurfaceGatheringStarted(work)
+        }
+        Err(error) => SecondaryActionOutcome::SurfaceGatheringRejected(error),
+    }
+}
+
+/// A catalog gesture names the exact observed natural source and amount. The
+/// option is re-resolved on execution, so a stolen/depleted or remote source
+/// cannot be silently replaced by a different one.
+pub(super) fn attempt_explicit_surface_gathering(
+    registries: &Registries,
+    state: &mut AppState,
+    resource: SurfaceResourceId,
+    mass: Mass,
+) -> SecondaryActionOutcome {
+    match validate_player_action(state) {
+        Ok(_) => {}
+        Err(PlayerActionValidationError::PlayerNotAdmitted) => {
+            return SecondaryActionOutcome::PlayerNotAdmitted;
+        }
+        Err(PlayerActionValidationError::PlayerDead) => {
+            return SecondaryActionOutcome::PlayerDead;
+        }
+    }
+    if mass.is_zero() {
+        return SecondaryActionOutcome::SurfaceGatheringRejected(SurfaceGatheringError::ZeroMass);
+    }
+    let options = player_surface_gathering_options(registries, state).unwrap_or_else(|error| {
+        panic!("runtime invariant broken: explicit gathering catalog failed: {error}")
+    });
+    let mut matching = options
+        .into_iter()
+        .filter(|option| option.resource() == resource);
+    let Some(option) = matching.next() else {
+        return SecondaryActionOutcome::SurfaceGatheringRejected(
+            SurfaceGatheringError::ResourceUnavailableAtPlayer { resource },
+        );
+    };
+    let additional = matching.count();
+    if additional > 0 {
+        return SecondaryActionOutcome::AmbiguousSurfaceGatheringMethods {
+            count: additional + 1,
+        };
+    }
+    // These are already actor-visible immutable facts. Refuse impossible
+    // amounts on the input frame instead of queueing a three-second wait for
+    // an error the player could have predicted from the catalog.
+    if mass > option.maximum_batch_mass() {
+        return SecondaryActionOutcome::SurfaceGatheringRejected(
+            SurfaceGatheringError::BatchTooLarge {
+                requested: mass,
+                maximum: option.maximum_batch_mass(),
+            },
+        );
+    }
+    if mass > option.source_mass() {
+        return SecondaryActionOutcome::SurfaceGatheringRejected(
+            SurfaceGatheringError::InsufficientResource {
+                requested: mass,
+                remaining: option.source_mass(),
+            },
+        );
+    }
+    if !state.control_tick().is_simulation_boundary() {
+        return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
+    }
+    match validate_start_player_surface_gathering_option(registries, state, option, mass) {
+        Ok(validated) => {
+            validated.commit(state).unwrap_or_else(|error| {
+                panic!("runtime invariant broken: explicit surface gathering became stale: {error}")
+            });
+            match state.player_work().active() {
+                Some(crate::labor::PlayerWork::SurfaceGathering { work }) => {
+                    SecondaryActionOutcome::SurfaceGatheringStarted(work)
+                }
+                other => panic!("explicit surface gathering started unexpected work: {other:?}"),
+            }
         }
         Err(error) => SecondaryActionOutcome::SurfaceGatheringRejected(error),
     }

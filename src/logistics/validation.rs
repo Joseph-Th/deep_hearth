@@ -156,6 +156,7 @@ pub enum LogisticsValidationError {
     PendingSecondaryUseRequestedInFuture,
     PendingSecondaryUseFromPriorSimulationInterval,
     PendingSecondaryUseDirectionInvalid,
+    PendingSecondaryUseSurfaceRequestInvalid,
     PendingPrimaryBreakWithoutPlayer,
     PendingPrimaryBreakPlayerDead,
     PendingPrimaryBreakRequestedInFuture,
@@ -441,6 +442,8 @@ impl Display for LogisticsValidationError {
             ),
             Self::PendingSecondaryUseDirectionInvalid => formatter
                 .write_str("buffered contextual use contains an invalid fixed-point view direction"),
+            Self::PendingSecondaryUseSurfaceRequestInvalid => formatter
+                .write_str("buffered explicit surface gathering has a zero resource ID or mass"),
             Self::PendingPrimaryBreakWithoutPlayer => formatter
                 .write_str("buffered structural break exists without an admitted logistics player"),
             Self::PendingPrimaryBreakPlayerDead => {
@@ -555,6 +558,12 @@ fn validate_pending_secondary_use(
     }
     if pending.direction().is_none() {
         return Err(LogisticsValidationError::PendingSecondaryUseDirectionInvalid);
+    }
+    if pending
+        .surface_request()
+        .is_some_and(|(resource, mass)| resource.value() == 0 || mass.is_zero())
+    {
+        return Err(LogisticsValidationError::PendingSecondaryUseSurfaceRequestInvalid);
     }
     Ok(())
 }

@@ -162,6 +162,11 @@ off-boundary request; changed locality, hotbar context, or structural target can
 authorizing stale state. Holding the same structural break or contextual use retains the existing queued action without repeated admission errors. A new aim, selection, or player position with fresh input replaces the obsolete queued context before the boundary; explicit combat replaces a pending structural break, while storage placement or dropping the active selection replaces pending contextual use. A simultaneous held use cannot defeat the drop gesture and requeue consumption. A fresh same-kind input on the due boundary also supersedes the older request. This removes
 held-input dependence without pretending affected slow work is a control-rate schedule; the gameplay report
 keeps the sub-quantum secondary-use admission wait visible.
+An explicit natural-source gather gesture can instead select one actor-observed local resource
+and physical mass. Its resource identity and amount survive off-boundary buffering and trusted
+reload, while the normal gathering owner rechecks current source, carrying, time, and work
+legality at admission. Co-located resources therefore remain ambiguous to unselected
+empty-hand use but are individually actionable from the observed source catalog.
 Projected edible stacks can now drive the default timed eating action directly, so two visible freshness cohorts
 remain a player choice while exact lot slices stay private to inventory/survival owners.
 Grounded structural construction now has the same stack-facing atomicity: one revision-bound carried stack plus

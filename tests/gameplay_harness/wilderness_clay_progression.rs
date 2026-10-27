@@ -283,6 +283,85 @@ pub(super) fn exercise_generated_clay_casting_bed(report: bool) {
         junction,
         "clay project work junction",
     );
+    // This observed food source remains outside carried custody while the
+    // actor travels to both material leaves. A nearby finite fire may affect
+    // *another* player's concern besides warmth: scavenger pressure on food.
+    let nuts_source =
+        local_surface_resource(&state, CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD));
+    let nuts_initial = state
+        .available_surface_resources()
+        .find(|resource| resource.id() == nuts_source)
+        .unwrap_or_else(|| panic!("clay worksite cannot inspect the discovered protein source"))
+        .remaining_mass();
+    // Ordinary generated-world player input, not the direct gathering test
+    // helper: choose a smaller protein ration before committing to the long
+    // construction job. Preserve the visible identity through the buffered
+    // control interval and the canonical slow-work completion.
+    let selected_nuts = Mass::from_milligrams(150_000);
+    let upward = ViewDirection::new(0, VIEW_DIRECTION_PARTS_PER_MILLION, 0)
+        .unwrap_or_else(|error| panic!("clay worksite direct gather view invalid: {error}"));
+    let queued_nuts =
+        advance_control_tick_with_direct_input(
+            &registries,
+            &mut state,
+            PlayerDirectControlInput::NEUTRAL.with_secondary(
+                SecondaryControlIntent::gather_surface(nuts_source, selected_nuts, upward),
+            ),
+        )
+        .unwrap_or_else(|error| panic!("worksite deliberate protein choice failed: {error}"));
+    assert_eq!(
+        queued_nuts.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    let wait_control = queued_nuts
+        .queued_action_wait_control_ticks()
+        .unwrap_or_else(|| panic!("worksite selected ration was not acknowledged as queued"));
+    let mut selected_work = None;
+    for _ in 0..wait_control {
+        let outcome = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("worksite protein queued control failed: {error}"));
+        if let Some(tick) = outcome.simulation() {
+            assert_tick_events_within(
+                tick,
+                TickEventAllowance::default(),
+                "queued worksite protein admission",
+            );
+        }
+        if let Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) =
+            outcome.secondary_action()
+        {
+            assert!(selected_work.replace(*work).is_none());
+        } else {
+            assert_eq!(outcome.secondary_action(), None);
+        }
+    }
+    let selected_work = selected_work
+        .unwrap_or_else(|| panic!("worksite targeted gathering did not start at the due boundary"));
+    assert_eq!(selected_work.resource(), nuts_source);
+    assert_eq!(selected_work.gathered_mass(), selected_nuts);
+    advance_to(
+        &registries,
+        &mut state,
+        selected_work.completes_at(),
+        TickEventAllowance {
+            surface_resources: &[nuts_source],
+            ..TickEventAllowance::default()
+        },
+        "deliberate wild-nut worksite provisioning",
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .map(|stock| stock.get_mass(CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD))),
+        Some(selected_nuts)
+    );
+    let nuts_before = state
+        .available_surface_resources()
+        .find(|resource| resource.id() == nuts_source)
+        .unwrap_or_else(|| panic!("clay worksite cannot inspect junction nuts"))
+        .remaining_mass();
+    assert_eq!(nuts_initial.checked_sub(selected_nuts), Some(nuts_before));
     let plan = CastingBedPlan {
         junction,
         carried,
@@ -369,6 +448,29 @@ pub(super) fn exercise_generated_clay_casting_bed(report: bool) {
     let protected_comfort = assess_survival(&registries, &prepared)
         .unwrap_or_else(|| panic!("matched fire-prepared worker disappeared"))
         .thermal_comfort_ppm();
+    let nuts_prepared = prepared
+        .available_surface_resources()
+        .find(|resource| resource.id() == nuts_source)
+        .map_or(Mass::ZERO, |resource| resource.remaining_mass());
+    let nuts_exposed = state
+        .available_surface_resources()
+        .find(|resource| resource.id() == nuts_source)
+        .map_or(Mass::ZERO, |resource| resource.remaining_mass());
+    assert!(
+        nuts_prepared <= nuts_before && nuts_exposed <= nuts_before,
+        "unattended natural food may be stolen but cannot spontaneously replenish"
+    );
+    // Do not fabricate a replacement facing for a pristine machine whose
+    // inputs have not yet been acquired. An 80-tick trial excursion produced
+    // no extra scout interaction in either branch; retaining it as routine
+    // play would be evaluator-imposed busywork rather than useful aftercare.
+    assert!(
+        deep_hearth::equipment::player_equipment_maintenance_options(&registries, &prepared)
+            .unwrap_or_else(|error| panic!("pristine worksite maintenance catalog failed: {error}"))
+            .into_iter()
+            .all(|option| option.equipment() != prepared_bed),
+        "a pristine idle casting bed cannot rationally request an immediate spare"
+    );
     assert!(
         protected_comfort > exposed_comfort,
         "physically fueled camp heat must protect the worker during the same long project"
@@ -470,6 +572,17 @@ pub(super) fn exercise_generated_clay_casting_bed(report: bool) {
             .checked_sub(final_reserves.hydration())
             .unwrap_or_else(|| panic!("clay project gained unexplained hydration"));
         std::println!(
+            "PLAYER PROJECT PROVISION seed=0x{:016X} episode=coverage/rested/clay-worksite evidence=generated-direct-control choice=[protein-wild-nuts:{}mg from:{}mg] action=[explicit-source:{} buffered:{}ct slow-work:{}t] consequence=[carried:{}mg left-at-source:{}mg] automatic-other-source=false matter=conserved",
+            seed.value(),
+            selected_nuts.milligrams(),
+            nuts_initial.milligrams(),
+            nuts_source.value(),
+            wait_control,
+            selected_work.completes_at().value() - selected_work.started_at().value(),
+            selected_nuts.milligrams(),
+            nuts_before.milligrams(),
+        );
+        std::println!(
             "WILDERNESS CASTING BED seed=0x{:016X} evidence=generated-exact-local goal=specified-workstation choice=[pre-work-fire:{}] path=[forage>water>clay>fork>junction>stone>junction>timber>junction] elapsed={}t/{} survival-spent=[energy:{}nJ hydration:{}uL] reserves-left=[energy:{}nJ hydration:{}uL] pressure=[hungry:{} thirsty:{}] materials=[clay:{}mg stone:{}mg timber:{}mg] craft=[binder:{}b boards:{}b] worksite=[auto-placed-at-player:true stationary-mass:{}mg carried-mass:0mg output-produced:false] payoff=deferred-until-molten-metal clay-left={}mg matter=conserved",
             seed.value(),
             prepare_fire,
@@ -493,7 +606,7 @@ pub(super) fn exercise_generated_clay_casting_bed(report: bool) {
                 .milligrams(),
         );
         std::println!(
-            "PLAYER PROJECT TRADEOFF seed=0x{:016X} episode=coverage/rested/clay-worksite goal=specified-not-discovered phase=prepare-vs-push-through observation=[remaining-warmth:{}t predicted-project-work-at-least:{}t] policy=[choose-prework-fire:{}] action=[same-acquisition-and-crafting:{}t both-branches] investment=[extra-fire-preparation:{}t stone:{}mg timber-fuel:{}mg remaining-runway:{}t] matched-at={}t consequence=[prepared-comfort:{}ppm exposed-comfort:{}ppm] benefit=[comfort-delta:+{}ppm] productive-output=[stationary-casting-bed:9.6kg metal-cast:0] next-dependency=obtain-molten-metal matter=conserved replay=exact",
+            "PLAYER PROJECT TRADEOFF seed=0x{:016X} episode=coverage/rested/clay-worksite goal=specified-not-discovered phase=prepare-vs-push-through observation=[remaining-warmth:{}t predicted-project-work-at-least:{}t] policy=[choose-prework-fire:{}] action=[same-acquisition-and-crafting:{}t both-branches] investment=[extra-fire-preparation:{}t stone:{}mg timber-fuel:{}mg remaining-runway:{}t] matched-at={}t consequence=[prepared-comfort:{}ppm exposed-comfort:{}ppm] benefit=[comfort-delta:+{}ppm] ecology=[after-ration:{}mg fire:{}mg exposed:{}mg] defer=[unneeded-pristine-service:true] productive-output=[stationary-casting-bed:9.6kg metal-cast:0] next-dependency=obtain-molten-metal matter=conserved replay=exact",
             seed.value(),
             initial_warmth_runway,
             projected_work_floor,
@@ -507,6 +620,9 @@ pub(super) fn exercise_generated_clay_casting_bed(report: bool) {
             protected_comfort,
             exposed_comfort,
             protected_comfort - exposed_comfort,
+            nuts_before.milligrams(),
+            nuts_prepared.milligrams(),
+            nuts_exposed.milligrams(),
         );
     }
 }

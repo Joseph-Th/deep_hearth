@@ -4,7 +4,10 @@ mod placement;
 mod secondary;
 
 use placement::{attempt_storage_placement, attempt_structural_dismantling_now};
-use secondary::{attempt_empty_hand_secondary_action, attempt_selected_secondary_action};
+use secondary::{
+    attempt_empty_hand_secondary_action, attempt_explicit_surface_gathering,
+    attempt_selected_secondary_action,
+};
 
 use crate::combat::{
     validate_cancel_primitive_preparation, validate_prepare_primitive_strike,
@@ -13,8 +16,9 @@ use crate::combat::{
 use crate::core::state::AppState;
 use crate::logistics::{
     PlayerActiveSelection, take_player_pending_primary_break, take_player_pending_secondary_use,
-    validate_buffer_player_primary_break, validate_buffer_player_secondary_use,
-    validate_drop_equipment, validate_select_quick_access_slot,
+    validate_buffer_player_primary_break, validate_buffer_player_secondary_surface_gathering,
+    validate_buffer_player_secondary_use, validate_drop_equipment,
+    validate_select_quick_access_slot,
 };
 use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
@@ -84,12 +88,15 @@ pub(super) fn attempt_direct_actions_after_quick_access(
     let secondary = if input.drop_active_selection()
         && matches!(
             input.secondary(),
-            Some(SecondaryControlIntent::UseActive { .. })
+            Some(
+                SecondaryControlIntent::UseActive { .. }
+                    | SecondaryControlIntent::GatherSurface { .. }
+            )
         )
         && validate_player_action(state).is_ok()
     {
-        // A held use sampled alongside a drop must not create a replacement meal
-        // after the previous buffered use was cancelled above.
+        // A held use or explicit gather sampled alongside a drop must not
+        // requeue work after the older buffered request was cancelled above.
         pending_secondary
     } else if state.player_work().active().is_some() {
         pending_secondary.or_else(|| match input.secondary() {
@@ -100,7 +107,11 @@ pub(super) fn attempt_direct_actions_after_quick_access(
                 })
             }
             // A held contextual use is one-shot and stays quiet while work is active.
-            Some(SecondaryControlIntent::UseActive { .. }) | None => None,
+            Some(
+                SecondaryControlIntent::UseActive { .. }
+                | SecondaryControlIntent::GatherSurface { .. },
+            )
+            | None => None,
         })
     } else {
         attempt_secondary_action(registries, state, input.secondary()).or(pending_secondary)
@@ -208,11 +219,19 @@ fn attempt_secondary_action(
     intent: Option<SecondaryControlIntent>,
 ) -> Option<SecondaryActionOutcome> {
     let intent = intent?;
+    let requested_surface = match intent {
+        SecondaryControlIntent::GatherSurface { resource, mass, .. } => Some((resource, mass)),
+        SecondaryControlIntent::UseActive { .. } | SecondaryControlIntent::PlaceStorage { .. } => {
+            None
+        }
+    };
     if let Some(pending) = state.logistics().pending_secondary_use() {
         if matches!(
             intent,
             SecondaryControlIntent::UseActive { direction }
+                | SecondaryControlIntent::GatherSurface { direction, .. }
                 if pending.direction() == Some(direction)
+                    && pending.surface_request() == requested_surface
                     && pending.selection() == state.logistics().active_selection()
                     && state.logistics().player().map(|player| player.position())
                         == Some(pending.position())
@@ -224,7 +243,8 @@ fn attempt_secondary_action(
         let _ = take_player_pending_secondary_use(state);
     }
     let direction = match intent {
-        SecondaryControlIntent::UseActive { direction } => direction,
+        SecondaryControlIntent::UseActive { direction }
+        | SecondaryControlIntent::GatherSurface { direction, .. } => direction,
         SecondaryControlIntent::PlaceStorage {
             definition,
             direction,
@@ -238,23 +258,32 @@ fn attempt_secondary_action(
             });
         }
     };
-    let outcome = attempt_secondary_action_now(registries, state, direction);
+    let outcome = match requested_surface {
+        Some((resource, mass)) => {
+            attempt_explicit_surface_gathering(registries, state, resource, mass)
+        }
+        None => attempt_secondary_action_now(registries, state, direction),
+    };
     if outcome != SecondaryActionOutcome::DeferredUntilSimulationBoundary {
         return Some(outcome);
     }
-    Some(
-        match validate_buffer_player_secondary_use(state, direction) {
-            Ok(validated) => {
-                validated.commit(state).unwrap_or_else(|error| {
-                    panic!(
-                        "runtime invariant broken: synchronous contextual-use buffering became stale: {error}"
-                    )
-                });
-                SecondaryActionOutcome::QueuedUntilSimulationBoundary
-            }
-            Err(error) => SecondaryActionOutcome::BufferRejected(error),
-        },
-    )
+    let buffered = match requested_surface {
+        Some((resource, mass)) => {
+            validate_buffer_player_secondary_surface_gathering(state, direction, resource, mass)
+        }
+        None => validate_buffer_player_secondary_use(state, direction),
+    };
+    Some(match buffered {
+        Ok(validated) => {
+            validated.commit(state).unwrap_or_else(|error| {
+                panic!(
+                    "runtime invariant broken: synchronous contextual-use buffering became stale: {error}"
+                )
+            });
+            SecondaryActionOutcome::QueuedUntilSimulationBoundary
+        }
+        Err(error) => SecondaryActionOutcome::BufferRejected(error),
+    })
 }
 
 fn attempt_secondary_action_now(
@@ -293,7 +322,12 @@ pub(super) fn attempt_pending_secondary_action(
     let direction = pending.direction().unwrap_or_else(|| {
         panic!("runtime invariant broken: trusted buffered contextual use has invalid direction")
     });
-    Some(attempt_secondary_action_now(registries, state, direction))
+    Some(match pending.surface_request() {
+        Some((resource, mass)) => {
+            attempt_explicit_surface_gathering(registries, state, resource, mass)
+        }
+        None => attempt_secondary_action_now(registries, state, direction),
+    })
 }
 
 pub(super) fn attempt_pending_primary_break(
