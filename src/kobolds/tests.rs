@@ -2497,10 +2497,28 @@ fn player_intercepts_scavenged_drop_using_ordinary_local_pickup() {
         crate::core::state::validate_loaded_state(&registries, &state),
         Ok(())
     );
+    // The player can physically intercept carried loot between patrol steps.
+    // Until the next scout decision, the persisted resident still references
+    // its lost parcel; loading that transient state must replay the same recovery.
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, replay);
     while !state.control_tick().is_simulation_boundary() {
-        let _ = advance_control_tick(&registries, &mut state).unwrap();
+        assert_eq!(
+            advance_control_tick(&registries, &mut state).unwrap(),
+            advance_control_tick(&registries, &mut replay).unwrap()
+        );
     }
-    advance_to_tick(&registries, &mut state, 195);
+    while state.tick().value() < 195 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
     assert_eq!(colony(&state).scavenged_drop, None);
     assert_eq!(
         state.surface().get(drop).unwrap().remaining_mass(),
@@ -2532,6 +2550,103 @@ fn guarding_the_den_suppresses_patrol_without_touching_supplies() {
         crate::core::state::validate_loaded_state(&registries, &state),
         Ok(())
     );
+}
+
+#[test]
+fn grounded_player_fast_forward_matches_neutral_controls_across_scout_steps_and_load() {
+    let (registries, mut fast, spawn) = generated_opening();
+    advance_to_tick(&registries, &mut fast, 179);
+    validate_admit_player(&registries, &fast, spawn)
+        .unwrap()
+        .commit(&mut fast)
+        .unwrap();
+    let mut direct = fast.clone();
+    let conserved = calculate_matter_accounting(&fast).unwrap().total();
+
+    for step in 0..21 {
+        let fast_result = advance_tick(&registries, &mut fast).unwrap();
+        let direct_result = loop {
+            let control = advance_control_tick(&registries, &mut direct).unwrap();
+            assert_eq!(
+                control.surface_drop_pickup(),
+                None,
+                "safe neutral skip unexpectedly hid an automatic pickup"
+            );
+            if let Some(simulation) = control.simulation() {
+                break simulation.clone();
+            }
+        };
+        assert_eq!(
+            fast_result, direct_result,
+            "slow outcome diverged at step {step}"
+        );
+        assert_eq!(fast, direct, "runtime diverged at step {step}");
+        if step == 9 {
+            let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &fast)).unwrap();
+            fast = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+                .unwrap()
+                .into_state(&registries)
+                .unwrap();
+            assert_eq!(fast, direct);
+        }
+    }
+    assert_eq!(
+        calculate_matter_accounting(&fast).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &fast),
+        Ok(())
+    );
+
+    // A newly available exact-local parcel changes the control contract:
+    // fast-forward must now reject without modifying any owner, since a
+    // neutral control step will collect it before the next slow boundary.
+    let resource = place_loose_stone_drop(&registries, &mut fast, spawn);
+    assert_eq!(
+        resource,
+        place_loose_stone_drop(&registries, &mut direct, spawn)
+    );
+    let matter_with_drop = calculate_matter_accounting(&fast).unwrap().total();
+    let before_rejected_skip = fast.clone();
+    assert!(matches!(
+        advance_tick(&registries, &mut fast),
+        Err(crate::simulation::TickError::ControlSteppingRequired { .. })
+    ));
+    assert_eq!(fast, before_rejected_skip);
+    let control = advance_control_tick(&registries, &mut fast).unwrap();
+    assert_eq!(
+        control,
+        advance_control_tick(&registries, &mut direct).unwrap()
+    );
+    assert_eq!(
+        control
+            .surface_drop_pickup()
+            .map(|picked| picked.resource()),
+        Some(resource)
+    );
+    assert_eq!(fast, direct);
+    assert_eq!(
+        calculate_matter_accounting(&fast).unwrap().total(),
+        matter_with_drop
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &fast),
+        Ok(())
+    );
+
+    // The pickup has left us one control tick past the previous slow boundary.
+    // Fast-forward may skip only the remaining neutral controls, not a full 72
+    // extra steps or a duplicate slow settlement.
+    let next_slow = advance_tick(&registries, &mut fast).unwrap();
+    let replayed_slow = loop {
+        let outcome = advance_control_tick(&registries, &mut direct).unwrap();
+        if let Some(slow) = outcome.simulation() {
+            break slow.clone();
+        }
+    };
+    assert_eq!(next_slow, replayed_slow);
+    assert_eq!(fast, direct);
 }
 
 #[test]
