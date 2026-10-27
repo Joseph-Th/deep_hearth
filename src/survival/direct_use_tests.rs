@@ -110,22 +110,24 @@ fn repeated_visible_stack_portions_coalesce_without_overdrawing_one_physical_lot
                 FoodStackPortion::new(&stack, Mass::from_milligrams(30_000)),
             ],
         ),
-        Err(EatStackPortionsError::Eat(EatError::InsufficientLotMass {
-            lot: rejected,
-            available,
-            requested,
-        })) if rejected == lot
-            && available == Mass::from_milligrams(50_000)
+        Err(EatStackPortionsError::Stack {
+            portion: 1,
+            error: crate::inventory::MaterialStackProjectionError::MassExceedsStack {
+                available,
+                requested,
+            },
+        }) if available == Mass::from_milligrams(50_000)
             && requested == Mass::from_milligrams(60_000)
     ));
     assert_eq!(state, before_rejection);
 
+    let independently_projected_copy = stack.clone();
     let outcome = validate_eat_stack_portions(
         &registries,
         &state,
         &[
             FoodStackPortion::new(&stack, Mass::from_milligrams(15_000)),
-            FoodStackPortion::new(&stack, Mass::from_milligrams(20_000)),
+            FoodStackPortion::new(&independently_projected_copy, Mass::from_milligrams(20_000)),
         ],
     )
     .unwrap()
@@ -373,6 +375,23 @@ fn projected_food_stack_use_rejects_stale_inventory_revision_without_mutation() 
         ))
     ));
     assert_eq!(state, before);
+
+    // Even with no remaining metabolic or dietary need, an old selection
+    // must not be accepted as a current no-op.
+    let physiology = registries.survival().physiology();
+    set_player_reserves(
+        &mut state,
+        physiology.maximum_metabolic_energy(),
+        physiology.maximum_hydration(),
+    );
+    let full_before = state.clone();
+    assert!(matches!(
+        validate_eat_stack_to_full(&registries, &state, &stack),
+        Err(EatStackToTargetError::Stack(
+            crate::inventory::MaterialStackProjectionError::StaleInventoryRevision { .. }
+        ))
+    ));
+    assert_eq!(state, full_before);
 }
 
 #[test]
@@ -844,6 +863,26 @@ fn selected_food_stack_rejects_remote_source_before_disclosing_stack_mass() {
     assert_eq!(
         validate_eat_lot_to_full(&registries, &state, lot).err(),
         Some(EatLotToTargetError::Eat(EatError::Access(
+            PlayerStockpileAccessError::RemoteKnownStockpile {
+                stockpile: source,
+                stockpile_position: source_position,
+                player_position,
+            }
+        )))
+    );
+    let stack = project_material_stacks(&registries, &state, source)
+        .unwrap()
+        .remove(0);
+    // A remembered remote stack is not evidence of presently accessible food.
+    // In particular, asking for more than it holds must not disclose its mass.
+    assert_eq!(
+        validate_eat_stack_portions(
+            &registries,
+            &state,
+            &[FoodStackPortion::new(&stack, Mass::from_milligrams(2))],
+        )
+        .err(),
+        Some(EatStackPortionsError::Eat(EatError::Access(
             PlayerStockpileAccessError::RemoteKnownStockpile {
                 stockpile: source,
                 stockpile_position: source_position,

@@ -85,7 +85,7 @@ fn trusted_load_rejects_pending_meal_below_authored_intake_minimum() {
 }
 
 #[test]
-fn pending_meal_replay_keeps_admission_freshness_after_source_storage_improves() {
+fn pending_meal_replay_preserves_admission_freshness_in_completed_storage() {
     let registries = build_registries();
     let mut state = AppState::new();
     let position = VoxelCoord::new(0, 0, 0);
@@ -121,15 +121,9 @@ fn pending_meal_replay_keeps_admission_freshness_after_source_storage_improves()
             .unwrap_or_else(|error| panic!("pending-meal local placement commit failed: {error}"));
     }
 
-    let _ = validate_eat(
-        &registries,
-        &state,
-        source,
-        &[MaterialLotSelection::new(food, meal_mass)],
-    )
-    .unwrap_or_else(|error| panic!("pending-meal validation failed: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("pending-meal commit failed: {error}"));
+    // Storage must be constructed before beginning exclusive eating work. A
+    // pending meal retains its intake-time freshness even when it was drawn
+    // from a completed preservation enclosure.
     validate_build_storage_enclosure(
         &registries,
         &state,
@@ -140,6 +134,28 @@ fn pending_meal_replay_keeps_admission_freshness_after_source_storage_improves()
     .unwrap_or_else(|error| panic!("pending-meal enclosure validation failed: {error}"))
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("pending-meal enclosure commit failed: {error}"));
+    let _ = validate_eat(
+        &registries,
+        &state,
+        source,
+        &[MaterialLotSelection::new(food, meal_mass)],
+    )
+    .unwrap_or_else(|error| panic!("pending-meal validation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("pending-meal commit failed: {error}"));
+    let busy_snapshot = state.clone();
+    assert_eq!(
+        validate_build_storage_enclosure(
+            &registries,
+            &state,
+            STORAGE_TIMBER_PROVISIONS_CHEST,
+            source,
+            enclosure_source,
+        )
+        .err(),
+        Some(crate::inventory::StorageEnclosureConstructionError::PlayerBusy)
+    );
+    assert_eq!(state, busy_snapshot);
 
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("pending-meal enclosure serialization failed: {error}"));

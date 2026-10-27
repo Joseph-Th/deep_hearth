@@ -119,9 +119,15 @@ pub fn validate_eat_stack_portions(
         .first()
         .map(|portion| portion.stack().stockpile())
         .ok_or(EatStackPortionsError::EmptyMeal)?;
-    // Portions can reference the same physical lot. Normalize their exact slices before
-    // admission; the canonical validator then checks combined mass, custody, and legality.
-    let mut mass_by_lot = BTreeMap::<MaterialLotId, u128>::new();
+    // A displayed stack is not proof of current player access. Reject remote
+    // custody before inspecting sizes, freshness cohorts, or lot membership.
+    validate_player_stockpile_access(state, source)
+        .map_err(|error| EatStackPortionsError::Eat(EatError::Access(error)))?;
+    // Multiple requested portions of the same projected stack must share one
+    // allocation across its underlying lots. Resolving each portion separately
+    // starts at the first lot every time and can overdraw it even when the
+    // complete visible stack contains sufficient food.
+    let mut grouped = Vec::<(usize, &MaterialStackProjection, Mass)>::new();
     for (index, portion) in portions.iter().copied().enumerate() {
         if portion.stack().stockpile() != source {
             return Err(EatStackPortionsError::MixedSources {
@@ -129,9 +135,34 @@ pub fn validate_eat_stack_portions(
                 actual: portion.stack().stockpile(),
             });
         }
-        for selection in portion
+        // Validate every requested portion independently, including zero-mass and
+        // stale projections, before adding it to an existing stack group.
+        portion
             .stack()
-            .selections_for_mass(state, source, portion.mass())
+            .validate_selection_mass(state, source, portion.mass())
+            .map_err(|error| EatStackPortionsError::Stack {
+                portion: index,
+                error,
+            })?;
+        if let Some((last_index, _, requested)) = grouped
+            .iter_mut()
+            .find(|(_, stack, _)| *stack == portion.stack())
+        {
+            *requested =
+                requested
+                    .checked_add(portion.mass())
+                    .ok_or(EatStackPortionsError::Eat(
+                        EatError::InventoryMassOverflow { stockpile: source },
+                    ))?;
+            *last_index = index;
+        } else {
+            grouped.push((index, portion.stack(), portion.mass()));
+        }
+    }
+    let mut mass_by_lot = BTreeMap::<MaterialLotId, u128>::new();
+    for (index, stack, requested) in grouped {
+        for selection in stack
+            .selections_for_mass(state, source, requested)
             .map_err(|error| EatStackPortionsError::Stack {
                 portion: index,
                 error,
@@ -395,6 +426,10 @@ pub fn validate_eat_stack_to_metabolic_target(
     let source = stack.stockpile();
     validate_player_stockpile_access(state, source)
         .map_err(|error| EatStackToTargetError::Eat(EatError::Access(error)))?;
+    // A no-op refill target does not make an outdated display selection valid.
+    stack
+        .validate_current(state)
+        .map_err(EatStackToTargetError::Stack)?;
     let food = registries
         .survival()
         .get_food(stack.commodity())

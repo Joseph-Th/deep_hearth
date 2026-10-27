@@ -55,7 +55,9 @@ const CHEST_MASS: Mass = Mass::from_milligrams(2_400_000);
 fn located_enclosure_construction_rejects_generated_rock_and_stale_world_truth() {
     let registries = build_registries();
     let mut state = AppState::new();
-    let position = VoxelCoord::new(5, crate::world::WORLD_MIN_Y, 5);
+    // Use a generated cell above the world's lower boundary so a real floor
+    // can support the enclosure once its obstructing rock is excavated.
+    let position = VoxelCoord::new(5, crate::world::WORLD_MIN_Y + 1, 5);
     let definition = registries
         .storage()
         .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
@@ -85,6 +87,19 @@ fn located_enclosure_construction_rejects_generated_rock_and_stale_world_truth()
     .unwrap()
     .commit(&mut state)
     .unwrap();
+    let floor = VoxelCoord::new(position.x(), position.y() - 1, position.z());
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        floor,
+        crate::content::BLOCK_STATE_STONE,
+    );
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        position,
+        crate::content::BLOCK_STATE_STONE,
+    );
     let before = state.clone();
     assert_eq!(
         validate_build_storage_enclosure(
@@ -1574,6 +1589,8 @@ fn enclosure_rejects_storage_profile_change_while_inbound_output_is_reserved() {
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     let before = state.clone();
 
+    // A live manual craft owns exclusive player attention. The player-facing action
+    // must reject it before considering the underlying stockpile's capacity.
     assert_eq!(
         validate_build_storage_enclosure(
             &registries,
@@ -1583,7 +1600,21 @@ fn enclosure_rejects_storage_profile_change_while_inbound_output_is_reserved() {
             enclosure_source,
         )
         .err(),
-        Some(
+        Some(StorageEnclosureConstructionError::PlayerBusy)
+    );
+    // Reservation is still independently a hard enclosure constraint. Check it
+    // at the authoritative target validator, without bypassing the action guard.
+    assert_eq!(
+        validate_enclosure_target(
+            registries
+                .storage()
+                .get(STORAGE_TIMBER_PROVISIONS_CHEST)
+                .unwrap(),
+            state.inventory().get_stockpile(target).unwrap(),
+            target,
+            StockpileStorageProfile::unbounded_solid_only(),
+        ),
+        Err(
             StorageEnclosureConstructionError::TargetHasReservedInbound {
                 stockpile: target,
                 reserved: Mass::from_milligrams(1_000_000),

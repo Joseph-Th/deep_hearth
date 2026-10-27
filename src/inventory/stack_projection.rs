@@ -179,12 +179,14 @@ impl MaterialStackProjection {
         Ok(())
     }
 
-    pub(crate) fn selections_for_mass(
+    /// Checks one stack portion without allocating or exposing its private lot slices.
+    /// Batch consumers may validate each input then resolve merged stack requests once.
+    pub(crate) fn validate_selection_mass(
         &self,
         state: &AppState,
         expected_source: StockpileId,
         requested: Mass,
-    ) -> Result<Vec<MaterialLotSelection>, MaterialStackProjectionError> {
+    ) -> Result<(), MaterialStackProjectionError> {
         self.validate_current(state)?;
         if self.stockpile != expected_source {
             return Err(MaterialStackProjectionError::SourceMismatch {
@@ -201,7 +203,16 @@ impl MaterialStackProjection {
                 available: self.mass,
             });
         }
+        Ok(())
+    }
 
+    pub(crate) fn selections_for_mass(
+        &self,
+        state: &AppState,
+        expected_source: StockpileId,
+        requested: Mass,
+    ) -> Result<Vec<MaterialLotSelection>, MaterialStackProjectionError> {
+        self.validate_selection_mass(state, expected_source, requested)?;
         let mut remaining = requested;
         let mut resolved = Vec::new();
         for selection in &self.selections {
