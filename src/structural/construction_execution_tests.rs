@@ -380,6 +380,69 @@ fn generated_chunk_construction_player() -> (Registries, AppState, VoxelCoord) {
 }
 
 #[test]
+fn opening_resident_blocks_full_footprint_construction_before_terrain_generation() {
+    use crate::logistics::add_traversable_edge_for_test;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let den = VoxelCoord::new(0, 0, 0);
+    let junction = VoxelCoord::new(1, 0, 0);
+    let tip = VoxelCoord::new(2, 0, 0);
+    for (from, to) in [(den, junction), (junction, tip)] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    let head = VoxelCoord::new(0, 1, 0);
+    let geometry = StructuralElementGeometry::new(
+        VoxelBounds::new(head, VoxelCoord::new(1, 2, 1)).unwrap(),
+        BASIC_TIMBER_COVER_PANEL_THICKNESS,
+        BASIC_TIMBER_COVER_PANEL_AREA,
+    )
+    .unwrap();
+    let element = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+        true,
+    )
+    .unwrap();
+    let required = resolve_structural_material_requirement(&registries, &state, element)
+        .unwrap()
+        .required_mass();
+    let source = add_solid_stockpile_for_test(&mut state, required).unwrap();
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        required,
+        crate::core::quantity::Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let resolution = bind_structural_construction_selection(
+        &state,
+        element,
+        source,
+        &[MaterialLotSelection::new(lot, required)],
+    )
+    .unwrap();
+    let before = state.clone();
+    assert_eq!(
+        validate_structural_construction(&registries, &state, resolution).err(),
+        Some(StructuralConstructionError::ActorOccupied {
+            element,
+            voxel: head,
+        })
+    );
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn generated_player_body_blocks_full_footprint_materialization_but_not_slender_framing() {
     for full_footprint in [true, false] {
         let (registries, mut state, spawn) = generated_chunk_construction_player();

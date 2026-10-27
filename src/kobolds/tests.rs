@@ -17,6 +17,61 @@ use crate::world_generation::validate_generate_initial_wilderness;
 use super::{KoboldColony, available_nearby_kobold_scouts, validate_loaded_kobolds};
 
 #[test]
+fn opening_resident_save_rejects_materialized_wall_inside_its_body() {
+    use crate::content::{FORM_BOARD, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION};
+    use crate::core::quantity::{Area, Length};
+    use crate::logistics::add_traversable_edge_for_test;
+    use crate::spatial::VoxelBounds;
+    use crate::structural::{
+        StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let den = VoxelCoord::new(0, 0, 0);
+    let junction = VoxelCoord::new(1, 0, 0);
+    let tip = VoxelCoord::new(2, 0, 0);
+    for (from, to) in [(den, junction), (junction, tip)] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    let blocking = VoxelCoord::new(0, 1, 0);
+    let member = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        StructuralElementGeometry::new(
+            VoxelBounds::new(blocking, VoxelCoord::new(1, 2, 1)).unwrap(),
+            Length::from_micrometers(1_000_000),
+            Area::from_square_millimeters(1_000_000),
+        )
+        .unwrap(),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, member, FORM_BOARD);
+    assert_eq!(validate_loaded_kobolds(&registries, &state), Ok(()));
+    // Inject an impossible resident after legitimate materialization. The
+    // normal construction owner prevents this overlap; load admission must
+    // independently reject a corrupted actor position.
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    assert_eq!(
+        validate_loaded_kobolds(&registries, &state),
+        Err("constructed infrastructure intersects an opening kobold resident")
+    );
+    let corrupted = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&corrupted)
+            .unwrap()
+            .into_state(&registries)
+            .is_err(),
+        "trusted load must reject a physically impossible pre-generation resident position"
+    );
+}
+
+#[test]
 fn fatal_survival_tick_does_not_make_a_dead_player_guard_the_scout() {
     use crate::core::quantity::Energy;
     use crate::logistics::add_traversable_edge_for_test;

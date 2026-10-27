@@ -11,17 +11,16 @@ use super::{
     scavenging::is_portable_drop, scrap_tools, temple_archivist, temple_guard,
 };
 
-/// An opening resident's body cannot coexist with constructed matter in a
-/// generated world. Ambient equipment, energy/fluid stores and unenclosed
+/// An opening resident's body cannot coexist with full-cell constructed
+/// matter in either world mode. Terrain and vertical-world limits apply only
+/// after generation; ambient equipment, energy/fluid stores and unenclosed
 /// stockpiles remain shareable locality rather than full-cube collision.
 fn validate_opening_resident_infrastructure(
     registries: &Registries,
     state: &AppState,
     colony: &KoboldColony,
 ) -> Result<(), &'static str> {
-    if state.world().generation_profile().is_none() {
-        return Ok(());
-    }
+    let generated = state.world().generation_profile().is_some();
     for resident in [colony.scout_position(), colony.watch_position()] {
         let head_y = resident
             .y()
@@ -31,14 +30,17 @@ fn validate_opening_resident_infrastructure(
             resident,
             VoxelCoord::new(resident.x(), head_y, resident.z()),
         ] {
-            if !(crate::world::WORLD_MIN_Y..crate::world::WORLD_MAX_Y_EXCLUSIVE).contains(&cell.y())
+            if generated
+                && !(crate::world::WORLD_MIN_Y..crate::world::WORLD_MAX_Y_EXCLUSIVE)
+                    .contains(&cell.y())
             {
                 return Err("opening kobold body extends outside the generated vertical world");
             }
-            if state
-                .world()
-                .get_chunk(crate::world::ChunkCoord::containing(cell))
-                .is_some()
+            if generated
+                && state
+                    .world()
+                    .get_chunk(crate::world::ChunkCoord::containing(cell))
+                    .is_some()
                 && state.world().block_at(cell).is_none_or(|block| {
                     registries
                         .world()
@@ -150,7 +152,6 @@ pub(crate) fn validate_loaded_kobolds(
             .then_some(())
             .ok_or("uninhabited kobold state contains consumed matter");
     };
-    validate_opening_resident_infrastructure(registries, state, colony)?;
     validate_contact_history(colony, state.control_tick(), state.combat())?;
     if colony.scout_step > 3
         || (colony.scout_step == 3 && (colony.returning || colony.detour_goal.is_none()))
@@ -161,6 +162,9 @@ pub(crate) fn validate_loaded_kobolds(
         return Err("invalid kobold patrol route or cursor");
     }
     colony.validate_detour(state)?;
+    // A corrupted route cursor must be rejected before either resident's
+    // position accessor can be called. Those accessors assume a valid route.
+    validate_opening_resident_infrastructure(registries, state, colony)?;
     if let Some(resource) = colony.scavenged_drop {
         let Some(drop) = state.surface().get(resource) else {
             return Err("kobold dragged parcel does not exist");

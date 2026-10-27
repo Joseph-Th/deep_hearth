@@ -818,7 +818,7 @@ pub(crate) fn first_kobold_member_overlap(
     if let Some(cell) = temple_guard::first_temple_member_overlap(registries, state, bounds) {
         return Some(cell);
     }
-    if !full_footprint || state.world().generation_profile().is_none() {
+    if !full_footprint {
         return None;
     }
     let colony = state.kobold_state().colony.as_ref()?;
