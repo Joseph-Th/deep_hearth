@@ -3,6 +3,48 @@
 use super::*;
 
 #[test]
+fn running_production_job_requires_explicit_energy_provider_and_suspension_slots() {
+    let registries = make_test_registries();
+    let mut state = AppState::new();
+    let source = add_test_stockpile(&mut state, 100);
+    let destination = add_test_stockpile(&mut state, 100);
+    deposit_test_wood(&registries, &mut state, source, 10);
+    let resolved = make_test_resolution(&registries, &mut state, source);
+    let job = validate_start_process(&registries, &state, &resolved, source, destination).unwrap();
+    let job_id = commit_process_for_test(job, &mut state);
+    let saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(saved.clone())
+            .unwrap()
+            .into_state(&registries)
+            .unwrap(),
+        state
+    );
+    for (section, field) in [
+        ("schedule", "suspension"),
+        ("resources", "consumed_energy"),
+        ("resources", "released_energy"),
+        ("equipment", "provider"),
+        ("equipment", "condition_after"),
+    ] {
+        let mut incomplete = saved.clone();
+        assert!(
+            incomplete["state"]["systems"]["production"]["jobs"][job_id.value().to_string()]
+                [section]
+                .as_object_mut()
+                .unwrap()
+                .remove(field)
+                .is_some(),
+            "fixture lacks required {section}.{field}"
+        );
+        assert!(
+            serde_json::from_value::<LoadedSaveEnvelope>(incomplete).is_err(),
+            "missing {section}.{field} must not silently rewrite a resident production job"
+        );
+    }
+}
+
+#[test]
 fn same_tick_completions_are_emitted_in_stable_job_id_order() {
     let registries = make_test_registries();
     let mut state = AppState::new();

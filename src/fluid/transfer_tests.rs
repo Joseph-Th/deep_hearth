@@ -92,6 +92,37 @@ fn fixture_at(
 }
 
 #[test]
+fn stored_fluid_contents_and_support_fields_are_required_on_load() {
+    let fixture = fixture(None);
+    let saved =
+        serde_json::to_value(SaveEnvelope::new(&fixture.registries, &fixture.state)).unwrap();
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(saved.clone())
+            .unwrap()
+            .into_state(&fixture.registries)
+            .unwrap(),
+        fixture.state
+    );
+    for store in [fixture.source, fixture.destination] {
+        for field in ["contents", "supported_by"] {
+            let mut incomplete = saved.clone();
+            assert!(
+                incomplete["state"]["systems"]["fluid"]["records"][store.value().to_string()]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove(field)
+                    .is_some()
+            );
+            assert!(
+                serde_json::from_value::<LoadedSaveEnvelope>(incomplete).is_err(),
+                "missing {field} must not silently empty or detach fluid store {}",
+                store.value()
+            );
+        }
+    }
+}
+
+#[test]
 fn same_voxel_decant_and_merge_preserve_water_temperature_volume_and_save_continuation() {
     let mut fixture = fixture(None);
     let baseline = calculate_fluid_volume_accounting(&fixture.state).unwrap();

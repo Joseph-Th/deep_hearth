@@ -27,6 +27,7 @@ pub const NUTRITION_PARTS_PER_MILLION: u32 = crate::core::arithmetic::NORMALIZED
 #[serde(deny_unknown_fields)]
 pub struct SurvivalState {
     revision: u64,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     player: Option<PlayerSurvivalRecord>,
     direct_consumption: DirectConsumptionState,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]

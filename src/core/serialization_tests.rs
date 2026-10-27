@@ -1,4 +1,4 @@
-//! Contract tests for strict persistent ordered-collection deserialization.
+//! Contract tests for strict persistent collection and nullable-field deserialization.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -16,6 +16,30 @@ struct StrictMapFixture {
 struct StrictMapOfSetsFixture {
     #[serde(deserialize_with = "super::deserialize_btree_map_of_sets_no_duplicates")]
     values: BTreeMap<u32, BTreeSet<u32>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StrictNullableFixture {
+    #[serde(deserialize_with = "super::deserialize_required_optional")]
+    value: Option<u32>,
+}
+
+#[test]
+fn current_schema_nullable_field_accepts_null_or_value_but_not_missing() {
+    assert_eq!(
+        serde_json::from_str::<StrictNullableFixture>(r#"{"value":null}"#)
+            .unwrap()
+            .value,
+        None
+    );
+    assert_eq!(
+        serde_json::from_str::<StrictNullableFixture>(r#"{"value":17}"#)
+            .unwrap()
+            .value,
+        Some(17)
+    );
+    assert!(serde_json::from_str::<StrictNullableFixture>(r#"{}"#).is_err());
 }
 
 #[test]

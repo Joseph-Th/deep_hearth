@@ -447,6 +447,64 @@ fn invalid_or_missing_partial_ration_credit_is_rejected_on_load() {
 }
 
 #[test]
+fn persisted_colony_presence_cargo_and_forage_schedule_must_be_explicit() {
+    let (registries, mut state, [_, junction, _, _]) = setup();
+    let plan = validate_create_surface_resources(
+        &registries,
+        &state,
+        [resource(junction, SurfaceResourceKind::Opportunity, true)],
+    )
+    .unwrap();
+    plan.commit(&mut state).unwrap();
+    while state.tick().value() < 590 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .next_forage_at
+            .is_some(),
+        "the scout must have harvested real forage before testing its saved cooldown"
+    );
+    let saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(saved.clone())
+            .unwrap()
+            .into_state(&registries)
+            .unwrap(),
+        state
+    );
+    for missing_field in ["scavenged_drop", "next_forage_at"] {
+        let mut incomplete = saved.clone();
+        incomplete["state"]["systems"]["kobolds"]["colony"]
+            .as_object_mut()
+            .unwrap()
+            .remove(missing_field);
+        assert!(
+            serde_json::from_value::<LoadedSaveEnvelope>(incomplete).is_err(),
+            "missing {missing_field} must not silently reset a persistent scout state"
+        );
+    }
+    let mut missing_colony =
+        serde_json::to_value(SaveEnvelope::new(&registries, &AppState::new())).unwrap();
+    assert!(
+        missing_colony["state"]["systems"]["kobolds"]["colony"].is_null(),
+        "pristine worlds must encode an explicit absent colony"
+    );
+    missing_colony["state"]["systems"]["kobolds"]
+        .as_object_mut()
+        .unwrap()
+        .remove("colony");
+    assert!(
+        serde_json::from_value::<LoadedSaveEnvelope>(missing_colony).is_err(),
+        "omitted colony presence is not a valid alternative save schema"
+    );
+}
+
+#[test]
 fn a_den_with_a_five_gram_gap_releases_only_the_missing_meal_capacity() {
     use crate::content::{FORM_ELECTRICAL_WINDING, MATERIAL_COPPER};
 

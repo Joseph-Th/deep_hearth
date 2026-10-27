@@ -65,7 +65,9 @@ impl FluidContents {
 pub struct FluidStoreRecord {
     pub(super) id: FluidStoreId,
     pub(super) capacity: Volume,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     pub(super) contents: Option<FluidContents>,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     pub(super) supported_by: Option<StructuralElementId>,
     pub(super) created_at: SimulationTick,
 }

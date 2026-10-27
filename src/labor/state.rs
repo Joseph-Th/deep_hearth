@@ -18,6 +18,7 @@ use super::work::{
 #[serde(deny_unknown_fields)]
 pub struct PlayerWorkState {
     revision: u64,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     active: Option<PlayerWork>,
 }
 

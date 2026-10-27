@@ -95,10 +95,12 @@ impl PlayerPendingPrimaryBreak {
 pub(crate) struct PlayerPendingSecondaryUse {
     requested_at: ControlTick,
     position: VoxelCoord,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     selection: Option<PlayerActiveSelection>,
     direction_x_ppm: i32,
     direction_y_ppm: i32,
     direction_z_ppm: i32,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     surface_request: Option<(crate::surface::SurfaceResourceId, Mass)>,
 }
 
@@ -347,6 +349,7 @@ impl PlayerLogisticsRecord {
 #[serde(deny_unknown_fields)]
 pub struct LogisticsState {
     revision: u64,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     player: Option<PlayerLogisticsRecord>,
     traversable_edges: Vec<TraversalEdge>,
     /// Local route adjacency rebuilt from authoritative persisted edges.
@@ -355,7 +358,9 @@ pub struct LogisticsState {
     carried_equipment: Vec<EquipmentId>,
     quick_access_slots: [Option<PlayerActiveSelection>; PLAYER_QUICK_ACCESS_SLOT_COUNT],
     active_quick_access_slot: PlayerQuickAccessSlot,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     pending_secondary_use: Option<PlayerPendingSecondaryUse>,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     pending_primary_break: Option<PlayerPendingPrimaryBreak>,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     stockpile_locations: BTreeMap<StockpileId, VoxelCoord>,

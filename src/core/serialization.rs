@@ -1,10 +1,22 @@
-//! Format-neutral strict deserializers for ordered persistent collections.
+//! Format-neutral strict deserializers for persistent collections and nullable fields.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 
 use serde::de::{Deserialize, DeserializeSeed, Deserializer, Error, MapAccess, SeqAccess, Visitor};
+
+/// Decodes a nullable persisted field without allowing Serde to treat an omitted key as None.
+/// This keeps current-schema continuation facts explicit even when no value is active.
+pub(crate) fn deserialize_required_optional<'de, D, T>(
+    deserializer: D,
+) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
 
 /// Deserializes an ordered map while rejecting repeated keys instead of silently overwriting them.
 pub(crate) fn deserialize_btree_map_no_duplicates<'de, D, K, V>(

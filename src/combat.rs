@@ -43,8 +43,10 @@ const SHOVE_EXERTION: SurvivalExertion = SurvivalExertion::new(
 #[serde(deny_unknown_fields)]
 pub(crate) struct CombatState {
     revision: u64,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     last_attack_at: Option<ControlTick>,
     recovery_control_ticks: u32,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     prepared: Option<preparation::PreparedStrike>,
 }
 impl CombatState {

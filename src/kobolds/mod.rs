@@ -285,19 +285,21 @@ struct KoboldColony {
     route: [VoxelCoord; 3],
     /// One temporary branch diversion, valid only until the scout returns to the den.
     /// Persisted colony records must include this field even when its value is null.
-    #[serde(deserialize_with = "deserialize_required_optional")]
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     detour: Option<VoxelCoord>,
     /// Second traversable branch cell when a scout investigates a farther exposed cache.
-    #[serde(deserialize_with = "deserialize_required_optional")]
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     detour_goal: Option<VoxelCoord>,
     scout_step: u8,
     returning: bool,
     next_step_at: SimulationTick,
     noticed_player_drop: bool,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     scavenged_drop: Option<SurfaceResourceId>,
     /// Work spent fitting the exact copper head and handle, never virtual equipment.
-    #[serde(deserialize_with = "deserialize_required_optional")]
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     pry_fitting: Option<scrap_tools::KoboldPryFitting>,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     next_forage_at: Option<SimulationTick>,
     /// Regular meal opportunity, advanced only on the low-frequency scout clock.
     next_meal_at: SimulationTick,
@@ -308,14 +310,14 @@ struct KoboldColony {
     /// persisted colony schema; missing values are rejected, never defaulted.
     partial_meal: Mass,
     /// A scout's first direct sighting of engineered machinery, still unreported until home.
-    #[serde(deserialize_with = "deserialize_required_optional")]
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     witnessed_machinery_at: Option<SimulationTick>,
     /// Colony action changes only after the scout physically returns with that information.
-    #[serde(deserialize_with = "deserialize_required_optional")]
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     mobilized_at: Option<SimulationTick>,
     /// The den's second, fixed resident watches the real junction after eating.
     /// Null means it is at home, not that a new kobold can be spawned.
-    #[serde(deserialize_with = "deserialize_required_optional")]
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     watch_deployed_at: Option<SimulationTick>,
     /// Earliest possible next fed watch patrol; starts at the opening scout deadline.
     watch_ready_at: SimulationTick,
@@ -330,26 +332,16 @@ struct KoboldColony {
     /// A separate small history of actual watchman steps, never invented idle spoor.
     watch_tracks: Vec<KoboldTrack>,
     /// Caution survives saves and expires on the same five-tick scout clock.
-    #[serde(deserialize_with = "deserialize_required_optional")]
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     wary_until: Option<SimulationTick>,
     /// A real close-contact blow causes temporary caution, not imaginary HP loss.
-    #[serde(deserialize_with = "deserialize_required_optional")]
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     scout_shoved_at: Option<ControlTick>,
-    #[serde(deserialize_with = "deserialize_required_optional")]
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     watch_shoved_at: Option<ControlTick>,
     /// Required current-schema physical stance, not replenishable health or blood.
     scout_balance_ppm: u32,
     watch_balance_ppm: u32,
-}
-
-/// Deserialize a nullable field while preserving the requirement that it be present.
-/// Serde otherwise defaults missing Option fields to None, hiding incomplete saves.
-fn deserialize_required_optional<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    Option::<T>::deserialize(deserializer)
 }
 
 impl KoboldColony {
@@ -499,6 +491,7 @@ impl KoboldColony {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct KoboldState {
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     colony: Option<KoboldColony>,
     /// Only off-post wardens need persistent cursors. Absence means the
     /// resident remains at its original authored hall cell.

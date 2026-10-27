@@ -196,7 +196,9 @@ pub struct StockpileRecord {
     pub(in crate::inventory) id: StockpileId,
     pub(in crate::inventory) capacity: Mass,
     pub(in crate::inventory) storage_profile: StockpileStorageProfile,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     pub(in crate::inventory) enclosure: Option<StockpileEnclosureRecord>,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     pub(in crate::inventory) supported_by: Option<StructuralElementId>,
     pub(in crate::inventory) stored_mass: Mass,
     pub(in crate::inventory) reserved_inbound: Mass,

@@ -270,6 +270,124 @@ fn trusted_load_rejects_tampered_admitted_player_carried_custody_shape() {
 }
 
 #[test]
+fn current_schema_requires_explicit_nullable_owner_lifecycle_fields() {
+    let registries = build_registries();
+    let state = AppState::new();
+    let saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(saved.clone())
+            .unwrap()
+            .into_state(&registries)
+            .unwrap(),
+        state,
+    );
+    for (owner, path) in [
+        ("survival", "player"),
+        ("logistics", "player"),
+        ("logistics", "pending_primary_break"),
+        ("logistics", "pending_secondary_use"),
+        ("player_work", "active"),
+        ("combat", "last_attack_at"),
+        ("combat", "prepared"),
+        ("kobolds", "colony"),
+    ] {
+        let mut incomplete = saved.clone();
+        assert!(
+            incomplete["state"]["systems"][owner]
+                .as_object_mut()
+                .unwrap()
+                .remove(path)
+                .is_some(),
+            "fixture lacks {owner}.{path}"
+        );
+        assert!(
+            serde_json::from_value::<LoadedSaveEnvelope>(incomplete).is_err(),
+            "missing {owner}.{path} silently erased an authoritative lifecycle field"
+        );
+    }
+    let mut missing_consumption = saved;
+    assert!(
+        missing_consumption["state"]["systems"]["survival"]["direct_consumption"]
+            .as_object_mut()
+            .unwrap()
+            .remove("pending")
+            .is_some()
+    );
+    assert!(serde_json::from_value::<LoadedSaveEnvelope>(missing_consumption).is_err());
+}
+
+#[test]
+fn stockpile_enclosure_and_support_are_required_even_when_absent() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let stockpile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000)).unwrap();
+    let saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(saved.clone())
+            .unwrap()
+            .into_state(&registries)
+            .unwrap(),
+        state
+    );
+    for field in ["enclosure", "supported_by"] {
+        let mut incomplete = saved.clone();
+        assert!(
+            incomplete["state"]["systems"]["inventory"]["stockpiles"]
+                [stockpile.value().to_string()]
+            .as_object_mut()
+            .unwrap()
+            .remove(field)
+            .is_some()
+        );
+        assert!(
+            serde_json::from_value::<LoadedSaveEnvelope>(incomplete).is_err(),
+            "omitting {field} must not erase physical stockpile ownership"
+        );
+    }
+}
+
+#[test]
+fn buffered_secondary_use_requires_selection_and_surface_request_on_load() {
+    use crate::logistics::validate_buffer_player_secondary_use;
+    use crate::spatial::ViewDirection;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = advance_control_tick(&registries, &mut state).unwrap();
+    let direction = ViewDirection::new(1_000_000, 0, 0).unwrap();
+    validate_buffer_player_secondary_use(&state, direction)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(saved.clone())
+            .unwrap()
+            .into_state(&registries)
+            .unwrap(),
+        state
+    );
+    for field in ["selection", "surface_request"] {
+        let mut incomplete = saved.clone();
+        assert!(
+            incomplete["state"]["systems"]["logistics"]["pending_secondary_use"]
+                .as_object_mut()
+                .unwrap()
+                .remove(field)
+                .is_some()
+        );
+        assert!(
+            serde_json::from_value::<LoadedSaveEnvelope>(incomplete).is_err(),
+            "omitted buffered-use {field} must not change the delayed action"
+        );
+    }
+}
+
+#[test]
 fn unsupported_schema_is_rejected_before_runtime_use() {
     let registries = build_registries();
     // Start with the current complete schema; only the version is unsupported.

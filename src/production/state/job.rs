@@ -163,6 +163,7 @@ pub(in crate::production) struct ProductionJobSchedule {
     /// `completes_at = started_at + active_duration + completed_suspension_time` true for both
     /// running and suspended jobs while retaining enough durable history to replay the schedule.
     pub(in crate::production) completed_suspension_time: TickSpan,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     pub(in crate::production) suspension: Option<ProductionSuspension>,
 }
 
@@ -171,15 +172,19 @@ pub(in crate::production) struct ProductionJobSchedule {
 pub(in crate::production) struct ProductionJobResources {
     pub(in crate::production) consumed_inputs: Vec<ConsumedMaterialTrace>,
     pub(in crate::production) material_storage_history: MaterialStorageHistory,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     pub(in crate::production) consumed_energy: Option<ConsumedEnergyTrace>,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     pub(in crate::production) released_energy: Option<ReleasedEnergyTrace>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(in crate::production) struct ProductionJobEquipment {
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     pub(in crate::production) provider: Option<EquipmentOperationTrace>,
     pub(in crate::production) requires_active_support: bool,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     pub(in crate::production) condition_after: Option<Condition>,
 }
 

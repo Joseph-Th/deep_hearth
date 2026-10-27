@@ -101,8 +101,10 @@ pub struct EquipmentRecord {
     pub(in crate::equipment) condition: Condition,
     pub(in crate::equipment) embodied_mass: Mass,
     pub(in crate::equipment) embodied_material: Vec<ConsumedMaterialTrace>,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     pub(in crate::equipment) supported_by: Option<StructuralElementId>,
     pub(in crate::equipment) created_at: SimulationTick,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     pub(in crate::equipment) last_maintenance_admission: Option<EquipmentMaintenanceAdmission>,
 }
 

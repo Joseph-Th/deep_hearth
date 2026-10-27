@@ -231,6 +231,7 @@ impl PendingDirectConsumption {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct DirectConsumptionState {
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     pending: Option<PendingDirectConsumption>,
 }
 
