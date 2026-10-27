@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::material::{CommodityKey, FormId, MaterialId, MaterialPhase, MaterialPhaseStateError};
 use crate::registry::Registries;
 
@@ -16,7 +17,7 @@ use super::state::{
 
 /// Failure while admitting a finite world-generated geological deposit into authoritative state.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum InsertGeneratedDepositError {
+pub enum InsertGeneratedDepositError {
     UnknownMaterial { material: MaterialId },
     UnknownForm { form: FormId },
     UnsupportedCommodity { commodity: CommodityKey },
@@ -90,15 +91,75 @@ impl Error for InsertGeneratedDepositError {
     }
 }
 
-/// Inserts matter supplied by a world-generation owner, preserving its physical profile exactly.
-///
-/// This is not a player mining operation. It establishes finite geological matter that the mining
-/// subsystem may later reserve and excavate through its tool/labor-gated transaction.
-pub(crate) fn insert_generated_deposit(
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GenerateGeologicalDepositCommitError {
+    Tick {
+        expected: SimulationTick,
+        actual: SimulationTick,
+    },
+    Revision {
+        expected: u64,
+        actual: u64,
+    },
+    NextDepositId {
+        expected: u32,
+        actual: u32,
+    },
+}
+
+/// Prepared generation of actual geological matter. Validation cannot allocate
+/// ownership early; commit prechecks identity and revision before any mutation.
+#[must_use]
+pub(crate) struct ValidatedGeologicalDepositGeneration {
+    record: GeologicalDepositRecord,
+    expected_tick: SimulationTick,
+    expected_revision: u64,
+    next_id: u32,
+    next_revision: u64,
+}
+
+impl ValidatedGeologicalDepositGeneration {
+    pub(crate) fn precheck(
+        &self,
+        state: &AppState,
+    ) -> Result<(), GenerateGeologicalDepositCommitError> {
+        if state.tick() != self.expected_tick {
+            return Err(GenerateGeologicalDepositCommitError::Tick {
+                expected: self.expected_tick,
+                actual: state.tick(),
+            });
+        }
+        if state.geology().revision() != self.expected_revision {
+            return Err(GenerateGeologicalDepositCommitError::Revision {
+                expected: self.expected_revision,
+                actual: state.geology().revision(),
+            });
+        }
+        if state.geology().next_deposit_id() != self.record.id.value() {
+            return Err(GenerateGeologicalDepositCommitError::NextDepositId {
+                expected: self.record.id.value(),
+                actual: state.geology().next_deposit_id(),
+            });
+        }
+        Ok(())
+    }
+
+    pub(crate) fn apply(self, state: &mut AppState) -> GeologicalDepositId {
+        let id = self.record.id;
+        state
+            .geology_state_mut()
+            .insert_deposit(self.record, self.next_id, self.next_revision);
+        id
+    }
+}
+
+/// Validates finite geological truth without pre-mutating its canonical owner.
+/// World generation composes this plan atomically with surface and water owners.
+pub(crate) fn validate_generate_geological_deposit(
     registries: &Registries,
-    state: &mut AppState,
+    state: &AppState,
     spec: GeneratedDepositSpec,
-) -> Result<GeologicalDepositId, InsertGeneratedDepositError> {
+) -> Result<ValidatedGeologicalDepositGeneration, InsertGeneratedDepositError> {
     validate_geological_material_state(
         registries.materials(),
         spec.commodity(),
@@ -152,10 +213,24 @@ pub(crate) fn insert_generated_deposit(
         depleted_at: None,
     };
 
-    state
-        .geology_state_mut()
-        .insert_deposit(record, next_id, next_revision);
-    Ok(id)
+    Ok(ValidatedGeologicalDepositGeneration {
+        record,
+        expected_tick: generated_at,
+        expected_revision: geology.revision(),
+        next_id,
+        next_revision,
+    })
+}
+
+/// Legacy fixture entry point shares exactly the production generation owner.
+#[cfg(any(test, feature = "test-gameplay"))]
+pub(crate) fn insert_generated_deposit(
+    registries: &Registries,
+    state: &mut AppState,
+    spec: GeneratedDepositSpec,
+) -> Result<GeologicalDepositId, InsertGeneratedDepositError> {
+    let plan = validate_generate_geological_deposit(registries, state, spec)?;
+    Ok(plan.apply(state))
 }
 
 #[cfg(test)]

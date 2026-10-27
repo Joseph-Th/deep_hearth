@@ -1,8 +1,8 @@
 //! Stateless deterministic creation of the currently implemented initial wilderness opportunity.
 //!
-//! Generated loose matter and finite opening water immediately enter their canonical persistent
-//! owners. This module owns only fresh-world authorization and deterministic authored generation
-//! inputs; it is not a terrain, chunk, ecology, hydrology, or movement owner.
+//! Generated loose matter, finite opening water, and geological reserves enter their canonical
+//! persistent owners together. This module owns only fresh-world authorization and deterministic
+//! generation inputs; it is not a terrain, chunk, ecology, hydrology, or movement owner.
 
 mod opening;
 
@@ -10,21 +10,25 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::content::{
-    FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, MATERIAL_BERRIES,
+    FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE, MATERIAL_BERRIES,
     MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WILD_NUTS, MATERIAL_WOOD,
 };
-use crate::core::quantity::{Mass, Temperature};
+use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::{ControlTick, SimulationTick};
 use crate::fluid::{
     FluidGenerationCommitError, FluidGenerationError, FluidStoreId, GeneratedFluidStoreSpec,
     ValidatedFluidGeneration, validate_generate_fluid_store,
 };
+use crate::geology::{
+    GenerateGeologicalDepositCommitError, GeneratedDepositSpec, GeologicalDepositGenerationError,
+    ValidatedGeologicalDepositGeneration, validate_generate_geological_deposit,
+};
 use crate::logistics::TraversalEdge;
-use crate::material::{CommodityKey, MaterialComposition};
+use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::Registries;
-use crate::spatial::VoxelCoord;
+use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::surface::{
     SurfaceResourceCreationCommitError, SurfaceResourceCreationError, SurfaceResourceKind,
     SurfaceResourceSpec, SurfaceResourceSpecError, SurfaceResourceValidationError,
@@ -50,6 +54,11 @@ const CLAY_VARIATION_MG: u64 = 4_000_000;
 // an early useful result, not enough metal to build a foundry.
 const COPPER_FLOAT_BASE_MG: u64 = 80_000;
 const COPPER_FLOAT_VARIATION_MG: u64 = 40_000;
+// The source of the native-metal float is a finite, hard-rock outcrop seam.
+// A stone pick cannot extract it; a copper-reinforced pick can.
+const COPPER_SEAM_BASE_MG: u64 = 24_000_000;
+const COPPER_SEAM_VARIATION_MG: u64 = 12_000_000;
+const COPPER_SEAM_HARDNESS: Pressure = Pressure::from_pascals(650_000_000);
 // One local fallen-timber opportunity should be a reserve, not a pocket-sized pickup. The player
 // can still harvest only the amount current work justifies, but even the smallest discovered stand
 // exceeds the unaided body-carrying envelope so storage, repeated hauling, and later woodworking
@@ -90,6 +99,7 @@ pub enum InitialWildernessGenerationError {
         logistics_initialized: bool,
     },
     SurfaceAlreadyGenerated,
+    GeologyAlreadyGenerated,
     KoboldsAlreadyGenerated,
     FluidAlreadyGenerated,
     LogisticsAlreadyPopulated,
@@ -100,6 +110,7 @@ pub enum InitialWildernessGenerationError {
     LogisticsRevisionExhausted,
     NoTraversableTerrainLayout,
     InvalidGeneratedResource(SurfaceResourceValidationError),
+    InvalidGeneratedDeposit(GeologicalDepositGenerationError),
     InvalidGeneratedWater,
 }
 
@@ -125,6 +136,9 @@ impl Display for InitialWildernessGenerationError {
             ),
             Self::SurfaceAlreadyGenerated => formatter.write_str(
                 "initial wilderness surface generation requires pristine surface-resource state",
+            ),
+            Self::GeologyAlreadyGenerated => formatter.write_str(
+                "initial wilderness geological generation requires pristine geological state",
             ),
             Self::KoboldsAlreadyGenerated => formatter.write_str(
                 "initial wilderness kobold generation requires pristine colony state",
@@ -157,6 +171,9 @@ impl Display for InitialWildernessGenerationError {
                     "built-in wilderness surface resource is invalid: {error}"
                 )
             }
+            Self::InvalidGeneratedDeposit(error) => {
+                write!(formatter, "built-in wilderness geological seam is invalid: {error}")
+            }
             Self::InvalidGeneratedWater => {
                 formatter.write_str("built-in wilderness water source is invalid")
             }
@@ -168,10 +185,12 @@ impl Error for InitialWildernessGenerationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::InvalidGeneratedResource(error) => Some(error),
+            Self::InvalidGeneratedDeposit(error) => Some(error),
             Self::NotInitialControlTick { .. }
             | Self::NotInitialTick { .. }
             | Self::PlayerAlreadyInitialized { .. }
             | Self::SurfaceAlreadyGenerated
+            | Self::GeologyAlreadyGenerated
             | Self::KoboldsAlreadyGenerated
             | Self::FluidAlreadyGenerated
             | Self::LogisticsAlreadyPopulated
@@ -203,6 +222,14 @@ pub enum InitialWildernessGenerationCommitError {
     StaleSurfaceRevision {
         expected: u64,
         actual: u64,
+    },
+    StaleGeologyRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleGeologyIdentity {
+        expected: u32,
+        actual: u32,
     },
     StaleWorldRevision {
         expected: u64,
@@ -259,6 +286,14 @@ impl Display for InitialWildernessGenerationCommitError {
                 formatter,
                 "surface revision changed from {expected} to {actual} before wilderness commit"
             ),
+            Self::StaleGeologyRevision { expected, actual } => write!(
+                formatter,
+                "geology revision changed from {expected} to {actual} before wilderness commit"
+            ),
+            Self::StaleGeologyIdentity { expected, actual } => write!(
+                formatter,
+                "geological deposit identity changed from {expected} to {actual} before wilderness commit"
+            ),
             Self::StaleWorldRevision { expected, actual } => write!(
                 formatter,
                 "world revision changed from {expected} to {actual} before wilderness commit"
@@ -300,6 +335,7 @@ pub struct ValidatedInitialWildernessGeneration {
     expected_tick: SimulationTick,
     expected_structure_revision: u64,
     surface_generation: ValidatedSurfaceResourceCreation,
+    geological_generation: ValidatedGeologicalDepositGeneration,
     water_generation: ValidatedFluidGeneration,
     water_position: VoxelCoord,
     traversal_edges: Vec<TraversalEdge>,
@@ -362,6 +398,25 @@ impl ValidatedInitialWildernessGeneration {
                     }
                 }
             })?;
+        self.geological_generation
+            .precheck(state)
+            .map_err(|error| match error {
+                GenerateGeologicalDepositCommitError::Tick { expected, actual } => {
+                    InitialWildernessGenerationCommitError::TickChanged { expected, actual }
+                }
+                GenerateGeologicalDepositCommitError::Revision { expected, actual } => {
+                    InitialWildernessGenerationCommitError::StaleGeologyRevision {
+                        expected,
+                        actual,
+                    }
+                }
+                GenerateGeologicalDepositCommitError::NextDepositId { expected, actual } => {
+                    InitialWildernessGenerationCommitError::StaleGeologyIdentity {
+                        expected,
+                        actual,
+                    }
+                }
+            })?;
         let actual_structure_revision = state.structures().revision();
         if actual_structure_revision != self.expected_structure_revision {
             return Err(
@@ -405,6 +460,7 @@ impl ValidatedInitialWildernessGeneration {
         }
 
         self.surface_generation.apply(state);
+        self.geological_generation.apply(state);
         self.water_generation.apply(state);
         state
             .kobold_state_mut()
@@ -498,6 +554,9 @@ pub fn validate_generate_initial_wilderness(
     }
     if !state.surface().is_pristine_generation_state() {
         return Err(InitialWildernessGenerationError::SurfaceAlreadyGenerated);
+    }
+    if state.geology().revision() != 0 || state.geology().deposits().next().is_some() {
+        return Err(InitialWildernessGenerationError::GeologyAlreadyGenerated);
     }
     if !state.kobold_state().is_pristine() {
         return Err(InitialWildernessGenerationError::KoboldsAlreadyGenerated);
@@ -617,6 +676,54 @@ pub fn validate_generate_initial_wilderness(
             }
         },
     )?;
+    // The float is a clue, not the entire ore supply. The geological claim
+    // occupies the physical working voxel at the outcrop so a standing player
+    // can survey and mine it. The region is a target footprint, not a
+    // generated solid block requiring an inaccessible underground body pose.
+    let outcrop = layout.clay;
+    let seam_region = VoxelBounds::new(
+        outcrop,
+        VoxelCoord::new(
+            outcrop
+                .x()
+                .checked_add(1)
+                .expect("opening geological x bound"),
+            outcrop
+                .y()
+                .checked_add(1)
+                .expect("opening geological y bound"),
+            outcrop
+                .z()
+                .checked_add(1)
+                .expect("opening geological z bound"),
+        ),
+    )
+    .expect("unit geological seam has valid bounds");
+    let seam_composition = MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_COPPER, 500_000),
+        CompositionComponent::new(MATERIAL_STONE, 500_000),
+    ])
+    .expect("natural copper ore and rock composition is complete");
+    let geological_generation = validate_generate_geological_deposit(
+        registries,
+        state,
+        GeneratedDepositSpec::new(
+            seam_region,
+            CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+            generated_mass(
+                seed,
+                spawn,
+                0x5345_414D_5F43_5550,
+                COPPER_SEAM_BASE_MG,
+                COPPER_SEAM_VARIATION_MG,
+            ),
+            WILDERNESS_TEMPERATURE,
+            COPPER_SEAM_HARDNESS,
+            seam_composition,
+        )
+        .expect("generated seam has valid mass, hardness, composition and bounds"),
+    )
+    .map_err(InitialWildernessGenerationError::InvalidGeneratedDeposit)?;
     let water_volume = generated_volume(
         seed,
         spawn,
@@ -675,6 +782,7 @@ pub fn validate_generate_initial_wilderness(
         expected_tick: state.tick(),
         expected_structure_revision: state.structures().revision(),
         surface_generation,
+        geological_generation,
         water_generation,
         water_position,
         traversal_edges,

@@ -3366,7 +3366,18 @@ class GameplayReportContractTests(unittest.TestCase):
             "realized=[stone-complete:250t copper-complete:174t] "
             "wear=[stone:750000ppm copper:875000ppm] matter=conserved replay=exact"
         )
-        records = [witness, project, provision, payoff, priority, first_metal, metal_tool]
+        seam = (
+            "PLAYER FIRST SEAM seed=0xA episode=coverage/rested/clay-worksite "
+            "world=ordinary-generated-opening "
+            "action=[follow-native-copper-float>field-inspect>craft-sampling-hammer-and-stone-pick>"
+            "survey-hardness>reject-stone-pick>reinforce-with-collected-copper>mine-and-return] "
+            "work=[surveys:34t tools:192t mine:2t] "
+            "evidence=[acquired-upper-hardness:650000000Pa stone-limit:500000000Pa "
+            "copper-limit:750000000Pa] "
+            "outcome=[ore-delivered:200000mg followup-resolves:true] "
+            "fixture-ore=none matter=conserved replay=exact"
+        )
+        records = [witness, project, provision, payoff, priority, first_metal, metal_tool, seam]
         summary = gameplay_report_summary.wilderness_worksite_player_experience(records)
         self.assertIsNotNone(summary)
         assert summary is not None
@@ -3386,6 +3397,7 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("priority=[food-first:245t bed-first:461t saved:216t before-metal-feed]", summary)
         self.assertIn("first-metal=[native-float:0.10kg took:0.04kg crock-security:374t vs-wood:225t cost-extra:149t saved-age:96t/120t vs-wood:51.4t/120t smelted:0]", summary)
         self.assertIn("first-metal-tool=[copper:0.02kg cover-stock:7.20kg/6.50kg setup:49t shape:250t-vs:125t net-saved:76t condition:750000-vs:875000ppm]", summary)
+        self.assertIn("first-seam=[survey:34t tools:192t mine:2t ore-returned:0.20kg hardness:650MPa stone-rejected:true next-order:available]", summary)
         with self.assertRaisesRegex(ValueError, "earned preparation tradeoff"):
             gameplay_report_summary.wilderness_worksite_player_experience([
                 witness, project.replace("same-acquisition-and-crafting:216t", "same-acquisition-and-crafting:10t"), provision, payoff, priority
@@ -3456,38 +3468,63 @@ class GameplayReportContractTests(unittest.TestCase):
             ])
         with self.assertRaisesRegex(ValueError, "distinct finite metal and food preservation"):
             gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-2],
+                *records[:-3],
                 first_metal.replace("float-after:61854mg", "float-after:101854mg"),
                 metal_tool,
+                seam,
             ])
         with self.assertRaisesRegex(ValueError, "distinct finite metal and food preservation"):
             gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-2],
+                *records[:-3],
                 first_metal.replace("saved-age:96t-per-120t", "saved-age:20t-per-120t"),
                 metal_tool,
+                seam,
             ])
         with self.assertRaisesRegex(ValueError, "physical cold-working"):
             gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-2],
+                *records[:-3],
                 first_metal.replace("smelted-metal=0", "smelted-metal=40000"),
                 metal_tool,
+                seam,
             ])
         with self.assertRaisesRegex(ValueError, "alternative first-metal tool investment"):
-            gameplay_report_summary.wilderness_worksite_player_experience(records[:-1])
-        with self.assertRaisesRegex(ValueError, "repay its actual copper investment"):
             gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-1],
-                metal_tool.replace("copper-complete:174t", "copper-complete:474t"),
+                *records[:-2], seam,
             ])
         with self.assertRaisesRegex(ValueError, "repay its actual copper investment"):
             gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-1],
+                *records[:-2],
+                metal_tool.replace("copper-complete:174t", "copper-complete:474t"),
+                seam,
+            ])
+        with self.assertRaisesRegex(ValueError, "repay its actual copper investment"):
+            gameplay_report_summary.wilderness_worksite_player_experience([
+                *records[:-2],
                 metal_tool.replace("boards:7200000mg", "boards:6200000mg"),
+                seam,
             ])
         with self.assertRaisesRegex(ValueError, "actor or conservation contract"):
             gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-1],
+                *records[:-2],
                 metal_tool.replace("alternative=same-opening-before-copper", "alternative=unmatched-fixture"),
+                seam,
+            ])
+        with self.assertRaisesRegex(ValueError, "geological discovery and extraction"):
+            gameplay_report_summary.wilderness_worksite_player_experience(records[:-1])
+        with self.assertRaisesRegex(ValueError, "harder-seam ore payoff"):
+            gameplay_report_summary.wilderness_worksite_player_experience([
+                *records[:-1],
+                seam.replace("stone-limit:500000000Pa", "stone-limit:700000000Pa"),
+            ])
+        with self.assertRaisesRegex(ValueError, "harder-seam ore payoff"):
+            gameplay_report_summary.wilderness_worksite_player_experience([
+                *records[:-1],
+                seam.replace("followup-resolves:true", "followup-resolves:false"),
+            ])
+        with self.assertRaisesRegex(ValueError, "actor's actual generated world"):
+            gameplay_report_summary.wilderness_worksite_player_experience([
+                *records[:-1],
+                seam.replace("fixture-ore=none", "fixture-ore=seeded-stockpile"),
             ])
 
     def test_fieldwork_player_experience_reports_actor_risk_and_delayed_consequence(self) -> None:

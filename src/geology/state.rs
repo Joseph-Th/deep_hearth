@@ -1,9 +1,7 @@
 //! Owns persistent finite geological deposits and their lifecycle.
 
 use std::collections::BTreeMap;
-#[cfg(any(test, feature = "test-gameplay"))]
 use std::error::Error;
-#[cfg(any(test, feature = "test-gameplay"))]
 use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
@@ -11,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::time::SimulationTick;
 use crate::material::{CommodityKey, MaterialComposition};
-#[cfg(any(test, feature = "test-gameplay"))]
 use crate::material::{CompositionError, MaterialId};
 use crate::spatial::VoxelBounds;
 
@@ -39,8 +36,7 @@ pub enum GeologicalDepositLifecycle {
     Depleted,
 }
 
-/// Controlled world-generation authorization used by tests and maintained gameplay fixtures.
-#[cfg(any(test, feature = "test-gameplay"))]
+/// Controlled creation specification for finite geological truth in generated worlds.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct GeneratedDepositSpec {
     bounds: VoxelBounds,
@@ -51,7 +47,6 @@ pub(crate) struct GeneratedDepositSpec {
     composition: MaterialComposition,
 }
 
-#[cfg(any(test, feature = "test-gameplay"))]
 impl GeneratedDepositSpec {
     pub(crate) fn new(
         bounds: VoxelBounds,
@@ -117,7 +112,6 @@ impl GeneratedDepositSpec {
 }
 
 /// Invalid generated-deposit specification before registry resolution.
-#[cfg(any(test, feature = "test-gameplay"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum GeneratedDepositSpecError {
     ZeroMass,
@@ -126,7 +120,6 @@ pub(crate) enum GeneratedDepositSpecError {
     MissingHostMaterial { host: MaterialId },
 }
 
-#[cfg(any(test, feature = "test-gameplay"))]
 impl Display for GeneratedDepositSpecError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -150,7 +143,6 @@ impl Display for GeneratedDepositSpecError {
     }
 }
 
-#[cfg(any(test, feature = "test-gameplay"))]
 impl Error for GeneratedDepositSpecError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
@@ -279,8 +271,7 @@ impl GeologyState {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "test-gameplay"))]
-    pub(super) const fn next_deposit_id(&self) -> u32 {
+    pub(crate) const fn next_deposit_id(&self) -> u32 {
         self.next_deposit_id
     }
 
@@ -294,8 +285,7 @@ impl GeologyState {
         self.deposits.values()
     }
 
-    #[cfg(any(test, feature = "test-gameplay"))]
-    pub(super) fn insert_deposit(
+    pub(crate) fn insert_deposit(
         &mut self,
         record: GeologicalDepositRecord,
         next_deposit_id: u32,

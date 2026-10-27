@@ -432,6 +432,42 @@ def wilderness_worksite_player_experience(lines: list[str]) -> str | None:
         or not 0 < int(stone_condition) < int(copper_condition) <= 1_000_000
     ):
         raise ValueError("first-metal tool did not repay its actual copper investment on matched boards")
+    seam = _one_seeded(lines, "PLAYER FIRST SEAM ", _required(record, "seed"))
+    if seam is None:
+        raise ValueError("worksite project lost the generated-world geological discovery and extraction")
+    if (
+        _required(seam, "world") != "ordinary-generated-opening"
+        or _required(seam, "action")
+        != "[follow-native-copper-float>field-inspect>craft-sampling-hammer-and-stone-pick>survey-hardness>reject-stone-pick>reinforce-with-collected-copper>mine-and-return]"
+        or _required(seam, "fixture-ore") != "none"
+        or _required(seam, "matter") != "conserved"
+        or _required(seam, "replay") != "exact"
+    ):
+        raise ValueError("first-seam proof must use the actor's actual generated world and canonical work")
+    seam_surveys, seam_tools, seam_mining = _capture(
+        _required(seam, "work"),
+        r"surveys:(\d+)t tools:(\d+)t mine:(\d+)t",
+        "actually executed geological preparation and mining",
+    )
+    acquired_hardness, stone_limit, copper_limit = _capture(
+        _required(seam, "evidence"),
+        r"acquired-upper-hardness:(\d+)Pa stone-limit:(\d+)Pa copper-limit:(\d+)Pa",
+        "actor-acquired hardness and two distinct usable tool limits",
+    )
+    recovered_ore, still_available = _capture(
+        _required(seam, "outcome"),
+        r"ore-delivered:(\d+)mg followup-resolves:(true|false)",
+        "real geological ore returned to the actor's worksite",
+    )
+    if (
+        not 0 < int(seam_surveys)
+        or not 0 < int(seam_tools)
+        or not 0 < int(seam_mining)
+        or not 0 < int(stone_limit) < int(acquired_hardness) <= int(copper_limit)
+        or not 0 < int(recovered_ore)
+        or still_available != "true"
+    ):
+        raise ValueError("generated-world geological mining did not earn a harder-seam ore payoff")
     return (
         "PLAYER EXPERIENCE worksite-project goal=specified-not-discovered "
         f"provision=[selected-protein:{_kg(picked)} left-in-world:{_kg(left)} "
@@ -456,6 +492,9 @@ def wilderness_worksite_player_experience(lines: list[str]) -> str | None:
         f"first-metal-tool=[copper:0.02kg cover-stock:{_kg(lumber_mass)}/{_kg(roof_mass)} "
         f"setup:{tool_prep}t shape:{stone_work}t-vs:{copper_work}t "
         f"net-saved:{tool_savings}t condition:{stone_condition}-vs:{copper_condition}ppm] "
+        f"first-seam=[survey:{seam_surveys}t tools:{seam_tools}t mine:{seam_mining}t "
+        f"ore-returned:{_kg(recovered_ore)} hardness:{int(acquired_hardness) // 1_000_000}MPa "
+        "stone-rejected:true next-order:available] "
         "outcome=[station:9.6kg metal-produced:0 next:molten-metal]"
     )
 

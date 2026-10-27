@@ -3,7 +3,6 @@
 //! bounded evidence, while mining authorization and timed excavation remain owned by mining.
 
 mod coverage;
-#[cfg(any(test, feature = "test-gameplay"))]
 mod generation_execution;
 mod knowledge;
 mod material_validation;
@@ -11,10 +10,15 @@ mod prospecting_action;
 mod prospecting_execution;
 mod state;
 
+pub use generation_execution::InsertGeneratedDepositError as GeologicalDepositGenerationError;
 #[cfg(test)]
 pub(crate) use generation_execution::InsertGeneratedDepositError;
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use generation_execution::insert_generated_deposit;
+pub(crate) use generation_execution::{
+    GenerateGeologicalDepositCommitError, ValidatedGeologicalDepositGeneration,
+    validate_generate_geological_deposit,
+};
 pub use knowledge::{
     AbundanceBound, ExcavationHardnessEstimate, ExcavationHardnessEstimateError,
     GeologicalEvidenceConsistency, GeologicalEvidenceKind, GeologicalKnowledgeAssessment,
@@ -33,7 +37,6 @@ pub(crate) use prospecting_execution::record_prospecting_for_test;
 pub(crate) use prospecting_execution::{
     ProspectingResolution, RecordProspectingError, ValidatedGeologicalObservation,
 };
-#[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use state::GeneratedDepositSpec;
 pub use state::{GeologicalDepositId, GeologicalDepositLifecycle, GeologyValidationError};
 

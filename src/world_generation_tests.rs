@@ -2,15 +2,16 @@
 
 use crate::content::{
     BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS, BLOCK_STATE_STONE,
-    FLUID_WATER, FORM_BOARD, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL,
+    FLUID_WATER, FORM_BOARD, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE,
     FORM_ROUGH_BOX_BODY, MATERIAL_BERRIES, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_STONE,
     MATERIAL_WILD_NUTS, MATERIAL_WOOD, STORAGE_ROUGH_TIMBER_FIELD_BOX,
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
-use crate::core::quantity::{Mass, Temperature, Volume};
+use crate::core::quantity::{Mass, Pressure, Temperature, Volume};
 use crate::core::state::{AppState, StateValidationError, apply_clock_advance};
 use crate::core::time::{ControlTick, SimulationTick};
 use crate::fluid::add_fluid_store_with_contents_for_fixture;
+use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
 use crate::inventory::{
     add_solid_stockpile_for_test, deposit_lot_for_test, validate_build_storage_enclosure,
     validate_place_player_storage_at,
@@ -1023,6 +1024,43 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
         layout.clay,
         "the copper find shares a visible outcrop with clay, but must keep its own resource identity"
     );
+    let seam = first
+        .geology()
+        .deposits()
+        .next()
+        .expect("built-in generated world must own the physical copper vein under its float");
+    assert_eq!(first.geology().deposits().count(), 1);
+    assert_eq!(
+        seam.commodity(),
+        CommodityKey::new(MATERIAL_COPPER, FORM_ORE)
+    );
+    assert!(
+        (Mass::from_milligrams(COPPER_SEAM_BASE_MG)
+            ..=Mass::from_milligrams(COPPER_SEAM_BASE_MG + COPPER_SEAM_VARIATION_MG))
+            .contains(&seam.remaining_mass())
+    );
+    assert_eq!(seam.excavation_hardness(), COPPER_SEAM_HARDNESS);
+    assert!(
+        seam.excavation_hardness() > Pressure::from_pascals(500_000_000)
+            && seam.excavation_hardness() <= Pressure::from_pascals(750_000_000),
+        "the first buried ore must require the earlier copper-pick investment"
+    );
+    assert_eq!(
+        seam.composition().parts_per_million(MATERIAL_COPPER),
+        500_000
+    );
+    assert_eq!(
+        seam.bounds(),
+        VoxelBounds::new(
+            layout.clay,
+            VoxelCoord::new(
+                layout.clay.x() + 1,
+                layout.clay.y() + 1,
+                layout.clay.z() + 1
+            ),
+        )
+        .unwrap()
+    );
     let stone_position = position_for(CommodityKey::new(MATERIAL_STONE, FORM_LUMP));
     let timber_position = position_for(CommodityKey::new(MATERIAL_WOOD, FORM_LOG));
     assert!(
@@ -1041,6 +1079,53 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
         generated_profile(&first),
         generated_profile(&alternate),
         "different explicit world seeds should change at least one opening opportunity"
+    );
+    assert_ne!(
+        first.geology().deposits().next().unwrap().remaining_mass(),
+        alternate
+            .geology()
+            .deposits()
+            .next()
+            .unwrap()
+            .remaining_mass(),
+        "independent world seeds should alter the physical hidden reserve as well as loose material"
+    );
+}
+
+#[test]
+fn wilderness_geological_creation_is_pristine_and_atomic_against_intervening_geology() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0xABAB_5678);
+    let spawn = VoxelCoord::new(0, 0, 0);
+    let mut state = AppState::new();
+    let planned = validate_generate_initial_wilderness(&registries, &state, seed, spawn).unwrap();
+    let spec = GeneratedDepositSpec::new(
+        VoxelBounds::new(VoxelCoord::new(4, -1, 0), VoxelCoord::new(5, 0, 1)).unwrap(),
+        CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+        Mass::from_milligrams(1_000_000),
+        WILDERNESS_TEMPERATURE,
+        Pressure::from_pascals(400_000_000),
+        MaterialComposition::pure(MATERIAL_COPPER),
+    )
+    .unwrap();
+    insert_generated_deposit(&registries, &mut state, spec).unwrap();
+    let before = state.clone();
+    assert_eq!(
+        planned.commit(&mut state),
+        Err(
+            InitialWildernessGenerationCommitError::StaleGeologyRevision {
+                expected: 0,
+                actual: 1,
+            }
+        )
+    );
+    assert_eq!(
+        state, before,
+        "stale geological truth cannot partially generate the wilderness"
+    );
+    assert_eq!(
+        validate_generate_initial_wilderness(&registries, &state, seed, spawn).err(),
+        Some(InitialWildernessGenerationError::GeologyAlreadyGenerated)
     );
 }
 

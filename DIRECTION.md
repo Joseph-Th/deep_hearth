@@ -193,11 +193,16 @@ body motion remains the sole ordinary player locomotion authority and derives le
 collision, current work/custody constraints, physiology, and carried load rather than requiring traversal edges. AI and
 haulage may later derive discrete route cost from world geometry and movement capability instead of extending the
 opening observation graph into a hand-authored world network.
-The clay outcrop also contains a small independent native-copper surface float. The actor selects
-40 g from this finite source with explicit direct-control gathering, cold-works two reinforcement
-batches, carves a stone body from the separate rock supply, and builds a copper-banded provisions
-crock. The more expensive crock preserves an actual berry haul longer than a timber field box,
-but does not bypass the separate ore and electrical foundry progression or produce molten metal.
+The clay outcrop also contains a small independent native-copper surface float and a separate
+finite hard-rock copper-ore seam, generated atomically with opening residents through the geology
+owner. The float can supply 40 g for a copper-banded stone provisions crock or 20 g for an
+existing stone-tool reinforcement. A copper-reinforced woodworking adze repays its real extra
+acquisition work on roof-panel stock while the crock protects food longer at higher material cost.
+The ore seam is geological truth, not a visible free stockpile: field inspection and tool-backed
+sampling must first acquire positive locality and hardness evidence. A normal stone pick cannot
+excavate its 650 MPa rock, whereas the copper-reinforced pick can mine a real finite ore parcel and
+haul it home. Neither the native float nor ore mining creates molten metal or bypasses the later
+ore dressing, electrical furnace, and casting requirements.
 
 The direct-player surface uses familiar block-survival actions: active hotbar context, primary tool/break action,
 secondary place/interact/consume action, pickup/drop, and slot/container transfer. Exact mass, capacity,

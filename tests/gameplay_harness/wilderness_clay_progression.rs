@@ -11,6 +11,8 @@ use deep_hearth::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 
 #[path = "wilderness_copper_woodworking.rs"]
 mod copper_woodworking;
+#[path = "wilderness_geological_seam.rs"]
+mod geological_seam;
 #[path = "wilderness_native_copper.rs"]
 mod native_copper;
 
@@ -887,6 +889,20 @@ fn exercise_generated_clay_casting_bed_for_seed(seed: WorldGenerationSeed, repor
         },
         matter_before,
     );
+    let seam = geological_seam::exercise_generated_copper_seam(
+        &registries,
+        &food_first,
+        geological_seam::SeamRoute {
+            junction,
+            forage: forage.position(),
+            water: water_position,
+            outcrop: outcrop.position(),
+            stone: adjacent_surface_resource(&food_first, stone).position(),
+            timber: adjacent_surface_resource(&food_first, timber).position(),
+            carried,
+        },
+        matter_before,
+    );
     let basic_security_ticks = food_first_cache.secured_at.value() - food_first.tick().value();
     assert!(
         copper_result.project_ticks > basic_security_ticks,
@@ -1015,6 +1031,16 @@ fn exercise_generated_clay_casting_bed_for_seed(seed: WorldGenerationSeed, repor
             woodworking.copper_total_ticks,
             woodworking.stone_condition_ppm,
             woodworking.copper_condition_ppm,
+        );
+        std::println!(
+            "PLAYER FIRST SEAM seed=0x{:016X} episode=coverage/rested/clay-worksite world=ordinary-generated-opening action=[follow-native-copper-float>field-inspect>craft-sampling-hammer-and-stone-pick>survey-hardness>reject-stone-pick>reinforce-with-collected-copper>mine-and-return] work=[surveys:{}t tools:{}t mine:{}t] evidence=[acquired-upper-hardness:{}Pa stone-limit:500000000Pa copper-limit:750000000Pa] outcome=[ore-delivered:{}mg followup-resolves:{}] fixture-ore=none matter=conserved replay=exact",
+            seed.value(),
+            seam.survey_ticks,
+            seam.acquisition_ticks,
+            seam.mining_ticks,
+            seam.hardness_upper_pa,
+            seam.mined_ore.milligrams(),
+            seam.followup_still_resolvable,
         );
     }
 }
