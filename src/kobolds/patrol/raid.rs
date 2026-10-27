@@ -12,8 +12,8 @@ use super::super::junkworks::{
 };
 use super::super::scavenging::{
     ScavengeRoute, best_local_forage, has_local_scout_interest, is_portable_drop,
-    local_portable_source, matches_salvage_goal, reachable_detour_drop, reachable_detour_food,
-    reachable_inherited_salvage, scout_wants_loose_drop,
+    local_portable_source, local_split_source, matches_salvage_goal, reachable_detour_drop,
+    reachable_detour_food, reachable_inherited_salvage, scout_wants_loose_drop,
 };
 use super::super::scrap_tools::{is_needed_outer_tool_part, junction_awaits_better_head};
 use super::super::visibility::scout_visible_from;
@@ -389,10 +389,67 @@ pub(super) fn choose_outbound_detour(
     };
     let inherited_salvage = || inherited_target;
     if colony.hungry {
+        // A visibly larger wild serving can justify one extra edge, but an
+        // adequate portable ration is simpler to recover and avoids the
+        // foraging cooldown. Compare actual transfer yields, not mere presence.
+        let food_choice = || {
+            let loose = loose_cache(true);
+            let (Some(drop_route), Some(forage_route)) = (loose, preferred_forage) else {
+                return loose.or(preferred_forage);
+            };
+            let drop_goal = drop_route.1.unwrap_or(drop_route.0);
+            let portable = local_portable_source(
+                registries,
+                state,
+                drop_goal,
+                den_space,
+                at,
+                true,
+                colony.mobilized_at.is_some(),
+            )
+            .and_then(|id| state.surface().get(id))
+            .map(|drop| drop.remaining_mass());
+            let drop_yield = portable.or_else(|| {
+                local_split_source(
+                    registries,
+                    state,
+                    drop_goal,
+                    den_space,
+                    at,
+                    true,
+                    colony.mobilized_at.is_some(),
+                )
+                .and_then(|id| state.surface().get(id))
+                .map(|drop| {
+                    drop.remaining_mass()
+                        .min(colony.salvage_batch())
+                        .min(den_space)
+                })
+            });
+            let forage_goal = forage_route.1.unwrap_or(forage_route.0);
+            let forage_yield = best_local_forage(
+                registries,
+                state,
+                forage_goal,
+                at,
+                colony.forage_batch().min(den_space),
+            )
+            .map(|(mass, _)| mass);
+            let shortage = SCOUT_MEAL_MASS
+                .checked_sub(colony.partial_meal)
+                .expect("trusted resident's partial meal is below a full ration");
+            match (drop_yield, forage_yield) {
+                (Some(drop), Some(forage)) if drop >= shortage || drop >= forage => {
+                    Some(drop_route)
+                }
+                (Some(_), Some(_)) | (None, Some(_)) => Some(forage_route),
+                (Some(_), None) => Some(drop_route),
+                (None, None) => None,
+            }
+        };
         // Food first, then the remembered machine-service salvage priority.
         // Ordinary nearby scraps remain available when neither is reachable.
-        loose_cache(true)
-            .or(preferred_forage)
+        food_choice()
             .or_else(wild_food)
             .or_else(inherited_salvage)
             .or_else(|| loose_cache(false))

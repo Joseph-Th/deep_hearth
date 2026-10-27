@@ -251,6 +251,159 @@ fn hungry_scout_seeks_a_full_visible_ration_instead_of_a_junction_crumb() {
 }
 
 #[test]
+fn hungry_scout_passes_up_tiny_side_drop_for_a_visible_far_wild_meal() {
+    let (registries, mut state, route) = setup();
+    let far = VoxelCoord::new(2, 0, 0);
+    add_traversable_edge_for_test(&mut state, route.side, far);
+    let fragment = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        route.side,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(1_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_BERRIES),
+    )
+    .unwrap();
+    let sources = seed(
+        &registries,
+        &mut state,
+        [
+            forage_spec(
+                &registries,
+                route.junction,
+                MATERIAL_BERRIES,
+                Mass::from_milligrams(1_000),
+                None,
+            ),
+            fragment,
+            forage_spec(
+                &registries,
+                far,
+                MATERIAL_WILD_NUTS,
+                Mass::from_milligrams(300_000),
+                None,
+            ),
+        ],
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 585);
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(colony.scout_position(), route.side);
+    assert_eq!(
+        colony.detour_goal,
+        Some(far),
+        "a tiny portable side-branch snack must not cancel a visibly adequate wild-food goal"
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for _ in 0..30 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(sources[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_000)
+    );
+    assert_eq!(
+        state.surface().get(sources[1]).unwrap().position(),
+        route.side
+    );
+    assert_eq!(
+        state.surface().get(sources[2]).unwrap().remaining_mass(),
+        Mass::from_milligrams(200_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        20_000
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn hungry_scout_uses_a_complete_portable_side_meal_instead_of_far_foraging() {
+    let (registries, mut state, route) = setup();
+    let far = VoxelCoord::new(2, 0, 0);
+    add_traversable_edge_for_test(&mut state, route.side, far);
+    let meal = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        route.side,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(25_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_BERRIES),
+    )
+    .unwrap();
+    let sources = seed(
+        &registries,
+        &mut state,
+        [
+            forage_spec(
+                &registries,
+                route.junction,
+                MATERIAL_BERRIES,
+                Mass::from_milligrams(1_000),
+                None,
+            ),
+            meal,
+            forage_spec(
+                &registries,
+                far,
+                MATERIAL_WILD_NUTS,
+                Mass::from_milligrams(300_000),
+                None,
+            ),
+        ],
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 585);
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(colony.scout_position(), route.side);
+    assert_eq!(
+        colony.detour_goal, None,
+        "a whole side parcel satisfies the meal without visiting the far patch"
+    );
+    advance_to(&registries, &mut state, 605);
+    assert_eq!(
+        state.surface().get(sources[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_000)
+    );
+    assert_eq!(
+        state.surface().get(sources[1]).unwrap().position(),
+        route.den
+    );
+    assert_eq!(
+        state.surface().get(sources[2]).unwrap().remaining_mass(),
+        Mass::from_milligrams(300_000)
+    );
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        20_000
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn a_sufficient_junction_meal_takes_priority_over_a_larger_side_patch() {
     let (registries, mut state, route) = setup();
     let sources = seed(
