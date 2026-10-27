@@ -1,5 +1,7 @@
 //! Canonical pointed placement of structural members and storage, plus targeted dismantling.
 
+use std::collections::BTreeSet;
+
 use crate::content::{
     BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS,
     BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, FORM_BOARD, FORM_LOG, MATERIAL_WOOD,
@@ -122,16 +124,42 @@ fn resolve_supported_timber_target(
         .map_err(structural_placement_error)?;
     let bounds = single_voxel_bounds(position)
         .ok_or(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow)?;
-    let supports = state
-        .structures()
-        .elements()
-        .filter(|record| {
-            record.lifecycle() == crate::structural::StructuralLifecycle::Active
+    Ok(Some((
+        bounds,
+        local_active_face_supports(state, position, bounds),
+    )))
+}
+
+/// Resolve supported placement from the structural spatial index, not a global member scan.
+/// The caller has already proved the proposed single voxel is free of structural occupants.
+fn local_active_face_supports(
+    state: &AppState,
+    position: VoxelCoord,
+    bounds: VoxelBounds,
+) -> Vec<StructuralElementId> {
+    // Only members covering a face-neighbor cell can touch this empty voxel.
+    // Stable deduplication matters when an oversized member covers several neighbors.
+    let mut supports = BTreeSet::new();
+    for face in [
+        CubeFace::Top,
+        CubeFace::Bottom,
+        CubeFace::North,
+        CubeFace::South,
+        CubeFace::East,
+        CubeFace::West,
+    ] {
+        let Some(neighbor) = face.adjacent_voxel(position) else {
+            continue;
+        };
+        for record in state.structures().elements_covering(neighbor) {
+            if record.lifecycle() == crate::structural::StructuralLifecycle::Active
                 && bounds.has_face_contact(record.bounds())
-        })
-        .map(|record| record.id())
-        .collect();
-    Ok(Some((bounds, supports)))
+            {
+                supports.insert(record.id());
+            }
+        }
+    }
+    supports.into_iter().collect()
 }
 
 fn attempt_supported_timber_placement(
@@ -460,3 +488,7 @@ pub(super) fn attempt_storage_placement(
         Err(error) => SecondaryActionOutcome::StoragePlacementRejected { definition, error },
     }
 }
+
+#[cfg(test)]
+#[path = "placement_tests.rs"]
+mod tests;

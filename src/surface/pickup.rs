@@ -2,7 +2,7 @@
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
+use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, ControlTick, SimulationTick};
 use crate::inventory::{
     MaterialIngressEntry, MaterialIngressError, MaterialLotId, StockpileId,
     ValidatedMaterialIngress, apply_material_ingress, validate_material_ingress,
@@ -76,7 +76,21 @@ fn available_pickup_destination(state: &AppState) -> Option<(StockpileId, VoxelC
     (!capacity.is_zero()).then_some((destination, player.position(), capacity))
 }
 
-/// A full pack, dead player, or unallocatable parcel cannot produce a pickup
+fn pickup_eligible_at(resource: &SurfaceResourceRecord, at: ControlTick) -> bool {
+    resource
+        .automatic_pickup_delay_started_at()
+        .is_none_or(|started| {
+            started
+                .checked_add_steps(PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS)
+                .unwrap_or_else(|| {
+                    panic!("runtime invariant broken: surface pickup delay exceeds control clock")
+                })
+                <= at
+        })
+}
+
+/// A full pack, dead player, unallocatable parcel, or drop whose pickup delay
+/// extends beyond the next slow boundary cannot produce a control-rate pickup
 /// during a skipped interval. A merge into an existing lot remains possible
 /// even if no new lot identities can be allocated.
 pub(crate) fn automatic_surface_pickup_requires_control_stepping(
@@ -87,10 +101,18 @@ pub(crate) fn automatic_surface_pickup_requires_control_stepping(
     else {
         return false;
     };
+    let remaining = CONTROL_TICKS_PER_SIMULATION_TICK
+        - state.control_tick().value() % CONTROL_TICKS_PER_SIMULATION_TICK;
+    let Some(next_boundary) = state.control_tick().checked_add_steps(remaining) else {
+        return true;
+    };
     let mut drops = state
         .surface()
         .available_resources_at(Some(position))
-        .filter(|resource| resource.kind() == SurfaceResourceKind::Drop);
+        .filter(|resource| {
+            resource.kind() == SurfaceResourceKind::Drop
+                && pickup_eligible_at(resource, next_boundary)
+        });
     // With one available identity after reserving all future obligations,
     // any currently available local drop can be picked up on a control step.
     if state.has_material_lot_id_headroom_from(state.inventory().next_lot_id(), 1) {
@@ -161,15 +183,8 @@ pub(crate) fn decide_automatic_surface_drop_pickup(
         if resource.kind() != SurfaceResourceKind::Drop {
             continue;
         }
-        if let Some(started_at) = resource.automatic_pickup_delay_started_at() {
-            let eligible = started_at
-                .checked_add_steps(PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS)
-                .unwrap_or_else(|| {
-                    panic!("runtime invariant broken: surface pickup delay exceeds control clock")
-                });
-            if state.control_tick() < eligible {
-                continue;
-            }
+        if !pickup_eligible_at(resource, state.control_tick()) {
+            continue;
         }
         let Some(ingress) = validate_pickup_ingress(
             registries,

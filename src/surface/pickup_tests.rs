@@ -1,6 +1,9 @@
 //! Automatic loose-matter pickup and neutral slow-step eligibility contracts.
 
-use super::{SurfaceResourceKind, SurfaceResourceSpec, insert_surface_resource_for_test};
+use super::{
+    SurfaceResourceKind, SurfaceResourceSpec, insert_surface_resource_for_test,
+    validate_drop_player_material,
+};
 use crate::content::{FORM_CHIP, FORM_LOG, MATERIAL_STONE, MATERIAL_WOOD, build_registries};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, validate_loaded_state};
@@ -225,6 +228,97 @@ fn exhausted_lot_id_only_requires_control_stepping_for_mergeable_drops() {
             .into_state(&registries)
             .unwrap();
         assert_eq!(replay, loaded);
+    }
+}
+
+#[test]
+fn delayed_player_drop_only_requires_control_steps_when_pickup_is_due_before_next_boundary() {
+    let registries = build_registries();
+    let position = VoxelCoord::new(0, 0, 0);
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let mass = Mass::from_milligrams(80_000);
+    for (drop_at, requires_stepping) in [(32, true), (60, false)] {
+        let mut state = AppState::new();
+        let carried = validate_admit_player(&registries, &state, position)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap()
+            .carried_stockpile();
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+        for _ in 0..drop_at {
+            let _ = advance_control_tick(&registries, &mut state).unwrap();
+        }
+        let dropped = validate_drop_player_material(&registries, &state, commodity)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        assert_eq!(dropped.dropped_mass(), mass);
+        let resource = dropped.resources()[0];
+        let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        assert_eq!(state, loaded);
+
+        let remaining = CONTROL_TICKS_PER_SIMULATION_TICK - drop_at;
+        let mut replay = loaded;
+        for _ in 0..remaining {
+            let _ = advance_control_tick(&registries, &mut replay).unwrap();
+        }
+        if requires_stepping {
+            assert_eq!(
+                advance_tick(&registries, &mut state),
+                Err(TickError::ControlSteppingRequired {
+                    current: ControlTick::new(drop_at),
+                })
+            );
+            assert_eq!(state.control_tick(), ControlTick::new(drop_at));
+        } else {
+            let _ = advance_tick(&registries, &mut state).unwrap();
+            assert_eq!(
+                state, replay,
+                "safe slow stepping must match control replay"
+            );
+            assert_eq!(
+                state.surface().get(resource).unwrap().remaining_mass(),
+                mass
+            );
+            assert_eq!(
+                advance_tick(&registries, &mut state),
+                Err(TickError::ControlSteppingRequired {
+                    current: ControlTick::new(CONTROL_TICKS_PER_SIMULATION_TICK),
+                }),
+                "the next interval reaches the pickup deadline"
+            );
+        }
+        for control in replay.control_tick().value()..(drop_at + 40) {
+            let result = advance_control_tick(&registries, &mut replay).unwrap();
+            if control + 1 == drop_at + 40 {
+                assert_eq!(result.surface_drop_pickup().unwrap().picked_mass(), mass);
+            }
+        }
+        assert_eq!(
+            replay
+                .inventory()
+                .get_stockpile(carried)
+                .unwrap()
+                .get_mass(commodity),
+            mass
+        );
+        assert_eq!(
+            replay.surface().get(resource).unwrap().remaining_mass(),
+            Mass::ZERO
+        );
+        assert_eq!(validate_loaded_state(&registries, &replay), Ok(()));
     }
 }
 
