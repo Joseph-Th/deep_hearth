@@ -131,12 +131,14 @@ pub fn validate_upgrade_energy_store(
     if state.logistics().player().is_some() && state.player_work().active().is_some() {
         return Err(EnergyStoreUpgradeError::PlayerBusy);
     }
+    validate_player_energy_store_access(state, store)
+        .map_err(EnergyStoreUpgradeError::StoreAccess)?;
+    validate_player_stockpile_access(state, source)
+        .map_err(EnergyStoreUpgradeError::SourceAccess)?;
     let record = state
         .energy()
         .get_store(store)
         .ok_or(EnergyStoreUpgradeError::UnknownStore { store })?;
-    validate_player_energy_store_access(state, store)
-        .map_err(EnergyStoreUpgradeError::StoreAccess)?;
     let target_definition = registries
         .energy()
         .get_store(target)
@@ -144,8 +146,6 @@ pub fn validate_upgrade_energy_store(
     let upgrade = target_definition
         .upgrade_profile()
         .ok_or(EnergyStoreUpgradeError::NoUpgradeProfile { target })?;
-    validate_player_stockpile_access(state, source)
-        .map_err(EnergyStoreUpgradeError::SourceAccess)?;
     if record.definition() != upgrade.from() {
         return Err(EnergyStoreUpgradeError::WrongBaseDefinition {
             store,

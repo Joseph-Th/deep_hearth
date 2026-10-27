@@ -142,6 +142,9 @@ impl ValidatedEnergyStoreDisassembly {
             }
             None => {}
         }
+        if state.logistics().player().is_some() && state.player_work().active().is_some() {
+            return Err(EnergyStoreDisassemblyCommitError::PlayerBecameBusy);
+        }
         self.ingress.assert_matches_state(state.inventory());
         state.energy().assert_removal_available(
             self.store,
@@ -181,14 +184,14 @@ pub fn validate_disassemble_energy_store(
 ) -> Result<ValidatedEnergyStoreDisassembly, EnergyStoreDisassemblyError> {
     let player_action = validate_optional_player_action(state)
         .map_err(|_| EnergyStoreDisassemblyError::PlayerDead)?;
-    let record = state
-        .energy()
-        .get_store(store)
-        .ok_or(EnergyStoreDisassemblyError::UnknownStore { store })?;
     validate_player_energy_store_access(state, store)
         .map_err(EnergyStoreDisassemblyError::StoreAccess)?;
     validate_player_stockpile_access(state, destination)
         .map_err(EnergyStoreDisassemblyError::DestinationAccess)?;
+    let record = state
+        .energy()
+        .get_store(store)
+        .ok_or(EnergyStoreDisassemblyError::UnknownStore { store })?;
     if record.embodied_mass().is_zero() || record.embodied_material().is_empty() {
         return Err(EnergyStoreDisassemblyError::NoEmbodiedMatter { store });
     }
@@ -210,6 +213,9 @@ pub fn validate_disassemble_energy_store(
             return Err(EnergyStoreDisassemblyError::StoreBusyManualPower { store });
         }
         None => {}
+    }
+    if state.logistics().player().is_some() && state.player_work().active().is_some() {
+        return Err(EnergyStoreDisassemblyError::PlayerBusy);
     }
     let ingress = validate_material_ingress(
         registries,

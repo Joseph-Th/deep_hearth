@@ -14,6 +14,7 @@ use super::super::EnergyStoreId;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreDisassemblyError {
     PlayerDead,
+    PlayerBusy,
     StoreAccess(PlayerEnergyStoreAccessError),
     DestinationAccess(PlayerStockpileAccessError),
     UnknownStore {
@@ -62,6 +63,9 @@ impl Display for EnergyStoreDisassemblyError {
         match self {
             Self::PlayerDead => {
                 formatter.write_str("dead player cannot disassemble an energy store")
+            }
+            Self::PlayerBusy => {
+                formatter.write_str("player cannot dismantle an energy store during exclusive work")
             }
             Self::StoreAccess(error) => write!(formatter, "energy-store access failed: {error}"),
             Self::DestinationAccess(error) => write!(
@@ -154,6 +158,7 @@ impl Error for EnergyStoreDisassemblyError {
             Self::DestinationStorage(error) => Some(error),
             Self::StoredMatterLoad(error) => Some(error),
             Self::PlayerDead
+            | Self::PlayerBusy
             | Self::UnknownStore { .. }
             | Self::NoEmbodiedMatter { .. }
             | Self::StoreNotEmpty { .. }
@@ -173,6 +178,7 @@ impl Error for EnergyStoreDisassemblyError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreDisassemblyCommitError {
+    PlayerBecameBusy,
     StaleSurvival {
         expected: u64,
         actual: u64,
@@ -208,6 +214,9 @@ pub enum EnergyStoreDisassemblyCommitError {
 impl Display for EnergyStoreDisassemblyCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerBecameBusy => {
+                formatter.write_str("player began exclusive work before energy-store dismantling")
+            }
             Self::StaleSurvival { expected, actual } => write!(
                 formatter,
                 "energy-store disassembly expected survival revision {expected} but current revision is {actual}"
@@ -257,7 +266,8 @@ impl Error for EnergyStoreDisassemblyCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleSurvival { .. }
+            Self::PlayerBecameBusy
+            | Self::StaleSurvival { .. }
             | Self::StaleLogistics { .. }
             | Self::StaleInventory { .. }
             | Self::StaleEnergy { .. }

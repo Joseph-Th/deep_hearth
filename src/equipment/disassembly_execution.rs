@@ -142,6 +142,9 @@ impl ValidatedEquipmentDisassembly {
         if let Some(occupancy) = occupancy {
             return Err(commit_occupancy_error(self.equipment, occupancy));
         }
+        if state.logistics().player().is_some() && state.player_work().active().is_some() {
+            return Err(EquipmentDisassemblyCommitError::PlayerBecameBusy);
+        }
         self.ingress.assert_matches_state(state.inventory());
         state.equipment().assert_removal_available(
             self.equipment,

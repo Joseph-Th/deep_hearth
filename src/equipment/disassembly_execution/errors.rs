@@ -17,6 +17,7 @@ use super::super::EquipmentId;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentDisassemblyError {
     PlayerDead,
+    PlayerBusy,
     EquipmentAccess(PlayerEquipmentAccessError),
     DestinationAccess(PlayerStockpileAccessError),
     UnknownEquipment {
@@ -90,6 +91,9 @@ impl Display for EquipmentDisassemblyError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerDead => formatter.write_str("dead player cannot disassemble equipment"),
+            Self::PlayerBusy => {
+                formatter.write_str("player cannot dismantle equipment during exclusive work")
+            }
             Self::EquipmentAccess(error) => write!(formatter, "equipment access failed: {error}"),
             Self::DestinationAccess(error) => {
                 write!(
@@ -238,6 +242,7 @@ impl Error for EquipmentDisassemblyError {
             Self::DestinationStorage(error) => Some(error),
             Self::StoredMatterLoad(error) => Some(error),
             Self::PlayerDead
+            | Self::PlayerBusy
             | Self::UnknownEquipment { .. }
             | Self::NoEmbodiedMatter { .. }
             | Self::WornComponentRecoveryUnavailable { .. }
@@ -264,6 +269,7 @@ impl Error for EquipmentDisassemblyError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentDisassemblyCommitError {
+    PlayerBecameBusy,
     StaleSurvival {
         expected: u64,
         actual: u64,
@@ -322,6 +328,9 @@ pub enum EquipmentDisassemblyCommitError {
 impl Display for EquipmentDisassemblyCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerBecameBusy => {
+                formatter.write_str("player began exclusive work before equipment dismantling")
+            }
             Self::StaleSurvival { expected, actual } => write!(
                 formatter,
                 "equipment disassembly expected survival revision {expected} but current revision is {actual}"
@@ -414,7 +423,8 @@ impl Error for EquipmentDisassemblyCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleSurvival { .. }
+            Self::PlayerBecameBusy
+            | Self::StaleSurvival { .. }
             | Self::StaleLogistics { .. }
             | Self::StaleInventory { .. }
             | Self::StaleEquipment { .. }

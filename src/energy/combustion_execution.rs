@@ -336,12 +336,13 @@ fn validate_combust_fuel_selected(
     if state.logistics().player().is_some() && state.player_work().active().is_some() {
         return Err(CombustionError::PlayerBusy);
     }
+    // Authorize both physical endpoints before exposing store identity or contents.
+    validate_player_energy_store_access(state, store).map_err(CombustionError::StoreAccess)?;
+    validate_player_stockpile_access(state, source).map_err(CombustionError::SourceAccess)?;
     let record = state
         .energy()
         .get_store(store)
         .ok_or(CombustionError::UnknownStore { store })?;
-    validate_player_energy_store_access(state, store).map_err(CombustionError::StoreAccess)?;
-    validate_player_stockpile_access(state, source).map_err(CombustionError::SourceAccess)?;
     let definition = registries
         .energy()
         .get_store(record.definition())

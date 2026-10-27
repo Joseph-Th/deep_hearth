@@ -159,14 +159,14 @@ pub fn validate_disassemble_equipment(
 ) -> Result<ValidatedEquipmentDisassembly, EquipmentDisassemblyError> {
     let player_action = validate_optional_player_action(state)
         .map_err(|_| EquipmentDisassemblyError::PlayerDead)?;
-    let record = state
-        .equipment()
-        .get_equipment(equipment)
-        .ok_or(EquipmentDisassemblyError::UnknownEquipment { equipment })?;
     validate_player_equipment_access(state, equipment)
         .map_err(EquipmentDisassemblyError::EquipmentAccess)?;
     validate_player_stockpile_access(state, destination)
         .map_err(EquipmentDisassemblyError::DestinationAccess)?;
+    let record = state
+        .equipment()
+        .get_equipment(equipment)
+        .ok_or(EquipmentDisassemblyError::UnknownEquipment { equipment })?;
     if record.embodied_mass().is_zero() || record.embodied_material().is_empty() {
         return Err(EquipmentDisassemblyError::NoEmbodiedMatter { equipment });
     }
@@ -182,6 +182,10 @@ pub fn validate_disassemble_equipment(
     }
     if let Some(error) = validation_occupancy_error(state, equipment) {
         return Err(error);
+    }
+    // Keep the targeted tool's occupancy error even when its work makes the actor busy.
+    if state.logistics().player().is_some() && state.player_work().active().is_some() {
+        return Err(EquipmentDisassemblyError::PlayerBusy);
     }
     let ingress = validate_material_ingress(
         registries,

@@ -231,3 +231,163 @@ fn manual_power_start_invalidates_prior_empty_store_disassembly_without_energy_r
         Some(Mass::ZERO)
     );
 }
+
+#[test]
+fn disassembly_cannot_interrupt_exclusive_player_work_or_commit_after_work_starts() {
+    use crate::content::{FORM_LOG, MATERIAL_WOOD, PROCESS_SHAPE_WOOD_BOARDS};
+    use crate::crafting::validate_start_player_manual_craft;
+    use crate::player::validate_admit_player;
+    use crate::simulation::advance_tick;
+    use std::num::NonZeroU64;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let store = assembled_store(&registries, &mut state);
+    let position = VoxelCoord::new(0, 0, 0);
+    crate::logistics::place_energy_store_for_fixture(&mut state, store, position);
+    let destination = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        destination,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(3_000_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let prepared =
+        validate_disassemble_energy_store(&registries, &state, store, destination).unwrap();
+    let job = validate_start_player_manual_craft(
+        &registries,
+        &state,
+        PROCESS_SHAPE_WOOD_BOARDS,
+        NonZeroU64::new(1).unwrap(),
+        None,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let busy = state.clone();
+    let original_matter = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(
+        validate_disassemble_energy_store(&registries, &state, store, destination).err(),
+        Some(EnergyStoreDisassemblyError::PlayerBusy)
+    );
+    assert!(matches!(
+        prepared.commit(&mut state),
+        Err(EnergyStoreDisassemblyCommitError::StaleInventory { expected, actual })
+            if expected != actual
+    ));
+    assert_eq!(state, busy);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        original_matter
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let bytes =
+        serde_json::to_vec(&crate::persistence::SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<crate::persistence::LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let completed = state.production().get_job(job).unwrap().completes_at();
+    while state.tick() < completed {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    let outcome = validate_disassemble_energy_store(&registries, &state, store, destination)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(outcome.recovered_lots().len(), 2);
+    assert!(state.energy().get_store(store).is_none());
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        original_matter
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn energy_store_mutations_reject_remote_material_custody_before_unknown_store_identity() {
+    use crate::content::ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE;
+    use crate::energy::{
+        CombustionError, EnergyStoreUpgradeError, validate_combust_fuel,
+        validate_upgrade_energy_store,
+    };
+    use crate::logistics::{PlayerStockpileAccessError, validate_place_ground_stockpile};
+    use crate::player::validate_admit_player;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let remote_position = VoxelCoord::new(1, 0, 0);
+    let remote =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_100_000)).unwrap();
+    validate_place_ground_stockpile(&state, remote, remote_position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let unknown = EnergyStoreId::new(state.energy().next_store_id());
+    assert!(state.energy().get_store(unknown).is_none());
+    let before = state.clone();
+    let access = PlayerStockpileAccessError::RemoteKnownStockpile {
+        stockpile: remote,
+        stockpile_position: remote_position,
+        player_position: position,
+    };
+    assert_eq!(
+        validate_disassemble_energy_store(&registries, &state, unknown, remote).err(),
+        Some(EnergyStoreDisassemblyError::DestinationAccess(access))
+    );
+    assert_eq!(
+        validate_upgrade_energy_store(
+            &registries,
+            &state,
+            unknown,
+            ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
+            remote,
+        )
+        .err(),
+        Some(EnergyStoreUpgradeError::SourceAccess(access))
+    );
+    assert_eq!(
+        validate_combust_fuel(&registries, &state, unknown, remote).err(),
+        Some(CombustionError::SourceAccess(access))
+    );
+    // Once the material endpoint is authorized, a nonexistent energy store still
+    // yields its ordinary typed identity rejection.
+    assert_eq!(
+        validate_disassemble_energy_store(&registries, &state, unknown, carried).err(),
+        Some(EnergyStoreDisassemblyError::UnknownStore { store: unknown })
+    );
+    assert_eq!(
+        validate_upgrade_energy_store(
+            &registries,
+            &state,
+            unknown,
+            ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
+            carried,
+        )
+        .err(),
+        Some(EnergyStoreUpgradeError::UnknownStore { store: unknown })
+    );
+    assert_eq!(
+        validate_combust_fuel(&registries, &state, unknown, carried).err(),
+        Some(CombustionError::UnknownStore { store: unknown })
+    );
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}

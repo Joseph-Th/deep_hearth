@@ -88,6 +88,146 @@ fn disassembly_removes_equipment_location() {
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
+#[test]
+fn equipment_disassembly_rejects_exclusive_player_work_and_stale_commit() {
+    use crate::content::{FORM_LOG, MATERIAL_WOOD, PROCESS_SHAPE_WOOD_BOARDS};
+    use crate::crafting::validate_start_player_manual_craft;
+    use crate::player::validate_admit_player;
+    use crate::simulation::advance_tick;
+    use std::num::NonZeroU64;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let equipment = assembled_pick(&registries, &mut state);
+    let position = VoxelCoord::new(0, 0, 0);
+    crate::logistics::place_equipment_for_fixture(&mut state, equipment, position);
+    let destination = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        destination,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(3_000_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let pending =
+        validate_disassemble_equipment(&registries, &state, equipment, destination).unwrap();
+    let job = validate_start_player_manual_craft(
+        &registries,
+        &state,
+        PROCESS_SHAPE_WOOD_BOARDS,
+        NonZeroU64::new(1).unwrap(),
+        None,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let before = state.clone();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(
+        validate_disassemble_equipment(&registries, &state, equipment, destination).err(),
+        Some(EquipmentDisassemblyError::PlayerBusy)
+    );
+    assert!(matches!(
+        pending.commit(&mut state),
+        Err(EquipmentDisassemblyCommitError::StaleInventory { expected, actual })
+            if expected != actual
+    ));
+    assert_eq!(state, before);
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let bytes =
+        serde_json::to_vec(&crate::persistence::SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<crate::persistence::LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let completed = state.production().get_job(job).unwrap().completes_at();
+    while state.tick() < completed {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    let recovery = validate_disassemble_equipment(&registries, &state, equipment, destination)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(recovery.recovered_lots().len(), 2);
+    assert!(state.equipment().get_equipment(equipment).is_none());
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn equipment_mutations_authorize_remote_material_endpoint_before_unknown_identity() {
+    use crate::equipment::EquipmentUpgradeError;
+    use crate::logistics::{PlayerStockpileAccessError, validate_place_ground_stockpile};
+    use crate::player::validate_admit_player;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let origin = VoxelCoord::new(0, 0, 0);
+    let remote_position = VoxelCoord::new(1, 0, 0);
+    let remote =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000)).unwrap();
+    validate_place_ground_stockpile(&state, remote, remote_position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let carried = validate_admit_player(&registries, &state, origin)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let unknown = EquipmentId::new(1);
+    assert!(state.equipment().get_equipment(unknown).is_none());
+    let before = state.clone();
+    let access = PlayerStockpileAccessError::RemoteKnownStockpile {
+        stockpile: remote,
+        stockpile_position: remote_position,
+        player_position: origin,
+    };
+    assert_eq!(
+        validate_disassemble_equipment(&registries, &state, unknown, remote).err(),
+        Some(EquipmentDisassemblyError::DestinationAccess(access))
+    );
+    assert_eq!(
+        validate_upgrade_equipment(
+            &registries,
+            &state,
+            unknown,
+            EQUIPMENT_COPPER_REINFORCED_PICK,
+            remote,
+        )
+        .err(),
+        Some(EquipmentUpgradeError::SourceAccess(access))
+    );
+    assert_eq!(
+        validate_disassemble_equipment(&registries, &state, unknown, carried).err(),
+        Some(EquipmentDisassemblyError::UnknownEquipment { equipment: unknown })
+    );
+    assert_eq!(
+        validate_upgrade_equipment(
+            &registries,
+            &state,
+            unknown,
+            EQUIPMENT_COPPER_REINFORCED_PICK,
+            carried,
+        )
+        .err(),
+        Some(EquipmentUpgradeError::UnknownEquipment { equipment: unknown })
+    );
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
 fn assembled_authored_equipment(
     registries: &Registries,
     state: &mut AppState,
