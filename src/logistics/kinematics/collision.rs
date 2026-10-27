@@ -166,28 +166,15 @@ pub(crate) fn player_body_occupies_voxel(
         return false;
     };
     let locomotion = registries.survival().physiology().locomotion();
-    let Some((min_x, max_x, min_z, max_z)) = horizontal_voxel_bounds(player.body(), locomotion)
+    let Some((min_x, max_x, min_y, max_y, min_z, max_z)) =
+        player_body_voxel_bounds(player.body(), locomotion)
     else {
+        // Unrepresentable continuous geometry cannot authorize a free cell.
         return true;
     };
-    let foot_y = player.body().foot_position().y_nanometers();
-    let Some(height) = length_nanometers(body_height(locomotion, player.body().stance())) else {
-        return true;
-    };
-    let Some(top_exclusive) = foot_y.checked_add(height) else {
-        return true;
-    };
-    let Some(top_inclusive) = top_exclusive.checked_sub(1) else {
-        return true;
-    };
-    let min_y = foot_y.div_euclid(NANOMETERS_PER_VOXEL);
-    let max_y = top_inclusive.div_euclid(NANOMETERS_PER_VOXEL);
-    voxel.x() >= min_x
-        && voxel.x() <= max_x
-        && voxel.y() >= min_y
-        && voxel.y() <= max_y
-        && voxel.z() >= min_z
-        && voxel.z() <= max_z
+    (min_x..=max_x).contains(&voxel.x())
+        && (min_y..=max_y).contains(&voxel.y())
+        && (min_z..=max_z).contains(&voxel.z())
 }
 
 pub(super) fn first_player_body_collision_where(
@@ -195,14 +182,7 @@ pub(super) fn first_player_body_collision_where(
     locomotion: LocomotionDefinition,
     mut collides: impl FnMut(VoxelCoord) -> bool,
 ) -> Option<VoxelCoord> {
-    let (min_x, max_x, min_z, max_z) = horizontal_voxel_bounds(body, locomotion)?;
-    let foot_y = body.foot_position().y_nanometers();
-    let height = length_nanometers(body_height(locomotion, body.stance()))?;
-    let top_exclusive = foot_y.checked_add(height)?;
-    let min_y = foot_y.div_euclid(NANOMETERS_PER_VOXEL);
-    let max_y = top_exclusive
-        .checked_sub(1)?
-        .div_euclid(NANOMETERS_PER_VOXEL);
+    let (min_x, max_x, min_y, max_y, min_z, max_z) = player_body_voxel_bounds(body, locomotion)?;
     for y in min_y..=max_y {
         for z in min_z..=max_z {
             for x in min_x..=max_x {
@@ -214,6 +194,27 @@ pub(super) fn first_player_body_collision_where(
         }
     }
     None
+}
+
+/// The same exact occupied voxel envelope drives player/world collision and
+/// actor/structure overlap. Keeping it shared prevents stance or face-rounding
+/// differences from making a blocking voxel appear unoccupied to another owner.
+fn player_body_voxel_bounds(
+    body: PlayerBodyState,
+    locomotion: LocomotionDefinition,
+) -> Option<(i64, i64, i64, i64, i64, i64)> {
+    let (min_x, max_x, min_z, max_z) = horizontal_voxel_bounds(body, locomotion)?;
+    let foot_y = body.foot_position().y_nanometers();
+    let height = length_nanometers(body_height(locomotion, body.stance()))?;
+    let top_inclusive = foot_y.checked_add(height)?.checked_sub(1)?;
+    Some((
+        min_x,
+        max_x,
+        foot_y.div_euclid(NANOMETERS_PER_VOXEL),
+        top_inclusive.div_euclid(NANOMETERS_PER_VOXEL),
+        min_z,
+        max_z,
+    ))
 }
 
 pub(super) const fn body_height(
@@ -302,3 +303,7 @@ pub(super) fn length_nanometers(length: crate::core::quantity::Length) -> Option
     i64::try_from(u128::from(length.micrometers()).checked_mul(NANOMETERS_PER_MICROMETER as u128)?)
         .ok()
 }
+
+#[cfg(test)]
+#[path = "collision_tests.rs"]
+mod tests;
