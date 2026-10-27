@@ -415,7 +415,10 @@ Both standalone and atomic player construction tokens bind the world revision:
 terrain changes after validation reject commit before consuming materials.
 Structural materialization also checks real generated kobold occupancy. Heavy
 temple castes reject any embodied member across their complete body footprint;
-small opening residents reject full-footprint members but retain the existing
+member admission checks only generated chunks intersecting the proposed footprint
+(or existing generated chunks for oversized bounds), while trusted caste clearance
+uses the structural per-voxel index instead of scanning all settlement members.
+Small opening residents reject full-footprint members but retain the existing
 allowance for narrow timber posts. Empty plans reserve geometry without
 creating actor collision, and forged saved overlaps remain inadmissible.
 Generated-world player movement, initial admission, respawn-anchor selection,

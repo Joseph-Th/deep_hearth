@@ -67,6 +67,73 @@ fn occupied_temple() -> (Registries, AppState, [VoxelCoord; 3]) {
 }
 
 #[test]
+fn temple_overlap_queries_only_relevant_chunks_and_preserve_broad_boundaries_on_load() {
+    let (registries, mut state, route) = occupied_temple();
+    let observer = route[0];
+    let [post, archivist] =
+        crate::world::temple_residents_at(&registries, &state, observer).unwrap();
+    assert_eq!(post, route[0]);
+
+    // Another generated chunk from the same district contains no sanctuary.
+    // The structural caller must not need to enumerate it to resolve this site.
+    let _ = validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x0054_454D_504C_4553),
+        ChunkCoord::new(1, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let single_cell = |cell: VoxelCoord| {
+        VoxelBounds::new(
+            cell,
+            VoxelCoord::new(cell.x() + 1, cell.y() + 1, cell.z() + 1),
+        )
+        .unwrap()
+    };
+    let archivist_upper = VoxelCoord::new(archivist.x() + 1, archivist.y() + 2, archivist.z() - 1);
+    let empty = single_cell(VoxelCoord::new(
+        observer.x(),
+        observer.y() + 4,
+        observer.z(),
+    ));
+    let broad = VoxelBounds::new(
+        VoxelCoord::new(-256, -30, -256),
+        VoxelCoord::new(256, -10, 256),
+    )
+    .unwrap();
+    let check = |state: &AppState| {
+        assert_eq!(
+            first_temple_member_overlap(&registries, state, single_cell(post)),
+            Some(post),
+            "the warden's current lower cell is occupied"
+        );
+        assert_eq!(
+            first_temple_member_overlap(&registries, state, single_cell(archivist_upper)),
+            Some(archivist_upper),
+            "the archivist's far upper corner remains physical"
+        );
+        assert_eq!(first_temple_member_overlap(&registries, state, empty), None);
+        assert_eq!(
+            first_temple_member_overlap(&registries, state, broad),
+            Some(post),
+            "oversized bounds use generated chunk iteration, not a huge chunk expansion"
+        );
+    };
+    check(&state);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+    check(&restored);
+}
+
+#[test]
 fn warden_inspects_when_a_living_player_is_near_across_a_generated_chunk_border() {
     let (registries, mut state, route) = occupied_temple();
     let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);

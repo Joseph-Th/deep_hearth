@@ -510,60 +510,99 @@ fn structure_intersects_temple_caste_cell(
     cell: VoxelCoord,
 ) -> bool {
     super::temple_caste_occupies_voxel(registries, state, cell)
-        && state.structures().elements().any(|element| {
-            !element.embodied_material().is_empty() && element.bounds().has_voxel(cell)
-        })
+        && state
+            .structures()
+            .elements_covering(cell)
+            .any(|element| !element.embodied_material().is_empty())
 }
 
 /// Resolves one occupied caste cell within an intended member's bounds.
-/// Iterate the finite generated resident footprints rather than arbitrary
-/// player-authored structural bounds.
+/// Temple caste patrols are fully within their generated home chunk: authored
+/// centres lie at local offsets 6..=10, the warden visits at most four cells
+/// east, and the archivist reaches at most three cells west. A modest member
+/// footprint therefore needs to inspect only intersected chunks, not all of
+/// the world's generated sites. Broad bounds instead traverse existing chunks
+/// to avoid unbounded memory or coordinate expansion.
 pub(super) fn first_temple_member_overlap(
     registries: &Registries,
     state: &AppState,
     bounds: VoxelBounds,
 ) -> Option<VoxelCoord> {
-    for chunk in state.world().chunks() {
-        let Some(x) = chunk.coord().world_min_x().and_then(|x| x.checked_add(8)) else {
-            continue;
-        };
-        let Some(z) = chunk.coord().world_min_z().and_then(|z| z.checked_add(8)) else {
-            continue;
-        };
-        let observer = VoxelCoord::new(x, -19, z);
-        let Some([post, archivist]) =
-            crate::world::temple_residents_at(registries, state, observer)
-        else {
-            continue;
-        };
-        let step = state
-            .kobold_state()
-            .temple_warden_step(ChunkCoord::containing(post));
-        let warden = crate::world::temple_warden_route_at(registries, state, post)
-            .and_then(|route| warden_position(route, step))?;
-        for dy in 0..=1 {
-            let cell = VoxelCoord::new(warden.x(), warden.y().checked_add(dy)?, warden.z());
-            if bounds.has_voxel(cell) {
+    const MAX_DIRECT_CHUNK_LOOKUPS: u64 = 64;
+    let first = ChunkCoord::containing(bounds.min());
+    let last = ChunkCoord::containing(VoxelCoord::new(
+        bounds.max_exclusive().x() - 1,
+        bounds.min().y(),
+        bounds.max_exclusive().z() - 1,
+    ));
+    let direct_count = first.x().abs_diff(last.x()).checked_add(1).and_then(|x| {
+        first
+            .z()
+            .abs_diff(last.z())
+            .checked_add(1)
+            .and_then(|z| x.checked_mul(z))
+    });
+    if direct_count.is_some_and(|count| count <= MAX_DIRECT_CHUNK_LOOKUPS) {
+        for x in first.x()..=last.x() {
+            for z in first.z()..=last.z() {
+                if let Some(cell) =
+                    temple_member_overlap_in_chunk(registries, state, ChunkCoord::new(x, z), bounds)
+                {
+                    return Some(cell);
+                }
+            }
+        }
+    } else {
+        for chunk in state.world().chunks() {
+            let coord = chunk.coord();
+            if coord.x() < first.x()
+                || coord.x() > last.x()
+                || coord.z() < first.z()
+                || coord.z() > last.z()
+            {
+                continue;
+            }
+            if let Some(cell) = temple_member_overlap_in_chunk(registries, state, coord, bounds) {
                 return Some(cell);
             }
         }
-        let archivist = super::temple_archivist::archivist_position(
-            archivist,
-            state
-                .kobold_state()
-                .temple_archivist_step(ChunkCoord::containing(post)),
-        )?;
-        for dx in 0..=1 {
-            for dy in 0..=2 {
-                for dz in 0..=1 {
-                    let cell = VoxelCoord::new(
-                        archivist.x().checked_add(dx)?,
-                        archivist.y().checked_add(dy)?,
-                        archivist.z().checked_sub(dz)?,
-                    );
-                    if bounds.has_voxel(cell) {
-                        return Some(cell);
-                    }
+    }
+    None
+}
+
+fn temple_member_overlap_in_chunk(
+    registries: &Registries,
+    state: &AppState,
+    chunk: ChunkCoord,
+    bounds: VoxelBounds,
+) -> Option<VoxelCoord> {
+    let x = chunk.world_min_x()?.checked_add(8)?;
+    let z = chunk.world_min_z()?.checked_add(8)?;
+    let observer = VoxelCoord::new(x, -19, z);
+    let [post, archivist] = crate::world::temple_residents_at(registries, state, observer)?;
+    let step = state.kobold_state().temple_warden_step(chunk);
+    let warden = crate::world::temple_warden_route_at(registries, state, post)
+        .and_then(|route| warden_position(route, step))?;
+    for dy in 0..=1 {
+        let cell = VoxelCoord::new(warden.x(), warden.y().checked_add(dy)?, warden.z());
+        if bounds.has_voxel(cell) {
+            return Some(cell);
+        }
+    }
+    let archivist = super::temple_archivist::archivist_position(
+        archivist,
+        state.kobold_state().temple_archivist_step(chunk),
+    )?;
+    for dx in 0..=1 {
+        for dy in 0..=2 {
+            for dz in 0..=1 {
+                let cell = VoxelCoord::new(
+                    archivist.x().checked_add(dx)?,
+                    archivist.y().checked_add(dy)?,
+                    archivist.z().checked_sub(dz)?,
+                );
+                if bounds.has_voxel(cell) {
+                    return Some(cell);
                 }
             }
         }
