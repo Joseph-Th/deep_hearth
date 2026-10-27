@@ -185,6 +185,12 @@ def wilderness_worksite_player_experience(lines: list[str]) -> str | None:
     provision = _one_seeded(lines, "PLAYER PROJECT PROVISION ", _required(record, "seed"))
     if provision is None:
         raise ValueError("worksite project lost its direct-control provisions")
+    payoff = _one_seeded(lines, "PLAYER WORKSITE PAYOFF ", _required(record, "seed"))
+    if payoff is None:
+        raise ValueError("worksite project lost the same-actor productive food-cache continuation")
+    priority = _one_seeded(lines, "PLAYER PRIORITY CHOICE ", _required(record, "seed"))
+    if priority is None:
+        raise ValueError("worksite project lost its actually executed food-first alternative")
     if (
         _required(provision, "evidence") != "generated-direct-control"
         or _required(provision, "automatic-other-source") != "false"
@@ -270,6 +276,72 @@ def wilderness_worksite_player_experience(lines: list[str]) -> str | None:
         or f"pre-work-fire:{choice}" not in _required(witness, "choice")
     ):
         raise ValueError("worksite project failed to establish an earned preparation tradeoff")
+    if (
+        _required(payoff, "continuity") != "one-actor-after-casting-bed"
+        or _required(payoff, "action")
+        != "[gather-timber>shape-boards>join-box>same-berry-expedition>store-real-provisions>recover-food]"
+        or _required(payoff, "counterfactual")
+        != "equal-clock-matched-berry-trip-but-no-box"
+        or _required(payoff, "metal-produced") != "0"
+        or _required(payoff, "custody") != "conserved"
+        or _required(payoff, "replay") != "exact"
+        or _required(payoff, "after-observation") != "120t"
+    ):
+        raise ValueError("worksite cache evidence must describe actual matched player continuation")
+    box_ticks, box_wood = _capture(
+        _required(payoff, "investment"),
+        r"extra-attention:(\d+)t timber:(\d+)mg",
+        "box project resource and attention expense",
+    )
+    stored_nuts, stored_berries, recovered_berries, preserve = _capture(
+        _required(payoff, "result"),
+        r"stored-nuts:(\d+)mg stored-berries:(\d+)mg recovered-berries:(\d+)mg container:rough-timber-field-box preservation:(\d+)ppm",
+        "embodied worksite provisions",
+    )
+    nut_box, nut_carried, berry_box, berry_carried = _capture(
+        _required(payoff, "age"),
+        r"nuts-boxed:(\d+)parts nuts-carried:(\d+)parts berries-boxed:(\d+)parts berries-carried:(\d+)parts",
+        "observed physical age of matched real food",
+    )
+    nut_saved = int(nut_carried) - int(nut_box)
+    berry_saved = int(berry_carried) - int(berry_box)
+    if (
+        not 0 < int(box_ticks)
+        or not 0 < int(box_wood)
+        or int(stored_nuts) != int(picked)
+        or int(stored_berries) <= int(stored_nuts)
+        or int(recovered_berries) != int(stored_berries)
+        or int(preserve) <= 1_000_000
+        or not 0 < nut_saved <= 120_000_000
+        or not 0 < berry_saved <= 120_000_000
+        or nut_saved != berry_saved
+    ):
+        raise ValueError("worksite cache produced no physically earned food-preservation benefit")
+    if (
+        _required(priority, "observation")
+        != "[local-molten-metal:none local-melting-provider:none]"
+        or _required(priority, "priority") != "protect-actual-food-before-inert-foundry"
+        or _required(priority, "action")
+        != "[finite-fire>timber-box>same-berry-expedition>recover-real-food]"
+        or _required(priority, "unresolved") != "metal-production"
+        or _required(priority, "custody") != "conserved"
+        or _required(priority, "replay") != "exact"
+    ):
+        raise ValueError("worksite priority claim lost actor-observed constraints or real action")
+    found, food_first, metal_first = _capture(
+        _required(priority, "payoff"),
+        r"recovered-berries:(\d+)mg first-security:(\d+)t bed-first-security:(\d+)t",
+        "executed food-first and metal-first chronology",
+    )
+    delay, = _capture(
+        priority, r"\bextra-workshop-delay=(\d+)t", "time cost of premature metal work"
+    )
+    if (
+        int(found) != int(recovered_berries)
+        or not 0 < int(food_first) < int(metal_first)
+        or int(metal_first) - int(food_first) != int(delay)
+    ):
+        raise ValueError("food-first alternative did not earn its earlier useful outcome")
     return (
         "PLAYER EXPERIENCE worksite-project goal=specified-not-discovered "
         f"provision=[selected-protein:{_kg(picked)} left-in-world:{_kg(left)} "
@@ -282,6 +354,12 @@ def wilderness_worksite_player_experience(lines: list[str]) -> str | None:
         f"local-ecology=[food-fire:{_kg(fire_nuts)} exposed:{_kg(exposed_nuts)} "
         f"scout-difference:{int(fire_nuts) - int(exposed_nuts)}mg] "
         "defer=[no-service-on-pristine-machine] "
+        f"usable-payoff=[box-time:{box_ticks}t timber:{_kg(box_wood)} "
+        f"stored:{_kg(stored_nuts)}-nuts+{_kg(stored_berries)}-berries "
+        f"recovered:{_kg(recovered_berries)}-berries preservation:{preserve}ppm "
+        f"saved-age:{berry_saved / 1_000_000:.1f}t/120t] "
+        f"priority=[food-first:{food_first}t bed-first:{metal_first}t "
+        f"saved:{delay}t before-metal-feed] "
         "outcome=[station:9.6kg metal-produced:0 next:molten-metal]"
     )
 

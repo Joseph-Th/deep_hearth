@@ -2,10 +2,242 @@
 
 use super::*;
 use deep_hearth::content::{
-    EQUIPMENT_CLAY_FACED_STONE_CASTING_BED, FORM_PACKED_CLAY_BINDER, MATERIAL_CLAY,
-    PROCESS_PACK_CLAY_BINDER,
+    EQUIPMENT_CLAY_FACED_STONE_CASTING_BED, FORM_MOLTEN, FORM_PACKED_CLAY_BINDER,
+    FORM_ROUGH_BOX_BODY, MATERIAL_CLAY, MATERIAL_COPPER, PROCESS_PACK_CLAY_BINDER,
+    STORAGE_ROUGH_TIMBER_FIELD_BOX,
 };
+use deep_hearth::logistics::validate_quick_move_player_stack;
 use deep_hearth::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+
+#[derive(Clone, Copy)]
+struct CachePayoff {
+    attention_ticks: u64,
+    secured_at: SimulationTick,
+    nuts_mass: Mass,
+    berries_mass: Mass,
+    nuts_preserved_age_parts: u128,
+    nuts_exposed_age_parts: u128,
+    berries_preserved_age_parts: u128,
+    berries_exposed_age_parts: u128,
+    preservation_ppm: u32,
+    recovered_berries: Mass,
+}
+
+/// A continuation of the *same* generated player, with an actual outcome
+/// from primitive production. The no-box alternative waits through the extra
+/// construction, then carries out the *same* physical berry trip at the
+/// *same* time. No work or preservation is silently given to the comparator.
+fn exercise_productive_food_cache(
+    registries: &Registries,
+    state: &AppState,
+    junction: VoxelCoord,
+    forage: VoxelCoord,
+    carried: StockpileId,
+    nuts: CommodityKey,
+    berries: CommodityKey,
+    timber: CommodityKey,
+    nuts_mass: Mass,
+    conserved: deep_hearth::core::quantity::AggregateMass,
+) -> CachePayoff {
+    let mut built = state.clone();
+    let mut exposed = state.clone();
+    let began = built.tick();
+    let timber_source = available_adjacent_surface_resources(&built)
+        .find(|source| source.commodity() == timber)
+        .unwrap_or_else(|| panic!("worksite cannot discover its remaining finite timber"));
+    walk_continuous_body_adjacent_and_settle(
+        registries,
+        &mut built,
+        timber_source.position(),
+        "worksite box material approach",
+    );
+    gather_in_batches(
+        registries,
+        &mut built,
+        timber_source.resource(),
+        Mass::from_milligrams(2_000_000),
+        "worksite box logs",
+    );
+    walk_continuous_body_adjacent_and_settle(
+        registries,
+        &mut built,
+        junction,
+        "worksite box return",
+    );
+    craft_in_place(
+        registries,
+        &mut built,
+        timber,
+        CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+        2,
+        "worksite box boards",
+    );
+    craft_in_place(
+        registries,
+        &mut built,
+        CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+        CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
+        1,
+        "worksite box joinery",
+    );
+    let box_stockpile =
+        validate_place_player_storage(registries, &built, STORAGE_ROUGH_TIMBER_FIELD_BOX)
+            .unwrap_or_else(|error| panic!("worksite box placement rejected: {error}"))
+            .commit(&mut built)
+            .unwrap_or_else(|error| panic!("worksite box placement failed: {error}"));
+    let construction_ticks = built.tick().value() - began.value();
+    assert!(construction_ticks > 0);
+    // Construction takes actual player time in only one branch. Both then
+    // gather exactly the same berry mass, from their own finite local parcel.
+    advance_to(
+        registries,
+        &mut exposed,
+        built.tick(),
+        TickEventAllowance::default(),
+        "uncached food comparator construction horizon",
+    );
+    let berries_mass = Mass::from_milligrams(2_000_000);
+    let gather_started = built.tick();
+    for (branch, label) in [
+        (&mut built, "preservation expedition"),
+        (&mut exposed, "unprotected same-food expedition"),
+    ] {
+        walk_continuous_body_adjacent_and_settle(registries, branch, forage, label);
+        let berries_source = local_surface_resource(branch, berries);
+        gather_in_batches(registries, branch, berries_source, berries_mass, label);
+        walk_continuous_body_adjacent_and_settle(registries, branch, junction, label);
+        assert_eq!(
+            branch
+                .inventory()
+                .get_stockpile(carried)
+                .map(|pile| pile.get_mass(berries)),
+            Some(berries_mass),
+            "both actors must perform real timed berry gathering"
+        );
+    }
+    assert_eq!(
+        built.tick(),
+        exposed.tick(),
+        "equal acquired food must require the same real movement and gathering work"
+    );
+    let forage_ticks = built.tick().value() - gather_started.value();
+    assert!(forage_ticks > 0);
+    for (commodity, mass) in [(nuts, nuts_mass), (berries, berries_mass)] {
+        let food_stack = project_material_stacks(registries, &built, carried)
+            .unwrap_or_else(|error| panic!("worksite food projection failed: {error}"))
+            .into_iter()
+            .find(|stack| stack.commodity() == commodity)
+            .unwrap_or_else(|| panic!("physically gathered ration disappeared"));
+        assert_eq!(food_stack.mass(), mass);
+        validate_drop_stack_to_ground(registries, &built, box_stockpile, &food_stack, mass)
+            .unwrap_or_else(|error| panic!("worksite food storage rejected: {error}"))
+            .commit(&mut built)
+            .unwrap_or_else(|error| panic!("worksite food custody failed: {error}"));
+        assert_eq!(
+            built
+                .inventory()
+                .get_stockpile(box_stockpile)
+                .map(|pile| pile.get_mass(commodity)),
+            Some(mass),
+            "crafted box must own each actual carried ration"
+        );
+    }
+    let secured_at = built.tick();
+    let observation = built
+        .tick()
+        .checked_add_span(TickSpan::new(120))
+        .unwrap_or_else(|| panic!("worksite food comparison exceeded world clock"));
+    for (branch, label) in [
+        (&mut built, "food stored in worksite box"),
+        (&mut exposed, "food retained without worksite box"),
+    ] {
+        advance_to(
+            registries,
+            branch,
+            observation,
+            TickEventAllowance::default(),
+            label,
+        );
+        assert_eq!(
+            calculate_matter_accounting(branch).unwrap().total(),
+            conserved
+        );
+        assert_eq!(validate_loaded_state(registries, branch), Ok(()));
+    }
+    let age = |state: &AppState, stockpile: StockpileId, commodity: CommodityKey| {
+        project_material_stacks(registries, state, stockpile)
+            .unwrap_or_else(|error| panic!("worksite food age projection failed: {error}"))
+            .into_iter()
+            .find(|stack| stack.commodity() == commodity)
+            .unwrap_or_else(|| panic!("worksite age comparison lost its ration"))
+            .ambient_storage_age_parts()
+    };
+    let nuts_preserved_age_parts = age(&built, box_stockpile, nuts);
+    let nuts_exposed_age_parts = age(&exposed, carried, nuts);
+    let berries_preserved_age_parts = age(&built, box_stockpile, berries);
+    let berries_exposed_age_parts = age(&exposed, carried, berries);
+    assert!(
+        nuts_preserved_age_parts < nuts_exposed_age_parts
+            && berries_preserved_age_parts < berries_exposed_age_parts,
+        "crafted storage must protect both the original small ration and the same later berry haul"
+    );
+    let preservation_ppm = built
+        .inventory()
+        .get_stockpile(box_stockpile)
+        .unwrap()
+        .storage_profile()
+        .preservation_multiplier_ppm();
+    assert!(preservation_ppm > 1_000_000);
+    // The stored harvest is not an abstract positive shelf-life number.
+    // Recover it through the actual nearby-container stack gesture and check
+    // that the preserved material age is carried forward without resetting.
+    let boxed_berries = project_material_stacks(registries, &built, box_stockpile)
+        .unwrap_or_else(|error| panic!("worksite cached-berry recovery projection failed: {error}"))
+        .into_iter()
+        .find(|stack| stack.commodity() == berries)
+        .unwrap_or_else(|| panic!("cached harvest disappeared before recovery"));
+    assert_eq!(boxed_berries.mass(), berries_mass);
+    let recovered_berries =
+        validate_quick_move_player_stack(registries, &built, &boxed_berries, carried)
+            .unwrap_or_else(|error| panic!("worksite cached harvest quick-move rejected: {error}"))
+            .commit(&mut built)
+            .unwrap_or_else(|error| panic!("worksite preserved harvest recovery failed: {error}"))
+            .mass();
+    assert_eq!(recovered_berries, berries_mass);
+    assert_eq!(
+        age(&built, carried, berries),
+        berries_preserved_age_parts,
+        "taking food from its protective box must preserve its actual prior aging"
+    );
+    assert_eq!(
+        built
+            .inventory()
+            .get_stockpile(box_stockpile)
+            .map(|pile| pile.get_mass(nuts)),
+        Some(nuts_mass),
+        "remaining preserved nuts must stay in the physical box"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&built).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(registries, &built), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(registries, &built)).unwrap();
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&saved).unwrap();
+    assert_eq!(loaded.into_state(registries), Ok(built));
+    CachePayoff {
+        attention_ticks: construction_ticks,
+        secured_at,
+        nuts_mass,
+        berries_mass,
+        nuts_preserved_age_parts,
+        nuts_exposed_age_parts,
+        berries_preserved_age_parts,
+        berries_exposed_age_parts,
+        preservation_ppm,
+        recovered_berries,
+    }
+}
 
 #[derive(Clone, Copy)]
 struct CastingBedPlan {
@@ -132,8 +364,19 @@ fn complete_casting_bed_project(
 }
 
 pub(super) fn exercise_generated_clay_casting_bed(report: bool) {
+    exercise_generated_clay_casting_bed_for_seed(WILDERNESS_WORLD_SEED, report);
+    if !report {
+        // Keep the canonical wilderness target as one executable whole-opening
+        // contract. Its ordinary non-report run also proves that this behavior
+        // works beyond the hand-maintained seed, with no staged supplies.
+        for seed in [0x434C_4159_5749_4C44, 0x4C4F_4341_4C5F_4644] {
+            exercise_generated_clay_casting_bed_for_seed(WorldGenerationSeed::new(seed), false);
+        }
+    }
+}
+
+fn exercise_generated_clay_casting_bed_for_seed(seed: WorldGenerationSeed, report: bool) {
     let registries = build_registries();
-    let seed = WILDERNESS_WORLD_SEED;
     let mut state = AppState::new();
     let spawn = generated_wilderness_surface_spawn(&registries, &mut state, seed);
     validate_generate_initial_wilderness(&registries, &state, seed, spawn)
@@ -412,6 +655,23 @@ pub(super) fn exercise_generated_clay_casting_bed(report: bool) {
     let projected_work_floor = crafting_floor + gathering_floor;
     // Travel and interaction admission only increase this lower bound.
     let prepare_fire = projected_work_floor >= initial_warmth_runway;
+    // Capture a real player alternative *before* agreeing to a heavy machine
+    // whose immediate thermal feed and power train are not locally available.
+    // The observer can pursue food security first, leaving the casting bed
+    // as a disclosed future project instead of mandatory opening busywork.
+    let pragmatic_start = state.clone();
+    assert!(
+        pragmatic_start.available_local_equipment().next().is_none(),
+        "deferred machinery choice requires no locally usable melting equipment"
+    );
+    assert_eq!(
+        pragmatic_start
+            .inventory()
+            .get_stockpile(carried)
+            .map(|pile| pile.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN))),
+        Some(Mass::ZERO),
+        "food-first choice cannot conceal an immediately available molten-copper feed"
+    );
     // Run the matched alternative even when another seed or retuning makes
     // pre-work fire unnecessary. The actor's *choice* is this observed
     // forecast, not an evaluator demand that every world need a fire.
@@ -559,6 +819,43 @@ pub(super) fn exercise_generated_clay_casting_bed(report: bool) {
         *chosen_state,
         "chosen fire preparation and physically built workstation must persist exactly"
     );
+    let cache = exercise_productive_food_cache(
+        &registries,
+        chosen_state,
+        junction,
+        forage.position(),
+        carried,
+        CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        timber,
+        selected_nuts,
+        matter_before,
+    );
+    let mut food_first = pragmatic_start;
+    let food_first_started_at = food_first.tick();
+    let _ = mobile_continuation::build_scout_warding_fire(&registries, &mut food_first, junction);
+    let food_first_cache = exercise_productive_food_cache(
+        &registries,
+        &food_first,
+        junction,
+        forage.position(),
+        carried,
+        CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        timber,
+        selected_nuts,
+        matter_before,
+    );
+    assert_eq!(
+        food_first_cache.berries_mass, cache.berries_mass,
+        "early food security and advanced workshop must secure identical harvests"
+    );
+    let first_food_elapsed = food_first_cache.secured_at.value() - food_first_started_at.value();
+    let workshop_food_elapsed = cache.secured_at.value() - project_start.value();
+    assert!(
+        first_food_elapsed < workshop_food_elapsed,
+        "without locally available molten metal, prioritizing usable food security must beat assembling the idle casting bed first"
+    );
     if report {
         let final_reserves = assess_survival(&registries, chosen_state)
             .unwrap_or_else(|| panic!("clay project final survival assessment missing"));
@@ -623,6 +920,27 @@ pub(super) fn exercise_generated_clay_casting_bed(report: bool) {
             nuts_before.milligrams(),
             nuts_prepared.milligrams(),
             nuts_exposed.milligrams(),
+        );
+        std::println!(
+            "PLAYER WORKSITE PAYOFF seed=0x{:016X} episode=coverage/rested/clay-worksite continuity=one-actor-after-casting-bed action=[gather-timber>shape-boards>join-box>same-berry-expedition>store-real-provisions>recover-food] investment=[extra-attention:{}t timber:2000000mg] result=[stored-nuts:{}mg stored-berries:{}mg recovered-berries:{}mg container:rough-timber-field-box preservation:{}ppm] after-observation=120t age=[nuts-boxed:{}parts nuts-carried:{}parts berries-boxed:{}parts berries-carried:{}parts] counterfactual=equal-clock-matched-berry-trip-but-no-box metal-produced=0 custody=conserved replay=exact",
+            seed.value(),
+            cache.attention_ticks,
+            cache.nuts_mass.milligrams(),
+            cache.berries_mass.milligrams(),
+            cache.recovered_berries.milligrams(),
+            cache.preservation_ppm,
+            cache.nuts_preserved_age_parts,
+            cache.nuts_exposed_age_parts,
+            cache.berries_preserved_age_parts,
+            cache.berries_exposed_age_parts,
+        );
+        std::println!(
+            "PLAYER PRIORITY CHOICE seed=0x{:016X} episode=coverage/rested/clay-worksite observation=[local-molten-metal:none local-melting-provider:none] priority=protect-actual-food-before-inert-foundry action=[finite-fire>timber-box>same-berry-expedition>recover-real-food] payoff=[recovered-berries:{}mg first-security:{}t bed-first-security:{}t] extra-workshop-delay={}t unresolved=metal-production custody=conserved replay=exact",
+            seed.value(),
+            food_first_cache.recovered_berries.milligrams(),
+            first_food_elapsed,
+            workshop_food_elapsed,
+            workshop_food_elapsed - first_food_elapsed,
         );
     }
 }
