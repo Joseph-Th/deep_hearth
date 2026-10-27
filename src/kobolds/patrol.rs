@@ -34,7 +34,7 @@ use super::{
     SCOUT_WARY_INTERVAL_TICKS,
 };
 
-use raid::{choose_outbound_detour, scout_raid_interest};
+use raid::{ScoutRaidInterest, choose_outbound_detour, scout_raid_interest};
 
 pub(super) fn scout_can_enter(
     registries: &Registries,
@@ -151,7 +151,7 @@ fn plan_scout_move(
     state: &AppState,
     colony: &KoboldColony,
     context: ScoutPatrolContext,
-    raid_interest: (bool, Option<(VoxelCoord, Option<VoxelCoord>)>),
+    raid_interest: ScoutRaidInterest,
 ) -> ScoutMovePlan {
     let ScoutPatrolContext {
         from,
@@ -161,7 +161,11 @@ fn plan_scout_move(
         player_position,
         pressured,
     } = context;
-    let (exposed_at_current, inherited_target) = raid_interest;
+    let ScoutRaidInterest {
+        exposed_at_current,
+        inherited_target,
+        preferred_forage,
+    } = raid_interest;
     let wary_at_den = colony.scout_step == 0
         && !pressured
         && colony.wary_until.is_some_and(|until| next_tick < until);
@@ -178,6 +182,7 @@ fn plan_scout_move(
         proposed_step,
         proposed_returning,
         inherited_target,
+        preferred_forage,
     );
     let proposed_position = proposed_detour.map_or_else(
         || colony.position_at_step(proposed_step),

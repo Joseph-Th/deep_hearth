@@ -181,6 +181,133 @@ fn scout_skips_older_spoiled_patch_and_forages_fresh_food_at_same_junction() {
 }
 
 #[test]
+fn hungry_scout_seeks_a_full_visible_ration_instead_of_a_junction_crumb() {
+    let (registries, mut state, route) = setup();
+    let sources = seed(
+        &registries,
+        &mut state,
+        [
+            forage_spec(
+                &registries,
+                route.junction,
+                MATERIAL_BERRIES,
+                Mass::from_milligrams(1_000),
+                None,
+            ),
+            forage_spec(
+                &registries,
+                route.side,
+                MATERIAL_WILD_NUTS,
+                Mass::from_milligrams(300_000),
+                None,
+            ),
+        ],
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 585);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route.side,
+        "a hungry scout should not spend its full forage cooldown on a 1 g crumb with a visible meal nearby"
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for _ in 0..15 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(sources[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_000)
+    );
+    assert_eq!(
+        state.surface().get(sources[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(200_000)
+    );
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        20_000
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn a_sufficient_junction_meal_takes_priority_over_a_larger_side_patch() {
+    let (registries, mut state, route) = setup();
+    let sources = seed(
+        &registries,
+        &mut state,
+        [
+            forage_spec(
+                &registries,
+                route.junction,
+                MATERIAL_BERRIES,
+                Mass::from_milligrams(25_000),
+                None,
+            ),
+            forage_spec(
+                &registries,
+                route.side,
+                MATERIAL_WILD_NUTS,
+                Mass::from_milligrams(300_000),
+                None,
+            ),
+        ],
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 585);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route.den,
+        "a complete nearby ration should avoid the extra side-trip"
+    );
+    assert_eq!(
+        state.surface().get(sources[0]).unwrap().remaining_mass(),
+        Mass::ZERO
+    );
+    assert_eq!(
+        state.surface().get(sources[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(300_000)
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries),
+        Ok(state.clone())
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn spoiled_junction_food_does_not_hide_fresh_neighboring_forage() {
     let (registries, mut state, route) = setup();
     let portion = Mass::from_milligrams(300_000);

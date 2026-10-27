@@ -20,6 +20,76 @@ use super::super::visibility::scout_visible_from;
 use super::super::{KoboldColony, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_MEAL_MASS};
 use super::{ScoutPatrolContext, scout_can_enter, scout_sees_guarded_cell};
 
+/// One scout observation shared between turn-home and detour decisions.
+/// Preserve the chosen visible forage route rather than independently searching
+/// and potentially contradicting the earlier local-food decision.
+#[derive(Clone, Copy)]
+pub(super) struct ScoutRaidInterest {
+    pub(super) exposed_at_current: bool,
+    pub(super) inherited_target: Option<(VoxelCoord, Option<VoxelCoord>)>,
+    pub(super) preferred_forage: Option<(VoxelCoord, Option<VoxelCoord>)>,
+}
+
+/// Choose a larger observed ration only when nearby food is insufficient.
+/// Comparing actual transferable portions prevents one tiny patch from consuming
+/// the full forage cooldown while a reachable full serving goes untouched.
+fn preferred_hungry_forage(
+    registries: &Registries,
+    state: &AppState,
+    colony: &KoboldColony,
+    context: ScoutPatrolContext,
+) -> Option<(VoxelCoord, Option<VoxelCoord>)> {
+    let ScoutPatrolContext {
+        from,
+        den_space,
+        forage_ready,
+        at,
+        player_position,
+        pressured,
+    } = context;
+    if pressured
+        || !colony.hungry
+        || colony.scout_step != 1
+        || colony.returning
+        || !forage_ready
+        || den_space.is_zero()
+    {
+        return None;
+    }
+    let maximum_mass = colony.forage_batch().min(den_space);
+    let local_forage =
+        best_local_forage(registries, state, from, at, maximum_mass).map(|(mass, _)| mass);
+    let local_drop = local_portable_source(
+        registries,
+        state,
+        from,
+        den_space,
+        at,
+        true,
+        colony.mobilized_at.is_some(),
+    )
+    .and_then(|id| state.surface().get(id))
+    .map(|resource| resource.remaining_mass());
+    let nearby = local_forage.into_iter().chain(local_drop).max()?;
+    let shortage = SCOUT_MEAL_MASS
+        .checked_sub(colony.partial_meal)
+        .expect("trusted resident's partial meal is below one serving");
+    if nearby >= shortage {
+        return None;
+    }
+    let chosen = reachable_detour_food(
+        registries,
+        state,
+        ScavengeRoute::new(colony.route, player_position),
+        at,
+        maximum_mass,
+        shortage,
+    )?;
+    let goal = chosen.1.unwrap_or(chosen.0);
+    let far = best_local_forage(registries, state, goal, at, maximum_mass)?.0;
+    (far > nearby).then_some(chosen)
+}
+
 /// Determine whether a den's expelled inert parcel should be ignored in
 /// favor of a reachable piece of inherited machinery. The indexed target is
 /// then reused by movement planning, avoiding repeated two-edge searches.
@@ -28,7 +98,7 @@ pub(super) fn scout_raid_interest(
     state: &AppState,
     colony: &KoboldColony,
     context: ScoutPatrolContext,
-) -> (bool, Option<(VoxelCoord, Option<VoxelCoord>)>) {
+) -> ScoutRaidInterest {
     let ScoutPatrolContext {
         from,
         den_space: capacity,
@@ -54,6 +124,7 @@ pub(super) fn scout_raid_interest(
         .flatten();
     let local_food = colony.hungry
         && has_local_scout_interest(registries, state, from, capacity, forage_ready, at, true);
+    let preferred_forage = preferred_hungry_forage(registries, state, colony, context);
     // A shaped striker on the authored outer patrol is a real salvage goal too.
     // A fed kobold bypasses nearer inert rock only while the part is still
     // visible, den-fitting, physically reachable, unguarded, and unlit.
@@ -115,8 +186,13 @@ pub(super) fn scout_raid_interest(
             && !useful_iron_at_tip
             && !missing_tool_at_tip)
             || local_food)
-        && !continue_to_planned_far_raid(registries, state, colony, context);
-    (exposed, inherited_target)
+        && !continue_to_planned_far_raid(registries, state, colony, context)
+        && preferred_forage.is_none();
+    ScoutRaidInterest {
+        exposed_at_current: exposed,
+        inherited_target,
+        preferred_forage,
+    }
 }
 
 /// Repair priority requires a visible, reachable physical part on the patrol.
@@ -280,6 +356,7 @@ pub(super) fn choose_outbound_detour(
     step: u8,
     returning: bool,
     inherited_target: Option<(VoxelCoord, Option<VoxelCoord>)>,
+    preferred_forage: Option<(VoxelCoord, Option<VoxelCoord>)>,
 ) -> Option<(VoxelCoord, Option<VoxelCoord>)> {
     if step != 2 || returning || colony.scout_step != 1 {
         return None;
@@ -315,6 +392,7 @@ pub(super) fn choose_outbound_detour(
         // Food first, then the remembered machine-service salvage priority.
         // Ordinary nearby scraps remain available when neither is reachable.
         loose_cache(true)
+            .or(preferred_forage)
             .or_else(wild_food)
             .or_else(inherited_salvage)
             .or_else(|| loose_cache(false))
