@@ -387,6 +387,51 @@ def wilderness_worksite_player_experience(lines: list[str]) -> str | None:
         or not berry_saved // 1_000_000 < int(metal_saved) <= 120
     ):
         raise ValueError("first-metal branch did not earn distinct finite metal and food preservation")
+    metal_tool = _one_seeded(lines, "PLAYER COPPER TOOL ", _required(record, "seed"))
+    if metal_tool is None:
+        raise ValueError("worksite project lost its executed alternative first-metal tool investment")
+    if (
+        _required(metal_tool, "alternative") != "same-opening-before-copper"
+        or _required(metal_tool, "goal") != "prepare-roof-panel-stock"
+        or _required(metal_tool, "allocation") != "metal-tool-not-crock"
+        or _required(metal_tool, "source") != "[native-copper:20000mg]"
+        or _required(metal_tool, "matter") != "conserved"
+        or _required(metal_tool, "replay") != "exact"
+    ):
+        raise ValueError("first-metal tool evidence lost its actor or conservation contract")
+    tool_prep, = _capture(
+        _required(metal_tool, "investment"),
+        r"extra-acquisition:(\d+)t",
+        "finite-copper tool acquisition",
+    )
+    lumber_mass, roof_mass, lumber_batches, stone_work, copper_work = _capture(
+        _required(metal_tool, "matched"),
+        r"boards:(\d+)mg roof-demand:(\d+)mg batches:(\d+) stone-work:(\d+)t copper-work:(\d+)t",
+        "identical, fully executed woodworking orders",
+    )
+    stone_total, copper_total = _capture(
+        _required(metal_tool, "realized"),
+        r"stone-complete:(\d+)t copper-complete:(\d+)t",
+        "full attention cost from the same upgrade decision",
+    )
+    stone_condition, copper_condition = _capture(
+        _required(metal_tool, "wear"),
+        r"stone:(\d+)ppm copper:(\d+)ppm",
+        "remaining real tool condition",
+    )
+    tool_savings = int(stone_total) - int(copper_total)
+    if (
+        not 0 < int(tool_prep) < int(stone_work)
+        or not 0 < int(lumber_batches)
+        or int(lumber_mass) != 800_000 * int(lumber_batches)
+        or not 0 < int(roof_mass) <= int(lumber_mass)
+        or not 0 < int(copper_work) < int(stone_work)
+        or int(stone_total) != int(stone_work)
+        or int(copper_total) != int(tool_prep) + int(copper_work)
+        or tool_savings <= 0
+        or not 0 < int(stone_condition) < int(copper_condition) <= 1_000_000
+    ):
+        raise ValueError("first-metal tool did not repay its actual copper investment on matched boards")
     return (
         "PLAYER EXPERIENCE worksite-project goal=specified-not-discovered "
         f"provision=[selected-protein:{_kg(picked)} left-in-world:{_kg(left)} "
@@ -408,6 +453,9 @@ def wilderness_worksite_player_experience(lines: list[str]) -> str | None:
         f"first-metal=[native-float:{_kg(source_before)} took:{_kg(metal_mass)} "
         f"crock-security:{metal_ticks}t vs-wood:{basic_ticks}t cost-extra:{premium_delay}t "
         f"saved-age:{metal_saved}t/120t vs-wood:{berry_saved / 1_000_000:.1f}t/120t smelted:0] "
+        f"first-metal-tool=[copper:0.02kg cover-stock:{_kg(lumber_mass)}/{_kg(roof_mass)} "
+        f"setup:{tool_prep}t shape:{stone_work}t-vs:{copper_work}t "
+        f"net-saved:{tool_savings}t condition:{stone_condition}-vs:{copper_condition}ppm] "
         "outcome=[station:9.6kg metal-produced:0 next:molten-metal]"
     )
 

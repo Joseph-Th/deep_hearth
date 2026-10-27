@@ -3356,7 +3356,17 @@ class GameplayReportContractTests(unittest.TestCase):
             "comparison=[timber-box:1750000ppm security-elapsed:225t extra-copper-route:149t] "
             "smelted-metal=0 matter=conserved replay=exact"
         )
-        records = [witness, project, provision, payoff, priority, first_metal]
+        metal_tool = (
+            "PLAYER COPPER TOOL seed=0xA episode=coverage/rested/clay-worksite "
+            "alternative=same-opening-before-copper goal=prepare-roof-panel-stock "
+            "allocation=metal-tool-not-crock "
+            "source=[native-copper:20000mg] investment=[extra-acquisition:49t] "
+            "matched=[boards:7200000mg roof-demand:6500000mg batches:9 "
+            "stone-work:250t copper-work:125t] "
+            "realized=[stone-complete:250t copper-complete:174t] "
+            "wear=[stone:750000ppm copper:875000ppm] matter=conserved replay=exact"
+        )
+        records = [witness, project, provision, payoff, priority, first_metal, metal_tool]
         summary = gameplay_report_summary.wilderness_worksite_player_experience(records)
         self.assertIsNotNone(summary)
         assert summary is not None
@@ -3375,6 +3385,7 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("metal-produced:0 next:molten-metal", summary)
         self.assertIn("priority=[food-first:245t bed-first:461t saved:216t before-metal-feed]", summary)
         self.assertIn("first-metal=[native-float:0.10kg took:0.04kg crock-security:374t vs-wood:225t cost-extra:149t saved-age:96t/120t vs-wood:51.4t/120t smelted:0]", summary)
+        self.assertIn("first-metal-tool=[copper:0.02kg cover-stock:7.20kg/6.50kg setup:49t shape:250t-vs:125t net-saved:76t condition:750000-vs:875000ppm]", summary)
         with self.assertRaisesRegex(ValueError, "earned preparation tradeoff"):
             gameplay_report_summary.wilderness_worksite_player_experience([
                 witness, project.replace("same-acquisition-and-crafting:216t", "same-acquisition-and-crafting:10t"), provision, payoff, priority
@@ -3445,18 +3456,38 @@ class GameplayReportContractTests(unittest.TestCase):
             ])
         with self.assertRaisesRegex(ValueError, "distinct finite metal and food preservation"):
             gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-1],
+                *records[:-2],
                 first_metal.replace("float-after:61854mg", "float-after:101854mg"),
+                metal_tool,
             ])
         with self.assertRaisesRegex(ValueError, "distinct finite metal and food preservation"):
             gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-1],
+                *records[:-2],
                 first_metal.replace("saved-age:96t-per-120t", "saved-age:20t-per-120t"),
+                metal_tool,
             ])
         with self.assertRaisesRegex(ValueError, "physical cold-working"):
             gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-1],
+                *records[:-2],
                 first_metal.replace("smelted-metal=0", "smelted-metal=40000"),
+                metal_tool,
+            ])
+        with self.assertRaisesRegex(ValueError, "alternative first-metal tool investment"):
+            gameplay_report_summary.wilderness_worksite_player_experience(records[:-1])
+        with self.assertRaisesRegex(ValueError, "repay its actual copper investment"):
+            gameplay_report_summary.wilderness_worksite_player_experience([
+                *records[:-1],
+                metal_tool.replace("copper-complete:174t", "copper-complete:474t"),
+            ])
+        with self.assertRaisesRegex(ValueError, "repay its actual copper investment"):
+            gameplay_report_summary.wilderness_worksite_player_experience([
+                *records[:-1],
+                metal_tool.replace("boards:7200000mg", "boards:6200000mg"),
+            ])
+        with self.assertRaisesRegex(ValueError, "actor or conservation contract"):
+            gameplay_report_summary.wilderness_worksite_player_experience([
+                *records[:-1],
+                metal_tool.replace("alternative=same-opening-before-copper", "alternative=unmatched-fixture"),
             ])
 
     def test_fieldwork_player_experience_reports_actor_risk_and_delayed_consequence(self) -> None:

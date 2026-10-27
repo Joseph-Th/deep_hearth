@@ -9,6 +9,8 @@ use deep_hearth::content::{
 use deep_hearth::logistics::validate_quick_move_player_stack;
 use deep_hearth::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 
+#[path = "wilderness_copper_woodworking.rs"]
+mod copper_woodworking;
 #[path = "wilderness_native_copper.rs"]
 mod native_copper;
 
@@ -871,6 +873,20 @@ fn exercise_generated_clay_casting_bed_for_seed(seed: WorldGenerationSeed, repor
         copper_result.avoided_age_ticks > 51,
         "the copper-banded crock must preserve real food longer than the basic timber box"
     );
+    let woodworking = copper_woodworking::exercise_reinforced_adze_investment(
+        &registries,
+        &food_first,
+        copper_woodworking::WoodworkingRoute {
+            junction,
+            forage: forage.position(),
+            water: water_position,
+            outcrop: outcrop.position(),
+            stone: adjacent_surface_resource(&food_first, stone).position(),
+            timber: adjacent_surface_resource(&food_first, timber).position(),
+            carried,
+        },
+        matter_before,
+    );
     let basic_security_ticks = food_first_cache.secured_at.value() - food_first.tick().value();
     assert!(
         copper_result.project_ticks > basic_security_ticks,
@@ -985,6 +1001,20 @@ fn exercise_generated_clay_casting_bed_for_seed(seed: WorldGenerationSeed, repor
             food_first_cache.preservation_ppm,
             basic_security_ticks,
             copper_result.project_ticks - basic_security_ticks,
+        );
+        std::println!(
+            "PLAYER COPPER TOOL seed=0x{:016X} episode=coverage/rested/clay-worksite alternative=same-opening-before-copper goal=prepare-roof-panel-stock allocation=metal-tool-not-crock source=[native-copper:20000mg] investment=[extra-acquisition:{}t] matched=[boards:{}mg roof-demand:{}mg batches:{} stone-work:{}t copper-work:{}t] realized=[stone-complete:{}t copper-complete:{}t] wear=[stone:{}ppm copper:{}ppm] matter=conserved replay=exact",
+            seed.value(),
+            woodworking.copper_acquisition_ticks,
+            woodworking.board_mass.milligrams(),
+            woodworking.roof_panel_mass.milligrams(),
+            woodworking.batches,
+            woodworking.stone_board_ticks,
+            woodworking.copper_board_ticks,
+            woodworking.stone_total_ticks,
+            woodworking.copper_total_ticks,
+            woodworking.stone_condition_ppm,
+            woodworking.copper_condition_ppm,
         );
     }
 }
