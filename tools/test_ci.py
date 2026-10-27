@@ -3646,6 +3646,69 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("continuation=[chilly-after:10.7m provisioning:30t passive:8.9m roof-forecast:594t-vs-open:179t reacted:built-fire-at-199t", experienced)
         self.assertIn("alternative=[matched-early-fire-at:178t", experienced)
         self.assertIn("fuel-runway:1087t-vs-late:1108t", experienced)
+        lived = [
+            "PLAYER TEMPO seed=0x1 episode=maintained/rested/stay-mobile "
+            "opening-elapsed:1.3m self-chosen-provisions:1.8m "
+            "passive-until-next-pressure:8.9m (74% of elapsed-to-warning) "
+            "next-problem=chilly",
+            "PLAYER JOURNEY seed=0x1 episode=maintained/rested/stay-mobile "
+            "phase=self-directed-provisions "
+            "execution=[gather:250g energy:1750kJ return-to-spawn:true] "
+            "return-observation=[unattended-source-lost:100g recovered-visible-parcel:100g "
+            "chase-cost:2t source-after:485g prepared-fire-source-after:585g] "
+            "no-hidden-scout-forecast=true",
+            "PLAYER JOURNEY seed=0x1 episode=maintained/rested/stay-mobile "
+            "phase=engineering-payoff "
+            "intervention=[forecast-driven-fire fueled-before-discomfort:178t] "
+            "benefits=[comfortable:963500ppm food-source-protected:100g] "
+            "costs=[early-fire-runway:1087t vs-late:1108t] "
+            "comparison=[late-recovery:100g extra-travel:2t comfort:806000ppm] "
+            "cause=heat-light-deterrence-and-finite-provisions",
+            "PLAYER JOURNEY seed=0x1 episode=maintained/rested/stay-mobile "
+            "phase=observed-chill after-passive-exposure:8.9m "
+            "response=[reactive-fire:199t recovered:3t comfort:806000ppm no-fire:776000ppm] "
+            "alternative=[prepare-at:30t comfort:963500ppm remaining-fuel:1087t "
+            "vs-reactive:1108t] "
+            "tradeoff=prepare-early-for-warmth-or-react-later-to-save-fuel",
+        ]
+        lived_experience = gameplay_report_summary.wilderness_player_experience(
+            [opening, adaptation, *lived]
+        )
+        self.assertIsNotNone(lived_experience)
+        assert lived_experience is not None
+        self.assertIn(
+            "lived=[nuts:250g 1750kJ active:1.8m passive:8.9m (74%) "
+            "scout-displaced:100g reclaimed:100g/2t unattended-fire-protected:100g "
+            "early-fuel:1087t-vs-reactive:1108t]",
+            lived_experience,
+        )
+        with self.assertRaisesRegex(ValueError, "all three physical journey phases"):
+            gameplay_report_summary.wilderness_player_experience(
+                [opening, adaptation, *lived[:-1]]
+            )
+        with self.assertRaisesRegex(ValueError, "finite provisions and firelight protection"):
+            gameplay_report_summary.wilderness_player_experience(
+                [opening, adaptation, *lived[:1],
+                 lived[1].replace("recovered-visible-parcel:100g", "recovered-visible-parcel:50g"),
+                 *lived[2:]]
+            )
+        with self.assertRaisesRegex(ValueError, "finite provisions and firelight protection"):
+            gameplay_report_summary.wilderness_player_experience(
+                [opening, adaptation, *lived[:2],
+                 lived[2].replace("food-source-protected:100g", "food-source-protected:0g"),
+                 lived[3]]
+            )
+        with self.assertRaisesRegex(ValueError, "no hidden scout schedule"):
+            gameplay_report_summary.wilderness_player_experience(
+                [opening, adaptation, *lived[:1],
+                 lived[1].replace("no-hidden-scout-forecast=true",
+                                  "no-hidden-scout-forecast=false"),
+                 *lived[2:]]
+            )
+        with self.assertRaisesRegex(ValueError, "duplicate maintained wilderness"):
+            gameplay_report_summary.wilderness_player_experience(
+                [opening, adaptation, *lived, lived[2]]
+            )
         self.assertNotIn("continuation=", gameplay_report_summary.wilderness_player_experience([opening]))
         unprovisioned = adaptation.replace("self-chosen-provisions:30t ", "").replace(
             "passive-exposure=8.9m", "passive-exposure=10.7m"

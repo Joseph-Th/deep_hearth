@@ -3996,6 +3996,8 @@ fn evaluate_generated_wilderness_opening_internal(
             &registries,
             &state,
             junction,
+            adjacent_berries.position(),
+            spawn,
             matter_before,
         ))
     } else {
@@ -4292,11 +4294,11 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
         print_player_journey(&registries, review, sample);
     }
     if let Some(adaptation) = review.mobile_adaptation {
-        // The observer has taken no player actions during this entire interval. Reporting
-        // the next thermal event without its passive gap makes a shallow opening look like
-        // an engaging ten-minute sequence. Preserve the dead time in the player evidence.
+        // Distinguish self-chosen resource preparation from later passive exposure.
         let observed_elapsed = review
             .camp_ticks
+            .checked_add(adaptation.preparation_ticks)
+            .unwrap_or_else(|| panic!("wilderness preparation clock overflowed"))
             .checked_add(adaptation.exposed_ticks)
             .unwrap_or_else(|| panic!("wilderness player-tempo clock overflowed"));
         let passive_share = u128::from(adaptation.exposed_ticks)
@@ -4304,15 +4306,43 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
             .unwrap_or_else(|| panic!("wilderness passive-share numerator overflowed"))
             / u128::from(observed_elapsed);
         std::println!(
-            "PLAYER TEMPO seed=0x{:016X} episode={sample}/{}/{} opening-elapsed:{} active-goal-after-opening:none passive-until-next-pressure:{} ({}% of elapsed-to-warning) next-problem=chilly actionable-at-opening=[storage-deferred material-deferred warmth-forecast:{}t roof-if-built:{}t]",
+            "PLAYER TEMPO seed=0x{:016X} episode={sample}/{}/{} opening-elapsed:{} self-chosen-provisions:{} passive-until-next-pressure:{} ({}% of elapsed-to-warning) next-problem=chilly actionable-at-opening=[storage-deferred material-deferred warmth-forecast:{}t roof-if-built:{}t]",
             review.seed,
             review.start_profile.label(),
             review.camp_goal.label(),
             physical_minutes_tenths(&registries, review.camp_ticks),
+            physical_minutes_tenths(&registries, adaptation.preparation_ticks),
             physical_minutes_tenths(&registries, adaptation.exposed_ticks),
             passive_share,
             adaptation.projected_unheated_ticks,
             adaptation.covered_unheated_ticks,
+        );
+        std::println!(
+            "PLAYER JOURNEY seed=0x{:016X} episode={sample}/{}/{} phase=self-directed-provisions decision=[scarce-nuts protein energy-dense longer-shelf-than-berries] execution=[gather:{}g energy:{}kJ return-to-spawn:true] return-observation=[unattended-source-lost:{}g recovered-visible-parcel:{}g chase-cost:{}t source-after:{}g prepared-fire-source-after:{}g] no-hidden-scout-forecast=true",
+            review.seed,
+            review.start_profile.label(),
+            review.camp_goal.label(),
+            adaptation.secured_nuts_mg / 1_000,
+            adaptation.secured_nut_energy_nj / 1_000_000_000_000,
+            adaptation.observed_nut_loss_mg / 1_000,
+            adaptation.recovered_nut_mass_mg / 1_000,
+            adaptation.recovery_route_ticks,
+            adaptation.nut_source_after_mg / 1_000,
+            adaptation.planned_nut_source_after_mg / 1_000,
+        );
+        std::println!(
+            "PLAYER JOURNEY seed=0x{:016X} episode={sample}/{}/{} phase=engineering-payoff intervention=[forecast-driven-fire fueled-before-discomfort:{}t] benefits=[comfortable:{}ppm food-source-protected:{}g] costs=[early-fire-runway:{}t vs-late:{}t] comparison=[late-recovery:{}g extra-travel:{}t comfort:{}ppm] cause=heat-light-deterrence-and-finite-provisions",
+            review.seed,
+            review.start_profile.label(),
+            review.camp_goal.label(),
+            adaptation.planned_fueled_tick,
+            adaptation.planned_comfort_ppm,
+            (adaptation.planned_nut_source_after_mg - adaptation.nut_source_after_mg) / 1_000,
+            adaptation.planned_fuel_runway_ticks,
+            adaptation.reactive_fuel_runway_ticks,
+            adaptation.recovered_nut_mass_mg / 1_000,
+            adaptation.recovery_route_ticks,
+            adaptation.warm_comfort_ppm,
         );
         // Retain the same actor's later, organically triggered decision in episode-filtered
         // replays. The original aggregate adaptation record has no episode key and is omitted

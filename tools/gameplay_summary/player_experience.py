@@ -52,6 +52,121 @@ def _kg(milligrams: str) -> str:
     return f"{centi_kilograms // 100}.{centi_kilograms % 100:02d}kg"
 
 
+def _wilderness_mobile_journey(
+    lines: list[str],
+    seed: str,
+    provision_ticks: str | None,
+    passive: str,
+    fueled: str,
+    comfort: str,
+    no_fire: str,
+    planned_fueled: str,
+    planned_comfort: str,
+    planned_runway: str,
+    reactive_runway: str,
+) -> str:
+    """Validate optional detailed story rows as one matched physical continuation."""
+
+    tempo = _one_seeded(lines, "PLAYER TEMPO ", seed)
+    phases = ("self-directed-provisions", "engineering-payoff", "observed-chill")
+    journeys = {}
+    for phase in phases:
+        matches = [
+            line for line in lines
+            if line.startswith("PLAYER JOURNEY ")
+            and field(line, "seed") == seed
+            and field(line, "phase") == phase
+        ]
+        if len(matches) > 1:
+            raise ValueError(f"duplicate maintained wilderness {phase} experience")
+        journeys[phase] = matches[0] if matches else None
+    if tempo is None and all(row is None for row in journeys.values()):
+        return ""  # Short-form reports can carry only the original adaptation witness.
+    if tempo is None or any(row is None for row in journeys.values()):
+        raise ValueError("mobile provisions require tempo and all three physical journey phases")
+    assert tempo is not None
+    provisions = journeys["self-directed-provisions"]
+    engineering = journeys["engineering-payoff"]
+    observed = journeys["observed-chill"]
+    assert provisions is not None and engineering is not None and observed is not None
+    if (
+        any(_required(row, "episode") != "maintained/rested/stay-mobile"
+            for row in (tempo, provisions, engineering, observed))
+        or provision_ticks is None
+        or _required(tempo, "next-problem") != "chilly"
+        or _required(provisions, "phase") != "self-directed-provisions"
+        or _required(engineering, "cause") != "heat-light-deterrence-and-finite-provisions"
+        or _required(provisions, "no-hidden-scout-forecast") != "true"
+        or _required(observed, "tradeoff") != "prepare-early-for-warmth-or-react-later-to-save-fuel"
+    ):
+        raise ValueError("mobile continuation must use the same actor and no hidden scout schedule")
+    prep, exposed, percent = _capture(
+        tempo,
+        r"self-chosen-provisions:([0-9.]+m) passive-until-next-pressure:([0-9.]+m) \((\d+)% of elapsed-to-warning\)",
+        "active provisions and passive proportion",
+    )
+    secured, energy = _capture(
+        _required(provisions, "execution"),
+        r"gather:(\d+)g energy:(\d+)kJ return-to-spawn:true",
+        "earned dietary energy and actual return journey",
+    )
+    missing, reclaimed, chase, exposed_after, protected_after = _capture(
+        _required(provisions, "return-observation"),
+        r"unattended-source-lost:(\d+)g recovered-visible-parcel:(\d+)g chase-cost:(\d+)t source-after:(\d+)g prepared-fire-source-after:(\d+)g",
+        "conserved den recovery and unattended source",
+    )
+    early, protected_comfort, saved_food = _capture(
+        _required(engineering, "intervention") + " " + _required(engineering, "benefits"),
+        r"fueled-before-discomfort:(\d+)t\] \[comfortable:(\d+)ppm food-source-protected:(\d+)g",
+        "prepared fire and actual unattended protection",
+    )
+    early_runway, late_runway = _capture(
+        _required(engineering, "costs"),
+        r"early-fire-runway:(\d+)t vs-late:(\d+)t",
+        "spent early fire fuel",
+    )
+    late_recovery, extra_travel, late_comfort = _capture(
+        _required(engineering, "comparison"),
+        r"late-recovery:(\d+)g extra-travel:(\d+)t comfort:(\d+)ppm",
+        "reactive recovery travel and warmth",
+    )
+    reactive_at, recovery_ticks, outcome_comfort, declined_comfort = _capture(
+        _required(observed, "response"),
+        r"reactive-fire:(\d+)t recovered:(\d+)t comfort:(\d+)ppm no-fire:(\d+)ppm",
+        "later actual cold response",
+    )
+    prepared_at, future_comfort, future_runway, future_reactive_runway = _capture(
+        _required(observed, "alternative"),
+        r"prepare-at:(\d+)t comfort:(\d+)ppm remaining-fuel:(\d+)t vs-reactive:(\d+)t",
+        "earlier matched forecast response",
+    )
+    if (
+        exposed != passive
+        or not 0 < int(percent) < 100
+        or not 0 < int(secured)
+        or not 0 < int(energy)
+        or not 0 < int(missing) == int(reclaimed) == int(saved_food) == int(late_recovery)
+        or int(protected_after) - int(exposed_after) != int(saved_food)
+        or not 0 < int(chase) == int(extra_travel)
+        or not 0 < int(early) == int(planned_fueled) < int(fueled) == int(reactive_at)
+        or int(prepared_at) != int(provision_ticks)
+        or int(protected_comfort) != int(planned_comfort) == int(future_comfort)
+        or int(late_comfort) != int(comfort) == int(outcome_comfort)
+        or int(declined_comfort) != int(no_fire)
+        or int(early_runway) != int(planned_runway) == int(future_runway)
+        or int(late_runway) != int(reactive_runway) == int(future_reactive_runway)
+        or not 0 < int(recovery_ticks)
+    ):
+        raise ValueError("mobile continuation did not earn finite provisions and firelight protection")
+    return (
+        " lived=[nuts:" + secured + "g " + energy + "kJ"
+        + " active:" + prep + " passive:" + exposed + " (" + percent + "%)"
+        + " scout-displaced:" + missing + "g reclaimed:" + reclaimed + "g/" + chase + "t"
+        + " unattended-fire-protected:" + saved_food + "g"
+        + " early-fuel:" + early_runway + "t-vs-reactive:" + late_runway + "t]"
+    )
+
+
 def wilderness_player_experience(lines: list[str]) -> str | None:
     """Show the actor's rational first restraint and subsequent physical adaptation."""
 
@@ -166,6 +281,12 @@ def wilderness_player_experience(lines: list[str]) -> str | None:
         + " alternative=[matched-early-fire-at:" + earlier + "t"
         + " comfort:" + planned_comfort + "ppm"
         + " fuel-runway:" + planned_runway + "t-vs-late:" + reactive_runway + "t]"
+        + _wilderness_mobile_journey(
+            lines, _required(anchor, "seed"),
+            provision.group(1) if provision is not None else None,
+            passive_exposure, fueled, comfort, no_fire,
+            earlier, planned_comfort, planned_runway, reactive_runway,
+        )
     )
 
 

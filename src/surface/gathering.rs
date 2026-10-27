@@ -12,7 +12,8 @@ pub(crate) use runtime::{
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::Mass;
+use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
+use crate::core::quantity::{Energy, Mass};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::inventory::{
@@ -28,7 +29,9 @@ use crate::labor::{
 use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
 use crate::material::CommodityKey;
 use crate::registry::Registries;
-use crate::survival::SurvivalExertion;
+use crate::survival::{
+    FoodCategory, FoodFreshness, FoodFreshnessError, SurvivalExertion, freshness_from_history,
+};
 
 use super::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle};
 
@@ -46,7 +49,109 @@ pub struct PlayerSurfaceGatheringOption {
     definition: SurfaceGatheringDefinition,
 }
 
+/// Food value of one exact-local, ordinary direct gathering batch, before accepting the work.
+///
+/// This is not a guarantee of carrying space, future freshness, or eating the food.
+/// The present freshness is evaluated from the actual local source history. The separate
+/// shelf-life baseline describes a newly gathered fresh batch under ambient storage.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlayerSurfaceFoodValue {
+    batch_mass: Mass,
+    dietary_energy: Energy,
+    category: FoodCategory,
+    hydration_multiplier_ppm: u32,
+    fresh_ambient_shelf_life: TickSpan,
+    current_freshness: FoodFreshness,
+}
+
+impl PlayerSurfaceFoodValue {
+    #[must_use]
+    pub const fn batch_mass(self) -> Mass {
+        self.batch_mass
+    }
+
+    #[must_use]
+    pub const fn dietary_energy(self) -> Energy {
+        self.dietary_energy
+    }
+
+    #[must_use]
+    pub const fn category(self) -> FoodCategory {
+        self.category
+    }
+
+    #[must_use]
+    pub const fn hydration_multiplier_ppm(self) -> u32 {
+        self.hydration_multiplier_ppm
+    }
+
+    #[must_use]
+    pub const fn fresh_ambient_shelf_life(self) -> TickSpan {
+        self.fresh_ambient_shelf_life
+    }
+
+    #[must_use]
+    pub const fn current_freshness(self) -> FoodFreshness {
+        self.current_freshness
+    }
+}
+
 impl PlayerSurfaceGatheringOption {
+    /// Compares edible value using only the current local source, authored food definition,
+    /// and source's physical aging history. A stale option cannot silently describe old
+    /// resource custody; inedible gathering options return `Ok(None)`.
+    pub fn food_value(
+        self,
+        registries: &Registries,
+        state: &AppState,
+    ) -> Result<Option<PlayerSurfaceFoodValue>, SurfaceGatheringError> {
+        let actual_surface_revision = state.surface().revision();
+        if actual_surface_revision != self.expected_surface_revision {
+            return Err(SurfaceGatheringError::StalePlayerOption {
+                expected_surface_revision: self.expected_surface_revision,
+                actual_surface_revision,
+            });
+        }
+        let resource = state
+            .available_surface_resources()
+            .find(|resource| resource.id() == self.resource)
+            .ok_or(SurfaceGatheringError::ResourceUnavailableAtPlayer {
+                resource: self.resource,
+            })?;
+        let Some(food) = registries.survival().get_food(self.commodity()) else {
+            return Ok(None);
+        };
+        let batch_mass = self.source_mass.min(self.definition.direct_batch_mass());
+        let history = resource
+            .ambient_storage_history_at(state.tick())
+            .unwrap_or_else(|| {
+                unreachable!("a currently visible source cannot predate its physical creation")
+            });
+        let current_freshness = freshness_from_history(
+            history,
+            NORMALIZED_PARTS_PER_MILLION,
+            state.tick(),
+            food.shelf_life(),
+        )
+        .map_err(|error| match error {
+            FoodFreshnessError::ShelfLifeOverflow => SurfaceGatheringError::FoodAgeOverflow,
+            FoodFreshnessError::UnknownLot { .. }
+            | FoodFreshnessError::UnknownStockpile { .. }
+            | FoodFreshnessError::NotEdible { .. } => {
+                unreachable!("known local food cannot lose its food identity")
+            }
+        })?;
+        Ok(Some(PlayerSurfaceFoodValue {
+            batch_mass,
+            dietary_energy: food.dietary_energy_for_mass(batch_mass),
+            category: food.category(),
+            hydration_multiplier_ppm: food.hydration_multiplier_ppm(),
+            fresh_ambient_shelf_life: food.shelf_life(),
+            current_freshness,
+        }))
+    }
+
     #[must_use]
     pub const fn resource(self) -> SurfaceResourceId {
         self.resource
@@ -156,6 +261,7 @@ pub enum SurfaceGatheringError {
     InventoryRevisionExhausted,
     SurfaceRevisionExhausted,
     CompletionTickOverflow,
+    FoodAgeOverflow,
     PlayerWork(PlayerWorkStartError),
 }
 
@@ -256,6 +362,9 @@ impl Display for SurfaceGatheringError {
             Self::CompletionTickOverflow => {
                 formatter.write_str("surface gathering completion tick overflowed")
             }
+            Self::FoodAgeOverflow => {
+                formatter.write_str("surface food opportunity aging cannot be projected")
+            }
             Self::PlayerWork(error) => write!(
                 formatter,
                 "surface gathering cannot reserve player work: {error}"
@@ -285,7 +394,8 @@ impl Error for SurfaceGatheringError {
             | Self::MaterialLotIdExhausted
             | Self::InventoryRevisionExhausted
             | Self::SurfaceRevisionExhausted
-            | Self::CompletionTickOverflow => None,
+            | Self::CompletionTickOverflow
+            | Self::FoodAgeOverflow => None,
         }
     }
 }

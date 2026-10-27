@@ -19,10 +19,11 @@ pub(crate) use creation::{
 pub use drop_projection::{PlayerWorldDropProjection, available_player_world_drops};
 pub(crate) use footing::{OBSTRUCTING_RESIDUE_COMPACT_DEPTH_UM, exposed_residue_compact_depth_um};
 pub use gathering::{
-    PlayerSurfaceGatheringOption, SurfaceGatheringCommitError, SurfaceGatheringError,
-    SurfaceGatheringOutcome, SurfaceGatheringRequest, ValidatedSurfaceGatheringStart,
-    player_surface_gathering_options, validate_start_player_surface_gathering,
-    validate_start_player_surface_gathering_option, validate_start_surface_gathering,
+    PlayerSurfaceFoodValue, PlayerSurfaceGatheringOption, SurfaceGatheringCommitError,
+    SurfaceGatheringError, SurfaceGatheringOutcome, SurfaceGatheringRequest,
+    ValidatedSurfaceGatheringStart, player_surface_gathering_options,
+    validate_start_player_surface_gathering, validate_start_player_surface_gathering_option,
+    validate_start_surface_gathering,
 };
 pub(crate) use gathering::{
     SurfaceGatheringCancellationPlan, SurfaceGatheringTickError, SurfaceGatheringTickPlan,

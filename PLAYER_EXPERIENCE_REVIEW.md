@@ -22,8 +22,9 @@ larger ledgers, longer waits, and more forced survival tasks do not automaticall
 
 | Episode | Observed experience | Player-design conclusion |
 | --- | --- | --- |
-| Maintained rested opening | 500 g berries collected in 1.3 minutes; 5.10 kg remained; the player deferred water, storage and tools. At resting rates the hunger and thirst warnings were about 45 and 24 hours away. | Defer is rational. Gathering resources that lack a purpose would not improve the opening. |
-| Same actor's continuation | The next meaningful intervention followed **10.7 minutes without a player action**: 89% of elapsed time to warmth discomfort. A local stone-and-timber fire restored warmth; preparing it before the warning preserved much more comfort. | This is not an engaging twelve-minute sequence. The forecast enables useful planning, but the opening still needs an aspirational project or discoverable local problem rather than a manufactured starvation timer. |
+| Maintained rested opening | 500 g berries collected in 1.3 minutes; 5.10 kg remained; the player deferred water, storage and tools. At resting rates the hunger and thirst warnings were about 45 and 24 hours away. | Deferring unnecessary capital is rational. The observed junction also offers a distinct durable protein opportunity. |
+| Same actor's forward provisions | Using the exact-local, revision-bound gathering food-value projection, the actor verified current source freshness, took 250 g nuts (1,750 kJ and a longer authored fresh shelf-life than berries) and returned to spawn. This required 1.8 minutes of actual gathering and travel. Later, a scout removed 100 g from the unguarded source. The player saw an adjacent parcel, reclaimed the exact 100 g with two more physical travel ticks, and retained conservation and trusted save/load. | A recoverable opportunity now appears inside one *continuous* character story, rather than only in a separate scout test. It makes finite food, actual spoilage, nutrition, scouting and movement causally related. |
+| Same actor's thermal/infrastructure choice | The reactive branch observed the cold warning after **8.9 minutes of passive time** (74% of elapsed time to the warning), then returned, recovered food and made a fire. From the same post-provision state, a forecast-driven branch built its fire from actually gathered materials, **left it unattended during the scout patrol**, then returned to warm at that physical worksite. That protected the complete 585 g remaining nut patch and yielded 974,500 ppm comfort instead of 802,000 ppm at the matched endpoint. It also burned fuel earlier, leaving 957 versus 1,108 ticks of fire runway. | This is the more promising field-engineer loop: advance planning saves a return chase and turns heat into infrastructure that deters wildlife. Merely building a fire and standing guard would not prove this causal result; and warmth only returns when the player physically comes back. Passive time remains excessive. |
 | Long-stay camp | Timber, stone, tools, supports and a finished cover create a material, spatial shelter. Unheated exposure loss changes from 1,000 to 300 ppm/tick; unfinished construction grants no cover. | A physical project gives a tangible advantage and creates a genuine fuel-versus-construction alternative. This is close to the desired fantasy. |
 | Scavenger encounter | A scout may relocate unattended food, can be driven away by presence and local firelight, and leaves actionable route evidence. Stolen matter stays recoverable. | World inhabitants become interesting through custody and risk, not just damage. Most such encounters are currently sampled separately from the maintained opening. |
 | Fieldwork | A 33 kg ore demand met a localized 0..5 kg estimate; first recovered ore arrived only after about 17 minutes of setup/search/work. Six further searches cost another 324 ticks and still left 15.88 kg unmet. A matched assay reduced uncertainty at a real attention cost. | Exploration, uncertainty, adaptation and sunk-cost decisions exist. A nominal order cannot turn a small local seam into an adequate supply. Make this limitation evident before large tool investment, without leaking hidden neighboring geology. |
@@ -52,9 +53,11 @@ The strongest moments cross two or more owners in one persistent scenario: a fir
 fuel demand and deterrence; a roof consumes scarce timber but reduces future fuel dependence;
 a mining tool is preparation expense that may not be justified by the found deposit.
 
-**Not yet convincing:** the maintained starting actor can be full, warm and supplied with no
-immediate personally meaningful project. A bounded six-edge opening and abundant local food
-offer too little discovery to sustain a field-engineer identity. Several downstream challenges
+**Not yet convincing:** despite the newly grounded provisions/field-fire decision, the maintained
+starting actor has little to explore outside the known bounded opening. **74%** of the elapsed
+time to its first cold warning is still passive in the reactive branch. A six-edge opening and
+abundant local food offer too little discovery to sustain a field-engineer identity.
+Several downstream challenges
 are supplied as externally selected work orders or staged world setups. Passing samples alone
 therefore overstate the continuity, curiosity and initiative of ordinary play. Real 20 Hz
 movement does not by itself fix slow contextual-action feedback.
@@ -68,20 +71,24 @@ decision expresses physics instead of a naked countdown.
 
 ## Design changes and next highest-value experiment
 
-The gameplay read surface now exposes conservative *conditional* resting hunger/thirst and
-cover-aware unheated warmth runways. The wilderness harness reads those exact production
-assessments and prints its action-free time as dead time. A completed roof changes the actual
-forecast; unknown terrain does not invent cover. This increases both useful player planning
-and the honesty of automated evaluation. It does not create a new world objective.
+The gameplay read surface exposes conservative *conditional* resting hunger/thirst and
+cover-aware unheated warmth runways, alongside exact-local gathering options with projected
+direct-batch dietary energy, category, hydration tendency, source-history freshness and the
+authored fresh shelf-life baseline.
+The wilderness harness consumes those ordinary player-facing projections, executes one
+self-chosen forward-provisioning action, and prints its active and passive time separately.
+A completed roof changes the actual warmth forecast; unknown terrain does not invent cover.
+These decisions improve player planning and the honesty of automated evaluation. They do
+not solve world exploration.
 
-The next decisive experiment should follow **one generated-world player**, without resetting
-to an endowed workshop, from visible local clues through a player-chosen useful capability:
-discover a physically located resource, acquire/make the right tool, face an unforeseen shortfall
-or scavenger response, establish custody or shelter, then return to exploit the improved
-position. A good outcome is not compulsory completion; a legible, recoverable change of plan
-is equally valuable. Report time spent choosing/acting/traveling versus passive waiting.
-Then extend the same state into a genuinely unattended machine task while the player does
-something productive elsewhere, with real travel, materials and conservation.
+The immediate material challenge is to move beyond the finite, pre-shaped opening graph:
+**one generated-world player** should discover a physical clue or work opportunity not already
+laid along the bounded starter trail, choose and make a useful tool, face a genuinely unknown
+shortfall or route obstacle, and establish a lasting capability. The current post-opening
+nut/scout/fire continuation proves a smaller local version of that reasoning loop; it does not
+prove discovery at world scale. The next progression experiment should extend the same state
+into a genuinely unattended machine task while the player does something productive elsewhere,
+with real travel, materials and conservation.
 
 Do not make the actor busy merely for coverage. If the world gives a rational actor nothing
 worth doing, that is evidence to improve **world opportunities**, not to lower hunger reserves

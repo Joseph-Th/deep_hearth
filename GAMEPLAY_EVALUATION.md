@@ -216,13 +216,23 @@ through finite player carrying capacity. That expedition is not a continuation o
 maintained campaign; its distinct identity avoids attributing simulated search and actual
 transport costs to one fictitious actor.
 Concise reports retain one maintained exact-local wilderness player's first provisions,
-restraint, carried burden, remaining finite sources, and elapsed time. A separately executed
-cold-response continuation shows how that restraint changes when comfort becomes scarce.
-The mobile continuation reports its action-free exposure interval and percentage of elapsed
-time explicitly; waiting for an engineered warning is not credited as engaging player work.
+restraint, carried burden, remaining finite sources, and elapsed time. The same actor then
+recognizes a small protein-rich nut source using the player-visible, revision-bound gathering
+food profile (including source-history freshness),
+collects one direct batch, physically returns to its earlier camp route, and leaves the source
+unattended. After passive exposure and a trusted save/load roundtrip, the actor returns to
+observe the missing food and can reclaim its visible conserved parcel from the adjacent den.
+The mobile continuation reports its self-chosen work and its action-free exposure separately;
+waiting for a warning is not credited as engaging player work.
 Its thermal forecast comes from the same player-facing cover-aware survival projection
 available to ordinary runtime callers, including the hypothetical benefit of already having
 a roof. Unknown world cover is not treated as open sky.
+The matched forward-preparation policy makes a campfire from exactly gathered stone and timber,
+leaves the entire site unattended before the scout arrives, then returns to the same physical
+heat when it needs warmth. This isolation matters: food protection must be attributable to
+finite firelight, not to a scout being scared away by a player standing at the source. Fuel
+burned while absent remains a real cost. The later reactive branch still succeeds, but must
+spend extra attention returning through the visible recovery route and starts warming later.
 The opening also reports basal hunger/thirst-warning horizons from the player-facing
 provisioning projection, so deferring food or water has a visible reason. These are explicitly
 resting, no-intake estimates, not predictions that ignore the cost of hauling or labor.
@@ -230,9 +240,11 @@ The moving liberation kit witness keeps the minimum eight-edge opening route dis
 the physical travel time. Continuous-body lateral realignment on a loaded return leg must
 be executed via real input, settled and separately reported rather than regarded as a
 failed graph edge or erased from the projected attention comparison.
-The compact maintained journey includes the later actual campfire intervention and a clearly
-marked matched earlier-preparation alternative, rather than repeating the entire verbose event
-or implying the early fire was built by the actual late-reacting player.
+The compact maintained journey distinguishes the two executed continuations from the same
+post-provision state: reactive recovery and a forecast-driven fire that persists unattended.
+Neither continuation silently replaces the other's player decisions. The bounded generated
+opening still cannot establish a sustained character campaign or rich exploration beyond
+its finite six-edge opportunity graph.
 Neither witness is a population estimate or a guaranteed resource opportunity.
 The generated two-food wilderness meal reports the live fruit and protein nutrition offered
 by its actual carried-stack portions. Broad reports summarize those offers in percentages,
