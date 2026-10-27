@@ -259,7 +259,7 @@ impl KoboldScoutEvent {
         self.consumed_food
     }
 
-    /// Spoiled den food physically discarded onto the adjacent route.
+    /// Food unfit for consumption physically discarded onto the adjacent route.
     #[must_use]
     pub const fn discarded_food(self) -> Option<SurfaceResourceId> {
         self.discarded_food
@@ -284,11 +284,11 @@ struct KoboldColony {
     /// The three authored patrol voxels never change after wilderness generation.
     route: [VoxelCoord; 3],
     /// One temporary branch diversion, valid only until the scout returns to the den.
-    /// Its presence in the new save schema is mandatory even when the value is null.
-    #[serde(deserialize_with = "required_optional_detour")]
+    /// Persisted colony records must include this field even when its value is null.
+    #[serde(deserialize_with = "deserialize_required_optional")]
     detour: Option<VoxelCoord>,
     /// Second traversable branch cell when a scout investigates a farther exposed cache.
-    #[serde(deserialize_with = "required_optional_detour")]
+    #[serde(deserialize_with = "deserialize_required_optional")]
     detour_goal: Option<VoxelCoord>,
     scout_step: u8,
     returning: bool,
@@ -296,7 +296,7 @@ struct KoboldColony {
     noticed_player_drop: bool,
     scavenged_drop: Option<SurfaceResourceId>,
     /// Work spent fitting the exact copper head and handle, never virtual equipment.
-    #[serde(deserialize_with = "required_optional_pry_fitting")]
+    #[serde(deserialize_with = "deserialize_required_optional")]
     pry_fitting: Option<scrap_tools::KoboldPryFitting>,
     next_forage_at: Option<SimulationTick>,
     /// Regular meal opportunity, advanced only on the low-frequency scout clock.
@@ -305,17 +305,17 @@ struct KoboldColony {
     /// This need survives save/load and clears only after an actual den meal.
     hungry: bool,
     /// Food actually eaten toward this outstanding 20 g ration. Required by
-    /// the current save schema; older shapes are rejected, never defaulted.
+    /// persisted colony schema; missing values are rejected, never defaulted.
     partial_meal: Mass,
     /// A scout's first direct sighting of engineered machinery, still unreported until home.
-    #[serde(deserialize_with = "required_optional_mobilization_tick")]
+    #[serde(deserialize_with = "deserialize_required_optional")]
     witnessed_machinery_at: Option<SimulationTick>,
     /// Colony action changes only after the scout physically returns with that information.
-    #[serde(deserialize_with = "required_optional_mobilization_tick")]
+    #[serde(deserialize_with = "deserialize_required_optional")]
     mobilized_at: Option<SimulationTick>,
     /// The den's second, fixed resident watches the real junction after eating.
     /// Null means it is at home, not that a new kobold can be spawned.
-    #[serde(deserialize_with = "required_optional_mobilization_tick")]
+    #[serde(deserialize_with = "deserialize_required_optional")]
     watch_deployed_at: Option<SimulationTick>,
     /// Earliest possible next fed watch patrol; starts at the opening scout deadline.
     watch_ready_at: SimulationTick,
@@ -330,55 +330,26 @@ struct KoboldColony {
     /// A separate small history of actual watchman steps, never invented idle spoor.
     watch_tracks: Vec<KoboldTrack>,
     /// Caution survives saves and expires on the same five-tick scout clock.
-    #[serde(deserialize_with = "required_optional_wary_tick")]
+    #[serde(deserialize_with = "deserialize_required_optional")]
     wary_until: Option<SimulationTick>,
     /// A real close-contact blow causes temporary caution, not imaginary HP loss.
-    #[serde(deserialize_with = "required_optional_control_tick")]
+    #[serde(deserialize_with = "deserialize_required_optional")]
     scout_shoved_at: Option<ControlTick>,
-    #[serde(deserialize_with = "required_optional_control_tick")]
+    #[serde(deserialize_with = "deserialize_required_optional")]
     watch_shoved_at: Option<ControlTick>,
     /// Required current-schema physical stance, not replenishable health or blood.
     scout_balance_ppm: u32,
     watch_balance_ppm: u32,
 }
 
-fn required_optional_control_tick<'de, D>(deserializer: D) -> Result<Option<ControlTick>, D::Error>
+/// Deserialize a nullable field while preserving the requirement that it be present.
+/// Serde otherwise defaults missing Option fields to None, hiding incomplete saves.
+fn deserialize_required_optional<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
 {
-    Option::<ControlTick>::deserialize(deserializer)
-}
-
-fn required_optional_detour<'de, D>(deserializer: D) -> Result<Option<VoxelCoord>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Option::<VoxelCoord>::deserialize(deserializer)
-}
-
-fn required_optional_pry_fitting<'de, D>(
-    deserializer: D,
-) -> Result<Option<scrap_tools::KoboldPryFitting>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Option::<scrap_tools::KoboldPryFitting>::deserialize(deserializer)
-}
-
-fn required_optional_wary_tick<'de, D>(deserializer: D) -> Result<Option<SimulationTick>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Option::<SimulationTick>::deserialize(deserializer)
-}
-
-fn required_optional_mobilization_tick<'de, D>(
-    deserializer: D,
-) -> Result<Option<SimulationTick>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Option::<SimulationTick>::deserialize(deserializer)
+    Option::<T>::deserialize(deserializer)
 }
 
 impl KoboldColony {

@@ -124,7 +124,7 @@ pub(super) fn apply_scheduled_den_care(
         .expect("no den serving exceeds the resident's unmet ration");
     let can_tend_den = (due || hungry) && at_den && !pressured && !wary_at_den && !complete_meal;
     let discarded = can_tend_den
-        .then(|| discard_spoiled_den_food(registries, state, from, junction, at))
+        .then(|| discard_unfit_den_food(registries, state, from, junction, at))
         .flatten();
     // Food is a survival priority. Release inert cargo only when the remaining
     // den capacity cannot hold the actual fresh food the scout can collect.
@@ -166,7 +166,9 @@ pub(super) fn apply_scheduled_den_care(
     (eaten, discarded, cleared_cache)
 }
 
-fn discard_spoiled_den_food(
+/// Vacate unusable edible-form custody as physical cargo. Spoilage, excessive heat and
+/// contaminated composition all make a food parcel unfit for this resident's meal.
+fn discard_unfit_den_food(
     registries: &Registries,
     state: &mut AppState,
     den: VoxelCoord,
@@ -178,10 +180,11 @@ fn discard_spoiled_den_food(
         .available_resources_at(Some(den))
         .find(|resource| {
             resource.kind() == SurfaceResourceKind::Drop
+                && resource.commodity().form() == crate::content::FORM_FOOD
                 && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
-                && matches!(
+                && !matches!(
                     food_condition(registries, resource, at),
-                    Some(FoodFreshness::Spoiled { .. })
+                    Some(FoodFreshness::Fresh { .. })
                 )
         })?
         .id();

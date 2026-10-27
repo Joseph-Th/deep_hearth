@@ -907,6 +907,87 @@ fn hungry_colony_releases_one_real_stone_parcel_for_nearby_food_then_eats() {
 }
 
 #[test]
+fn temperature_unfit_den_food_is_discarded_and_fresh_foraging_restores_the_meal() {
+    // Both frozen and overheated food occupy real den capacity but cannot be consumed.
+    for temperature_mk in [250_000, 400_000] {
+        let (registries, mut state, [den, junction, _, _]) = setup();
+        let unfit = SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            den,
+            CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+            Mass::from_milligrams(500_000),
+            Temperature::from_millikelvin(temperature_mk),
+            MaterialComposition::pure(MATERIAL_WILD_NUTS),
+        )
+        .unwrap();
+        let creation = validate_create_surface_resources(
+            &registries,
+            &state,
+            [
+                unfit,
+                resource(junction, SurfaceResourceKind::Opportunity, true),
+            ],
+        )
+        .unwrap();
+        let ids = creation.resource_ids().collect::<Vec<_>>();
+        creation.commit(&mut state).unwrap();
+        assert_eq!(
+            crate::kobolds::feeding::food_condition(
+                &registries,
+                state.surface().get(ids[0]).unwrap(),
+                state.tick(),
+            ),
+            None,
+        );
+        let matter_before = calculate_matter_accounting(&state).unwrap().total();
+        let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+
+        let first = advance_tick(&registries, &mut state).unwrap();
+        assert_eq!(first, advance_tick(&registries, &mut replay).unwrap());
+        assert_eq!(
+            state.surface().get(ids[0]).unwrap().position(),
+            junction,
+            "inedible food must not trap the resident's full den cache"
+        );
+        assert_eq!(
+            state.surface().get(ids[0]).unwrap().remaining_mass(),
+            Mass::from_milligrams(500_000),
+            "disposal relocates matter without destroying it"
+        );
+        while state.tick().value() < 590 {
+            assert_eq!(
+                advance_tick(&registries, &mut state).unwrap(),
+                advance_tick(&registries, &mut replay).unwrap()
+            );
+        }
+        assert_eq!(state, replay);
+        assert_eq!(
+            state.surface().get(ids[1]).unwrap().remaining_mass(),
+            Mass::from_milligrams(200_000),
+            "the now-free den must accept real nearby edible forage"
+        );
+        assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+        assert_eq!(
+            calculate_matter_accounting(&state)
+                .unwrap()
+                .consumed()
+                .milligrams(),
+            20_000,
+            "the scout eats fresh forage, not the unfit stored food"
+        );
+        assert_eq!(
+            calculate_matter_accounting(&state).unwrap().total(),
+            matter_before
+        );
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+}
+
+#[test]
 fn scant_den_food_does_not_count_as_a_complete_ration() {
     let (registries, mut hungry, [den, _, _, _]) = setup();
     let nuts = CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD);
