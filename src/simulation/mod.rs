@@ -15,40 +15,24 @@ pub use outcome::{
     QuickAccessSelectionOutcome, SecondaryActionOutcome, TickOutcome,
 };
 
-use crate::core::state::{
-    AppState, apply_clock_advance, apply_control_clock_advance, debug_assert_runtime_invariants,
-};
+use crate::core::state::{AppState, apply_control_clock_advance, debug_assert_runtime_invariants};
 use crate::core::time::{ControlTick, SimulationTick};
-use crate::energy::{apply_passive_energy_dissipation, decide_passive_energy_dissipation};
-use crate::equipment::{apply_equipment_maintenance_tick, decide_equipment_maintenance_tick};
-use crate::geology::{apply_field_prospecting_tick, decide_field_prospecting_tick};
-use crate::inventory::apply_storage_enclosure_dismantling_tick;
-use crate::kobolds::apply_kobold_scout_tick;
-use crate::labor::{
-    PlayerWork, apply_manual_power_tick, apply_player_work_tick, decide_manual_power_tick,
-    decide_player_work_control_tick, decide_player_work_tick, player_work_exertion,
-};
+use crate::labor::{PlayerWork, apply_player_work_tick, decide_player_work_control_tick};
 use crate::logistics::{
-    PlayerControlInput, PlayerOverheadCoverAssessment, PlayerStance, apply_player_body_motion,
-    assess_player_overhead_cover, decide_player_body_motion, player_body_is_grounded,
-    player_body_stands_above_structure, player_body_uses_generated_world,
+    PlayerControlInput, PlayerStance, apply_player_body_motion, decide_player_body_motion,
+    player_body_is_grounded, player_body_stands_above_structure, player_body_uses_generated_world,
 };
-use crate::mining::{apply_mining_tick, decide_mining_tick};
-use crate::production::{CompletionApplication, apply_completion_plan, decide_due_completions};
 use crate::registry::Registries;
-use crate::structural::{apply_structural_construction_tick, apply_structural_dismantling_tick};
 use crate::surface::{
-    apply_automatic_surface_drop_pickup, apply_surface_gathering_tick,
-    automatic_surface_pickup_requires_control_stepping, decide_automatic_surface_drop_pickup,
+    apply_automatic_surface_drop_pickup, automatic_surface_pickup_requires_control_stepping,
+    decide_automatic_surface_drop_pickup,
 };
 use crate::survival::{
-    SurvivalExertion, ThermalExposure, apply_survival_tick, assess_survival,
-    control_exertion_between, decide_control_exertion_settlement,
-    decide_survival_tick_with_local_heat,
+    SurvivalExertion, apply_survival_tick, control_exertion_between,
+    decide_control_exertion_settlement,
 };
 use crate::world::{
     BlockExcavationTickError, apply_block_excavation_tick, decide_block_excavation_completion,
-    decide_block_excavation_tick,
 };
 
 use direct_actions::{
@@ -56,13 +40,6 @@ use direct_actions::{
     attempt_pending_primary_break, attempt_pending_secondary_action,
     attempt_quick_access_selection,
 };
-use planning::{
-    decide_automatic_mining_output, decide_storage_dismantling_after_completions,
-    decide_structural_construction_after_completions,
-    decide_structural_dismantling_after_completions, decide_surface_gathering_after_completions,
-    require_revision_capacity,
-};
-use player_death::{apply_player_death_effects, decide_player_death_effects};
 use slow_tick::advance_simulation_tick;
 
 /// Advances one canonical 20 Hz direct-control tick.

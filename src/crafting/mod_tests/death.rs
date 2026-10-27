@@ -4,6 +4,7 @@ use super::*;
 
 #[test]
 fn fatal_tick_does_not_restart_a_suspended_manual_craft() {
+    use crate::player::validate_respawn_player;
     use crate::survival::player_record_with_thermal_comfort;
 
     let (registries, mut state, source, lot, destination) = make_fixture();
@@ -75,20 +76,27 @@ fn fatal_tick_does_not_restart_a_suspended_manual_craft() {
 
     let outcome = advance_tick(&registries, &mut state).unwrap();
     assert!(outcome.production_completions().is_empty());
-    assert!(
-        !outcome.production_availability_changes().iter().any(|change| {
-            matches!(change, ProductionAvailabilityChange::Resumed { job: resumed, .. } if *resumed == job)
-        }),
-        "the fatal tick must not resume a manual job with no surviving worker"
-    );
+    assert!(matches!(
+        outcome.production_availability_changes(),
+        [ProductionAvailabilityChange::SuspensionReasonChanged {
+            job: stopped,
+            previous: ProductionSuspensionReason::OutputSupportUnavailable { stockpile },
+            reason: ProductionSuspensionReason::PlayerLaborUnavailable,
+        }] if *stopped == job && *stockpile == destination
+    ));
     assert_eq!(
         state.survival().player().unwrap().vitality(),
         Vitality::ZERO
     );
     assert_eq!(state.player_work().active(), None);
     assert_eq!(
-        state.production().get_job(job).unwrap().suspension(),
-        suspension_before
+        state
+            .production()
+            .get_job(job)
+            .unwrap()
+            .suspension()
+            .map(|suspension| suspension.remaining_active_time()),
+        suspension_before.map(|suspension| suspension.remaining_active_time())
     );
     assert_eq!(
         state
@@ -105,7 +113,52 @@ fn fatal_tick_does_not_restart_a_suspended_manual_craft() {
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
     let loaded: LoadedSaveEnvelope = serde_json::from_slice(&saved).unwrap();
-    assert_eq!(loaded.into_state(&registries), Ok(state));
+    let mut replay = loaded.into_state(&registries).unwrap();
+    assert_eq!(replay, state);
+
+    // The aborted fatal-tick resumption is not a lost job. Both the live and
+    // persisted continuations must resume the same WIP and complete with the
+    // same output identities, without losing their reserved inventory capacity.
+    for continuation in [&mut state, &mut replay] {
+        let _ = validate_respawn_player(&registries, continuation)
+            .unwrap()
+            .commit(continuation)
+            .unwrap();
+    }
+    let resumed = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(resumed, advance_tick(&registries, &mut replay).unwrap());
+    assert!(matches!(
+        resumed.production_availability_changes(),
+        [ProductionAvailabilityChange::Resumed { job: resumed_job, .. }] if *resumed_job == job
+    ));
+    assert_eq!(
+        state.player_work().active(),
+        Some(crate::labor::PlayerWork::ManualProduction { job })
+    );
+    let mut completion = None;
+    while state.production().get_job(job).is_some() {
+        let outcome = advance_tick(&registries, &mut state).unwrap();
+        assert_eq!(outcome, advance_tick(&registries, &mut replay).unwrap());
+        if !outcome.production_completions().is_empty() {
+            completion = Some(outcome.production_completions()[0].job());
+        }
+    }
+    assert_eq!(state, replay);
+    assert_eq!(completion, Some(job));
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .unwrap()
+            .reserved_inbound(),
+        Mass::ZERO
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

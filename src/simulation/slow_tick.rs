@@ -1,6 +1,36 @@
 //! Deterministic slow-tick accounting and cross-owner settlement.
 
-use super::*;
+use super::planning::{
+    decide_automatic_mining_output, decide_storage_dismantling_after_completions,
+    decide_structural_construction_after_completions,
+    decide_structural_dismantling_after_completions, decide_surface_gathering_after_completions,
+    require_revision_capacity,
+};
+use super::player_death::{apply_player_death_effects, decide_player_death_effects};
+use super::{TickError, TickOutcome, map_block_excavation_tick_error};
+
+use crate::core::state::{AppState, apply_clock_advance, debug_assert_runtime_invariants};
+use crate::core::time::SimulationTick;
+use crate::energy::{apply_passive_energy_dissipation, decide_passive_energy_dissipation};
+use crate::equipment::{apply_equipment_maintenance_tick, decide_equipment_maintenance_tick};
+use crate::geology::{apply_field_prospecting_tick, decide_field_prospecting_tick};
+use crate::inventory::apply_storage_enclosure_dismantling_tick;
+use crate::kobolds::apply_kobold_scout_tick;
+use crate::labor::{
+    apply_manual_power_tick, apply_player_work_tick, decide_manual_power_tick,
+    decide_player_work_tick, player_work_exertion,
+};
+use crate::logistics::{PlayerOverheadCoverAssessment, assess_player_overhead_cover};
+use crate::mining::{apply_mining_tick, decide_mining_tick};
+use crate::production::{CompletionApplication, apply_completion_plan, decide_due_completions};
+use crate::registry::Registries;
+use crate::structural::{apply_structural_construction_tick, apply_structural_dismantling_tick};
+use crate::surface::apply_surface_gathering_tick;
+use crate::survival::{
+    SurvivalExertion, ThermalExposure, apply_survival_tick, assess_survival,
+    decide_survival_tick_with_local_heat,
+};
+use crate::world::{apply_block_excavation_tick, decide_block_excavation_tick};
 
 /// Advances the full slow simulation by one 3.6-second physical/accounting quantum.
 ///

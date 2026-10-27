@@ -53,13 +53,19 @@ pub(crate) fn plan_player_death_suspension(
     tick: SimulationTick,
     plan: &mut CompletionPlan,
 ) -> Result<(), CompletionPlanError> {
-    // Completion planning provisionally sees the living pre-tick player and may therefore
-    // resume a suspended manual job. Unless it finishes this tick, that resumption would
-    // start player work after survival has killed the only worker. Preserve the existing
-    // suspension and its material reservations rather than manufacturing an unstaffed job.
+    // A living pre-tick snapshot may provisionally resume manual work on the fatal tick.
+    // For unfinished jobs, replace the recovered physical suspension reason with player-labor
+    // unavailability. Merely discarding the resume would checkpoint physical support revisions
+    // while leaving the job outside the labor-suspension index, stranding WIP after respawn.
+    // Jobs already waiting for labor need no redundant change; due completions still finish.
     let due_jobs = &plan.jobs;
-    plan.availability_changes.retain(|change| {
-        let ProductionAvailabilityChange::Resumed { job, .. } = *change else {
+    plan.availability_changes.retain_mut(|change| {
+        let ProductionAvailabilityChange::Resumed {
+            job,
+            reason: previous,
+            ..
+        } = *change
+        else {
             return true;
         };
         if due_jobs.contains(&job) {
@@ -68,9 +74,21 @@ pub(crate) fn plan_player_death_suspension(
         let record = state.production().get_job(job).unwrap_or_else(|| {
             panic!("runtime invariant broken: resumed production job is missing")
         });
-        registries
+        if registries
             .manual_process_exertion(record.process())
             .is_none()
+        {
+            return true;
+        }
+        if previous == ProductionSuspensionReason::PlayerLaborUnavailable {
+            return false;
+        }
+        *change = ProductionAvailabilityChange::SuspensionReasonChanged {
+            job,
+            previous,
+            reason: ProductionSuspensionReason::PlayerLaborUnavailable,
+        };
+        true
     });
     if plan.availability_changes.is_empty() && plan.jobs.is_empty() {
         // The provisional resumption was the plan's only production mutation.

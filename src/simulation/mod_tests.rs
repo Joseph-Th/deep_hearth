@@ -2093,26 +2093,6 @@ fn exhausted_energy_revision_reloaded_from_save_rejects_passive_tick_atomically(
 }
 
 #[test]
-fn shared_owner_revision_capacity_accounts_for_all_same_tick_mutations() {
-    assert_eq!(
-        require_revision_capacity(u64::MAX - 2, [1, 1], TickError::EquipmentRevisionExhausted,),
-        Ok(())
-    );
-    assert_eq!(
-        require_revision_capacity(
-            u64::MAX - 2,
-            [1, 1, 1],
-            TickError::EquipmentRevisionExhausted,
-        ),
-        Err(TickError::EquipmentRevisionExhausted)
-    );
-    assert_eq!(
-        require_revision_capacity(u64::MAX - 1, [1, 1], TickError::EquipmentRevisionExhausted,),
-        Err(TickError::EquipmentRevisionExhausted)
-    );
-}
-
-#[test]
 fn dead_player_remains_visible_in_tick_survival_outcome_without_mutation() {
     let registries = build_registries();
     let mut state = AppState::new();

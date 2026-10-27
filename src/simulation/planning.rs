@@ -188,3 +188,7 @@ pub(super) fn decide_storage_dismantling_after_completions(
     )
     .map_err(Into::into)
 }
+
+#[cfg(test)]
+#[path = "planning_tests.rs"]
+mod tests;
