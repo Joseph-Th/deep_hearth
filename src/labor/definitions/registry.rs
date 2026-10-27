@@ -6,7 +6,7 @@ use crate::capability::{CapabilityRegistry, CapabilityValue, CapabilityValueKind
 use crate::energy::EnergyRegistry;
 use crate::equipment::EquipmentRegistry;
 use crate::maintenance::{Condition, calculate_usable_condition_after_active_ticks};
-use crate::material::MaterialRegistry;
+use crate::material::{CommodityKey, MaterialRegistry};
 
 use super::{
     ManualPowerDefinition, ManualPowerMethodId, ProspectingDefinition, ProspectingMethodId,
@@ -18,6 +18,7 @@ use super::{
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LaborRegistry {
     surface_gathering: BTreeMap<SurfaceGatheringMethodId, SurfaceGatheringDefinition>,
+    surface_gathering_by_commodity: BTreeMap<CommodityKey, Vec<SurfaceGatheringMethodId>>,
     manual_power: BTreeMap<ManualPowerMethodId, ManualPowerDefinition>,
     prospecting: BTreeMap<ProspectingMethodId, ProspectingDefinition>,
     structural_construction:
@@ -39,6 +40,15 @@ impl LaborRegistry {
                 "duplicate surface gathering method {}",
                 id.value()
             );
+        }
+        // Keep local gathering options in method-ID order without rescanning every method for
+        // each natural resource. This derived index is constructed once with the immutable registry.
+        let mut surface_gathering_by_commodity: BTreeMap<_, Vec<_>> = BTreeMap::new();
+        for definition in surface_gathering.values() {
+            surface_gathering_by_commodity
+                .entry(definition.commodity())
+                .or_default()
+                .push(definition.id());
         }
         let mut manual_power = BTreeMap::new();
         for definition in manual_power_definitions {
@@ -69,6 +79,7 @@ impl LaborRegistry {
         }
         Self {
             surface_gathering,
+            surface_gathering_by_commodity,
             manual_power,
             prospecting,
             structural_construction,
@@ -87,6 +98,22 @@ impl LaborRegistry {
         &self,
     ) -> impl Iterator<Item = &SurfaceGatheringDefinition> {
         self.surface_gathering.values()
+    }
+
+    /// All gathering methods for a resource, preserving the authoritative method-ID order.
+    pub fn surface_gathering_for_commodity(
+        &self,
+        commodity: CommodityKey,
+    ) -> impl Iterator<Item = &SurfaceGatheringDefinition> {
+        self.surface_gathering_by_commodity
+            .get(&commodity)
+            .into_iter()
+            .flatten()
+            .map(|id| {
+                self.surface_gathering
+                    .get(id)
+                    .expect("indexed surface gathering method must exist")
+            })
     }
 
     #[must_use]

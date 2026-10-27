@@ -5,9 +5,27 @@ use crate::content::build_registries;
 use crate::core::state::validate_loaded_state;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
+use crate::survival::player_record_with_thermal_comfort;
 
 fn east() -> ViewDirection {
     ViewDirection::new(1_000_000, 0, 0).unwrap()
+}
+
+fn set_player_melee_reserves(state: &mut AppState, energy: Energy, hydration: Volume) {
+    let before = state.survival().player().copied().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            energy,
+            hydration,
+            before.vitality(),
+            before.nutrition(),
+            before.vitality_recovery_remainder(),
+            before.thermal_comfort_ppm(),
+        ),
+    );
 }
 
 #[test]
@@ -108,6 +126,99 @@ fn opening_contact_world_after(
         let _ = advance_tick(&registries, &mut state).unwrap();
     }
     (registries, state, den, junction, tip)
+}
+
+#[test]
+fn melee_readiness_does_not_advertise_an_unaffordable_shove() {
+    let (registries, mut state, _, _, tip) = opening_contact_world();
+    validate_admit_player(&registries, &state, tip)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let normal = state.survival().player().copied().unwrap();
+    assert!(assess_player_melee(&registries, &state).unwrap().ready());
+
+    set_player_melee_reserves(&mut state, Energy::ZERO, normal.hydration());
+    assert!(!assess_player_melee(&registries, &state).unwrap().ready());
+    assert_eq!(
+        validate_primitive_shove(&registries, &state, east()).err(),
+        Some(PrimitiveAttackError::InsufficientMetabolicEnergy)
+    );
+
+    set_player_melee_reserves(&mut state, normal.metabolic_energy(), Volume::ZERO);
+    assert!(!assess_player_melee(&registries, &state).unwrap().ready());
+    assert_eq!(
+        validate_primitive_shove(&registries, &state, east()).err(),
+        Some(PrimitiveAttackError::InsufficientHydration)
+    );
+    assert_eq!(state.combat().revision(), 0);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn prepared_readiness_uses_doubled_exertion_not_an_ordinary_swing() {
+    use crate::content::EQUIPMENT_WOODEN_CLUB;
+    use crate::simulation::advance_control_tick;
+
+    let (registries, mut state, _, _, tip) = opening_contact_world();
+    validate_admit_player(&registries, &state, tip)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    arm_player(&registries, &mut state, EQUIPMENT_WOODEN_CLUB);
+    let normal = state.survival().player().copied().unwrap();
+    let normal_cost = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_WOODEN_CLUB)
+        .unwrap()
+        .melee_profile()
+        .unwrap()
+        .exertion_per_swing();
+    set_player_melee_reserves(
+        &mut state,
+        normal_cost.energy_cost_per_tick(),
+        normal.hydration(),
+    );
+    let west = ViewDirection::new(-1_000_000, 0, 0).unwrap();
+    assert!(assess_player_melee(&registries, &state).unwrap().ready());
+    let _ = validate_prepare_primitive_strike(&registries, &state, west)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    for _ in 0..preparation::PREPARATION_TICKS {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    let assessment = assess_player_melee(&registries, &state).unwrap();
+    assert_eq!(assessment.preparation_remaining_ticks(), Some(0));
+    assert!(!assessment.prepared_release_ready());
+    assert_eq!(
+        validate_release_prepared_strike(&registries, &state, west).err(),
+        Some(PrimitiveAttackError::InsufficientMetabolicEnergy)
+    );
+    let prepared_cost = normal_cost
+        .energy_cost_per_tick()
+        .checked_add(normal_cost.energy_cost_per_tick())
+        .unwrap();
+    set_player_melee_reserves(&mut state, prepared_cost, normal.hydration());
+    assert!(
+        assess_player_melee(&registries, &state)
+            .unwrap()
+            .prepared_release_ready()
+    );
+    assert!(validate_release_prepared_strike(&registries, &state, west).is_ok());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(
+        &serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap(),
+    )
+    .unwrap()
+    .into_state(&registries)
+    .unwrap();
+    assert_eq!(restored, state);
+    assert!(
+        assess_player_melee(&registries, &restored)
+            .unwrap()
+            .prepared_release_ready()
+    );
 }
 
 #[test]

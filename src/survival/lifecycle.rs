@@ -16,7 +16,7 @@ mod tick;
 pub(crate) use tick::decide_survival_tick;
 pub(crate) use tick::{
     MeleeExertionError, SurvivalTickError, SurvivalTickPlan, apply_survival_tick,
-    decide_control_exertion_settlement, decide_melee_exertion,
+    can_admit_melee_exertion, decide_control_exertion_settlement, decide_melee_exertion,
     decide_survival_tick_with_local_heat,
 };
 

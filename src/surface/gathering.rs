@@ -420,8 +420,7 @@ pub fn player_surface_gathering_options(
     {
         for definition in registries
             .labor()
-            .surface_gathering_definitions()
-            .filter(|definition| definition.commodity() == resource.commodity())
+            .surface_gathering_for_commodity(resource.commodity())
             .copied()
         {
             options.push(PlayerSurfaceGatheringOption {

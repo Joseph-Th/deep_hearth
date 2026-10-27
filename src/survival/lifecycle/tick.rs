@@ -1,6 +1,6 @@
 //! Authoritative per-tick survival evolution and direct-consumption uptake.
 
-use crate::core::quantity::Energy;
+use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::registry::Registries;
@@ -168,11 +168,10 @@ pub(crate) enum MeleeExertionError {
     RevisionExhausted,
 }
 
-pub(crate) fn decide_melee_exertion(
-    registries: &Registries,
+fn melee_reserves_after_exertion(
     state: &AppState,
     exertion: SurvivalExertion,
-) -> Result<SurvivalTickPlan, MeleeExertionError> {
+) -> Result<(Energy, Volume), MeleeExertionError> {
     let player = state
         .survival()
         .player()
@@ -186,6 +185,30 @@ pub(crate) fn decide_melee_exertion(
         .hydration()
         .checked_sub(exertion.hydration_loss_per_tick())
         .ok_or(MeleeExertionError::InsufficientHydration)?;
+    state
+        .survival()
+        .revision()
+        .checked_add(1)
+        .ok_or(MeleeExertionError::RevisionExhausted)?;
+    Ok((metabolic_energy, hydration))
+}
+
+/// Read-only attack admission for UI projection. Shares exact reserve and revision checks with
+/// the canonical immediate exertion decision without constructing a survival assessment per frame.
+pub(crate) fn can_admit_melee_exertion(state: &AppState, exertion: SurvivalExertion) -> bool {
+    melee_reserves_after_exertion(state, exertion).is_ok()
+}
+
+pub(crate) fn decide_melee_exertion(
+    registries: &Registries,
+    state: &AppState,
+    exertion: SurvivalExertion,
+) -> Result<SurvivalTickPlan, MeleeExertionError> {
+    let (metabolic_energy, hydration) = melee_reserves_after_exertion(state, exertion)?;
+    let player = state
+        .survival()
+        .player()
+        .expect("validated melee actor exists");
     let after = player_record_with_thermal_comfort(
         metabolic_energy,
         hydration,

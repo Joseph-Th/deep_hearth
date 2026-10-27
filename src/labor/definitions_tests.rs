@@ -19,6 +19,53 @@ fn active_exertion() -> SurvivalExertion {
 }
 
 #[test]
+fn gathering_commodity_index_retains_method_order_and_excludes_other_materials() {
+    let stone = CommodityKey::new(MaterialId::new(1), FormId::new(1));
+    let berries = CommodityKey::new(MaterialId::new(2), FormId::new(1));
+    let method = |id, commodity| {
+        SurfaceGatheringDefinition::new(
+            SurfaceGatheringMethodId::new(id),
+            commodity,
+            Mass::from_milligrams(1),
+            Mass::from_milligrams(1),
+            TickSpan::new(1),
+            active_exertion(),
+        )
+    };
+    let registry = LaborRegistry::new(
+        [method(9, stone), method(7, berries), method(4, stone)],
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+    );
+    let ids_for = |commodity| {
+        registry
+            .surface_gathering_for_commodity(commodity)
+            .map(|definition| definition.id())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        ids_for(stone),
+        [
+            SurfaceGatheringMethodId::new(4),
+            SurfaceGatheringMethodId::new(9)
+        ]
+    );
+    assert_eq!(ids_for(berries), [SurfaceGatheringMethodId::new(7)]);
+    assert!(ids_for(CommodityKey::new(MaterialId::new(3), FormId::new(1))).is_empty());
+    for commodity in [stone, berries] {
+        assert_eq!(
+            ids_for(commodity),
+            registry
+                .surface_gathering_definitions()
+                .filter(|definition| definition.commodity() == commodity)
+                .map(|definition| definition.id())
+                .collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
 fn surface_gathering_authoring_rejects_unknown_commodity() {
     let registries = build_registries();
     let gathering = SurfaceGatheringDefinition::new(

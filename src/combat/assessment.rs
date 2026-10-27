@@ -6,8 +6,12 @@ use crate::logistics::PlayerActiveSelection;
 use crate::maintenance::Condition;
 use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
+use crate::survival::can_admit_melee_exertion;
 
-use super::{PrimitiveAttackError, SHOVE_REACH_MILLIMETERS, SHOVE_RECOVERY_TICKS, preparation};
+use super::{
+    PrimitiveAttackError, SHOVE_EXERTION, SHOVE_REACH_MILLIMETERS, SHOVE_RECOVERY_TICKS,
+    preparation, prepared_attack_exertion,
+};
 
 /// Player-local, renderer-neutral attack readiness for an input adapter or HUD.
 /// The projection reveals no remote actor identity or hidden world state.
@@ -21,6 +25,8 @@ pub struct PlayerMeleeAssessment {
     condition: Option<Condition>,
     preparation_remaining_ticks: Option<u32>,
     prepared_weapon_matches_selection: bool,
+    ordinary_exertion_admissible: bool,
+    prepared_exertion_admissible: bool,
 }
 impl PlayerMeleeAssessment {
     pub const fn weapon(self) -> Option<EquipmentId> {
@@ -41,9 +47,12 @@ impl PlayerMeleeAssessment {
     pub const fn preparation_remaining_ticks(self) -> Option<u32> {
         self.preparation_remaining_ticks
     }
-    /// Whether an ordinary shove or strike can be started; a wound-up strike is separate.
+    /// Whether an ordinary shove or strike has settled recovery and sufficient reserves.
+    /// Physical contact, aiming and world authority are checked on the actual attack.
     pub const fn ready(self) -> bool {
-        self.remaining_recovery_ticks == 0 && self.preparation_remaining_ticks.is_none()
+        self.remaining_recovery_ticks == 0
+            && self.preparation_remaining_ticks.is_none()
+            && self.ordinary_exertion_admissible
     }
 
     /// Whether a prepared blow has completed windup, pending live weapon and aim checks.
@@ -51,6 +60,7 @@ impl PlayerMeleeAssessment {
         self.prepared_weapon_matches_selection
             && self.remaining_recovery_ticks == 0
             && matches!(self.preparation_remaining_ticks, Some(0))
+            && self.prepared_exertion_admissible
     }
 }
 
@@ -120,6 +130,17 @@ pub fn assess_player_melee(
     } else {
         selected_recovery
     };
+    // The survival owner decides whether an attack can spend its energy and hydration.
+    // A prepared blow has a distinct, doubled cost, not the ordinary swing cost.
+    let exertion = profile.map_or(SHOVE_EXERTION, MeleeWeaponProfile::exertion_per_swing);
+    let ordinary_exertion_admissible = can_admit_melee_exertion(state, exertion);
+    let prepared_weapon_matches_selection = state
+        .combat()
+        .prepared
+        .is_some_and(|prepared| Some(prepared.weapon) == weapon);
+    let prepared_exertion_admissible = prepared_weapon_matches_selection
+        && prepared_attack_exertion(exertion)
+            .is_ok_and(|cost| can_admit_melee_exertion(state, cost));
     Ok(PlayerMeleeAssessment {
         weapon,
         reach_millimeters: profile.map_or(
@@ -129,10 +150,9 @@ pub fn assess_player_melee(
         recovery_control_ticks,
         remaining_recovery_ticks,
         condition,
-        prepared_weapon_matches_selection: state
-            .combat()
-            .prepared
-            .is_some_and(|prepared| Some(prepared.weapon) == weapon),
+        prepared_weapon_matches_selection,
+        ordinary_exertion_admissible,
+        prepared_exertion_admissible,
         preparation_remaining_ticks: state.combat().prepared.map(|prepared| {
             let elapsed = state
                 .control_tick()

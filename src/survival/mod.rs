@@ -55,7 +55,7 @@ pub(crate) use lifecycle::{
     InitializeSurvivalError, MeleeExertionError, PlayerSurvivalInitializationCommitError,
     RespawnSurvivalError, SurvivalTickError, SurvivalTickPlan,
     ValidatedPlayerSurvivalInitialization, ValidatedPlayerSurvivalRespawn, apply_survival_tick,
-    decide_control_exertion_settlement, decide_melee_exertion,
+    can_admit_melee_exertion, decide_control_exertion_settlement, decide_melee_exertion,
     decide_survival_tick_with_local_heat, validate_player_survival_initialization,
     validate_player_survival_respawn,
 };
