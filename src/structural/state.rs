@@ -141,6 +141,32 @@ impl StructureState {
         })
     }
 
+    /// Conservative local broadphase for a shortest voxel route. A full-cell
+    /// member anywhere inside the closed endpoint box may force a detour.
+    /// Callers still resolve the actual open path; this indexed query lets
+    /// unobstructed opening-world light and sound retain their cheap falloff.
+    #[must_use]
+    pub(crate) fn has_full_cell_member_in_voxel_box(
+        &self,
+        from: VoxelCoord,
+        to: VoxelCoord,
+    ) -> bool {
+        let min_y = from.y().min(to.y());
+        let max_y = from.y().max(to.y());
+        self.elements_intersecting_horizontal_columns(
+            from.x().min(to.x()),
+            from.x().max(to.x()),
+            from.z().min(to.z()),
+            from.z().max(to.z()),
+        )
+        .any(|member| {
+            !member.embodied_material().is_empty()
+                && member.geometry().covers_horizontal_footprint()
+                && member.bounds().min().y() <= max_y
+                && member.bounds().max_exclusive().y() > min_y
+        })
+    }
+
     /// Any actual built member, including a narrow post, obstructs a heavy
     /// resident's occupied body volume. For small footprints, use local indexed
     /// occupancy; for unusually large bounds, query horizontal candidates once

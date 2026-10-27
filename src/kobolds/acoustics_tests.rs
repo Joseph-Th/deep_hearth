@@ -138,6 +138,73 @@ fn distant_extreme_coordinates_do_not_wrap_local_sight_or_hearing() {
 }
 
 #[test]
+fn ungenerated_full_cell_wall_forces_actual_bounded_sound_detour() {
+    use crate::content::FORM_BOARD;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let source = VoxelCoord::new(0, 0, 0);
+    let listener = VoxelCoord::new(2, 0, 0);
+    assert!(audible_path(
+        &registries,
+        &state,
+        source,
+        listener,
+        KoboldJunkRigKind::TimberRatchet,
+    ));
+    let member = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        StructuralElementGeometry::new(
+            VoxelBounds::new(VoxelCoord::new(1, 0, 0), VoxelCoord::new(2, 1, 1)).unwrap(),
+            Length::from_micrometers(1_000_000),
+            Area::from_square_millimeters(1_000_000),
+        )
+        .unwrap(),
+        true,
+    )
+    .unwrap();
+    assert!(audible_path(
+        &registries,
+        &state,
+        source,
+        listener,
+        KoboldJunkRigKind::TimberRatchet,
+    ));
+    materialize_structural_element_for_test(&registries, &mut state, member, FORM_BOARD);
+    assert!(!audible_path(
+        &registries,
+        &state,
+        source,
+        listener,
+        KoboldJunkRigKind::TimberRatchet,
+    ));
+    assert!(audible_path(
+        &registries,
+        &state,
+        source,
+        listener,
+        KoboldJunkRigKind::StoneClatter,
+    ));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+    assert!(!audible_path(
+        &registries,
+        &loaded,
+        source,
+        listener,
+        KoboldJunkRigKind::TimberRatchet,
+    ));
+}
+
+#[test]
 fn a_generated_stone_corner_hides_the_origin_of_a_real_two_hop_warning() {
     let (registries, mut state) = solid_generated_chunk();
     let den = VoxelCoord::new(8, -10, 8);

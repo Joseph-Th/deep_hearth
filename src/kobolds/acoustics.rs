@@ -1,9 +1,10 @@
 //! Bounded local percussion through actual open voxels, independently of sight.
 //!
 //! A sound may follow a bent air corridor but not cut across solid rock, built panels, or an
-//! unknown/unloaded chunk. With no generated terrain, the opening wilderness
-//! uses only a short Manhattan-radius approximation. This is not a world-wide
-//! noise map or a signal network; rig transmission has separate physical rules.
+//! unknown/unloaded chunk. Without generated terrain, the opening uses a local
+//! Manhattan bound when unobstructed, or a bounded air detour around real built
+//! walls. This is not a world-wide noise map or signal network; rig transmission
+//! has separate physical rules.
 
 use std::collections::{BTreeSet, VecDeque};
 
@@ -62,21 +63,29 @@ fn audible_path(
     if !within_manhattan_reach(source, listener, u64::from(reach)) {
         return false;
     }
-    // The authored opening graph has no voxel authority until the world is
-    // generated. Keep the pre-generation listener bounded and local.
-    if state.world().generation_profile().is_none() {
-        return true;
-    }
+    // The authored graph has no terrain opacity. Built full-cell members
+    // still block sound, and may lengthen its physical path beyond the
+    // authored hearing radius. Use the indexed structural broadphase before
+    // deciding whether a bounded air-corridor search is necessary.
+    let generated = state.world().generation_profile().is_some();
     let passable = |voxel| {
         !state.structures().blocks_full_cell(voxel)
-            && state
-                .world()
-                .block_at(voxel)
-                .and_then(|id| registries.world().block_for_state(id))
-                .is_some_and(|block| block.collision() == BlockCollisionShape::Empty)
+            && (!generated
+                || state
+                    .world()
+                    .block_at(voxel)
+                    .and_then(|id| registries.world().block_for_state(id))
+                    .is_some_and(|block| block.collision() == BlockCollisionShape::Empty))
     };
     if !passable(source) || !passable(listener) {
         return false;
+    }
+    if !generated
+        && !state
+            .structures()
+            .has_full_cell_member_in_voxel_box(source, listener)
+    {
+        return true;
     }
     let mut visited = BTreeSet::from([source]);
     let mut queue = VecDeque::from([(source, 0_u8)]);

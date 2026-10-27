@@ -206,7 +206,9 @@ fn propagated_light_level(
     // any shortest route. Otherwise take the same bounded detour search used
     // by generated terrain, treating missing terrain as air but not built walls.
     if state.world().generation_profile().is_none()
-        && !pre_generation_structure_may_occlude(state, source.position(), target)
+        && !state
+            .structures()
+            .has_full_cell_member_in_voxel_box(source.position(), target)
     {
         return source.level()
             - u8::try_from(distance).expect("distance is below bounded source light level");
@@ -240,29 +242,6 @@ fn propagated_light_level(
         }
     }
     0
-}
-
-fn pre_generation_structure_may_occlude(
-    state: &AppState,
-    from: VoxelCoord,
-    to: VoxelCoord,
-) -> bool {
-    let min_y = from.y().min(to.y());
-    let max_y = from.y().max(to.y());
-    state
-        .structures()
-        .elements_intersecting_horizontal_columns(
-            from.x().min(to.x()),
-            from.x().max(to.x()),
-            from.z().min(to.z()),
-            from.z().max(to.z()),
-        )
-        .any(|member| {
-            !member.embodied_material().is_empty()
-                && member.geometry().covers_horizontal_footprint()
-                && member.bounds().min().y() <= max_y
-                && member.bounds().max_exclusive().y() > min_y
-        })
 }
 
 fn voxel_transmits_light(registries: &Registries, state: &AppState, position: VoxelCoord) -> bool {
