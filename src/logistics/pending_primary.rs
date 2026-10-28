@@ -136,7 +136,7 @@ pub(crate) fn validate_buffer_player_primary_break(
         next_revision,
         pending: PlayerPendingPrimaryBreak::new(
             state.control_tick(),
-            player.position(),
+            player.body().foot_position(),
             element,
             direction,
         ),

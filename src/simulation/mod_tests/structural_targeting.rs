@@ -9,6 +9,166 @@ use crate::structural::{
 };
 
 #[test]
+fn queued_contextual_use_rejects_sub_voxel_movement_after_save_load() {
+    use crate::core::state::validate_loaded_state;
+    use crate::logistics::validate_buffer_player_secondary_use;
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+
+    let (registries, mut state, _) = generated_grounded_player_at(0, 0);
+    let _ = advance_control_tick(&registries, &mut state).unwrap();
+    let origin = state.logistics().player().unwrap().body().foot_position();
+    let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
+    validate_buffer_player_secondary_use(&state, direction)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        state
+            .logistics()
+            .pending_secondary_use()
+            .unwrap()
+            .position(),
+        origin
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let move_input = PlayerDirectControlInput::new(PlayerControlInput::new(
+        HorizontalControlInput::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0).unwrap(),
+    ));
+    assert_eq!(
+        advance_control_tick_with_direct_input(&registries, &mut state, move_input).unwrap(),
+        advance_control_tick_with_direct_input(&registries, &mut replay, move_input).unwrap()
+    );
+    let moved = state.logistics().player().unwrap().body().foot_position();
+    assert_ne!(
+        moved, origin,
+        "the player must actually move within the voxel"
+    );
+    assert_eq!(moved.containing_voxel(), origin.containing_voxel());
+
+    for index in 2..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let current = advance_control_tick(&registries, &mut state).unwrap();
+        let restored = advance_control_tick(&registries, &mut replay).unwrap();
+        assert_eq!(current, restored);
+        if index + 1 == CONTROL_TICKS_PER_SIMULATION_TICK {
+            assert_eq!(
+                current.secondary_action(),
+                Some(&SecondaryActionOutcome::BufferedContextChanged)
+            );
+        } else {
+            assert_eq!(current.secondary_action(), None);
+        }
+    }
+    assert_eq!(state, replay);
+    assert!(state.logistics().pending_secondary_use().is_none());
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn queued_structural_break_rejects_sub_voxel_retargeting_after_save_load() {
+    use crate::core::state::validate_loaded_state;
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+
+    let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
+    let target = VoxelCoord::new(2, floor_y + 1, 0);
+    for x in 1..=2 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(x, floor_y + 1, 0),
+            BlockStateId::AIR,
+        );
+    }
+    let geometry = StructuralElementGeometry::new(
+        VoxelBounds::new(target, VoxelCoord::new(3, floor_y + 2, 1)).unwrap(),
+        Length::from_micrometers(1_000_000),
+        Area::from_square_millimeters(1_000_000),
+    )
+    .unwrap();
+    let panel = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, panel, FORM_LOG);
+    let original_structures = state.structures().clone();
+    let origin = state.logistics().player().unwrap().body().foot_position();
+    let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
+    let queued = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_primary(PrimaryControlIntent::break_target(direction)),
+    )
+    .unwrap();
+    assert_eq!(
+        queued.primary_action(),
+        Some(&PrimaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    assert_eq!(
+        state
+            .logistics()
+            .pending_primary_break()
+            .unwrap()
+            .position(),
+        origin
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let move_input = PlayerDirectControlInput::new(PlayerControlInput::new(
+        HorizontalControlInput::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0).unwrap(),
+    ));
+    assert_eq!(
+        advance_control_tick_with_direct_input(&registries, &mut state, move_input).unwrap(),
+        advance_control_tick_with_direct_input(&registries, &mut restored, move_input).unwrap()
+    );
+    let moved = state.logistics().player().unwrap().body().foot_position();
+    assert_ne!(
+        moved, origin,
+        "the player must actually move within the voxel"
+    );
+    assert_eq!(moved.containing_voxel(), origin.containing_voxel());
+    assert_eq!(
+        state
+            .logistics()
+            .pending_primary_break()
+            .unwrap()
+            .position(),
+        origin
+    );
+
+    for index in 2..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let current = advance_control_tick(&registries, &mut state).unwrap();
+        let replay = advance_control_tick(&registries, &mut restored).unwrap();
+        assert_eq!(current, replay);
+        if index + 1 == CONTROL_TICKS_PER_SIMULATION_TICK {
+            assert_eq!(
+                current.primary_action(),
+                Some(&PrimaryActionOutcome::BufferedContextChanged)
+            );
+        } else {
+            assert_eq!(current.primary_action(), None);
+        }
+    }
+    assert_eq!(state, restored);
+    assert_eq!(state.structures(), &original_structures);
+    assert!(state.logistics().pending_primary_break().is_none());
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn combat_input_replaces_buffered_structural_break_without_later_dismantling() {
     use crate::core::state::validate_loaded_state;
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};

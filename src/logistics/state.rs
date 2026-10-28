@@ -12,7 +12,7 @@ use crate::equipment::EquipmentId;
 use crate::fluid::FluidStoreId;
 use crate::inventory::StockpileId;
 use crate::material::CommodityKey;
-use crate::spatial::{ViewDirection, VoxelCoord};
+use crate::spatial::{ViewDirection, VoxelCoord, WorldPoint};
 use crate::structural::StructuralElementId;
 use crate::survival::SurvivalExertion;
 
@@ -36,7 +36,7 @@ pub(crate) struct LocomotionExertionAccumulator {
 #[serde(deny_unknown_fields)]
 pub(crate) struct PlayerPendingPrimaryBreak {
     requested_at: ControlTick,
-    position: VoxelCoord,
+    position: WorldPoint,
     element: StructuralElementId,
     direction_x_ppm: i32,
     direction_y_ppm: i32,
@@ -46,7 +46,7 @@ pub(crate) struct PlayerPendingPrimaryBreak {
 impl PlayerPendingPrimaryBreak {
     pub(crate) const fn new(
         requested_at: ControlTick,
-        position: VoxelCoord,
+        position: WorldPoint,
         element: StructuralElementId,
         direction: ViewDirection,
     ) -> Self {
@@ -66,7 +66,7 @@ impl PlayerPendingPrimaryBreak {
     }
 
     #[must_use]
-    pub(crate) const fn position(self) -> VoxelCoord {
+    pub(crate) const fn position(self) -> WorldPoint {
         self.position
     }
 
@@ -88,13 +88,14 @@ impl PlayerPendingPrimaryBreak {
 
 /// Persisted one-shot contextual-use input waiting for the next slow-simulation boundary.
 ///
-/// The record snapshots only familiar control context. The eventual action is resolved again
-/// against current owner state, so this buffer is never authorization for a stale world target.
+/// The record retains the exact body origin and selection from the press. The eventual action
+/// resolves against current owner state only if that origin and selection still match, so a
+/// small movement within one voxel cannot silently retarget the old gesture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct PlayerPendingSecondaryUse {
     requested_at: ControlTick,
-    position: VoxelCoord,
+    position: WorldPoint,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     selection: Option<PlayerActiveSelection>,
     direction_x_ppm: i32,
@@ -107,7 +108,7 @@ pub(crate) struct PlayerPendingSecondaryUse {
 impl PlayerPendingSecondaryUse {
     pub(crate) const fn new(
         requested_at: ControlTick,
-        position: VoxelCoord,
+        position: WorldPoint,
         selection: Option<PlayerActiveSelection>,
         direction: ViewDirection,
     ) -> Self {
@@ -141,7 +142,7 @@ impl PlayerPendingSecondaryUse {
     }
 
     #[must_use]
-    pub(crate) const fn position(self) -> VoxelCoord {
+    pub(crate) const fn position(self) -> WorldPoint {
         self.position
     }
 

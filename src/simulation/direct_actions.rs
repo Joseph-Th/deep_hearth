@@ -2,11 +2,16 @@
 
 mod placement;
 mod secondary;
+mod structural_target;
 
 use placement::{attempt_storage_placement, attempt_structural_dismantling_now};
 use secondary::{
     attempt_empty_hand_secondary_action, attempt_explicit_surface_gathering,
     attempt_selected_secondary_action,
+};
+use structural_target::{
+    DirectStructuralTargetError, resolve_direct_structural_face_target,
+    resolve_direct_structural_target,
 };
 
 use crate::combat::{
@@ -22,10 +27,9 @@ use crate::logistics::{
 };
 use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
-use crate::spatial::{CubeFace, ViewDirection, VoxelCoord};
-use crate::structural::StructuralElementId;
+use crate::spatial::ViewDirection;
 use crate::surface::{PlayerMaterialDropOutcome, validate_drop_player_material};
-use crate::world::{raycast_player_air_voxel, validate_start_player_block_excavation_active};
+use crate::world::validate_start_player_block_excavation_active;
 
 use super::control::{PlayerDirectControlInput, PrimaryControlIntent, SecondaryControlIntent};
 use super::outcome::{
@@ -233,7 +237,7 @@ fn attempt_secondary_action(
                 if pending.direction() == Some(direction)
                     && pending.surface_request() == requested_surface
                     && pending.selection() == state.logistics().active_selection()
-                    && state.logistics().player().map(|player| player.position())
+                    && state.logistics().player().map(|player| player.body().foot_position())
                         == Some(pending.position())
         ) {
             return Some(SecondaryActionOutcome::QueuedUntilSimulationBoundary);
@@ -313,7 +317,10 @@ pub(super) fn attempt_pending_secondary_action(
     state: &mut AppState,
 ) -> Option<SecondaryActionOutcome> {
     let pending = take_player_pending_secondary_use(state)?;
-    let current_position = state.logistics().player().map(|player| player.position());
+    let current_position = state
+        .logistics()
+        .player()
+        .map(|player| player.body().foot_position());
     if current_position != Some(pending.position())
         || state.logistics().active_selection() != pending.selection()
     {
@@ -335,7 +342,10 @@ pub(super) fn attempt_pending_primary_break(
     state: &mut AppState,
 ) -> Option<PrimaryActionOutcome> {
     let pending = take_player_pending_primary_break(state)?;
-    let current_position = state.logistics().player().map(|player| player.position());
+    let current_position = state
+        .logistics()
+        .player()
+        .map(|player| player.body().foot_position());
     if current_position != Some(pending.position()) {
         return Some(PrimaryActionOutcome::BufferedContextChanged);
     }
@@ -355,89 +365,6 @@ pub(super) fn attempt_pending_primary_break(
     }
 }
 
-enum DirectStructuralTargetError {
-    TargetUnavailable,
-    NoTarget,
-    Ambiguous { count: usize },
-}
-
-fn resolve_direct_structural_target(
-    registries: &Registries,
-    state: &AppState,
-    direction: ViewDirection,
-) -> Result<StructuralElementId, DirectStructuralTargetError> {
-    resolve_direct_structural_face_target(registries, state, direction)?
-        .map(|target| target.element)
-        .ok_or(DirectStructuralTargetError::NoTarget)
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct DirectStructuralFaceTarget {
-    element: StructuralElementId,
-    voxel: VoxelCoord,
-    face: CubeFace,
-}
-
-fn direct_structural_face_candidate(
-    (first, count): (Option<StructuralElementId>, usize),
-    voxel: VoxelCoord,
-    face: CubeFace,
-) -> Option<Result<DirectStructuralFaceTarget, usize>> {
-    first.map(|element| {
-        if count == 1 {
-            Ok(DirectStructuralFaceTarget {
-                element,
-                voxel,
-                face,
-            })
-        } else {
-            Err(count)
-        }
-    })
-}
-
-fn resolve_direct_structural_face_target(
-    registries: &Registries,
-    state: &AppState,
-    direction: ViewDirection,
-) -> Result<Option<DirectStructuralFaceTarget>, DirectStructuralTargetError> {
-    let mut first_plan = None;
-    let traced = raycast_player_air_voxel(registries, state, direction, |voxel, face| {
-        // A blueprint has no embodied matter and cannot block the view of
-        // a real member in a later cell. Remember the nearest selectable plan
-        // only as a fallback, while respecting solid terrain and physical
-        // structural occlusion in the owner's raycast.
-        let mut embodied = (None, 0_usize);
-        let mut planned = (None, 0_usize);
-        for record in state.structures().elements_covering(voxel) {
-            let group = if record.embodied_material().is_empty() {
-                &mut planned
-            } else {
-                &mut embodied
-            };
-            group.0.get_or_insert(record.id());
-            group.1 += 1;
-        }
-        if embodied.1 != 0 {
-            return direct_structural_face_candidate(embodied, voxel, face);
-        }
-        if first_plan.is_none() {
-            first_plan = direct_structural_face_candidate(planned, voxel, face);
-        }
-        None
-    });
-    let target = match traced {
-        Ok(physical) => physical.or(first_plan),
-        // Missing farther world truth must not erase a nearer, already
-        // observed blueprint, but cannot authorize an unseen physical target.
-        Err(_) if first_plan.is_some() => first_plan,
-        Err(_) => return Err(DirectStructuralTargetError::TargetUnavailable),
-    };
-    target
-        .transpose()
-        .map_err(|count| DirectStructuralTargetError::Ambiguous { count })
-}
-
 fn attempt_primary_break(
     registries: &Registries,
     state: &mut AppState,
@@ -445,7 +372,10 @@ fn attempt_primary_break(
 ) -> PrimaryActionOutcome {
     if let Some(pending) = state.logistics().pending_primary_break() {
         if pending.direction() == Some(direction)
-            && state.logistics().player().map(|player| player.position())
+            && state
+                .logistics()
+                .player()
+                .map(|player| player.body().foot_position())
                 == Some(pending.position())
         {
             // Held breaking is one scheduled action, not repeated failed admissions.

@@ -155,7 +155,7 @@ fn validate_buffer_player_secondary_request(
         next_revision,
         pending: PlayerPendingSecondaryUse::new(
             state.control_tick(),
-            player.position(),
+            player.body().foot_position(),
             state.logistics().active_selection(),
             direction,
         )
