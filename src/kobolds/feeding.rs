@@ -271,28 +271,43 @@ fn clear_inert_cache_for_food(
         return None;
     }
     let missing = wanted.milligrams() - free.milligrams();
-    let source_id = state
+    let source = state
         .surface()
         .available_resources_at(Some(den))
         .filter(|resource| {
             resource.kind() == SurfaceResourceKind::Drop
                 && resource.commodity().form() != crate::content::FORM_FOOD
-                && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
         })
-        // Among parcels that fill the actual shortage, preserve precision
-        // copper and release the least raw mass. If none fills it, releasing
-        // the largest parcel still enables a larger physical partial catch.
+        // Prefer a whole portable parcel: it frees space without allocating a
+        // new identity. Among those, preserve precision salvage and release
+        // the least raw mass that fills the shortage. If only oversized inert
+        // cargo remains, split a real portion instead of starving beside food.
         .min_by_key(|resource| {
             let mass = resource.remaining_mass().milligrams();
             (
+                resource.remaining_mass() > SCOUT_CARRY_LIMIT,
                 mass < missing,
                 is_servant_era_salvage(resource),
                 if mass < missing { u64::MAX - mass } else { mass },
                 resource.id(),
             )
-        })?
-        .id();
-    relocate_scavenged_drop_step(registries, state, source_id, den, junction).then_some(source_id)
+        })?;
+    let source_id = source.id();
+    if source.remaining_mass() <= SCOUT_CARRY_LIMIT {
+        relocate_scavenged_drop_step(registries, state, source_id, den, junction)
+            .then_some(source_id)
+    } else {
+        split_bulk_scavenged_drop_step(
+            registries,
+            state,
+            source_id,
+            den,
+            junction,
+            at,
+            SCOUT_BULK_SPLIT_BATCH,
+        )
+        .map(|(daughter, _)| daughter)
+    }
 }
 
 /// A reported machine threat gives the old servant culture a concrete
@@ -337,11 +352,10 @@ fn clear_inert_cache_for_industry(
         return None;
     }
     // Only an actually visible precision source can justify an exchange.
-    // Prefer the smallest expendable parcel that will fit a whole manufactured
-    // component; otherwise free the largest available space for a real split.
-    // This avoids losing a huge raw cache just because its ID came first, or
-    // making repeated tiny raids when a single intact pickup is possible.
-    let source_id = state
+    // Prefer whole portable cargo and the smallest release that fits an intact
+    // manufactured component. If every expendable parcel is oversized, assess
+    // the actual split portion rather than pretending the full pile can move.
+    let source = state
         .surface()
         .available_resources_at(Some(den))
         .filter(|resource| {
@@ -349,14 +363,19 @@ fn clear_inert_cache_for_industry(
                 && resource.commodity().form() != crate::content::FORM_FOOD
                 && !is_servant_era_salvage(resource)
                 && Some(resource.id()) != protected_striker
-                && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
         })
         .filter_map(|resource| {
-            // Adding a released parcel to any existing free space is bounded
-            // by the den's actual 500 g capacity, not the scout's carry limit.
+            // An oversized pile frees only one physically split batch on this
+            // visit, not its full mass. The den itself holds at most 500 g.
+            let portable = resource.remaining_mass() <= SCOUT_CARRY_LIMIT;
+            let freed = if portable {
+                resource.remaining_mass()
+            } else {
+                SCOUT_BULK_SPLIT_BATCH
+            };
             let capacity = Mass::from_milligrams(
                 free.milligrams()
-                    .saturating_add(resource.remaining_mass().milligrams())
+                    .saturating_add(freed.milligrams())
                     .min(DEN_LOOSE_CACHE_LIMIT.milligrams()),
             );
             if capacity <= free {
@@ -376,6 +395,7 @@ fn clear_inert_cache_for_industry(
             let mass = resource.remaining_mass().milligrams();
             Some((
                 (
+                    !portable,
                     !whole,
                     if whole {
                         mass
@@ -385,11 +405,26 @@ fn clear_inert_cache_for_industry(
                     resource.id(),
                 ),
                 resource.id(),
+                portable,
             ))
         })
-        .min_by_key(|(priority, _)| *priority)?
-        .1;
-    relocate_scavenged_drop_step(registries, state, source_id, den, junction).then_some(source_id)
+        .min_by_key(|(priority, _, _)| *priority)?;
+    let source_id = source.1;
+    if source.2 {
+        relocate_scavenged_drop_step(registries, state, source_id, den, junction)
+            .then_some(source_id)
+    } else {
+        split_bulk_scavenged_drop_step(
+            registries,
+            state,
+            source_id,
+            den,
+            junction,
+            at,
+            SCOUT_BULK_SPLIT_BATCH,
+        )
+        .map(|(daughter, _)| daughter)
+    }
 }
 
 fn den_exit_is_safe(

@@ -1046,6 +1046,76 @@ fn temperature_unfit_den_food_is_discarded_and_fresh_foraging_restores_the_meal(
 }
 
 #[test]
+fn oversized_inert_cache_is_split_to_make_room_for_real_forage() {
+    let (registries, mut state, [den, junction, _, _]) = setup();
+    let initial = Mass::from_milligrams(1_200_000);
+    let cache = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        den,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        initial,
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let creation = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            cache,
+            resource(junction, SurfaceResourceKind::Opportunity, true),
+        ],
+    )
+    .unwrap();
+    let ids = creation.resource_ids().collect::<Vec<_>>();
+    creation.commit(&mut state).unwrap();
+    let before = calculate_matter_accounting(&state).unwrap().total();
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    assert_eq!(
+        advance_tick(&registries, &mut state).unwrap(),
+        advance_tick(&registries, &mut replay).unwrap()
+    );
+    assert_eq!(
+        state.surface().get(ids[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(950_000),
+        "oversized inert cargo should be divided into physical portable pieces"
+    );
+    assert!(
+        state
+            .surface()
+            .available_resources_at(Some(junction))
+            .any(|drop| drop.kind() == SurfaceResourceKind::Drop
+                && drop.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_CHIP)
+                && drop.remaining_mass() == Mass::from_milligrams(250_000)),
+        "the split must conserve the expelled stone at the junction"
+    );
+    while state.tick().value() < 720 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(state.surface().get(ids[0]).unwrap().position(), junction);
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        20_000,
+        "the resident must actually eat available forage"
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn oversized_unfit_food_is_split_and_evicted_until_the_den_can_forage() {
     let (registries, mut state, [den, junction, _, _]) = setup();
     let unfit_mass = Mass::from_milligrams(1_200_000);

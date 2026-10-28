@@ -266,7 +266,8 @@ impl KoboldScoutEvent {
         self.discarded_food
     }
 
-    /// A full den released one inert parcel to make room for actual nearby food.
+    /// A blocked den released inert cargo for nearby food or visible salvage.
+    /// For oversized cargo, this identifies the moved split portion, not its source.
     #[must_use]
     pub const fn cleared_cache(self) -> Option<SurfaceResourceId> {
         self.cleared_cache

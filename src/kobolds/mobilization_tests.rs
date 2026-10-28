@@ -1814,6 +1814,86 @@ fn oversized_engineered_salvage_uses_the_largest_recoverable_den_space() {
 }
 
 #[test]
+fn industrial_salvage_eviction_splits_oversized_raw_den_cache() {
+    let (registries, mut state, route) =
+        scenario(EnergyCarrier::Mechanical, Some(route_machinery()));
+    advance_to(&registries, &mut state, 579);
+    assert!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .mobilized_at
+            .is_some()
+    );
+    let source = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        route[0],
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(1_200_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let plan = validate_create_surface_resources(&registries, &state, [source]).unwrap();
+    let stone = plan.first_resource_id();
+    plan.commit(&mut state).unwrap();
+    let copper = copper_winding(&registries, &mut state, route[3]);
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(
+        advance_tick(&registries, &mut state).unwrap(),
+        advance_tick(&registries, &mut replay).unwrap()
+    );
+    assert_eq!(
+        state.surface().get(stone).unwrap().remaining_mass(),
+        Mass::from_milligrams(950_000),
+        "industrial salvage needs a split when raw den cargo exceeds the carry limit"
+    );
+    assert!(
+        state
+            .surface()
+            .available_resources_at(Some(route[1]))
+            .any(|item| {
+                item.kind() == SurfaceResourceKind::Drop
+                    && item.commodity() == CommodityKey::new(MATERIAL_STONE, FORM_CHIP)
+                    && item.remaining_mass() == Mass::from_milligrams(250_000)
+            })
+    );
+    assert_eq!(state.surface().get(copper).unwrap().position(), route[3]);
+    assert_eq!(state, replay);
+    let midpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    replay = serde_json::from_slice::<LoadedSaveEnvelope>(&midpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.tick().value() < 1_010 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(state.surface().get(stone).unwrap().position(), route[1]);
+    assert_eq!(
+        state.surface().get(copper).unwrap().position(),
+        route[0],
+        "the eventual empty den must admit the reachable precision component"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn alerted_colony_releases_low_value_cargo_and_recovers_actual_precision_copper() {
     let (registries, mut alerted, route) =
         scenario(EnergyCarrier::Mechanical, Some(route_machinery()));
