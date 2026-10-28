@@ -4306,7 +4306,7 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
             .unwrap_or_else(|| panic!("wilderness passive-share numerator overflowed"))
             / u128::from(observed_elapsed);
         std::println!(
-            "PLAYER TEMPO seed=0x{:016X} episode={sample}/{}/{} opening-elapsed:{} self-chosen-provisions:{} passive-until-next-pressure:{} ({}% of elapsed-to-warning) next-problem=chilly actionable-at-opening=[storage-deferred material-deferred warmth-forecast:{}t roof-if-built:{}t]",
+            "PLAYER TEMPO seed=0x{:016X} episode={sample}/{}/{} opening-elapsed:{} self-chosen-provisions:{} reactive-passive-until-next-pressure:{} ({}% of elapsed-to-warning) proactive-passive-after-fire-and-recon:{} next-problem=chilly actionable-at-opening=[storage-deferred material-deferred warmth-forecast:{}t roof-if-built:{}t]",
             review.seed,
             review.start_profile.label(),
             review.camp_goal.label(),
@@ -4314,6 +4314,7 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
             physical_minutes_tenths(&registries, adaptation.preparation_ticks),
             physical_minutes_tenths(&registries, adaptation.exposed_ticks),
             passive_share,
+            physical_minutes_tenths(&registries, adaptation.prepared_passive_ticks),
             adaptation.projected_unheated_ticks,
             adaptation.covered_unheated_ticks,
         );
@@ -4343,6 +4344,17 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
             adaptation.recovered_nut_mass_mg / 1_000,
             adaptation.recovery_route_ticks,
             adaptation.warm_comfort_ppm,
+        );
+        std::println!(
+            "PLAYER JOURNEY seed=0x{:016X} episode={sample}/{}/{} phase=unattended-camp-reconnaissance decision=[use-safe-forecast-window for-visible-copper-clay-outcrop] action=[body-route:spawn>forage>water>outcrop>water>forage>spawn field-inspection:{}t sample:{}g] feedback=[positive-local-copper-evidence:true carried-new-metal:true reload:exact] pacing=[active-recon:{}t idle-after:{}t vs-reactive-idle:{}t] comparison=[fire-only-scout-deterrence:matched same-source-custody:true] scope=same-generated-world-branch",
+            review.seed,
+            review.start_profile.label(),
+            review.camp_goal.label(),
+            adaptation.reconnaissance_survey_ticks,
+            adaptation.reconnaissance_copper_mg / 1_000,
+            adaptation.reconnaissance_ticks,
+            adaptation.prepared_passive_ticks,
+            adaptation.exposed_ticks,
         );
         // Retain the same actor's later, organically triggered decision in episode-filtered
         // replays. The original aggregate adaptation record has no episode key and is omitted

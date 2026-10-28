@@ -1,6 +1,13 @@
 //! A goal-free opening can develop its own problem rather than stop at first provisions.
 
 use super::*;
+use deep_hearth::content::{
+    FORM_NATIVE_METAL, MATERIAL_CLAY, MATERIAL_COPPER, PROSPECTING_FIELD_INSPECTION,
+};
+use deep_hearth::geology::{
+    FieldProspectingRequest, GeologicalEvidenceKind, player_prospecting_options,
+    validate_start_field_prospecting,
+};
 use deep_hearth::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 
 /// A real post-opening decision, kept separate from the initial 1.3-minute opening snapshot.
@@ -29,6 +36,146 @@ pub(crate) struct MobileColdResponse {
     pub(super) planned_comfort_ppm: u32,
     pub(super) planned_fuel_runway_ticks: u64,
     pub(super) reactive_fuel_runway_ticks: u64,
+    pub(super) reconnaissance_ticks: u64,
+    pub(super) reconnaissance_survey_ticks: u64,
+    pub(super) reconnaissance_copper_mg: u64,
+    pub(super) prepared_passive_ticks: u64,
+}
+
+/// Uses genuinely observed routes and a live field-inspection catalog while the campfire
+/// works unattended. The metal is carried back; geological evidence remains acquired in the
+/// same root. No pre-generated deposit position or scout schedule enters the actor's plan.
+fn investigate_unattended_outcrop(
+    registries: &Registries,
+    state: &mut AppState,
+    spawn: VoxelCoord,
+    forage: VoxelCoord,
+) -> (u64, u64, u64) {
+    let started = state.tick();
+    let copper = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
+    let clay = CommodityKey::new(MATERIAL_CLAY, FORM_LUMP);
+    walk_continuous_body_adjacent_and_settle(
+        registries,
+        state,
+        forage,
+        "reconnaissance into known forage fork",
+    );
+    let water = available_adjacent_drink_sources(registries, state)
+        .next()
+        .unwrap_or_else(|| panic!("reconnaissance cannot see the adjacent water branch"))
+        .position();
+    walk_continuous_body_adjacent_and_settle(
+        registries,
+        state,
+        water,
+        "reconnaissance through water branch",
+    );
+    let outcrop = adjacent_surface_resource(state, copper).position();
+    walk_continuous_body_adjacent_and_settle(
+        registries,
+        state,
+        outcrop,
+        "reconnaissance toward newly seen copper",
+    );
+    let _ = local_surface_resource(state, clay);
+    let copper_source = local_surface_resource(state, copper);
+    let region = VoxelBounds::new(
+        outcrop,
+        VoxelCoord::new(outcrop.x() + 1, outcrop.y() + 1, outcrop.z() + 1),
+    )
+    .unwrap_or_else(|error| panic!("reconnaissance region failed: {error}"));
+    let option = player_prospecting_options(registries, state, region)
+        .unwrap_or_else(|error| panic!("reconnaissance method catalog failed: {error}"))
+        .into_iter()
+        .find(|candidate| candidate.method() == PROSPECTING_FIELD_INSPECTION)
+        .unwrap_or_else(|| panic!("reconnaissance has no ordinary hand inspection"));
+    assert!(!option.requires_equipment());
+    let inspection = validate_start_field_prospecting(
+        registries,
+        state,
+        FieldProspectingRequest::new(PROSPECTING_FIELD_INSPECTION, region, MATERIAL_COPPER),
+    )
+    .unwrap_or_else(|error| panic!("reconnaissance inspection was rejected: {error}"));
+    let finishes = inspection.work().completes_at();
+    let inspection_started = state.tick();
+    inspection
+        .commit(state)
+        .unwrap_or_else(|error| panic!("reconnaissance inspection commit failed: {error}"));
+    advance_to(
+        registries,
+        state,
+        finishes,
+        TickEventAllowance {
+            field_prospecting: true,
+            ..TickEventAllowance::default()
+        },
+        "unattended-camp mineral field inspection",
+    );
+    let survey_ticks = state.tick().value() - inspection_started.value();
+    let observation = state
+        .geological_knowledge()
+        .observations()
+        .last()
+        .unwrap_or_else(|| panic!("reconnaissance produced no acquired mineral evidence"));
+    assert_eq!(
+        observation.evidence(),
+        GeologicalEvidenceKind::SurfaceExposure
+    );
+    assert!(
+        observation
+            .finding(MATERIAL_COPPER)
+            .is_some_and(|finding| finding.lower_ppm() > 0),
+        "the visible native-copper float should give the player actionable local evidence"
+    );
+    let sample = Mass::from_milligrams(20_000);
+    let copper_before = state
+        .available_surface_resources()
+        .find(|resource| resource.id() == copper_source)
+        .unwrap_or_else(|| panic!("observed copper source disappeared"))
+        .remaining_mass();
+    assert!(copper_before >= sample);
+    gather(
+        registries,
+        state,
+        copper_source,
+        sample,
+        "reconnaissance finite copper sample",
+    );
+    assert_eq!(
+        state
+            .available_surface_resources()
+            .find(|resource| resource.id() == copper_source)
+            .map(|resource| resource.remaining_mass()),
+        copper_before.checked_sub(sample)
+    );
+    for (position, label) in [
+        (water, "reconnaissance return through water"),
+        (forage, "reconnaissance return through forage"),
+        (spawn, "reconnaissance return to protected camp route"),
+    ] {
+        walk_continuous_body_adjacent_and_settle(registries, state, position, label);
+    }
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(copper),
+        sample
+    );
+    let save = serde_json::to_vec(&SaveEnvelope::new(registries, state)).unwrap();
+    let restored: LoadedSaveEnvelope = serde_json::from_slice(&save).unwrap();
+    assert_eq!(
+        restored.into_state(registries),
+        Ok(state.clone()),
+        "acquired mineral evidence and the finite sample must survive reload"
+    );
+    (
+        state.tick().value() - started.value(),
+        survey_ticks,
+        sample.milligrams(),
+    )
 }
 
 fn settle_direct_action_control_interval(
@@ -601,17 +748,34 @@ pub(super) fn evaluate_mobile_cold_response(
         planned.logistics().player().map(|player| player.position()),
         Some(spawn)
     );
+    // Keep the fire-only comparator at the same departure instant. Unlike the
+    // passive branch, this actor now converts available safe time into information
+    // and a finite sample from an *observed* side route, not an invented job.
+    let mut idle_with_fire = planned.clone();
+    let (reconnaissance_ticks, reconnaissance_survey_ticks, reconnaissance_copper_mg) =
+        investigate_unattended_outcrop(registries, &mut planned, spawn, berry_position);
+    assert!(
+        planned.tick() < warning_at,
+        "physical reconnaissance must finish before the forecasted discomfort window"
+    );
     // Keep the fire unattended throughout the scout's real foraging window. A distant
     // fire does not warm the player; return to the actual worksite when the same player
     // would otherwise become chilly, then measure the consequence of using the already
     // constructed refuge instead of starting a new fire while cold.
-    assert!(planned.tick() < warning_at);
+    let prepared_passive_ticks = warning_at.value() - planned.tick().value();
     advance_to(
         registries,
         &mut planned,
         warning_at,
         TickEventAllowance::default(),
         "prepared fire left unattended during scavenger patrol",
+    );
+    advance_to(
+        registries,
+        &mut idle_with_fire,
+        warning_at,
+        TickEventAllowance::default(),
+        "matched passive fire-only patrol comparator",
     );
     walk_continuous_body_adjacent_and_settle(
         registries,
@@ -631,6 +795,28 @@ pub(super) fn evaluate_mobile_cold_response(
         .unwrap_or_else(|| panic!("planned camp lost local natural nuts"))
         .remaining_mass()
         .milligrams();
+    walk_continuous_body_adjacent_and_settle(
+        registries,
+        &mut idle_with_fire,
+        berry_position,
+        "fire-only counterfactual source approach",
+    );
+    walk_continuous_body_adjacent_and_settle(
+        registries,
+        &mut idle_with_fire,
+        junction,
+        "fire-only counterfactual source inspection",
+    );
+    assert_eq!(
+        idle_with_fire
+            .available_surface_resources()
+            .find(|resource| resource.id() == nut_resource)
+            .unwrap()
+            .remaining_mass()
+            .milligrams(),
+        planned_nut_source_after_mg,
+        "scout deterrence must be due to the fire, not the actor's mineral reconnaissance"
+    );
     assert_eq!(
         planned_nut_source_after_mg,
         expected_remaining.milligrams(),
@@ -701,12 +887,16 @@ pub(super) fn evaluate_mobile_cold_response(
         planned_comfort_ppm: planned_assessment.thermal_comfort_ppm(),
         planned_fuel_runway_ticks,
         reactive_fuel_runway_ticks,
+        reconnaissance_ticks,
+        reconnaissance_survey_ticks,
+        reconnaissance_copper_mg,
+        prepared_passive_ticks,
     }
 }
 
 pub(super) fn print_mobile_cold_response(registries: &Registries, review: MobileColdResponse) {
     std::println!(
-        "PLAYER ADAPTATION opening=stay-mobile forecast=[unheated-open:{}t roof-if-built:{}t no-local-heat] self-chosen-provisions:{}t passive-exposure={} trigger=chilly/{}ppm after:{}t/{} reactive=[stone-ring:built fuel:{}g trips:2 light:{} recovered:{}t fueled:{}t comfort:{}ppm no-fire:{}ppm] planned=[start:{}t fueled:{}t comfort:{}ppm fire-runway:{}t vs-reactive:{}t] custody=[timber-left:{}g matter-conserved:true] mode=same-generated-world",
+        "PLAYER ADAPTATION opening=stay-mobile forecast=[unheated-open:{}t roof-if-built:{}t no-local-heat] self-chosen-provisions:{}t passive-exposure={} trigger=chilly/{}ppm after:{}t/{} reactive=[stone-ring:built fuel:{}g trips:2 light:{} recovered:{}t fueled:{}t comfort:{}ppm no-fire:{}ppm] planned=[start:{}t fueled:{}t comfort:{}ppm fire-runway:{}t vs-reactive:{}t] recon=[active:{}t survey:{}t copper:{}mg idle-after:{}t actual-evidence:true fire-only-control:matched] custody=[timber-left:{}g matter-conserved:true] mode=same-generated-world",
         review.projected_unheated_ticks,
         review.covered_unheated_ticks,
         review.preparation_ticks,
@@ -725,6 +915,10 @@ pub(super) fn print_mobile_cold_response(registries: &Registries, review: Mobile
         review.planned_comfort_ppm,
         review.planned_fuel_runway_ticks,
         review.reactive_fuel_runway_ticks,
+        review.reconnaissance_ticks,
+        review.reconnaissance_survey_ticks,
+        review.reconnaissance_copper_mg,
+        review.prepared_passive_ticks,
         review.timber_remaining_mg / 1_000,
     );
 }

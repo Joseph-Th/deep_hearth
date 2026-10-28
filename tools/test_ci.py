@@ -3638,7 +3638,9 @@ class GameplayReportContractTests(unittest.TestCase):
             "reactive=[stone-ring:built fuel:1000g trips:2 light:7 recovered:3t "
             "fueled:199t comfort:806000ppm no-fire:776000ppm] "
             "planned=[start:158t fueled:178t comfort:963500ppm "
-            "fire-runway:1087t vs-reactive:1108t]"
+            "fire-runway:1087t vs-reactive:1108t] "
+            "recon=[active:19t survey:10t copper:20000mg idle-after:106t "
+            "actual-evidence:true fire-only-control:matched]"
         )
         experienced = gameplay_report_summary.wilderness_player_experience([opening, adaptation])
         assert experienced is not None
@@ -3649,7 +3651,8 @@ class GameplayReportContractTests(unittest.TestCase):
         lived = [
             "PLAYER TEMPO seed=0x1 episode=maintained/rested/stay-mobile "
             "opening-elapsed:1.3m self-chosen-provisions:1.8m "
-            "passive-until-next-pressure:8.9m (74% of elapsed-to-warning) "
+            "reactive-passive-until-next-pressure:8.9m (74% of elapsed-to-warning) "
+            "proactive-passive-after-fire-and-recon:6.4m "
             "next-problem=chilly",
             "PLAYER JOURNEY seed=0x1 episode=maintained/rested/stay-mobile "
             "phase=self-directed-provisions "
@@ -3670,6 +3673,15 @@ class GameplayReportContractTests(unittest.TestCase):
             "alternative=[prepare-at:30t comfort:963500ppm remaining-fuel:1087t "
             "vs-reactive:1108t] "
             "tradeoff=prepare-early-for-warmth-or-react-later-to-save-fuel",
+            "PLAYER JOURNEY seed=0x1 episode=maintained/rested/stay-mobile "
+            "phase=unattended-camp-reconnaissance "
+            "decision=[use-safe-forecast-window for-visible-copper-clay-outcrop] "
+            "action=[body-route:spawn>forage>water>outcrop>water>forage>spawn "
+            "field-inspection:10t sample:20g] "
+            "feedback=[positive-local-copper-evidence:true carried-new-metal:true reload:exact] "
+            "pacing=[active-recon:19t idle-after:106t vs-reactive-idle:149t] "
+            "comparison=[fire-only-scout-deterrence:matched same-source-custody:true] "
+            "scope=same-generated-world-branch",
         ]
         lived_experience = gameplay_report_summary.wilderness_player_experience(
             [opening, adaptation, *lived]
@@ -3682,7 +3694,12 @@ class GameplayReportContractTests(unittest.TestCase):
             "early-fuel:1087t-vs-reactive:1108t]",
             lived_experience,
         )
-        with self.assertRaisesRegex(ValueError, "all three physical journey phases"):
+        self.assertIn(
+            "productive-gap=[observed-copper-scout:survey-10t secured:20g "
+            "active:19t passive:6.4m-vs-8.9m fire-only-deterrence:matched]",
+            lived_experience,
+        )
+        with self.assertRaisesRegex(ValueError, "all four physical journey phases"):
             gameplay_report_summary.wilderness_player_experience(
                 [opening, adaptation, *lived[:-1]]
             )
@@ -3696,8 +3713,17 @@ class GameplayReportContractTests(unittest.TestCase):
             gameplay_report_summary.wilderness_player_experience(
                 [opening, adaptation, *lived[:2],
                  lived[2].replace("food-source-protected:100g", "food-source-protected:0g"),
-                 lived[3]]
+                 *lived[3:]]
             )
+        with self.assertRaisesRegex(ValueError, "finite provisions and firelight protection"):
+            gameplay_report_summary.wilderness_player_experience([
+                opening, adaptation, *lived[:-1],
+                lived[-1].replace("idle-after:106t", "idle-after:160t"),
+            ])
+        with self.assertRaisesRegex(ValueError, "finite provisions and firelight protection"):
+            gameplay_report_summary.wilderness_player_experience([
+                opening, adaptation.replace("copper:20000mg", "copper:30000mg"), *lived,
+            ])
         with self.assertRaisesRegex(ValueError, "no hidden scout schedule"):
             gameplay_report_summary.wilderness_player_experience(
                 [opening, adaptation, *lived[:1],
@@ -3872,7 +3898,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "FIELDWORK PACING seed=0x1 noisy-detail",
         ]
         lines.append(
-            "PLAYER ADAPTATION opening=stay-mobile forecast=[unheated-open:179t roof-if-built:594t no-local-heat] self-chosen-provisions:30t passive-exposure=8.9m trigger=chilly/799000ppm after:179t/10.7m reactive=[stone-ring:built fuel:1000g trips:2 light:7 recovered:1t fueled:199t comfort:818000ppm no-fire:778000ppm] planned=[start:158t fueled:178t comfort:1000000ppm fire-runway:1089t vs-reactive:1110t] custody=[timber-left:31130g matter-conserved:true] mode=same-generated-world"
+            "PLAYER ADAPTATION opening=stay-mobile forecast=[unheated-open:179t roof-if-built:594t no-local-heat] self-chosen-provisions:30t passive-exposure=8.9m trigger=chilly/799000ppm after:179t/10.7m reactive=[stone-ring:built fuel:1000g trips:2 light:7 recovered:1t fueled:199t comfort:818000ppm no-fire:778000ppm] planned=[start:158t fueled:178t comfort:1000000ppm fire-runway:1089t vs-reactive:1110t] recon=[active:19t survey:10t copper:20000mg idle-after:106t actual-evidence:true fire-only-control:matched] custody=[timber-left:31130g matter-conserved:true] mode=same-generated-world"
         )
         lines.append(
             "WILDERNESS NUTRITION seed=0x1 episode=coverage/hunger-pressure/two-food-ration evidence=generated-exact-local path=forage->junction choice=fruit-and-protein gather=[berries:250000mg nuts:250000mg] meal=[berries:150000mg nuts:150000mg duration:30t] energy-replenished=true nutrition-offered=[fruit:300000ppm protein:300000ppm] nuts-left=500000mg matter=conserved"

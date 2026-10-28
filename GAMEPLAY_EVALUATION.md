@@ -233,6 +233,15 @@ heat when it needs warmth. This isolation matters: food protection must be attri
 finite firelight, not to a scout being scared away by a player standing at the source. Fuel
 burned while absent remains a real cost. The later reactive branch still succeeds, but must
 spend extra attention returning through the visible recovery route and starts warming later.
+The maintained forward actor also uses part of the unattended fire window for actual
+reconnaissance from its own known spawn: it follows the locally visible water branch to
+an outcrop only when the next opportunity becomes adjacent, performs a catalog-discovered
+hand inspection, gathers finite exposed copper and returns by normal 20 Hz movement.
+Acquired geological knowledge and the carried sample survive trusted reload. A separately
+matched fire-only branch visits the same food source at the same scout-observation horizon,
+so the actor's absence during reconnaissance is not miscredited as firelight protection.
+The concise report must retain this active/persisted work, its remaining passive time and
+the matched ecological outcome, and reject mismatched evidence rather than dropping the phase.
 The opening also reports basal hunger/thirst-warning horizons from the player-facing
 provisioning projection, so deferring food or water has a visible reason. These are explicitly
 resting, no-intake estimates, not predictions that ignore the cost of hauling or labor.

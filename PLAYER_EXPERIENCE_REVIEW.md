@@ -24,7 +24,8 @@ larger ledgers, longer waits, and more forced survival tasks do not automaticall
 | --- | --- | --- |
 | Maintained rested opening | 500 g berries collected in 1.3 minutes; 5.10 kg remained; the player deferred water, storage and tools. At resting rates the hunger and thirst warnings were about 45 and 24 hours away. | Deferring unnecessary capital is rational. The observed junction also offers a distinct durable protein opportunity. |
 | Same actor's forward provisions | Using the exact-local, revision-bound gathering food-value projection, the actor verified current source freshness, took 250 g nuts (1,750 kJ and a longer authored fresh shelf-life than berries) and returned to spawn. This required 1.8 minutes of actual gathering and travel. Later, a scout removed 100 g from the unguarded source. The player saw an adjacent parcel, reclaimed the exact 100 g with two more physical travel ticks, and retained conservation and trusted save/load. | A recoverable opportunity now appears inside one *continuous* character story, rather than only in a separate scout test. It makes finite food, actual spoilage, nutrition, scouting and movement causally related. |
-| Same actor's thermal/infrastructure choice | The reactive branch observed the cold warning after **8.9 minutes of passive time** (74% of elapsed time to the warning), then returned, recovered food and made a fire. From the same post-provision state, a forecast-driven branch built its fire from actually gathered materials, **left it unattended during the scout patrol**, then returned to warm at that physical worksite. That protected the complete 585 g remaining nut patch and yielded 974,500 ppm comfort instead of 802,000 ppm at the matched endpoint. It also burned fuel earlier, leaving 957 versus 1,108 ticks of fire runway. | This is the more promising field-engineer loop: advance planning saves a return chase and turns heat into infrastructure that deters wildlife. Merely building a fire and standing guard would not prove this causal result; and warmth only returns when the player physically comes back. Passive time remains excessive. |
+| Same actor's thermal/infrastructure choice | The reactive branch observed the cold warning after **8.9 minutes of passive time** (74% of elapsed time to the warning), then returned, recovered food and made a fire. From the same post-provision state, a forecast-driven branch built its fire from actually gathered materials, **left it unattended during the scout patrol**, and used that window for real reconnaissance. The fire protected all 585 g of the remaining nut patch and yielded 974,500 ppm comfort instead of 802,000 ppm at the matched endpoint. It burned fuel earlier, leaving 957 versus 1,108 ticks of fire runway. | Advance planning saves a return chase and turns heat into infrastructure that deters wildlife. A fire-only matched branch proves the protection is due to illumination, not the player's presence at the source. The worksite only warms the player on return. |
+| Unattended camp reconnaissance | The same proactive player walked spawn → forage → water → copper/clay outcrop and back using normal continuous-body control. A 10-tick hand inspection acquired positive local copper evidence, a timed collection secured **20 g of finite native copper**, and strict save/load preserved both knowledge and custody. The trip occupied 19 simulation ticks; the proactive branch still waited **6.4 minutes** after returning, against 8.9 minutes in the reactive branch. The idle fire-only comparison retained the same protected food. | The player is beginning to **be a field engineer** rather than a fire tender: investing in sheltering infrastructure creates freedom to learn and return with useful physical stock. Yet discovering one resource is not a lasting technological improvement; the game needs subsequent independently motivated projects and better opportunity discovery. |
 | Long-stay camp | Timber, stone, tools, supports and a finished cover create a material, spatial shelter. Unheated exposure loss changes from 1,000 to 300 ppm/tick; unfinished construction grants no cover. | A physical project gives a tangible advantage and creates a genuine fuel-versus-construction alternative. This is close to the desired fantasy. |
 | Scavenger encounter | A scout may relocate unattended food, can be driven away by presence and local firelight, and leaves actionable route evidence. Stolen matter stays recoverable. | World inhabitants become interesting through custody and risk, not just damage. Most such encounters are currently sampled separately from the maintained opening. |
 | Fieldwork | A 33 kg ore demand met a localized 0..5 kg estimate; first recovered ore arrived only after about 17 minutes of setup/search/work. Six further searches cost another 324 ticks and still left 15.88 kg unmet. A matched assay reduced uncertainty at a real attention cost. | Exploration, uncertainty, adaptation and sunk-cost decisions exist. A nominal order cannot turn a small local seam into an adequate supply. Make this limitation evident before large tool investment, without leaking hidden neighboring geology. |
@@ -53,10 +54,12 @@ The strongest moments cross two or more owners in one persistent scenario: a fir
 fuel demand and deterrence; a roof consumes scarce timber but reduces future fuel dependence;
 a mining tool is preparation expense that may not be justified by the found deposit.
 
-**Not yet convincing:** despite the newly grounded provisions/field-fire decision, the maintained
-starting actor has little to explore outside the known bounded opening. **74%** of the elapsed
-time to its first cold warning is still passive in the reactive branch. A six-edge opening and
-abundant local food offer too little discovery to sustain a field-engineer identity.
+**Not yet convincing:** despite now performing a paid reconnaissance and retaining physical
+metal and acquired geology, the maintained starting actor has little to explore outside the
+known bounded opening. **74%** of the elapsed time to its first cold warning is passive in
+the reactive branch; even the forward-planning branch still has **6.4 minutes of idle exposure**
+after its actual 19-tick reconnaissance. A six-edge opening and abundant local food offer too
+little unscripted discovery to sustain a field-engineer identity.
 Several downstream challenges
 are supplied as externally selected work orders or staged world setups. Passing samples alone
 therefore overstate the continuity, curiosity and initiative of ordinary play. Real 20 Hz
@@ -80,6 +83,12 @@ self-chosen forward-provisioning action, and prints its active and passive time 
 A completed roof changes the actual warmth forecast; unknown terrain does not invent cover.
 These decisions improve player planning and the honesty of automated evaluation. They do
 not solve world exploration.
+
+The current maintained report now includes a fourth physical journey phase rather than
+silently dropping the productive reconnaissance from its concise account. The evidence
+is cross-checked against the same branch's canonical save, material custody and explicit
+fire-only counterfactual. The report rejects inconsistent activity or metal claims; reduced
+idle time is not inferred from elapsed fire duration alone.
 
 The immediate material challenge is to move beyond the finite, pre-shaped opening graph:
 **one generated-world player** should discover a physical clue or work opportunity not already

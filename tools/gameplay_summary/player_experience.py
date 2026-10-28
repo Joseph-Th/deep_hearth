@@ -64,11 +64,17 @@ def _wilderness_mobile_journey(
     planned_comfort: str,
     planned_runway: str,
     reactive_runway: str,
+    planned_recon: str,
 ) -> str:
     """Validate optional detailed story rows as one matched physical continuation."""
 
     tempo = _one_seeded(lines, "PLAYER TEMPO ", seed)
-    phases = ("self-directed-provisions", "engineering-payoff", "observed-chill")
+    phases = (
+        "self-directed-provisions",
+        "engineering-payoff",
+        "unattended-camp-reconnaissance",
+        "observed-chill",
+    )
     journeys = {}
     for phase in phases:
         matches = [
@@ -83,15 +89,16 @@ def _wilderness_mobile_journey(
     if tempo is None and all(row is None for row in journeys.values()):
         return ""  # Short-form reports can carry only the original adaptation witness.
     if tempo is None or any(row is None for row in journeys.values()):
-        raise ValueError("mobile provisions require tempo and all three physical journey phases")
+        raise ValueError("mobile provisions require tempo and all four physical journey phases")
     assert tempo is not None
     provisions = journeys["self-directed-provisions"]
     engineering = journeys["engineering-payoff"]
+    recon = journeys["unattended-camp-reconnaissance"]
     observed = journeys["observed-chill"]
-    assert provisions is not None and engineering is not None and observed is not None
+    assert provisions is not None and engineering is not None and recon is not None and observed is not None
     if (
         any(_required(row, "episode") != "maintained/rested/stay-mobile"
-            for row in (tempo, provisions, engineering, observed))
+            for row in (tempo, provisions, engineering, recon, observed))
         or provision_ticks is None
         or _required(tempo, "next-problem") != "chilly"
         or _required(provisions, "phase") != "self-directed-provisions"
@@ -100,10 +107,25 @@ def _wilderness_mobile_journey(
         or _required(observed, "tradeoff") != "prepare-early-for-warmth-or-react-later-to-save-fuel"
     ):
         raise ValueError("mobile continuation must use the same actor and no hidden scout schedule")
-    prep, exposed, percent = _capture(
+    prep, exposed, percent, proactive_passive = _capture(
         tempo,
-        r"self-chosen-provisions:([0-9.]+m) passive-until-next-pressure:([0-9.]+m) \((\d+)% of elapsed-to-warning\)",
-        "active provisions and passive proportion",
+        r"self-chosen-provisions:([0-9.]+m) reactive-passive-until-next-pressure:([0-9.]+m) \((\d+)% of elapsed-to-warning\) proactive-passive-after-fire-and-recon:([0-9.]+m)",
+        "reactive versus proactive activity and passive proportion",
+    )
+    survey, sample = _capture(
+        _required(recon, "action"),
+        r"body-route:spawn>forage>water>outcrop>water>forage>spawn field-inspection:(\d+)t sample:(\d+)g",
+        "executed route, mineral survey and sample",
+    )
+    recon_ticks, recon_idle, reactive_idle = _capture(
+        _required(recon, "pacing"),
+        r"active-recon:(\d+)t idle-after:(\d+)t vs-reactive-idle:(\d+)t",
+        "productive reconnaissance versus actual idle exposure",
+    )
+    planned_active, planned_survey, planned_sample, planned_idle = _capture(
+        planned_recon,
+        r"active:(\d+)t survey:(\d+)t copper:(\d+)mg idle-after:(\d+)t actual-evidence:true fire-only-control:matched",
+        "cross-checked player exploration and fire-only counterfactual",
     )
     secured, energy = _capture(
         _required(provisions, "execution"),
@@ -156,6 +178,17 @@ def _wilderness_mobile_journey(
         or int(early_runway) != int(planned_runway) == int(future_runway)
         or int(late_runway) != int(reactive_runway) == int(future_reactive_runway)
         or not 0 < int(recovery_ticks)
+        or _required(recon, "scope") != "same-generated-world-branch"
+        or _required(recon, "feedback") != "[positive-local-copper-evidence:true carried-new-metal:true reload:exact]"
+        or _required(recon, "comparison") != "[fire-only-scout-deterrence:matched same-source-custody:true]"
+        or not 0 < int(survey) <= int(recon_ticks)
+        or not 0 < int(sample)
+        or int(recon_ticks) != int(planned_active)
+        or int(survey) != int(planned_survey)
+        or int(sample) * 1000 != int(planned_sample)
+        or int(recon_idle) != int(planned_idle)
+        or int(reactive_idle) <= int(recon_idle)
+        or float(proactive_passive[:-1]) >= float(exposed[:-1])
     ):
         raise ValueError("mobile continuation did not earn finite provisions and firelight protection")
     return (
@@ -164,6 +197,10 @@ def _wilderness_mobile_journey(
         + " scout-displaced:" + missing + "g reclaimed:" + reclaimed + "g/" + chase + "t"
         + " unattended-fire-protected:" + saved_food + "g"
         + " early-fuel:" + early_runway + "t-vs-reactive:" + late_runway + "t]"
+        + " productive-gap=[observed-copper-scout:survey-" + survey + "t"
+        + " secured:" + sample + "g active:" + recon_ticks + "t"
+        + " passive:" + proactive_passive + "-vs-" + exposed
+        + " fire-only-deterrence:matched]"
     )
 
 
@@ -252,6 +289,7 @@ def wilderness_player_experience(lines: list[str]) -> str | None:
         raise ValueError("player adaptation lost its actual provisioning, exposure or shelter tradeoff")
     reactive = _required(adaptation, "reactive")
     planned = _required(adaptation, "planned")
+    recon = _required(adaptation, "recon")
     if "stone-ring:built" not in reactive:
         raise ValueError("player adaptation lost the physically built campfire")
     fueled, comfort, no_fire = _capture(
@@ -286,6 +324,7 @@ def wilderness_player_experience(lines: list[str]) -> str | None:
             provision.group(1) if provision is not None else None,
             passive_exposure, fueled, comfort, no_fire,
             earlier, planned_comfort, planned_runway, reactive_runway,
+            recon,
         )
     )
 
