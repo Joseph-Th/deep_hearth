@@ -93,6 +93,61 @@ fn multi_chunk_woodland_is_seed_deterministic_independent_of_generation_order() 
 }
 
 #[test]
+fn generated_full_cell_collision_distinguishes_trunks_rock_air_and_unknown_space() {
+    let (registries, mut state, root) = standing_tree_fixture();
+    let registry = registries.world();
+    let floor = VoxelCoord::new(root.x(), root.y() - 1, root.z());
+    let upper = VoxelCoord::new(root.x(), root.y() + 1, root.z());
+    let clear = VoxelCoord::new(root.x(), root.y() + 2, root.z());
+    let unknown = VoxelCoord::new(100, root.y(), 100);
+    let check = |state: &AppState, tree_standing| {
+        assert_eq!(
+            state.world().full_cell_collision_at(registry, root),
+            Some(tree_standing)
+        );
+        assert_eq!(
+            state.world().full_cell_collision_at(registry, upper),
+            Some(tree_standing)
+        );
+        assert_eq!(
+            state.world().full_cell_collision_at(registry, floor),
+            Some(true)
+        );
+        assert_eq!(
+            state.world().full_cell_collision_at(registry, clear),
+            Some(false)
+        );
+        assert_eq!(
+            state.world().full_cell_collision_at(registry, unknown),
+            None
+        );
+        assert_eq!(
+            state.world().full_cell_collision_at(
+                registry,
+                VoxelCoord::new(root.x(), crate::world::WORLD_MAX_Y_EXCLUSIVE, root.z())
+            ),
+            None
+        );
+    };
+    assert_eq!(state.world().block_at(root), Some(BlockStateId::AIR));
+    check(&state, true);
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+    check(&loaded, true);
+
+    let _ = validate_fell_tree(&registries, &state, root)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    check(&state, false);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn trunk_bounds_queries_find_exact_cells_and_stop_after_felling() {
     let (registries, mut state, root) = standing_tree_fixture();
     let lower = crate::spatial::VoxelBounds::new(

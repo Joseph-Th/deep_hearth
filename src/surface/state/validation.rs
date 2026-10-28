@@ -518,12 +518,13 @@ fn surface_position_has_solid_world_after_felling(
 ) -> bool {
     // A validated atomic felling removes only the named root before its log
     // parcel lands. The adjacent upper trunk and all other trees remain solid.
-    (world.tree_trunk_at(position).is_some()
-        && !(felled_root == Some(position) && world.tree_at(position).is_some()))
-        || world
+    if felled_root == Some(position) && world.tree_at(position).is_some() {
+        return world
             .block_at(position)
             .and_then(|block| world_registry.block_for_state(block))
-            .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+            .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube);
+    }
+    world.full_cell_collision_at(world_registry, position) == Some(true)
 }
 
 pub(in crate::surface) fn validate_surface_resource_physical_position(

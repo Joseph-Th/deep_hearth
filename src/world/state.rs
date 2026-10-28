@@ -797,6 +797,23 @@ impl WorldState {
             .map(|chunk| chunk.block_at(voxel))
     }
 
+    /// Physical full-cell collision owned by the generated world. Living tree
+    /// trunks are solid even though their terrain block is air. None preserves
+    /// the distinction between unknown world truth and a known clear voxel:
+    /// callers decide whether an ungenerated cell may admit custody or movement.
+    #[must_use]
+    pub(crate) fn full_cell_collision_at(
+        &self,
+        registry: &WorldRegistry,
+        voxel: VoxelCoord,
+    ) -> Option<bool> {
+        let block = registry.block_for_state(self.block_at(voxel)?)?;
+        Some(
+            self.tree_trunk_at(voxel).is_some()
+                || block.collision() == BlockCollisionShape::FullCube,
+        )
+    }
+
     /// A floor-supported, two-block-high standing column in generated terrain.
     /// Missing chunks and out-of-range floor/head cells are never traversable ground.
     #[must_use]

@@ -255,12 +255,9 @@ pub(super) fn world_cell_blocks_motion(
     world: &WorldState,
     voxel: VoxelCoord,
 ) -> bool {
-    if world.tree_trunk_at(voxel).is_some() {
-        return true;
-    }
     world
-        .block_at(voxel)
-        .is_none_or(|state| block_is_solid(registry, state))
+        .full_cell_collision_at(registry, voxel)
+        .unwrap_or(true)
 }
 
 pub(super) fn horizontal_voxel_bounds(

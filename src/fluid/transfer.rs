@@ -15,7 +15,6 @@ use crate::player::{PlayerActionGuard, validate_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::structural::{StructuralAnalysis, StructuralCommitError, StructuralMutationOutcome};
-use crate::world::BlockCollisionShape;
 
 use super::state::FluidContents;
 use super::structural_integration::{
@@ -348,15 +347,11 @@ fn validate_transfer_geometry(
                     destination_position,
                 });
             }
-            match state.world().block_at(destination_position) {
-                Some(block)
-                    if registries
-                        .world()
-                        .block_for_state(block)
-                        .is_some_and(|definition| {
-                            definition.collision() == BlockCollisionShape::FullCube
-                        }) =>
-                {
+            match state
+                .world()
+                .full_cell_collision_at(registries.world(), destination_position)
+            {
+                Some(true) => {
                     return Err(FluidTransferError::BlockedGravityDestination {
                         destination_position,
                     });

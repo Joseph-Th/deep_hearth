@@ -444,6 +444,15 @@ Surface-resource creation also excludes living tree trunks whose underlying
 terrain voxel is air. Creation plans bind the world revision, so generation
 or excavation changing block truth between validation and commit invalidates
 the pending parcel rather than creating matter in newly obstructed space.
+Generated-world full-cell collision is resolved by one world-owned query that
+combines registered terrain shapes and standing-tree trunks. It distinguishes
+solid cells, clear generated cells, and absent world authority: player motion
+rejects unknown cells, while loose custody and storage admission do not claim
+that an ungenerated column is already solid. Gravity-fed fluid transfers
+likewise reject known physical obstructions and unknown generated terrain.
+The atomic tree-felling parcel transition uses the same query except at the
+named root being removed in that transaction, where its projected post-felling
+terrain remains authoritative.
 Identity-preserving scavenger relocations also use the surface owner's
 world-obstruction test at their destination: a solid voxel or tree trunk refuses the
 transfer without changing custody or revisions, while a cleared destination
