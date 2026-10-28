@@ -3,7 +3,8 @@
 use super::*;
 use crate::content::{BLOCK_STATE_STONE, build_registries};
 use crate::core::state::AppState;
-use crate::core::time::ControlTick;
+use crate::core::time::{ControlTick, SimulationTick};
+use crate::labor::{ProspectingMethodId, ProspectingWork};
 use crate::logistics::{HorizontalControlInput, PlayerControlInput};
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
@@ -13,6 +14,45 @@ use crate::spatial::VoxelCoord;
 use crate::world::{
     ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed, validate_generate_chunk,
 };
+
+#[test]
+fn prospecting_work_requires_explicit_equipment_and_wear_slots() {
+    use crate::equipment::{EquipmentDefinitionId, EquipmentId, EquipmentOperationTrace};
+    use crate::maintenance::Condition;
+    use crate::material::MaterialId;
+    use crate::spatial::VoxelBounds;
+
+    let region = VoxelBounds::new(VoxelCoord::new(0, 0, 0), VoxelCoord::new(1, 1, 1)).unwrap();
+    let trace = EquipmentOperationTrace::new(
+        EquipmentId::new(1),
+        EquipmentDefinitionId::new(1),
+        Condition::PRISTINE,
+    );
+    for (equipment, condition_after) in [(None, None), (Some(trace), Some(Condition::PRISTINE))] {
+        let work = ProspectingWork::new(
+            ProspectingMethodId::new(1),
+            region,
+            MaterialId::new(1),
+            equipment,
+            condition_after,
+            SimulationTick::new(1),
+            SimulationTick::new(2),
+        );
+        let encoded = serde_json::to_value(work).unwrap();
+        assert_eq!(
+            serde_json::from_value::<ProspectingWork>(encoded.clone()).unwrap(),
+            work
+        );
+        for field in ["equipment", "condition_after"] {
+            let mut incomplete = encoded.clone();
+            assert!(incomplete.as_object_mut().unwrap().remove(field).is_some());
+            assert!(
+                serde_json::from_value::<ProspectingWork>(incomplete).is_err(),
+                "omitting {field} cannot change the committed prospecting work state"
+            );
+        }
+    }
+}
 
 #[test]
 fn slow_player_work_requires_ground_contact_in_generated_world() {

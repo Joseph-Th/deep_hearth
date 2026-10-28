@@ -17,7 +17,9 @@ pub struct ProspectingWork {
     method: ProspectingMethodId,
     region: VoxelBounds,
     material: MaterialId,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     equipment: Option<EquipmentOperationTrace>,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     condition_after: Option<Condition>,
     started_at: SimulationTick,
     completes_at: SimulationTick,

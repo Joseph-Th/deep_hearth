@@ -32,6 +32,7 @@ struct MaterialLotSpecRepresentation {
     mass: Mass,
     temperature: Temperature,
     composition: MaterialComposition,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     particle_size: Option<ParticleSizeDistribution>,
 }
 

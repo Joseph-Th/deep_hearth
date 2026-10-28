@@ -43,6 +43,46 @@ fn input_spec_rejects_duplicate_material_constraints() {
 }
 
 #[test]
+fn lot_spec_requires_explicit_particle_distribution_even_when_absent() {
+    let host = MaterialId::new(3);
+    let commodity = CommodityKey::new(host, FormId::new(1));
+    let mass = Mass::from_milligrams(10);
+    let temperature = Temperature::from_millikelvin(300_000);
+    let without_size = MaterialLotSpec::new(commodity, mass, temperature);
+    let sized = MaterialLotSpec::with_composition_and_particle_size(
+        commodity,
+        mass,
+        temperature,
+        MaterialComposition::pure(host),
+        crate::material::ParticleSizeRange::new(
+            crate::core::quantity::Length::from_micrometers(100),
+            crate::core::quantity::Length::from_micrometers(500),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    for spec in [without_size, sized] {
+        let encoded = serde_json::to_value(&spec).unwrap();
+        assert_eq!(
+            serde_json::from_value::<MaterialLotSpec>(encoded.clone()).unwrap(),
+            spec
+        );
+        let mut incomplete = encoded;
+        assert!(
+            incomplete
+                .as_object_mut()
+                .unwrap()
+                .remove("particle_size")
+                .is_some()
+        );
+        assert!(
+            serde_json::from_value::<MaterialLotSpec>(incomplete).is_err(),
+            "omitted particle-size information cannot silently change a pending production output"
+        );
+    }
+}
+
+#[test]
 fn lot_spec_deserialization_enforces_intrinsic_matter_invariants() {
     let host = MaterialId::new(3);
     let form = FormId::new(1);
