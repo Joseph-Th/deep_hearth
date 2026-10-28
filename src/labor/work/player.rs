@@ -190,11 +190,11 @@ impl PlayerWork {
     pub(in crate::labor) const fn future_equipment_revision_demand(self) -> u64 {
         match self {
             Self::BlockExcavation { .. }
+            | Self::TreeFelling { .. }
             | Self::ManualPower { .. }
             | Self::EquipmentMaintenance { .. } => 1,
             Self::Prospecting { work } if work.equipment().is_some() => 1,
             Self::SurfaceGathering { .. }
-            | Self::TreeFelling { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::Prospecting { .. }

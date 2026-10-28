@@ -139,15 +139,20 @@ with a selected carried stone or copper woodworking adze. A slow-tick schedule s
 woody mass (stone: 1.5 kg/tick; copper: 3 kg/tick, minimum eight ticks), charges physiological
 exertion, and is persisted and trusted-load validated. The selected adze is occupied for
 this work and cannot be reassigned to production, mining, maintenance, or other owners.
-Completion reserves one future world revision, one surface revision, and one resource ID.
-The rooted tree remains solid while work progresses; a fatal interruption before completion releases labor without harvesting matter.
+Completion reserves one future world revision, one surface revision, one resource ID, and
+one equipment revision. Chopping wears stone adzes by 120 condition ppm/active tick and
+copper adzes by 55 ppm/tick. Work cannot start if the selected tool would reach zero
+condition before completion. The persisted equipment trace binds its starting condition
+and definition, and trusted load rejects forged traces. The rooted tree remains solid while
+work progresses; a fatal interruption before completion releases labor without harvesting
+matter but settles proportional elapsed wear. Chopping due on the fatal tick still finishes
+before death releases attention, matching the other due-work owners.
 On the scheduled completion the world-to-surface felling transaction atomically transfers
 its exact current wood mass to a finite loose-log parcel after checking world, logistics,
 survival and surface revisions and the player's continuous position. An ordinary held break
 cannot complete harvesting instantly. The lower-level `validate_fell_tree` remains a
-capability operation for controlled world-custody callers; no chopping-equipment condition
-wear is modeled yet. A persistent world assimilation ledger accounts for wood accumulated from the environment, including wood
-already felled. Each harvested tree leaves a compact, root-indexed and timestamped provenance
+capability operation for controlled world-custody callers. A persistent world assimilation
+ledger accounts for wood accumulated from the environment, including wood already felled. Each harvested tree leaves a compact, root-indexed and timestamped provenance
 receipt: trusted load reconstructs its seed-defined initial biomass, accumulated growth at
 felling, canonical order and uniqueness, and verifies the ledger exactly. Living tree locations,
 initial masses and sprouting dates must also match their seed-derived generation identities.

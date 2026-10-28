@@ -603,7 +603,7 @@ sandbox breadth," not "copy Minecraft's exact content."
 
 | Minecraft system family | Deep Hearth position | Priority / decision |
 | --- | --- | --- |
-| Trees as block structures | Tree trunks block movement and vision; primary break with a selected carried stone/copper adze now starts timed chopping, with survival exertion, durable save/load work, and exact conserved log parcels upon completion. Compact tree records are not separate block logs, and tool condition wear is not yet modeled | `PARTIAL; GAP-P1` |
+| Trees as block structures | Tree trunks block movement and vision; primary break with a selected carried stone/copper adze now starts timed chopping, with survival exertion, durable save/load work, and exact conserved log parcels upon completion. Chopping condition wear is applied for completed or interrupted work; a tool too worn to finish is rejected. Compact tree records are not separate block logs | `PARTIAL; GAP-P1` |
 | Leaf decay | Foliage persistence should follow plant structure/health rather than a special leaf-distance counter if ecology can own it | `GAP-P2` |
 | Sapling growth | Generated juvenile trees gain biomass in four age/size stages of 4, 18, 40 and 22 kg per biological year, with a 1,600 kg cap; no planted saplings, species/soil/water/climate response or self-seeding yet | `PARTIAL; GAP-P2` |
 | Crop farming | Required eventually because agriculture is a core settlement economy | `GAP-P2` |

@@ -31,6 +31,7 @@ pub use felling::{
     validate_start_player_tree_felling,
 };
 pub(crate) use felling::{
+    apply_tree_felling_wear, decide_tree_felling_wear, tree_felling_condition_after,
     tree_felling_duration, tree_felling_exertion, validate_due_player_tree_felling,
 };
 pub(crate) use generation::WorldGenerationProfile;

@@ -31,7 +31,8 @@ use crate::survival::{
     decide_survival_tick_with_local_heat,
 };
 use crate::world::{
-    apply_block_excavation_tick, decide_block_excavation_tick, validate_due_player_tree_felling,
+    apply_block_excavation_tick, apply_tree_felling_wear, decide_block_excavation_tick,
+    decide_tree_felling_wear, validate_due_player_tree_felling,
 };
 
 /// Advances the full slow simulation by one 3.6-second physical/accounting quantum.
@@ -188,6 +189,7 @@ pub(super) fn advance_simulation_tick(
         player_dead_after_tick,
         &mut completion_plan,
     )?;
+    let tree_felling_wear_plan = decide_tree_felling_wear(state, next_tick, player_dead_after_tick);
     let inventory_owner_busy = completion_plan.has_inventory_deposits()
         || block_excavation_plan
             .as_ref()
@@ -223,6 +225,9 @@ pub(super) fn advance_simulation_tick(
                 .as_ref()
                 .map_or(0, |plan| plan.equipment_revision_steps()),
             u64::from(block_excavation_plan.is_some()),
+            tree_felling_wear_plan
+                .as_ref()
+                .map_or(0, |plan| plan.equipment_revision_steps()),
             player_death_effects
                 .as_ref()
                 .map_or(0, |plan| plan.equipment_revision_steps()),
@@ -264,6 +269,9 @@ pub(super) fn advance_simulation_tick(
     let storage_enclosure_dismantling =
         apply_storage_enclosure_dismantling_tick(state, storage_enclosure_dismantling_plan);
     apply_player_death_effects(state, player_death_effects);
+    // A separate tool can finish production or mining on this tick. Their prevalidated
+    // equipment revisions settle first; chopping wears its occupied adze last.
+    apply_tree_felling_wear(state, tree_felling_wear_plan);
     apply_player_work_tick(state, player_work_plan);
     // The slow-tick survival decision is already finalized. Install fatality
     // before residents assess a player's actual living threat: a death on this

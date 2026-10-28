@@ -25,6 +25,8 @@ impl Error for PlayerWorkValidationError {
             | Self::TreeFellingTargetMissing
             | Self::TreeFellingTargetRemote
             | Self::TreeFellingEquipmentInvalid
+            | Self::TreeFellingEquipmentConditionMismatch
+            | Self::TreeFellingEquipmentTooWorn
             | Self::TreeFellingScheduleInvalid
             | Self::TreeFellingDurationMismatch
             | Self::PlayerAirborne

@@ -119,6 +119,14 @@ fn control_rate_chopping_persists_and_completes_with_exact_mass() {
         other => panic!("direct primary must begin timed chopping: {other:?}"),
     };
     assert_eq!(work.root(), root);
+    let condition_before = work.equipment_trace().condition();
+    let expected_condition = crate::world::tree_felling_condition_after(
+        work.equipment_trace(),
+        work.completes_at()
+            .checked_duration_since(work.started_at())
+            .unwrap(),
+    );
+    assert!(expected_condition < condition_before);
     assert!(matches!(
         crate::equipment::equipment_occupancy(&state, work.equipment()),
         Some(crate::equipment::EquipmentOccupancy::TreeFelling { completes_at })
@@ -163,6 +171,14 @@ fn control_rate_chopping_persists_and_completes_with_exact_mass() {
     );
     assert!(state.player_work().active().is_none());
     assert!(crate::equipment::equipment_occupancy(&state, work.equipment()).is_none());
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(work.equipment())
+            .unwrap()
+            .condition(),
+        expected_condition
+    );
     assert_eq!(state, replay);
     assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
@@ -208,14 +224,16 @@ fn trusted_load_rejects_forged_chopping_schedule_and_equipment() {
         .unwrap();
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     let baseline = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
-    for corruption in ["deadline", "tool"] {
+    for corruption in ["deadline", "tool", "condition"] {
         let mut forged = baseline.clone();
         let record =
             &mut forged["state"]["systems"]["player_work"]["active"]["TreeFelling"]["work"];
         if corruption == "deadline" {
             record["completes_at"] = serde_json::json!(work.completes_at().value() + 1);
+        } else if corruption == "tool" {
+            record["equipment_trace"]["equipment"] = serde_json::json!(u32::MAX);
         } else {
-            record["equipment"] = serde_json::json!(u32::MAX);
+            record["equipment_trace"]["condition"] = serde_json::json!(999_999);
         }
         let parsed: LoadedSaveEnvelope = serde_json::from_value(forged).unwrap();
         let loaded = parsed.into_state(&registries);
@@ -226,10 +244,198 @@ fn trusted_load_rejects_forged_chopping_schedule_and_equipment() {
                     StateValidationError::PlayerWork(
                         PlayerWorkValidationError::TreeFellingDurationMismatch
                             | PlayerWorkValidationError::TreeFellingEquipmentInvalid
+                            | PlayerWorkValidationError::TreeFellingEquipmentConditionMismatch
                     )
                 ))
             ),
             "{corruption}: {loaded:?}"
         );
     }
+}
+
+#[test]
+fn chopping_consumes_no_wood_on_fatal_interruption_but_wears_the_adze() {
+    use crate::core::quantity::Energy;
+    use crate::core::time::TickSpan;
+    use crate::survival::{Vitality, player_record};
+
+    let (registries, mut state, root) = equipped_young_tree();
+    let work = validate_start_player_tree_felling(&registries, &state, root)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(work.completes_at().value() > 1);
+    let original_tree = *state.world().tree_at(root).unwrap();
+    let physiology = registries.survival().physiology();
+    let original = state.survival().player().copied().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record(
+            Energy::ZERO,
+            original.hydration(),
+            Vitality::from_parts_per_million_unchecked(
+                physiology.starvation_vitality_loss_ppm_per_tick(),
+            ),
+            original.nutrition(),
+            original.vitality_recovery_remainder(),
+        ),
+    );
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    while state.tick().value() < 1 {
+        let outcome = advance_control_tick(&registries, &mut state).unwrap();
+        assert!(
+            outcome
+                .simulation()
+                .and_then(|tick| tick.tree_felling())
+                .is_none()
+        );
+    }
+    assert!(state.player_work().active().is_none());
+    assert_eq!(state.world().tree_at(root), Some(&original_tree));
+    assert_eq!(
+        state.survival().player().unwrap().vitality(),
+        Vitality::ZERO
+    );
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(work.equipment())
+            .unwrap()
+            .condition(),
+        crate::world::tree_felling_condition_after(work.equipment_trace(), TickSpan::new(1)),
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let recovered = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, recovered);
+}
+
+#[test]
+fn depleted_adze_cannot_begin_a_tree_it_would_fail_to_finish() {
+    use crate::equipment::degrade_equipment_condition_for_test;
+    let (registries, mut state, root) = equipped_young_tree();
+    let adze = match state.logistics().active_selection() {
+        Some(PlayerActiveSelection::Equipment(equipment)) => equipment,
+        _ => unreachable!(),
+    };
+    degrade_equipment_condition_for_test(&mut state, adze, 999_900);
+    let before = state.clone();
+    assert!(matches!(
+        validate_start_player_tree_felling(&registries, &state, root),
+        Err(TreeFellingStartError::ChoppingToolTooWorn)
+    ));
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn tree_due_on_fatal_tick_still_settles_logs_and_full_tool_wear() {
+    use crate::core::quantity::Energy;
+    use crate::survival::{Vitality, player_record};
+
+    let (registries, mut state, root) = equipped_young_tree();
+    let work = validate_start_player_tree_felling(&registries, &state, root)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    while state.tick().value() + 1 < work.completes_at().value() {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    let tree_mass = state
+        .world()
+        .tree_at(root)
+        .unwrap()
+        .wood_at(work.completes_at());
+    let physiology = registries.survival().physiology();
+    let player = state.survival().player().copied().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record(
+            Energy::ZERO,
+            player.hydration(),
+            Vitality::from_parts_per_million_unchecked(
+                physiology.starvation_vitality_loss_ppm_per_tick(),
+            ),
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+        ),
+    );
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    let mut felled = None;
+    while state.tick() < work.completes_at() {
+        let outcome = advance_control_tick(&registries, &mut state).unwrap();
+        if let Some(done) = outcome.simulation().and_then(|tick| tick.tree_felling()) {
+            felled = Some(done);
+        }
+    }
+    assert_eq!(felled.unwrap().wood(), tree_mass);
+    assert!(state.world().tree_at(root).is_none());
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state.survival().player().unwrap().vitality(),
+        Vitality::ZERO
+    );
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(work.equipment())
+            .unwrap()
+            .condition(),
+        crate::world::tree_felling_condition_after(
+            work.equipment_trace(),
+            work.completes_at()
+                .checked_duration_since(work.started_at())
+                .unwrap(),
+        ),
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn copper_adze_chops_faster_and_accumulates_less_wear_than_stone() {
+    use crate::content::{
+        EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE, EQUIPMENT_STONE_WOODWORKING_ADZE,
+    };
+    use crate::equipment::{EquipmentId, EquipmentOperationTrace};
+    use crate::maintenance::Condition;
+
+    let wood = Mass::from_milligrams(400_000_000);
+    let stone_duration =
+        crate::world::tree_felling_duration(wood, EQUIPMENT_STONE_WOODWORKING_ADZE);
+    let copper_duration =
+        crate::world::tree_felling_duration(wood, EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE);
+    assert!(copper_duration < stone_duration);
+    let stone_after = crate::world::tree_felling_condition_after(
+        EquipmentOperationTrace::new(
+            EquipmentId::new(1),
+            EQUIPMENT_STONE_WOODWORKING_ADZE,
+            Condition::PRISTINE,
+        ),
+        stone_duration,
+    );
+    let copper_after = crate::world::tree_felling_condition_after(
+        EquipmentOperationTrace::new(
+            EquipmentId::new(2),
+            EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE,
+            Condition::PRISTINE,
+        ),
+        copper_duration,
+    );
+    assert!(stone_after < copper_after);
+    assert!(copper_after < Condition::PRISTINE);
 }

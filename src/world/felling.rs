@@ -170,6 +170,8 @@ pub enum TreeFellingStartError {
     NoActiveChoppingTool,
     UnsupportedChoppingTool,
     ChoppingToolUnavailable,
+    ChoppingToolTooWorn,
+    EquipmentRevisionExhausted,
     CompletionTickOverflow,
     Work(PlayerWorkStartError),
 }
@@ -191,6 +193,79 @@ pub(crate) fn tree_felling_duration(
         1_500_000
     };
     TickSpan::new(wood.milligrams().div_ceil(rate).max(8))
+}
+
+pub(crate) fn tree_felling_wear_ppm_per_tick(
+    definition: crate::equipment::EquipmentDefinitionId,
+) -> u32 {
+    if definition == crate::content::EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE {
+        55
+    } else {
+        120
+    }
+}
+
+pub(crate) fn tree_felling_condition_after(
+    trace: crate::equipment::EquipmentOperationTrace,
+    duration: TickSpan,
+) -> crate::maintenance::Condition {
+    crate::maintenance::calculate_condition_after_active_ticks(
+        tree_felling_wear_ppm_per_tick(trace.definition()),
+        trace.condition(),
+        duration,
+    )
+}
+
+/// Tool wear is settled once per completed or fatally interrupted chopping interval.
+#[must_use]
+pub(crate) struct TreeFellingWearPlan {
+    equipment: crate::equipment::EquipmentId,
+    before: crate::maintenance::Condition,
+    after: crate::maintenance::Condition,
+}
+
+impl TreeFellingWearPlan {
+    pub(crate) const fn equipment_revision_steps(&self) -> u64 {
+        1
+    }
+}
+
+pub(crate) fn decide_tree_felling_wear(
+    state: &AppState,
+    next_tick: SimulationTick,
+    player_dead_after_tick: bool,
+) -> Option<TreeFellingWearPlan> {
+    let work = state.player_work().active()?.tree_felling()?;
+    if work.completes_at() != next_tick && !player_dead_after_tick {
+        return None;
+    }
+    let elapsed = next_tick
+        .checked_duration_since(work.started_at())
+        .expect("active tree chopping cannot settle before starting");
+    let before = work.equipment_trace().condition();
+    let after = tree_felling_condition_after(work.equipment_trace(), elapsed);
+    Some(TreeFellingWearPlan {
+        equipment: work.equipment(),
+        before,
+        after,
+    })
+}
+
+pub(crate) fn apply_tree_felling_wear(state: &mut AppState, plan: Option<TreeFellingWearPlan>) {
+    let Some(plan) = plan else {
+        return;
+    };
+    let next_revision = state
+        .equipment()
+        .revision()
+        .checked_add(1)
+        .expect("prebudgeted tree chopping equipment revision exhausted");
+    state.equipment_state_mut().apply_condition_change(
+        plan.equipment,
+        plan.before,
+        plan.after,
+        next_revision,
+    );
 }
 
 #[must_use]
@@ -252,6 +327,9 @@ pub fn validate_start_player_tree_felling(
     root: VoxelCoord,
 ) -> Result<ValidatedTreeFellingStart, TreeFellingStartError> {
     let _ = validate_fell_tree(registries, state, root).map_err(TreeFellingStartError::Tree)?;
+    if !state.can_spend_equipment_revisions(1) {
+        return Err(TreeFellingStartError::EquipmentRevisionExhausted);
+    }
     if !state.can_spend_world_revisions(1) {
         return Err(TreeFellingStartError::Tree(
             TreeFellingError::WorldRevisionExhausted,
@@ -292,11 +370,16 @@ pub fn validate_start_player_tree_felling(
         .expect("validated standing tree remains present")
         .wood_at(state.tick());
     let duration = tree_felling_duration(wood, definition);
+    let trace =
+        crate::equipment::EquipmentOperationTrace::new(equipment, definition, record.condition());
+    if tree_felling_condition_after(trace, duration) == crate::maintenance::Condition::FAILED {
+        return Err(TreeFellingStartError::ChoppingToolTooWorn);
+    }
     let completes_at = state
         .tick()
         .checked_add_span(duration)
         .ok_or(TreeFellingStartError::CompletionTickOverflow)?;
-    let work = TreeFellingWork::new(root, equipment, state.tick(), completes_at);
+    let work = TreeFellingWork::new(root, trace, state.tick(), completes_at);
     let work_start = validate_player_work_start_control_rate(
         registries,
         state,

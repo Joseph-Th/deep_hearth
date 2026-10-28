@@ -1,7 +1,7 @@
 //! Durable interval during which player attention is devoted to chopping one rooted tree.
 
 use crate::core::time::SimulationTick;
-use crate::equipment::EquipmentId;
+use crate::equipment::{EquipmentId, EquipmentOperationTrace};
 use crate::spatial::VoxelCoord;
 use serde::{Deserialize, Serialize};
 
@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub struct TreeFellingWork {
     root: VoxelCoord,
-    equipment: EquipmentId,
+    equipment_trace: EquipmentOperationTrace,
     started_at: SimulationTick,
     completes_at: SimulationTick,
 }
@@ -17,13 +17,13 @@ pub struct TreeFellingWork {
 impl TreeFellingWork {
     pub(crate) const fn new(
         root: VoxelCoord,
-        equipment: EquipmentId,
+        equipment_trace: EquipmentOperationTrace,
         started_at: SimulationTick,
         completes_at: SimulationTick,
     ) -> Self {
         Self {
             root,
-            equipment,
+            equipment_trace,
             started_at,
             completes_at,
         }
@@ -35,7 +35,11 @@ impl TreeFellingWork {
     }
     #[must_use]
     pub const fn equipment(self) -> EquipmentId {
-        self.equipment
+        self.equipment_trace.equipment()
+    }
+    #[must_use]
+    pub const fn equipment_trace(self) -> EquipmentOperationTrace {
+        self.equipment_trace
     }
     #[must_use]
     pub const fn started_at(self) -> SimulationTick {

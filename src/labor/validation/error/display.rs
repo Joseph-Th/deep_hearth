@@ -10,6 +10,8 @@ impl Display for PlayerWorkValidationError {
             Self::TreeFellingTargetMissing => formatter.write_str("active tree felling references missing standing timber"),
             Self::TreeFellingTargetRemote => formatter.write_str("active tree felling requires an adjacent player"),
             Self::TreeFellingEquipmentInvalid => formatter.write_str("active tree felling requires a carried woodcutting adze"),
+            Self::TreeFellingEquipmentConditionMismatch => formatter.write_str("active tree chopping has a forged equipment-condition trace"),
+            Self::TreeFellingEquipmentTooWorn => formatter.write_str("active chopping equipment cannot survive its required work duration"),
             Self::TreeFellingScheduleInvalid => formatter.write_str("active tree felling has an invalid schedule"),
             Self::TreeFellingDurationMismatch => formatter.write_str("active tree felling duration disagrees with wood mass and equipment"),
             Self::WorkWithoutPlayer => formatter.write_str("player work exists without a player"),

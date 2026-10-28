@@ -18,6 +18,8 @@ pub enum PlayerWorkValidationError {
     TreeFellingTargetMissing,
     TreeFellingTargetRemote,
     TreeFellingEquipmentInvalid,
+    TreeFellingEquipmentConditionMismatch,
+    TreeFellingEquipmentTooWorn,
     TreeFellingScheduleInvalid,
     TreeFellingDurationMismatch,
     WorkWithoutPlayer,

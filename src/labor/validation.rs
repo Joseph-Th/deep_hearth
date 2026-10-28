@@ -162,6 +162,11 @@ pub(crate) fn validate_loaded_player_work(
             {
                 return Err(PlayerWorkValidationError::TreeFellingEquipmentInvalid);
             }
+            if work.equipment_trace().definition() != equipment.definition()
+                || work.equipment_trace().condition() != equipment.condition()
+            {
+                return Err(PlayerWorkValidationError::TreeFellingEquipmentConditionMismatch);
+            }
             let schedule =
                 project_active_work_schedule(state.tick(), work.started_at(), work.completes_at())
                     .ok_or(PlayerWorkValidationError::TreeFellingScheduleInvalid)?;
@@ -170,6 +175,11 @@ pub(crate) fn validate_loaded_player_work(
                 != crate::world::tree_felling_duration(original_mass, equipment.definition())
             {
                 return Err(PlayerWorkValidationError::TreeFellingDurationMismatch);
+            }
+            if crate::world::tree_felling_condition_after(work.equipment_trace(), schedule.duration)
+                == crate::maintenance::Condition::FAILED
+            {
+                return Err(PlayerWorkValidationError::TreeFellingEquipmentTooWorn);
             }
             validate_remaining_resources(
                 registries,
