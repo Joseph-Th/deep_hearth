@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::core::quantity::Mass;
 use crate::spatial::VoxelCoord;
@@ -11,7 +11,9 @@ use super::WorldRegistry;
 #[cfg(test)]
 use crate::core::state::AppState;
 
-use super::{BlockCollisionShape, BlockStateId, TreeRecord, WorldGenerationProfile};
+use super::{
+    BlockCollisionShape, BlockStateId, FelledTreeRecord, TreeRecord, WorldGenerationProfile,
+};
 
 pub const CHUNK_SIDE: usize = 16;
 pub const SECTION_SIDE: usize = 16;
@@ -517,6 +519,54 @@ impl WorldChunk {
     }
 }
 
+// Preserve compact canonical arrays on disk, but use an ordered map for logarithmic
+// insertion, felling, and trunk collision queries in the live simulation.
+trait RootedRecord {
+    fn root(&self) -> VoxelCoord;
+}
+
+impl RootedRecord for TreeRecord {
+    fn root(&self) -> VoxelCoord {
+        (*self).root()
+    }
+}
+
+impl RootedRecord for FelledTreeRecord {
+    fn root(&self) -> VoxelCoord {
+        (*self).root()
+    }
+}
+
+fn serialize_root_index<T: Serialize, S: Serializer>(
+    index: &BTreeMap<VoxelCoord, T>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.collect_seq(index.values())
+}
+
+fn deserialize_btree_map_no_duplicates_root_index<
+    'de,
+    T: Deserialize<'de> + RootedRecord,
+    D: Deserializer<'de>,
+>(
+    deserializer: D,
+) -> Result<BTreeMap<VoxelCoord, T>, D::Error> {
+    let records = Vec::<T>::deserialize(deserializer)?;
+    let mut index = BTreeMap::new();
+    let mut previous = None;
+    for record in records {
+        let root = record.root();
+        if previous.is_some_and(|previous| previous >= root) {
+            return Err(serde::de::Error::custom(
+                "tree records must have strictly increasing roots without duplicates",
+            ));
+        }
+        index.insert(root, record);
+        previous = Some(root);
+    }
+    Ok(index)
+}
+
 /// Authoritative generated block-world storage. Chunk absence means not generated/loaded as world
 /// truth, while section absence inside a present chunk means canonical air.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -526,9 +576,19 @@ pub struct WorldState {
     #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     generation_profile: Option<WorldGenerationProfile>,
     chunks: Vec<WorldChunk>,
-    trees: Vec<TreeRecord>,
+    #[serde(
+        serialize_with = "serialize_root_index",
+        deserialize_with = "deserialize_btree_map_no_duplicates_root_index"
+    )]
+    trees: BTreeMap<VoxelCoord, TreeRecord>,
     /// Dry wood synthesized from the environment and already transferred out of trees.
     assimilated_wood_milligrams: u128,
+    /// Seed-verifiable felling receipts account for absorbed carbon after timber changes owner.
+    #[serde(
+        serialize_with = "serialize_root_index",
+        deserialize_with = "deserialize_btree_map_no_duplicates_root_index"
+    )]
+    felled_trees: BTreeMap<VoxelCoord, FelledTreeRecord>,
 }
 
 impl WorldState {
@@ -538,8 +598,9 @@ impl WorldState {
             revision: 0,
             generation_profile: None,
             chunks: Vec::new(),
-            trees: Vec::new(),
+            trees: BTreeMap::new(),
             assimilated_wood_milligrams: 0,
+            felled_trees: BTreeMap::new(),
         }
     }
 
@@ -559,15 +620,22 @@ impl WorldState {
 
     /// Standing trees are indexed by root location, not repeatedly scanned as block entities.
     pub fn trees(&self) -> impl Iterator<Item = &TreeRecord> {
-        self.trees.iter()
+        self.trees.values()
     }
 
     #[must_use]
     pub fn tree_at(&self, root: VoxelCoord) -> Option<&TreeRecord> {
-        self.trees
-            .binary_search_by_key(&root, |tree| tree.root())
-            .ok()
-            .map(|index| &self.trees[index])
+        self.trees.get(&root)
+    }
+
+    /// World-history receipts are for diagnostics and trusted-load checks, not discovery.
+    pub(crate) fn felled_trees(&self) -> impl Iterator<Item = &FelledTreeRecord> {
+        self.felled_trees.values()
+    }
+
+    #[must_use]
+    pub(crate) const fn committed_assimilated_wood_milligrams(&self) -> u128 {
+        self.assimilated_wood_milligrams
     }
 
     /// Physical trunk voxels have the same collision authority as terrain blocks.
@@ -585,13 +653,9 @@ impl WorldState {
         &self,
         bounds: crate::spatial::VoxelBounds,
     ) -> Option<VoxelCoord> {
-        let start = self
-            .trees
-            .partition_point(|tree| tree.root().x() < bounds.min().x());
-        for tree in self.trees[start..]
-            .iter()
-            .take_while(|tree| tree.root().x() < bounds.max_exclusive().x())
-        {
+        let from = VoxelCoord::new(bounds.min().x(), i64::MIN, i64::MIN);
+        let to = VoxelCoord::new(bounds.max_exclusive().x(), i64::MIN, i64::MIN);
+        for tree in self.trees.range(from..to).map(|(_, tree)| tree) {
             let root = tree.root();
             if bounds.has_voxel(root) {
                 return Some(root);
@@ -613,7 +677,7 @@ impl WorldState {
         at: crate::core::time::SimulationTick,
     ) -> Option<crate::core::quantity::AggregateMass> {
         let mut total = self.assimilated_wood_milligrams;
-        for tree in &self.trees {
+        for tree in self.trees.values() {
             let gained = tree
                 .wood_at(at)
                 .milligrams()
@@ -632,20 +696,25 @@ impl WorldState {
     ) {
         assert_eq!(self.revision, expected_revision);
         assert_eq!(expected_revision.checked_add(1), Some(next_revision));
-        let index = self
+        let tree = self
             .trees
-            .binary_search_by_key(&root, |tree| tree.root())
+            .remove(&root)
             .expect("validated standing tree disappeared");
-        let gained = self.trees[index]
+        let gained = tree
             .wood_at(at)
             .milligrams()
-            .checked_sub(self.trees[index].initial_wood().milligrams())
+            .checked_sub(tree.initial_wood().milligrams())
             .expect("tree biomass cannot shrink below its initial mass");
         self.assimilated_wood_milligrams = self
             .assimilated_wood_milligrams
             .checked_add(u128::from(gained))
             .expect("validated tree felling must retain external biosynthesis headroom");
-        self.trees.remove(index);
+        assert!(
+            self.felled_trees
+                .insert(root, FelledTreeRecord::new(root, at))
+                .is_none(),
+            "one generated tree may only be felled once"
+        );
         self.revision = next_revision;
     }
 
@@ -747,11 +816,10 @@ impl WorldState {
             );
             self.chunks.insert(index, chunk);
             if let Some(tree) = tree {
-                let index = self
-                    .trees
-                    .binary_search_by_key(&tree.root(), |record| record.root())
-                    .expect_err("generated chunk cannot replace an existing tree");
-                self.trees.insert(index, tree);
+                assert!(
+                    self.trees.insert(tree.root(), tree).is_none(),
+                    "generated chunk cannot replace an existing tree"
+                );
             }
         }
         self.revision = next_revision;

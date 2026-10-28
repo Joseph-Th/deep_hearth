@@ -124,20 +124,27 @@ including for broad geometry.
 
 Standard stone-terrain chunks may also generate one deterministic, seed-positioned living tree
 record when its supporting ground and two-cell trunk are free. The world owner persists these
-sorted roots, treats trunk cells as solid for movement, interaction occlusion and construction,
+sorted roots in an ordered spatial index (serialized as canonical arrays with duplicate-strict
+loading), treats trunk cells as solid for movement, interaction occlusion and construction,
 and refuses chunk generation that would intersect an admitted actor or embodied infrastructure.
-Standing wood grows as a lazy elapsed-time projection: 20 kg per 365 represented days up to
-1,600 kg dry wood, without control-tick scans, scheduled random updates or leaf-block churn.
+Standing wood grows as a four-stage lazy elapsed-time projection: 4 kg/year for juveniles,
+18 kg/year for saplings, 40 kg/year for pole trees and 22 kg/year approaching maturity,
+up to 1,600 kg dry wood. Stage boundaries are computed in integer time without per-tick
+updates, scheduled random checks or leaf-block churn. A biological year is 365 physical days.
 The present model represents only one temperate growth profile; species, light, soil, rainfall,
 actual foliage geometry, reproduction and planted saplings are not yet simulated. The canopy
 radius is a presentation hint rather than leaf collision or environmental shade.
 `validate_fell_tree` is a living, adjacent-player capability operation, not an ordinary timed
 chopping gesture: it atomically transfers the entire standing woody mass to a single finite
-surface log parcel after checking world, logistics, survival and surface revisions. A persistent
+surface log parcel after checking world, logistics, survival and surface revisions as well
+as the player's exact continuous foot position, not merely their occupied voxel. A persistent
 world assimilation ledger accounts for wood accumulated from the environment, including wood
-already felled; the diagnostic matter `total()` is net of this explicitly measured external
-input while `world()` and `surface()` report their full physical masses. Felling does not add
-instant wood to player inventory, and the bounded opening's original fallen-timber gathering
+already felled. Each harvested tree leaves a compact, root-indexed and timestamped provenance
+receipt: trusted load reconstructs its seed-defined initial biomass, accumulated growth at
+felling, canonical order and uniqueness, and verifies the ledger exactly. Living tree locations,
+initial masses and sprouting dates must also match their seed-derived generation identities.
+The diagnostic matter `total()` is net of this verified external input while `world()` and
+`surface()` report their full physical masses. Felling does not add instant wood to player inventory, and the bounded opening's original fallen-timber gathering
 remains a separate, unchanged source.
 
 | Surface | Definitions / immutable input | Authoritative read / observation | Plan / resolve | Mutate / continue |

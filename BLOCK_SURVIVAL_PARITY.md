@@ -605,7 +605,7 @@ sandbox breadth," not "copy Minecraft's exact content."
 | --- | --- | --- |
 | Trees as block structures | Persisted tree roots now obstruct movement and rays, with exact mass-backed, revision-checked felling into a loose log parcel; tree trunks are compact records, not separate log blocks, and no control-rate chopping gesture exists | `PARTIAL; GAP-P1` |
 | Leaf decay | Foliage persistence should follow plant structure/health rather than a special leaf-distance counter if ecology can own it | `GAP-P2` |
-| Sapling growth | Generated juvenile tree records gain dry-wood biomass lazily at 20 kg per 365 represented days, with a 1,600 kg cap; no planted saplings, species/soil/water/climate response or self-seeding yet | `PARTIAL; GAP-P2` |
+| Sapling growth | Generated juvenile trees gain biomass in four age/size stages of 4, 18, 40 and 22 kg per biological year, with a 1,600 kg cap; no planted saplings, species/soil/water/climate response or self-seeding yet | `PARTIAL; GAP-P2` |
 | Crop farming | Required eventually because agriculture is a core settlement economy | `GAP-P2` |
 | Farmland hydration | Replace binary nearby-water rule with soil moisture/hydrology when available, while retaining readable irrigation behavior | `DIFFERENT+` |
 | Bonemeal-style growth boost | No need for magical instant growth; fertilizers should act through nutrients/growth rate | `OUT-OF-SCOPE` exact mechanic |

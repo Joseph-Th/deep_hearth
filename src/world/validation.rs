@@ -15,6 +15,9 @@ pub enum WorldValidationError {
     InvalidStandingTree {
         root: crate::spatial::VoxelCoord,
     },
+    InvalidFelledTree {
+        root: crate::spatial::VoxelCoord,
+    },
     InvalidPhotosyntheticAccounting,
     GenerationProfileWithoutChunks,
     ChunksWithoutGenerationProfile,
@@ -117,6 +120,13 @@ impl Display for WorldValidationError {
             Self::InvalidStandingTree { root } => write!(
                 formatter,
                 "standing tree at ({},{},{}) is not a valid supported, unburied world tree",
+                root.x(),
+                root.y(),
+                root.z()
+            ),
+            Self::InvalidFelledTree { root } => write!(
+                formatter,
+                "felled tree at ({},{},{}) has invalid seed provenance or duplicate history",
                 root.x(),
                 root.y(),
                 root.z()
@@ -301,7 +311,10 @@ pub fn validate_loaded_world(
     let mut previous_tree = None;
     for tree in state.trees() {
         let root = tree.root();
-        let valid = previous_tree.is_none_or(|previous| previous < root)
+        let valid = state.generation_profile().and_then(|profile| {
+            super::trees::seeded_tree_identity(profile, ChunkCoord::containing(root))
+        }) == Some(*tree)
+            && previous_tree.is_none_or(|previous| previous < root)
             && tree.initial_wood().milligrams() > 0
             && tree.initial_wood().milligrams() <= 1_600_000_000
             && root.y().checked_sub(1).is_some_and(|floor| {
@@ -319,6 +332,37 @@ pub fn validate_loaded_world(
             return Err(WorldValidationError::InvalidStandingTree { root });
         }
         previous_tree = Some(root);
+    }
+    // The cumulative biomass-input ledger is a cache of exactly reproducible felled-tree
+    // records. Decode cannot forge atmospheric mass by tweaking an unaudited total.
+    let mut previous_felled = None;
+    let mut verified_input = 0u128;
+    for record in state.felled_trees() {
+        let root = record.root();
+        let Some(original) = state.generation_profile().and_then(|profile| {
+            super::trees::seeded_tree_identity(profile, ChunkCoord::containing(root))
+        }) else {
+            return Err(WorldValidationError::InvalidFelledTree { root });
+        };
+        if original.root() != root
+            || state.tree_at(root).is_some()
+            || state.get_chunk(ChunkCoord::containing(root)).is_none()
+            || previous_felled.is_some_and(|previous| previous >= root)
+        {
+            return Err(WorldValidationError::InvalidFelledTree { root });
+        }
+        let grown = original
+            .wood_at(record.felled_at())
+            .milligrams()
+            .checked_sub(original.initial_wood().milligrams())
+            .ok_or(WorldValidationError::InvalidFelledTree { root })?;
+        verified_input = verified_input
+            .checked_add(u128::from(grown))
+            .ok_or(WorldValidationError::InvalidPhotosyntheticAccounting)?;
+        previous_felled = Some(root);
+    }
+    if verified_input != state.committed_assimilated_wood_milligrams() {
+        return Err(WorldValidationError::InvalidPhotosyntheticAccounting);
     }
     Ok(())
 }

@@ -37,6 +37,7 @@ pub enum TreeFellingError {
 pub enum TreeFellingCommitError {
     StaleWorldRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
+    PlayerPositionChanged,
     StaleSurvivalRevision { expected: u64, actual: u64 },
     PlayerBecameBusy,
     SurfaceTickChanged,
@@ -73,6 +74,7 @@ pub struct ValidatedTreeFelling {
     expected_world_revision: u64,
     next_world_revision: u64,
     expected_logistics_revision: u64,
+    expected_player_foot: crate::spatial::WorldPoint,
     player_action: PlayerActionGuard,
     surface_creation: ValidatedSurfaceResourceCreation,
     outcome: TreeFellingOutcome,
@@ -97,6 +99,14 @@ impl ValidatedTreeFelling {
                 expected: self.expected_logistics_revision,
                 actual,
             });
+        }
+        if state
+            .logistics()
+            .player()
+            .map(|player| player.body().foot_position())
+            != Some(self.expected_player_foot)
+        {
+            return Err(TreeFellingCommitError::PlayerPositionChanged);
         }
         self.player_action.precheck(state).map_err(|stale| {
             TreeFellingCommitError::StaleSurvivalRevision {
@@ -207,6 +217,7 @@ pub fn validate_fell_tree(
         expected_world_revision,
         next_world_revision,
         expected_logistics_revision: state.logistics().revision(),
+        expected_player_foot: player.body().foot_position(),
         player_action,
         outcome: TreeFellingOutcome {
             root,

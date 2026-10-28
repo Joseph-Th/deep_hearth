@@ -49,6 +49,7 @@ pub use state::{
 };
 pub use targeting::{PlayerBlockTarget, PlayerBlockTargetError, raycast_player_block};
 pub(crate) use targeting::{raycast_player_air_voxel, raycast_player_air_voxel_with_reach};
+pub(crate) use trees::FelledTreeRecord;
 pub(crate) use trees::generated_tree;
 pub use trees::{BIOLOGICAL_YEAR_TICKS, TreeRecord};
 pub use validation::{WorldValidationError, validate_loaded_world};

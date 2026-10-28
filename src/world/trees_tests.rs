@@ -13,7 +13,8 @@ use crate::spatial::VoxelCoord;
 
 fn standing_tree_fixture() -> (crate::registry::Registries, AppState, VoxelCoord) {
     let registries = build_registries();
-    // Select a world whose neighboring terrain does not bury the player.
+    // Select level neighboring ground so a control step tests lateral sub-voxel motion,
+    // not the player falling from a pre-generation spawn suspended above terrain.
     let (seed, root) = (1..100)
         .find_map(|value| {
             let seed = WorldGenerationSeed::new(value);
@@ -21,7 +22,7 @@ fn standing_tree_fixture() -> (crate::registry::Registries, AppState, VoxelCoord
             let (x, z) = trees::seeded_tree_column(profile, ChunkCoord::new(0, 0))?;
             let root_y = generation::terrain_height(seed, x, z).checked_add(1)?;
             let near_x = x.checked_sub(1)?;
-            (generation::terrain_height(seed, near_x, z) < root_y)
+            (generation::terrain_height(seed, near_x, z) == root_y - 1)
                 .then_some((seed, VoxelCoord::new(x, root_y, z)))
         })
         .expect("test woodland must admit a neighbor without carving terrain");
@@ -49,17 +50,90 @@ fn standing_tree_fixture() -> (crate::registry::Registries, AppState, VoxelCoord
 }
 
 #[test]
+fn multi_chunk_woodland_is_seed_deterministic_independent_of_generation_order() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(41);
+    let coordinates = [
+        ChunkCoord::new(0, 0),
+        ChunkCoord::new(-1, 1),
+        ChunkCoord::new(1, 0),
+        ChunkCoord::new(0, -1),
+        ChunkCoord::new(-2, 0),
+    ];
+    let mut forward = AppState::new();
+    let mut reverse = AppState::new();
+    for coord in coordinates {
+        validate_generate_chunk(&registries, &forward, seed, coord, BLOCK_STATE_STONE)
+            .unwrap()
+            .commit(&mut forward)
+            .unwrap();
+    }
+    for coord in coordinates.into_iter().rev() {
+        validate_generate_chunk(&registries, &reverse, seed, coord, BLOCK_STATE_STONE)
+            .unwrap()
+            .commit(&mut reverse)
+            .unwrap();
+    }
+    assert_eq!(forward.world(), reverse.world());
+    let forward_json = serde_json::to_value(SaveEnvelope::new(&registries, &forward)).unwrap();
+    let reverse_json = serde_json::to_value(SaveEnvelope::new(&registries, &reverse)).unwrap();
+    let forward_world = &forward_json["state"]["systems"]["world"];
+    assert_eq!(forward_world, &reverse_json["state"]["systems"]["world"]);
+    assert!(
+        forward_world["trees"].is_array(),
+        "save uses arrays, not JSON map keys"
+    );
+    assert!(forward_world["felled_trees"].is_array());
+    assert!(forward.world().trees().count() >= 2);
+    for tree in forward.world().trees() {
+        assert_eq!(forward.world().tree_at(tree.root()), Some(tree));
+        assert!(forward.world().tree_trunk_at(tree.root()).is_some());
+    }
+    assert_eq!(validate_loaded_state(&registries, &forward), Ok(()));
+}
+
+#[test]
+fn trunk_bounds_queries_find_exact_cells_and_stop_after_felling() {
+    let (registries, mut state, root) = standing_tree_fixture();
+    let lower = crate::spatial::VoxelBounds::new(
+        root,
+        VoxelCoord::new(root.x() + 1, root.y() + 1, root.z() + 1),
+    )
+    .unwrap();
+    let upper = crate::spatial::VoxelBounds::new(
+        VoxelCoord::new(root.x(), root.y() + 1, root.z()),
+        VoxelCoord::new(root.x() + 1, root.y() + 2, root.z() + 1),
+    )
+    .unwrap();
+    let adjacent = crate::spatial::VoxelBounds::new(
+        VoxelCoord::new(root.x() + 1, root.y(), root.z()),
+        VoxelCoord::new(root.x() + 2, root.y() + 2, root.z() + 1),
+    )
+    .unwrap();
+    assert_eq!(state.world().first_tree_trunk_in_bounds(lower), Some(root));
+    assert_eq!(
+        state.world().first_tree_trunk_in_bounds(upper),
+        Some(VoxelCoord::new(root.x(), root.y() + 1, root.z()))
+    );
+    assert_eq!(state.world().first_tree_trunk_in_bounds(adjacent), None);
+    let felling = validate_fell_tree(&registries, &state, root).unwrap();
+    let _ = felling.commit(&mut state).unwrap();
+    assert_eq!(state.world().first_tree_trunk_in_bounds(lower), None);
+    assert_eq!(state.world().first_tree_trunk_in_bounds(upper), None);
+}
+
+#[test]
 fn woodland_growth_is_lazy_deterministic_bounded_and_not_control_rate() {
     let root = VoxelCoord::new(12, 1, 12);
     let tree = TreeRecord::new(root, Mass::from_milligrams(300_000));
     assert_eq!(tree.wood_at(SimulationTick::ZERO), tree.initial_wood());
     assert_eq!(
         tree.wood_at(SimulationTick::new(BIOLOGICAL_YEAR_TICKS)),
-        Mass::from_milligrams(20_300_000)
+        Mass::from_milligrams(4_300_000)
     );
     assert_eq!(
         tree.wood_at(SimulationTick::new(BIOLOGICAL_YEAR_TICKS / 2)),
-        Mass::from_milligrams(10_300_000)
+        Mass::from_milligrams(2_300_000)
     );
     assert_eq!(
         tree.wood_at(SimulationTick::new(u64::MAX)),
@@ -68,11 +142,56 @@ fn woodland_growth_is_lazy_deterministic_bounded_and_not_control_rate() {
     assert_eq!(tree.canopy_radius_voxels(SimulationTick::ZERO), 0);
     assert_eq!(
         tree.canopy_radius_voxels(SimulationTick::new(BIOLOGICAL_YEAR_TICKS)),
-        1
+        0
     );
     assert!(tree.occupies_trunk(root));
     assert!(tree.occupies_trunk(VoxelCoord::new(12, 2, 12)));
     assert!(!tree.occupies_trunk(VoxelCoord::new(13, 1, 12)));
+}
+
+#[test]
+fn woodland_stage_growth_crosses_thresholds_continuously_and_slows_with_maturity() {
+    let origin = VoxelCoord::new(1, 2, 3);
+    let sapling = TreeRecord::new(origin, Mass::from_milligrams(8_000_000));
+    assert_eq!(
+        sapling.wood_at(SimulationTick::new(BIOLOGICAL_YEAR_TICKS)),
+        Mass::from_milligrams(19_000_000)
+    );
+    assert_eq!(
+        sapling.canopy_radius_voxels(SimulationTick::new(BIOLOGICAL_YEAR_TICKS)),
+        1
+    );
+    let pole = TreeRecord::new(origin, Mass::from_milligrams(300_000_000));
+    assert_eq!(
+        pole.wood_at(SimulationTick::new(BIOLOGICAL_YEAR_TICKS)),
+        Mass::from_milligrams(340_000_000)
+    );
+    let near_mature = TreeRecord::new(origin, Mass::from_milligrams(599_999_999));
+    let at = SimulationTick::new(BIOLOGICAL_YEAR_TICKS);
+    assert!(near_mature.wood_at(at).milligrams() >= 621_999_980);
+    assert!(near_mature.wood_at(at).milligrams() <= 622_000_010);
+    for candidate in [sapling, pole, near_mature] {
+        let checkpoints = [
+            0,
+            1,
+            20,
+            10_000,
+            BIOLOGICAL_YEAR_TICKS / 2,
+            BIOLOGICAL_YEAR_TICKS,
+            40 * BIOLOGICAL_YEAR_TICKS,
+            u64::MAX,
+        ];
+        let mut previous = 0;
+        for instant in checkpoints {
+            let mass = candidate.wood_at(SimulationTick::new(instant)).milligrams();
+            assert!(mass >= previous, "growth must never consume standing wood");
+            assert!(
+                mass <= 1_600_000_000,
+                "standing biomass has a biological ceiling"
+            );
+            previous = mass;
+        }
+    }
 }
 
 #[test]
@@ -135,6 +254,32 @@ fn tree_felling_rejects_stale_world_without_losing_or_doubling_wood() {
 }
 
 #[test]
+fn validated_felling_cannot_commit_after_sub_voxel_player_movement() {
+    use crate::logistics::{HorizontalControlInput, PlayerControlInput};
+    use crate::simulation::{PlayerDirectControlInput, advance_control_tick_with_direct_input};
+    use crate::spatial::VIEW_DIRECTION_PARTS_PER_MILLION;
+
+    let (registries, mut state, root) = standing_tree_fixture();
+    let origin = state.logistics().player().unwrap().body().foot_position();
+    let planned = validate_fell_tree(&registries, &state, root).unwrap();
+    let movement = PlayerDirectControlInput::new(PlayerControlInput::new(
+        HorizontalControlInput::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0).unwrap(),
+    ));
+    let _ = advance_control_tick_with_direct_input(&registries, &mut state, movement).unwrap();
+    let moved = state.logistics().player().unwrap().body().foot_position();
+    assert_ne!(moved, origin);
+    assert_eq!(moved.containing_voxel(), origin.containing_voxel());
+    let after_movement = state.clone();
+    assert!(matches!(
+        planned.commit(&mut state),
+        Err(TreeFellingCommitError::StaleLogisticsRevision { .. }
+            | TreeFellingCommitError::PlayerPositionChanged)
+    ));
+    assert_eq!(state, after_movement);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn generated_tree_refuses_to_materialize_through_an_admitted_player() {
     let registries = build_registries();
     let seed = WorldGenerationSeed::new(7);
@@ -194,17 +339,95 @@ fn external_biomass_ledger_is_preserved_when_a_grown_tree_is_felled() {
 }
 
 #[test]
+fn trusted_load_rejects_forged_tree_origin_and_initial_biomass() {
+    let (registries, state, root) = standing_tree_fixture();
+    for mutation in ["initial_wood", "root"] {
+        let mut value = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+        if mutation == "initial_wood" {
+            // Still nonzero, still below the biological cap; only seed provenance catches it.
+            value["state"]["systems"]["world"]["trees"][0]["initial_wood"] =
+                serde_json::json!(175_000_000u64);
+        } else {
+            value["state"]["systems"]["world"]["trees"][0]["root"]["x"] =
+                serde_json::json!(root.x() + 1);
+        }
+        let decoded: LoadedSaveEnvelope = serde_json::from_value(value).unwrap();
+        assert!(matches!(
+            decoded.into_state(&registries),
+            Err(crate::persistence::LoadError::InvalidState(
+                StateValidationError::World(WorldValidationError::InvalidStandingTree { .. })
+            ))
+        ));
+    }
+}
+
+#[test]
+fn trusted_load_rejects_forged_felling_receipts_and_future_felling() {
+    let (registries, mut state, root) = standing_tree_fixture();
+    let felled = validate_fell_tree(&registries, &state, root).unwrap();
+    let _ = felled.commit(&mut state).unwrap();
+    assert_eq!(state.world().felled_trees().count(), 1);
+    let baseline = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let original = trees::seeded_tree_identity(
+        state.world().generation_profile().unwrap(),
+        ChunkCoord::containing(root),
+    )
+    .unwrap();
+    let future_growth = original.wood_at(SimulationTick::new(1)).milligrams()
+        - original.initial_wood().milligrams();
+    for mutation in ["root", "future", "duplicate"] {
+        let mut value = baseline.clone();
+        let history = &mut value["state"]["systems"]["world"]["felled_trees"];
+        match mutation {
+            "root" => history[0]["root"]["x"] = serde_json::json!(root.x() + 1),
+            "future" => history[0]["felled_at"] = serde_json::json!(1u64),
+            "duplicate" => {
+                let duplicate = history[0].clone();
+                history.as_array_mut().unwrap().push(duplicate);
+            }
+            _ => unreachable!(),
+        }
+        if mutation == "future" {
+            // Preserve the exact seed-derived ledger, isolating the future-time rejection.
+            value["state"]["systems"]["world"]["assimilated_wood_milligrams"] =
+                serde_json::json!(future_growth);
+        }
+        let decoded = serde_json::from_value::<LoadedSaveEnvelope>(value);
+        if mutation == "duplicate" {
+            assert!(
+                decoded.is_err(),
+                "duplicate history must fail during ordered-index decoding"
+            );
+            continue;
+        }
+        let result = decoded.unwrap().into_state(&registries);
+        assert!(
+            matches!(
+                result,
+                Err(crate::persistence::LoadError::InvalidState(
+                    StateValidationError::World(WorldValidationError::InvalidFelledTree { .. })
+                ))
+            ),
+            "mutation {mutation}: {result:?}"
+        );
+    }
+}
+
+#[test]
 fn trusted_load_rejects_forged_photosynthetic_input() {
     let (registries, state, _) = standing_tree_fixture();
-    let mut value = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
-    value["state"]["systems"]["world"]["assimilated_wood_milligrams"] = serde_json::json!(u64::MAX);
-    let decoded: LoadedSaveEnvelope = serde_json::from_value(value).unwrap();
-    assert!(matches!(
-        decoded.into_state(&registries),
-        Err(crate::persistence::LoadError::InvalidState(
-            StateValidationError::World(WorldValidationError::InvalidPhotosyntheticAccounting)
-        ))
-    ));
+    for forgery in [1u64, u64::MAX] {
+        let mut value = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+        value["state"]["systems"]["world"]["assimilated_wood_milligrams"] =
+            serde_json::json!(forgery);
+        let decoded: LoadedSaveEnvelope = serde_json::from_value(value).unwrap();
+        assert!(matches!(
+            decoded.into_state(&registries),
+            Err(crate::persistence::LoadError::InvalidState(
+                StateValidationError::World(WorldValidationError::InvalidPhotosyntheticAccounting)
+            ))
+        ));
+    }
 }
 
 #[test]

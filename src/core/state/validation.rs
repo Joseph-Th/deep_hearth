@@ -169,6 +169,15 @@ fn validate_tree_integrations(
     registries: &Registries,
     state: &AppState,
 ) -> Result<(), StateValidationError> {
+    for felled in state.world().felled_trees() {
+        if felled.felled_at() > state.tick() {
+            return Err(StateValidationError::World(
+                crate::world::WorldValidationError::InvalidFelledTree {
+                    root: felled.root(),
+                },
+            ));
+        }
+    }
     for tree in state.world().trees() {
         let root = tree.root();
         let head = root
