@@ -141,6 +141,7 @@ pub struct MaterialLotProfile {
     pub(in crate::inventory) commodity: CommodityKey,
     pub(in crate::inventory) temperature: Temperature,
     pub(in crate::inventory) composition: MaterialComposition,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     pub(in crate::inventory) particle_size: Option<ParticleSizeDistribution>,
 }
 

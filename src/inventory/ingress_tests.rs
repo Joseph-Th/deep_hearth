@@ -25,6 +25,28 @@ fn add_test_stockpile(state: &mut AppState, capacity: Mass) -> StockpileId {
 }
 
 #[test]
+fn material_profile_requires_explicit_particle_distribution_slot() {
+    let profile = MaterialLotProfile::from_spec(&wood_log_spec(Mass::from_milligrams(10)));
+    let encoded = serde_json::to_value(&profile).unwrap();
+    assert_eq!(
+        serde_json::from_value::<MaterialLotProfile>(encoded.clone()).unwrap(),
+        profile
+    );
+    let mut incomplete = encoded;
+    assert!(
+        incomplete
+            .as_object_mut()
+            .unwrap()
+            .remove("particle_size")
+            .is_some()
+    );
+    assert!(
+        serde_json::from_value::<MaterialLotProfile>(incomplete).is_err(),
+        "omitting a particle-size field must not silently change physical lot state"
+    );
+}
+
+#[test]
 fn validated_ingress_mass_projection_rejects_stale_inventory_revision() {
     let registries = build_registries();
     let mut state = AppState::new();

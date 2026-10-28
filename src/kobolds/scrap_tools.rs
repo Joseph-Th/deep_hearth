@@ -36,6 +36,7 @@ pub(super) struct KoboldPryFitting {
     handle: SurfaceResourceId,
     head: SurfaceResourceId,
     started_at: SimulationTick,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     completed_at: Option<SimulationTick>,
 }
 

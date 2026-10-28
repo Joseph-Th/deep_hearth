@@ -53,6 +53,35 @@ fn drop_at(
 }
 
 #[test]
+fn physical_pry_fitting_requires_explicit_completion_state() {
+    for completed_at in [None, Some(SimulationTick::new(205))] {
+        let fitting = KoboldPryFitting {
+            handle: SurfaceResourceId::new(1),
+            head: SurfaceResourceId::new(2),
+            started_at: SimulationTick::new(200),
+            completed_at,
+        };
+        let encoded = serde_json::to_value(fitting).unwrap();
+        assert_eq!(
+            serde_json::from_value::<KoboldPryFitting>(encoded.clone()).unwrap(),
+            fitting
+        );
+        let mut incomplete = encoded;
+        assert!(
+            incomplete
+                .as_object_mut()
+                .unwrap()
+                .remove("completed_at")
+                .is_some()
+        );
+        assert!(
+            serde_json::from_value::<KoboldPryFitting>(incomplete).is_err(),
+            "a missing completion timestamp must not silently restart finished fitting work"
+        );
+    }
+}
+
+#[test]
 fn scavenger_fits_recovered_iron_bearing_scrap_and_conserves_its_abrasion() {
     let registries = build_registries();
     let mut state = AppState::new();
