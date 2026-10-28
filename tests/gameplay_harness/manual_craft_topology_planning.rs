@@ -39,7 +39,8 @@ fn manual_craft_plan_for_output_matching<'a>(
             | CommoditySource::StorageDismantling { .. }
             | CommoditySource::EquipmentMaintenanceSpent { .. }
             | CommoditySource::OreProcessing { .. }
-            | CommoditySource::ThermalPhaseChange { .. } => None,
+            | CommoditySource::ThermalPhaseChange { .. }
+            | CommoditySource::ThermalConditioning { .. } => None,
         })
         .filter(|definition| {
             registries

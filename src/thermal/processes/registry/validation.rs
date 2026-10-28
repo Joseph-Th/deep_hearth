@@ -6,7 +6,46 @@ use crate::capability::{
 use crate::material::{CommodityKey, MaterialPhase, MaterialRegistry, ParticleSizeStatePolicy};
 use crate::production::{ProcessId, ProductionRegistry};
 
-use super::{CastingProcessDefinition, FiringConversion, MeltingProcessDefinition};
+use super::{
+    CastingProcessDefinition, FiringConversion, MeltingProcessDefinition,
+    SensibleCoolingProcessDefinition,
+};
+
+pub(super) fn validate_cooling_material_references(
+    definition: SensibleCoolingProcessDefinition,
+    materials: &MaterialRegistry,
+) {
+    assert!(
+        materials.has_commodity(definition.commodity()),
+        "cooling process {} requires an authored commodity",
+        definition.process().value()
+    );
+    let form = materials
+        .get_form(definition.commodity().form())
+        .expect("validated commodity has a form");
+    assert_eq!(
+        form.phase(),
+        MaterialPhase::Solid,
+        "sensible cooling is solid-only"
+    );
+    assert_eq!(
+        form.particle_size_policy(),
+        ParticleSizeStatePolicy::Untracked
+    );
+    let composition = crate::material::MaterialComposition::pure(definition.commodity().material());
+    crate::material::validate_material_phase_state(
+        materials,
+        definition.commodity(),
+        &composition,
+        definition.target_temperature(),
+    )
+    .unwrap_or_else(|error| {
+        panic!(
+            "cooling process {} target is not a solid state: {error}",
+            definition.process().value()
+        )
+    });
+}
 
 pub(super) fn validate_firing_material_references(
     process: ProcessId,

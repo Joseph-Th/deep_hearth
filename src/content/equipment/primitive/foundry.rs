@@ -2,8 +2,8 @@
 
 use crate::capability::CapabilityValue;
 use crate::content::capabilities::{
-    CAPABILITY_COOLING_POWER, CAPABILITY_HEATING_POWER, CAPABILITY_KILN_HEATING_POWER,
-    CAPABILITY_SULFIDE_PRECIPITATION_FLOW, CAPABILITY_THERMAL_BATCH,
+    CAPABILITY_COOLING_POWER, CAPABILITY_HEATING_POWER, CAPABILITY_KILN_COOLING_POWER,
+    CAPABILITY_KILN_HEATING_POWER, CAPABILITY_SULFIDE_PRECIPITATION_FLOW, CAPABILITY_THERMAL_BATCH,
     CAPABILITY_THERMAL_MAX_TEMPERATURE, CAPABILITY_TREADLE_DYNAMO_OUTPUT,
     CAPABILITY_TREADLE_POWER_OUTPUT,
 };
@@ -58,6 +58,10 @@ pub(super) fn stone_pit_kiln() -> EquipmentDefinition {
                 CapabilityValue::Power(Power::from_microwatts(12_000_000_000)),
             ),
             (
+                CAPABILITY_KILN_COOLING_POWER,
+                CapabilityValue::Power(Power::from_microwatts(50_000_000_000)),
+            ),
+            (
                 CAPABILITY_THERMAL_MAX_TEMPERATURE,
                 CapabilityValue::Temperature(Temperature::from_millikelvin(1_150_000)),
             ),
@@ -67,11 +71,18 @@ pub(super) fn stone_pit_kiln() -> EquipmentDefinition {
             ),
         ]),
         thresholds(),
-        vec![power_condition_curve(
-            CAPABILITY_KILN_HEATING_POWER,
-            500_000,
-            Power::from_microwatts(6_000_000_000),
-        )],
+        vec![
+            power_condition_curve(
+                CAPABILITY_KILN_HEATING_POWER,
+                500_000,
+                Power::from_microwatts(6_000_000_000),
+            ),
+            power_condition_curve(
+                CAPABILITY_KILN_COOLING_POWER,
+                500_000,
+                Power::from_microwatts(25_000_000_000),
+            ),
+        ],
     )
     .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_CLAY, FORM_PACKED_CLAY_BINDER))
 }

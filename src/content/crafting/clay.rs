@@ -30,8 +30,8 @@ fn shape_greenware_crock() -> ManualCraftDefinition {
     ManualCraftDefinition::new(
         PROCESS_SHAPE_CLAY_GREENWARE_CROCK,
         CommodityKey::new(MATERIAL_CLAY, FORM_LUMP),
-        Mass::from_milligrams(2_800_000),
-        TickSpan::new(95),
+        Mass::from_milligrams(2_000_000),
+        TickSpan::new(70),
         clay_exertion(),
         vec![
             ManualCraftOutput::new(

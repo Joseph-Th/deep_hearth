@@ -28,9 +28,11 @@ pub use planning::{
 };
 pub use processes::{
     CastingPhaseChange, CastingProcessDefinition, FiringConversion, MeltingProcessDefinition,
-    PhaseChangeForms, PhaseChangeProcessProfile, ResolvedSensibleHeating,
-    SensibleHeatingProcessDefinition, SensibleHeatingRequest, SensibleHeatingResolutionError,
-    ThermalJobValidationError, ThermalRegistry, resolve_sensible_heating_process,
+    PhaseChangeForms, PhaseChangeProcessProfile, ResolvedSensibleCooling, ResolvedSensibleHeating,
+    SensibleCoolingBatchError, SensibleCoolingProcessDefinition, SensibleCoolingRequest,
+    SensibleCoolingResolutionError, SensibleHeatingProcessDefinition, SensibleHeatingRequest,
+    SensibleHeatingResolutionError, ThermalJobValidationError, ThermalRegistry,
+    resolve_sensible_cooling_process, resolve_sensible_heating_process,
 };
 
 pub(crate) use processes::validate_loaded_thermal_job;

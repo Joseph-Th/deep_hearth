@@ -303,6 +303,7 @@ impl Registries {
             | ProcessExecutionFamily::ConstituentSeparation
             | ProcessExecutionFamily::Precipitation
             | ProcessExecutionFamily::SensibleHeating
+            | ProcessExecutionFamily::SensibleCooling
             | ProcessExecutionFamily::Melting
             | ProcessExecutionFamily::Casting => None,
         }

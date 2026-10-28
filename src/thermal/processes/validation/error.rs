@@ -14,6 +14,7 @@ use crate::production::ProductionJobId;
 use super::super::super::PhaseSensibleHeatError;
 use super::super::super::casting_execution::CastingJobValidationError;
 use super::super::super::melting_execution::MeltingJobValidationError;
+use super::super::cooling::SensibleCoolingJobValidationError;
 
 /// Invalid persisted operation-specific thermal semantics discovered during exhaustive load audit.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -30,6 +31,7 @@ pub enum ThermalJobValidationError {
     },
     Casting(CastingJobValidationError),
     Melting(MeltingJobValidationError),
+    Cooling(SensibleCoolingJobValidationError),
     MissingEquipmentProvider {
         job: ProductionJobId,
     },
@@ -144,6 +146,7 @@ impl Display for ThermalJobValidationError {
             ),
             Self::Casting(error) => write!(formatter, "invalid casting job: {error}"),
             Self::Melting(error) => write!(formatter, "invalid melting job: {error}"),
+            Self::Cooling(error) => write!(formatter, "invalid sensible cooling job: {error}"),
             Self::MissingEquipmentProvider { job } => write!(
                 formatter,
                 "sensible-heating job {} has no equipment provider trace",
@@ -304,6 +307,7 @@ impl Error for ThermalJobValidationError {
             Self::WrongFiringInput { .. } | Self::BelowFiringTemperature { .. } => None,
             Self::Casting(error) => Some(error),
             Self::Melting(error) => Some(error),
+            Self::Cooling(error) => Some(error),
             Self::Capability { error, .. } => Some(error),
             Self::Heat { job: _job, error } => Some(error),
             Self::OutputConstruction { job: _job, error } => Some(error),

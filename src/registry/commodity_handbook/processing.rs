@@ -126,6 +126,7 @@ pub(super) fn collect_thermal_relationships(
     sources: &mut Vec<CommoditySource>,
     uses: &mut Vec<CommodityUse>,
 ) {
+    collect_solid_thermal_relationships(registries, commodity, sources, uses);
     for definition in registries.thermal().melting_definitions() {
         if commodity.material() == definition.material() {
             if definition.solid_forms().contains(&commodity.form()) {
@@ -152,6 +153,38 @@ pub(super) fn collect_thermal_relationships(
                     process: definition.process(),
                 });
             }
+        }
+    }
+}
+
+fn collect_solid_thermal_relationships(
+    registries: &Registries,
+    commodity: CommodityKey,
+    sources: &mut Vec<CommoditySource>,
+    uses: &mut Vec<CommodityUse>,
+) {
+    for definition in registries.thermal().sensible_heating_definitions() {
+        if let Some(conversion) = definition.firing_conversion() {
+            if commodity == conversion.input() {
+                uses.push(CommodityUse::ThermalConditioning {
+                    process: definition.process(),
+                });
+            }
+            if commodity == conversion.output() {
+                sources.push(CommoditySource::ThermalConditioning {
+                    process: definition.process(),
+                });
+            }
+        }
+    }
+    for definition in registries.thermal().sensible_cooling_definitions() {
+        if commodity == definition.commodity() {
+            uses.push(CommodityUse::ThermalConditioning {
+                process: definition.process(),
+            });
+            sources.push(CommoditySource::ThermalConditioning {
+                process: definition.process(),
+            });
         }
     }
 }

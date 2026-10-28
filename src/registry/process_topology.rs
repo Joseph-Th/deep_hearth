@@ -23,6 +23,7 @@ pub enum ProcessExecutionFamily {
     ConstituentSeparation,
     Precipitation,
     SensibleHeating,
+    SensibleCooling,
     Melting,
     Casting,
 }

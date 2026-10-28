@@ -19,8 +19,81 @@ pub use phase_change::{
 
 use validation::{
     validate_casting_material_references, validate_common_thermal_references,
-    validate_firing_material_references, validate_melting_form_references,
+    validate_cooling_material_references, validate_firing_material_references,
+    validate_melting_form_references,
 };
+
+/// Exact solid cooling that releases sensible heat into a finite thermal sink.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SensibleCoolingProcessDefinition {
+    process: ProcessId,
+    commodity: CommodityKey,
+    target_temperature: Temperature,
+    cooling_power_capability: CapabilityId,
+    max_temperature_capability: CapabilityId,
+    max_batch_mass_capability: CapabilityId,
+    energy_carrier: EnergyCarrier,
+    condition_wear_ppm_per_active_tick: u32,
+}
+
+impl SensibleCoolingProcessDefinition {
+    #[must_use]
+    pub const fn new(
+        process: ProcessId,
+        commodity: CommodityKey,
+        target_temperature: Temperature,
+        cooling_power_capability: CapabilityId,
+        max_temperature_capability: CapabilityId,
+        max_batch_mass_capability: CapabilityId,
+        energy_carrier: EnergyCarrier,
+        condition_wear_ppm_per_active_tick: u32,
+    ) -> Self {
+        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
+        assert!(target_temperature.millikelvin() > 0);
+        Self {
+            process,
+            commodity,
+            target_temperature,
+            cooling_power_capability,
+            max_temperature_capability,
+            max_batch_mass_capability,
+            energy_carrier,
+            condition_wear_ppm_per_active_tick,
+        }
+    }
+    #[must_use]
+    pub const fn process(self) -> ProcessId {
+        self.process
+    }
+    #[must_use]
+    pub const fn commodity(self) -> CommodityKey {
+        self.commodity
+    }
+    #[must_use]
+    pub const fn target_temperature(self) -> Temperature {
+        self.target_temperature
+    }
+    #[must_use]
+    pub const fn cooling_power_capability(self) -> CapabilityId {
+        self.cooling_power_capability
+    }
+    #[must_use]
+    pub const fn max_temperature_capability(self) -> CapabilityId {
+        self.max_temperature_capability
+    }
+    #[must_use]
+    pub const fn max_batch_mass_capability(self) -> CapabilityId {
+        self.max_batch_mass_capability
+    }
+    #[must_use]
+    pub const fn energy_carrier(self) -> EnergyCarrier {
+        self.energy_carrier
+    }
+    #[must_use]
+    pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
+        self.condition_wear_ppm_per_active_tick
+    }
+}
 
 /// A conserved, irreversible solid-form conversion induced by a heated batch.
 ///
@@ -143,6 +216,7 @@ impl SensibleHeatingProcessDefinition {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ThermalRegistry {
     sensible_heating: BTreeMap<ProcessId, SensibleHeatingProcessDefinition>,
+    sensible_cooling: BTreeMap<ProcessId, SensibleCoolingProcessDefinition>,
     melting: BTreeMap<ProcessId, MeltingProcessDefinition>,
     casting: BTreeMap<ProcessId, CastingProcessDefinition>,
 }
@@ -192,9 +266,48 @@ impl ThermalRegistry {
         }
         Self {
             sensible_heating,
+            sensible_cooling: BTreeMap::new(),
             melting,
             casting,
         }
+    }
+
+    /// Registers distinct cooling processes without changing existing registry constructor callers.
+    #[must_use]
+    pub(crate) fn with_sensible_cooling(
+        mut self,
+        definitions: impl IntoIterator<Item = SensibleCoolingProcessDefinition>,
+    ) -> Self {
+        for definition in definitions {
+            let process = definition.process();
+            assert!(
+                !self.sensible_heating.contains_key(&process)
+                    && !self.melting.contains_key(&process)
+                    && !self.casting.contains_key(&process),
+                "cooling process {} already belongs to a thermal resolver",
+                process.value()
+            );
+            assert!(
+                self.sensible_cooling.insert(process, definition).is_none(),
+                "duplicate sensible-cooling process {}",
+                process.value()
+            );
+        }
+        self
+    }
+
+    #[must_use]
+    pub fn get_sensible_cooling(
+        &self,
+        process: ProcessId,
+    ) -> Option<SensibleCoolingProcessDefinition> {
+        self.sensible_cooling.get(&process).copied()
+    }
+
+    pub fn sensible_cooling_definitions(
+        &self,
+    ) -> impl Iterator<Item = SensibleCoolingProcessDefinition> + '_ {
+        self.sensible_cooling.values().copied()
     }
 
     #[must_use]
@@ -238,6 +351,17 @@ impl ThermalRegistry {
         capabilities: &CapabilityRegistry,
         materials: &MaterialRegistry,
     ) {
+        for definition in self.sensible_cooling.values().copied() {
+            validate_common_thermal_references(
+                definition.process(),
+                definition.cooling_power_capability(),
+                definition.max_temperature_capability(),
+                definition.max_batch_mass_capability(),
+                production,
+                capabilities,
+            );
+            validate_cooling_material_references(definition, materials);
+        }
         for definition in self.sensible_heating.values().copied() {
             validate_common_thermal_references(
                 definition.process(),

@@ -68,6 +68,10 @@ pub enum CommoditySource {
     ThermalPhaseChange {
         process: ProcessId,
     },
+    /// A temperature-dependent solid transformation or controlled cooling step.
+    ThermalConditioning {
+        process: ProcessId,
+    },
 }
 
 /// One authored definition-level sink for a commodity.
@@ -107,6 +111,10 @@ pub enum CommodityUse {
         process: ProcessId,
     },
     ThermalPhaseChange {
+        process: ProcessId,
+    },
+    /// A temperature-dependent solid transformation or controlled cooling step.
+    ThermalConditioning {
         process: ProcessId,
     },
 }

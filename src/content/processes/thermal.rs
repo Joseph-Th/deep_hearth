@@ -3,19 +3,25 @@
 use crate::production::ProcessDefinition;
 
 use super::super::capabilities::{
-    CAPABILITY_COOLING_POWER, CAPABILITY_HEATING_POWER, CAPABILITY_KILN_HEATING_POWER,
+    CAPABILITY_COOLING_POWER, CAPABILITY_HEATING_POWER, CAPABILITY_KILN_COOLING_POWER,
+    CAPABILITY_KILN_HEATING_POWER,
 };
 
 use super::{
     PROCESS_CAST_IRON_INGOT, PROCESS_CAST_LEAD_INGOT, PROCESS_CAST_PURE_COPPER,
-    PROCESS_CAST_TIN_INGOT, PROCESS_CAST_ZINC_INGOT, PROCESS_FIRE_CLAY_CROCK,
-    PROCESS_HEAT_MATERIAL_BATCH, PROCESS_MELT_PURE_COPPER, PROCESS_MELT_RECYCLED_IRON,
-    PROCESS_MELT_RECYCLED_LEAD, PROCESS_MELT_RECYCLED_TIN, PROCESS_MELT_RECYCLED_ZINC,
-    thermal_resolver_requirements,
+    PROCESS_CAST_TIN_INGOT, PROCESS_CAST_ZINC_INGOT, PROCESS_COOL_FIRED_CLAY_CROCK,
+    PROCESS_FIRE_CLAY_CROCK, PROCESS_HEAT_MATERIAL_BATCH, PROCESS_MELT_PURE_COPPER,
+    PROCESS_MELT_RECYCLED_IRON, PROCESS_MELT_RECYCLED_LEAD, PROCESS_MELT_RECYCLED_TIN,
+    PROCESS_MELT_RECYCLED_ZINC, thermal_resolver_requirements,
 };
 
-pub(super) fn definitions() -> [ProcessDefinition; 12] {
+pub(super) fn definitions() -> [ProcessDefinition; 13] {
     [
+        ProcessDefinition::new(
+            PROCESS_COOL_FIRED_CLAY_CROCK,
+            "cool fired clay crock on stone heat bed",
+            thermal_resolver_requirements(CAPABILITY_KILN_COOLING_POWER),
+        ),
         ProcessDefinition::new(
             PROCESS_FIRE_CLAY_CROCK,
             "fire dry clay greenware in a fueled kiln",

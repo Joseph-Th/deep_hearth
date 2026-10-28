@@ -158,6 +158,7 @@ pub(super) fn powered_profile(
         | ProcessExecutionFamily::ManualComminution
         | ProcessExecutionFamily::ManualSeparation
         | ProcessExecutionFamily::SensibleHeating
+        | ProcessExecutionFamily::SensibleCooling
         | ProcessExecutionFamily::Melting
         | ProcessExecutionFamily::Casting => None,
     }

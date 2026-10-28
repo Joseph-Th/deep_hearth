@@ -76,7 +76,8 @@ fn discover_manual_construction_route(
             | CommoditySource::StorageDismantling { .. }
             | CommoditySource::EquipmentMaintenanceSpent { .. }
             | CommoditySource::OreProcessing { .. }
-            | CommoditySource::ThermalPhaseChange { .. } => None,
+            | CommoditySource::ThermalPhaseChange { .. }
+            | CommoditySource::ThermalConditioning { .. } => None,
         })
         .filter(|producer| {
             registries

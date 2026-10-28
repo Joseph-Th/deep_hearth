@@ -40,6 +40,8 @@ pub const ENERGY_STONE_RING_CAMPFIRE: EnergyStoreDefinitionId = EnergyStoreDefin
 pub const ENERGY_COPPER_WOUND_ELECTRICAL_BUFFER: EnergyStoreDefinitionId =
     EnergyStoreDefinitionId::new(15);
 pub const ENERGY_STONE_PIT_KILN_HEARTH: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(16);
+pub const ENERGY_STONE_CERAMIC_COOLING_BED: EnergyStoreDefinitionId =
+    EnergyStoreDefinitionId::new(17);
 
 pub const CAMPFIRE_FUEL_MASS: Mass = Mass::from_milligrams(1_000_000);
 /// Usable thermal energy from one kilogram-scale primitive wood charge.
@@ -69,6 +71,21 @@ const TIMBER_FRAME_FLYWHEEL_BANK_PASSIVE_DISSIPATION_POWER: Power =
 
 pub(crate) fn build_energy_registry() -> EnergyRegistry {
     EnergyRegistry::new([
+        // A low-tech stone slab stores the sensible heat withdrawn from kiln ware.
+        // Passive rejection makes repeat batches compete for real cooling headroom.
+        EnergyStoreDefinition::new_with_transfer_limits(
+            ENERGY_STONE_CERAMIC_COOLING_BED,
+            "stone ceramic cooling bed",
+            EnergyCarrier::Thermal,
+            Energy::from_nanojoules(6_000_000_000_000_000),
+            Power::from_microwatts(50_000_000_000),
+            Power::ZERO,
+        )
+        .with_passive_dissipation_power(Power::from_microwatts(1_000_000_000))
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(1_000_000),
+        )])),
         // Unlike a campfire's radiated warmth, a covered kiln has a bounded
         // thermal extraction port. Combustion consumes real timber; heat lost
         // passively cannot be used for firing or recovered as work energy.

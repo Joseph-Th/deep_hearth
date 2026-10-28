@@ -44,7 +44,8 @@ pub(super) fn manual_craft_topology_plan_with_equipment<'a>(
             | CommoditySource::StorageDismantling { .. }
             | CommoditySource::EquipmentMaintenanceSpent { .. }
             | CommoditySource::OreProcessing { .. }
-            | CommoditySource::ThermalPhaseChange { .. } => None,
+            | CommoditySource::ThermalPhaseChange { .. }
+            | CommoditySource::ThermalConditioning { .. } => None,
         })
         .filter_map(|definition| {
             if !allowed_inputs.contains(&definition.input()) {

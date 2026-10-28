@@ -122,7 +122,7 @@ pub(crate) fn build_storage_registry() -> StorageRegistry {
         true,
         false,
         PROVISIONS_STORAGE_MAXIMUM_TEMPERATURE,
-        2_750_000,
+        3_500_000,
     )
     .unwrap_or_else(|error| panic!("fired ceramic crock storage profile failed: {error}"));
     let copper_banded_crock_preservation = StockpileStorageProfile::with_preservation(

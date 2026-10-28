@@ -15,9 +15,9 @@ Progression:
 | Survival and labor | Metabolism, hydration, vitality, diet, spoilage, timed intake, exertion, preservation, warmth and exclusive work. |
 | Materials and inventory | Exact lots, finite storage/reservations, conservation, preservation, classified residues and waste-only spoil bays. |
 | Prospecting and mining | Opening hard-copper seam requires acquired survey evidence and a reinforced pick. Ore is finite and must be hauled; reserves stay private. |
-| Crafting and equipment | Manual/powered shaping, flint and copper tools, wood-fired pit kiln, service, upgrades, field instruments and machines. Waste occupies finite storage. |
+| Crafting and equipment | Shaping, flint/copper tools, pit kiln, stone cooling bed, maintenance, upgrades and machines; finite waste storage. |
 | Power | Human drives, mechanical stores, treadle generation, and plate/wound/rack electrical buffers. No power networks. |
-| Processing | Graded tin/iron/lead ore dressing and tailings recovery; copper casting, PbS+Fe lead smelting, and fuel-heated clay firing into storage vessels. No general reduction. |
+| Processing | Ore dressing/tailings recovery, copper casting, PbS+Fe smelting, fueled clay firing and finite-sink ceramic cooling. No general reduction or passive cooling. |
 | Opening wilderness acquisition | Finite flint at clay/copper spur. Scouts raid, forage and alarm. Light, players, walls and enclosed storage deter or obstruct them. Melee startles or staggers, without wounds. |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 

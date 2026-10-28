@@ -95,6 +95,15 @@ pub(super) fn process_execution_semantics(
                     ProcessEnergyRole::Supply(definition.energy_carrier()),
                 )
             }),
+        domains
+            .thermal
+            .get_sensible_cooling(process)
+            .map(|definition| {
+                (
+                    ProcessExecutionFamily::SensibleCooling,
+                    ProcessEnergyRole::Sink(definition.energy_carrier()),
+                )
+            }),
         domains.thermal.get_melting(process).map(|definition| {
             (
                 ProcessExecutionFamily::Melting,

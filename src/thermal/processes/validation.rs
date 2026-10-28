@@ -14,6 +14,7 @@ use super::super::equipment_physics::{
     validate_thermal_process_capabilities,
 };
 use super::super::melting_execution::validate_loaded_melting_job;
+use super::cooling::validate_loaded_sensible_cooling_job;
 use super::registry::SensibleHeatingProcessDefinition;
 use super::sensible_batch::{
     ResolvedSensibleHeatingBatch, SensibleHeatingBatchError, resolve_sensible_heating_batch,
@@ -304,6 +305,10 @@ pub(crate) fn validate_loaded_thermal_job(
     if let Some(definition) = registries.thermal().get_melting(job.process()) {
         return validate_loaded_melting_job(registries, job, definition)
             .map_err(ThermalJobValidationError::Melting);
+    }
+    if let Some(definition) = registries.thermal().get_sensible_cooling(job.process()) {
+        return validate_loaded_sensible_cooling_job(registries, job, definition)
+            .map_err(ThermalJobValidationError::Cooling);
     }
     match registries.thermal().get_sensible_heating(job.process()) {
         Some(definition) => validate_loaded_sensible_heating_job(registries, job, definition),
