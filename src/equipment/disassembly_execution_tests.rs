@@ -10,7 +10,8 @@ use crate::content::{
     MANUAL_POWER_HAND_CRANK, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD, build_registries,
 };
 use crate::core::quantity::{Energy, Temperature};
-use crate::core::state::validate_loaded_state;
+use crate::core::state::{apply_clock_advance, validate_loaded_state};
+use crate::core::time::SimulationTick;
 use crate::energy::{calculate_explicit_energy_accounting, validate_assemble_energy_store};
 use crate::equipment::{
     EquipmentDefinitionId, degrade_equipment_condition_for_test, validate_assemble_equipment,
@@ -85,6 +86,43 @@ fn disassembly_removes_equipment_location() {
 
     assert_eq!(state.logistics().equipment_position(equipment), None);
     assert!(state.equipment().get_equipment(equipment).is_none());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn elapsed_disassembly_validation_cannot_backdate_recovered_equipment_matter() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let equipment = assembled_pick(&registries, &mut state);
+    let destination =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000)).unwrap();
+    let before_matter = calculate_matter_accounting(&state).unwrap().total();
+    let selected =
+        validate_disassemble_equipment(&registries, &state, equipment, destination).unwrap();
+    let expected = state.tick();
+    let inventory_revision = state.inventory().revision();
+    apply_clock_advance(&mut state, SimulationTick::new(expected.value() + 1));
+    assert_eq!(state.inventory().revision(), inventory_revision);
+    let before_commit = state.clone();
+    assert_eq!(
+        selected.commit(&mut state).err(),
+        Some(EquipmentDisassemblyCommitError::StaleSimulationTick {
+            expected,
+            actual: state.tick(),
+        })
+    );
+    assert_eq!(state, before_commit);
+
+    let recovered = validate_disassemble_equipment(&registries, &state, equipment, destination)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(recovered.recovered_lots().len(), 2);
+    assert!(state.equipment().get_equipment(equipment).is_none());
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        before_matter
+    );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 

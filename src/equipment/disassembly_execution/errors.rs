@@ -282,6 +282,10 @@ pub enum EquipmentDisassemblyCommitError {
         expected: u64,
         actual: u64,
     },
+    StaleSimulationTick {
+        expected: SimulationTick,
+        actual: SimulationTick,
+    },
     StaleEquipment {
         expected: u64,
         actual: u64,
@@ -342,6 +346,12 @@ impl Display for EquipmentDisassemblyCommitError {
             Self::StaleInventory { expected, actual } => write!(
                 formatter,
                 "equipment disassembly expected inventory revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleSimulationTick { expected, actual } => write!(
+                formatter,
+                "equipment disassembly expected simulation tick {} but current tick is {}",
+                expected.value(),
+                actual.value()
             ),
             Self::StaleEquipment { expected, actual } => write!(
                 formatter,
@@ -427,6 +437,7 @@ impl Error for EquipmentDisassemblyCommitError {
             | Self::StaleSurvival { .. }
             | Self::StaleLogistics { .. }
             | Self::StaleInventory { .. }
+            | Self::StaleSimulationTick { .. }
             | Self::StaleEquipment { .. }
             | Self::UnknownEquipment { .. }
             | Self::EquipmentChanged { .. }

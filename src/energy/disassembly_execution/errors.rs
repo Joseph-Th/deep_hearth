@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Energy, Mass};
+use crate::core::time::SimulationTick;
 use crate::inventory::{StockpileId, StockpileStorageError, StockpileStructuralLoadError};
 use crate::logistics::{PlayerEnergyStoreAccessError, PlayerStockpileAccessError};
 use crate::production::{ProductionJobId, ProductionOccupancyRelease};
@@ -191,6 +192,10 @@ pub enum EnergyStoreDisassemblyCommitError {
         expected: u64,
         actual: u64,
     },
+    StaleSimulationTick {
+        expected: SimulationTick,
+        actual: SimulationTick,
+    },
     StaleEnergy {
         expected: u64,
         actual: u64,
@@ -228,6 +233,12 @@ impl Display for EnergyStoreDisassemblyCommitError {
             Self::StaleInventory { expected, actual } => write!(
                 formatter,
                 "energy-store disassembly expected inventory revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleSimulationTick { expected, actual } => write!(
+                formatter,
+                "energy-store disassembly expected simulation tick {} but current tick is {}",
+                expected.value(),
+                actual.value()
             ),
             Self::StaleEnergy { expected, actual } => write!(
                 formatter,
@@ -270,6 +281,7 @@ impl Error for EnergyStoreDisassemblyCommitError {
             | Self::StaleSurvival { .. }
             | Self::StaleLogistics { .. }
             | Self::StaleInventory { .. }
+            | Self::StaleSimulationTick { .. }
             | Self::StaleEnergy { .. }
             | Self::UnknownStore { .. }
             | Self::StoreChanged { .. }

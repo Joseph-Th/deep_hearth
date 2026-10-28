@@ -105,6 +105,7 @@ impl EquipmentMaintenanceOutcome {
 #[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedEquipmentMaintenance {
     equipment: EquipmentId,
+    expected_tick: SimulationTick,
     condition_before: Condition,
     condition_after: Condition,
     expected_equipment_revision: u64,

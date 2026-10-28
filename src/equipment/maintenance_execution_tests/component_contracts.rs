@@ -211,8 +211,32 @@ fn component_service_can_return_worn_part_to_its_replacement_stockpile() {
     )
     .unwrap_or_else(|error| panic!("same-stockpile component resolution failed: {error}"));
     assert!(resolution.replaces_embodied_component());
-    let outcome = validate_equipment_maintenance(&registries, &state, resolution)
-        .unwrap_or_else(|error| panic!("same-stockpile component validation failed: {error}"))
+    let stale = validate_equipment_maintenance(&registries, &state, resolution)
+        .unwrap_or_else(|error| panic!("same-stockpile component validation failed: {error}"));
+    let expected = state.tick();
+    let inventory_revision = state.inventory().revision();
+    apply_clock_advance(&mut state, SimulationTick::new(expected.value() + 1));
+    assert_eq!(state.inventory().revision(), inventory_revision);
+    let before_stale = state.clone();
+    assert_eq!(
+        stale.commit(&mut state),
+        Err(EquipmentMaintenanceCommitError::StaleSimulationTick {
+            expected,
+            actual: state.tick(),
+        })
+    );
+    assert_eq!(
+        state, before_stale,
+        "elapsed service cannot consume material or equipment"
+    );
+    let refreshed = resolve_equipment_maintenance(
+        &registries,
+        &state,
+        EquipmentMaintenanceRequest::new(pick, service_stock, service_stock),
+    )
+    .unwrap_or_else(|error| panic!("same-stockpile component re-resolution failed: {error}"));
+    let outcome = validate_equipment_maintenance(&registries, &state, refreshed)
+        .unwrap_or_else(|error| panic!("same-stockpile component revalidation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("same-stockpile component commit failed: {error}"));
 

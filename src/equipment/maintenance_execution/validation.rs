@@ -173,6 +173,7 @@ pub fn validate_equipment_maintenance(
 
     Ok(ValidatedEquipmentMaintenance {
         equipment,
+        expected_tick: state.tick(),
         condition_before,
         condition_after,
         expected_equipment_revision,

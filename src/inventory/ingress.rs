@@ -135,6 +135,11 @@ impl ValidatedMaterialIngress {
         self.destination
     }
 
+    /// Authoritative planning tick for the ingress identities and new storage histories.
+    pub(crate) const fn planned_tick(&self) -> SimulationTick {
+        self.current_tick
+    }
+
     pub(crate) const fn expected_revision(&self) -> u64 {
         self.expected_revision
     }

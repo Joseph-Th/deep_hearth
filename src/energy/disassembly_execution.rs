@@ -114,6 +114,12 @@ impl ValidatedEnergyStoreDisassembly {
                 actual: state.inventory().revision(),
             });
         }
+        if state.tick() != self.ingress.planned_tick() {
+            return Err(EnergyStoreDisassemblyCommitError::StaleSimulationTick {
+                expected: self.ingress.planned_tick(),
+                actual: state.tick(),
+            });
+        }
         if state.energy().revision() != self.expected_energy_revision {
             return Err(EnergyStoreDisassemblyCommitError::StaleEnergy {
                 expected: self.expected_energy_revision,

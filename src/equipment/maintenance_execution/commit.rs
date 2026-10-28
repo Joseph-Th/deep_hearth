@@ -27,6 +27,12 @@ impl ValidatedEquipmentMaintenance {
                 actual: actual_revision,
             });
         }
+        if state.tick() != self.expected_tick {
+            return Err(EquipmentMaintenanceCommitError::StaleSimulationTick {
+                expected: self.expected_tick,
+                actual: state.tick(),
+            });
+        }
         match equipment_occupancy(state, self.equipment) {
             Some(EquipmentOccupancy::Production { job, release }) => {
                 return Err(EquipmentMaintenanceCommitError::EquipmentBusy {

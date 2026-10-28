@@ -107,6 +107,12 @@ impl ValidatedEquipmentDisassembly {
                 actual: state.inventory().revision(),
             });
         }
+        if state.tick() != self.ingress.planned_tick() {
+            return Err(EquipmentDisassemblyCommitError::StaleSimulationTick {
+                expected: self.ingress.planned_tick(),
+                actual: state.tick(),
+            });
+        }
         if state.equipment().revision() != self.expected_equipment_revision {
             return Err(EquipmentDisassemblyCommitError::StaleEquipment {
                 expected: self.expected_equipment_revision,
