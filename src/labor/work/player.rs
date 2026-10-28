@@ -402,7 +402,18 @@ impl PlayerWork {
     pub(crate) const fn tree_felling(self) -> Option<TreeFellingWork> {
         match self {
             Self::TreeFelling { work } => Some(work),
-            _ => None,
+            Self::SurfaceGathering { .. }
+            | Self::BlockExcavation { .. }
+            | Self::ManualProduction { .. }
+            | Self::Mining { .. }
+            | Self::ManualPower { .. }
+            | Self::Prospecting { .. }
+            | Self::Eating { .. }
+            | Self::Drinking { .. }
+            | Self::EquipmentMaintenance { .. }
+            | Self::StorageEnclosureDismantling { .. }
+            | Self::StructuralConstruction { .. }
+            | Self::StructuralDismantling { .. } => None,
         }
     }
 }

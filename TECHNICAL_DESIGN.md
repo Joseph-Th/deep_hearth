@@ -395,7 +395,9 @@ Generated-world opening layout selection also checks both resident body cells
 against embodied full-footprint members before placing the den and watchman.
 Wilderness creation binds the structure revision at admission and rejects commit
 if construction changes the clearance decision; slender supports and unbuilt
-plans do not claim full-cell collision.
+plans do not claim full-cell collision. The outcrop's one-voxel deposit uses
+checked half-open bounds; unrepresentable input coordinates return a typed
+validation error rather than panicking.
 Exact stationary-occupancy checks use logistics-owned reverse position indexes
 for ground stockpiles, equipment, energy stores, and fluid stores, rather than
 scanning all distant asset locations during local resident movement. Ground
@@ -438,12 +440,12 @@ revision, so a newly placed or moved parcel makes an earlier plan stale before
 any world mutation. Trusted save admission also rejects available surface
 matter inside existing generated full-cube blocks, without rejecting depleted
 history or valid parcels in ungenerated columns.
-Surface-resource creation uses that same physical-location rule before any
-parcel enters custody; creation plans bind the world revision, so generation
+Surface-resource creation also excludes living tree trunks whose underlying
+terrain voxel is air. Creation plans bind the world revision, so generation
 or excavation changing block truth between validation and commit invalidates
-the pending parcel rather than creating matter in newly solid terrain.
+the pending parcel rather than creating matter in newly obstructed space.
 Identity-preserving scavenger relocations also use the surface owner's
-full-cube test at their destination: an adjacent solid voxel refuses the
+world-obstruction test at their destination: a solid voxel or tree trunk refuses the
 transfer without changing custody or revisions, while a cleared destination
 allows the same conserved parcel identity to continue its physical route.
 Generated chunks also reject full-cube blocks intersecting already embodied

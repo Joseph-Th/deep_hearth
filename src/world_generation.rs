@@ -112,6 +112,9 @@ pub enum InitialWildernessGenerationError {
     FluidRevisionExhausted,
     LogisticsRevisionExhausted,
     NoTraversableTerrainLayout,
+    OutcropBoundsOverflow {
+        position: VoxelCoord,
+    },
     InvalidGeneratedResource(SurfaceResourceValidationError),
     InvalidGeneratedDeposit(GeologicalDepositGenerationError),
     InvalidGeneratedWater,
@@ -168,6 +171,13 @@ impl Display for InitialWildernessGenerationError {
             Self::NoTraversableTerrainLayout => formatter.write_str(
                 "generated terrain has no standing-clearance layout for the bounded wilderness opening",
             ),
+            Self::OutcropBoundsOverflow { position } => write!(
+                formatter,
+                "wilderness outcrop at ({},{},{}) cannot fit a representable one-voxel deposit",
+                position.x(),
+                position.y(),
+                position.z()
+            ),
             Self::InvalidGeneratedResource(error) => {
                 write!(
                     formatter,
@@ -203,6 +213,7 @@ impl Error for InitialWildernessGenerationError {
             | Self::FluidRevisionExhausted
             | Self::LogisticsRevisionExhausted
             | Self::NoTraversableTerrainLayout
+            | Self::OutcropBoundsOverflow { .. }
             | Self::InvalidGeneratedWater => None,
         }
     }
@@ -578,6 +589,19 @@ pub fn validate_generate_initial_wilderness(
     } else {
         generated_opening_layout(seed, spawn)
     };
+    // The generated outcrop is a half-open one-voxel deposit. Check the caller's
+    // arbitrary coordinates before authoring any cross-owner generation plans.
+    let outcrop = layout.clay;
+    let overflow = || InitialWildernessGenerationError::OutcropBoundsOverflow { position: outcrop };
+    let seam_region = VoxelBounds::new(
+        outcrop,
+        VoxelCoord::new(
+            outcrop.x().checked_add(1).ok_or_else(overflow)?,
+            outcrop.y().checked_add(1).ok_or_else(overflow)?,
+            outcrop.z().checked_add(1).ok_or_else(overflow)?,
+        ),
+    )
+    .expect("checked increment on each axis gives positive one-voxel bounds");
     let stone_first = local_entropy(seed, spawn, OPENING_RESOURCE_ORDER_SALT).is_multiple_of(2);
     let stone_position = if stone_first {
         layout.material_forward
@@ -694,25 +718,6 @@ pub fn validate_generate_initial_wilderness(
     // occupies the physical working voxel at the outcrop so a standing player
     // can survey and mine it. The region is a target footprint, not a
     // generated solid block requiring an inaccessible underground body pose.
-    let outcrop = layout.clay;
-    let seam_region = VoxelBounds::new(
-        outcrop,
-        VoxelCoord::new(
-            outcrop
-                .x()
-                .checked_add(1)
-                .expect("opening geological x bound"),
-            outcrop
-                .y()
-                .checked_add(1)
-                .expect("opening geological y bound"),
-            outcrop
-                .z()
-                .checked_add(1)
-                .expect("opening geological z bound"),
-        ),
-    )
-    .expect("unit geological seam has valid bounds");
     let seam_composition = MaterialComposition::new(vec![
         CompositionComponent::new(MATERIAL_COPPER, 500_000),
         CompositionComponent::new(MATERIAL_STONE, 500_000),

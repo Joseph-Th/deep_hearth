@@ -1456,6 +1456,24 @@ fn initial_wilderness_generation_rejects_stale_surface_commit_without_mutation()
 }
 
 #[test]
+fn initial_wilderness_rejects_unrepresentable_outcrop_without_panicking_or_mutating() {
+    let registries = build_registries();
+    let state = AppState::new();
+    let seed = WorldGenerationSeed::new(0xA11C_E001);
+    for spawn in [
+        VoxelCoord::new(0, i64::MAX, 0),
+        VoxelCoord::new(i64::MIN, i64::MAX, i64::MIN),
+    ] {
+        let outcrop = generated_opening_layout(seed, spawn).clay;
+        assert_eq!(
+            validate_generate_initial_wilderness(&registries, &state, seed, spawn).err(),
+            Some(InitialWildernessGenerationError::OutcropBoundsOverflow { position: outcrop })
+        );
+        assert_eq!(state, AppState::new());
+    }
+}
+
+#[test]
 fn initial_wilderness_generation_rejects_admission_or_time_change_before_commit() {
     let registries = build_registries();
     let spawn = VoxelCoord::new(0, 0, 0);

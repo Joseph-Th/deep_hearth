@@ -373,7 +373,7 @@ pub fn validate_loaded_world(
             || transplant_paths
                 .get(&origin)
                 .is_some_and(|(last, at)| *last != root || *at > record.felled_at())
-            || (transplant_paths.get(&origin).is_none() && root != origin)
+            || (!transplant_paths.contains_key(&origin) && root != origin)
             || !occupied_seed_origins.insert(origin)
             || state.tree_at(root).is_some()
             || state.get_chunk(ChunkCoord::containing(root)).is_none()

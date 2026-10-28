@@ -99,9 +99,9 @@ pub fn raycast_player_block(
                 // The eye's own air cell has no entered face and cannot be a block hit.
                 return VoxelTraceStep::Continue;
             };
-            if state.structures().blocks_full_cell(voxel) {
-                VoxelTraceStep::Blocked
-            } else if state.world().tree_trunk_at(voxel).is_some() {
+            if state.structures().blocks_full_cell(voxel)
+                || state.world().tree_trunk_at(voxel).is_some()
+            {
                 VoxelTraceStep::Blocked
             } else if targetable_full_cube(registries, block_state) {
                 VoxelTraceStep::Hit(PlayerBlockTarget {
