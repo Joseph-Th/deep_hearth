@@ -1046,6 +1046,85 @@ fn temperature_unfit_den_food_is_discarded_and_fresh_foraging_restores_the_meal(
 }
 
 #[test]
+fn oversized_unfit_food_is_split_and_evicted_until_the_den_can_forage() {
+    let (registries, mut state, [den, junction, _, _]) = setup();
+    let unfit_mass = Mass::from_milligrams(1_200_000);
+    let unfit = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        den,
+        CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+        unfit_mass,
+        Temperature::from_millikelvin(400_000),
+        MaterialComposition::pure(MATERIAL_WILD_NUTS),
+    )
+    .unwrap();
+    let creation = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            unfit,
+            resource(junction, SurfaceResourceKind::Opportunity, true),
+        ],
+    )
+    .unwrap();
+    let ids = creation.resource_ids().collect::<Vec<_>>();
+    creation.commit(&mut state).unwrap();
+    let before = calculate_matter_accounting(&state).unwrap().total();
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    assert_eq!(
+        advance_tick(&registries, &mut state).unwrap(),
+        advance_tick(&registries, &mut replay).unwrap()
+    );
+    assert_eq!(
+        state.surface().get(ids[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(950_000),
+        "one carried portion must leave an actual bulk remnant at the den"
+    );
+    assert!(
+        state
+            .surface()
+            .available_resources_at(Some(junction))
+            .any(|drop| drop.kind() == SurfaceResourceKind::Drop
+                && drop.remaining_mass() == Mass::from_milligrams(250_000)
+                && drop.temperature() == Temperature::from_millikelvin(400_000)),
+        "the split must create a physical recoverable parcel at the junction"
+    );
+    while state.tick().value() < 720 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(ids[0]).unwrap().position(),
+        junction,
+        "the eventually portable bulk remnant must be physically expelled"
+    );
+    assert_eq!(
+        state.surface().get(ids[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(950_000),
+        "the single bulk split makes the remaining parcel portable for whole relocation"
+    );
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        20_000,
+        "the scout must recover its meal from fresh forage, never from the hot food"
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn scant_den_food_does_not_count_as_a_complete_ration() {
     let (registries, mut hungry, [den, _, _, _]) = setup();
     let nuts = CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD);

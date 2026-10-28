@@ -260,6 +260,7 @@ impl KoboldScoutEvent {
     }
 
     /// Food unfit for consumption physically discarded onto the adjacent route.
+    /// For bulky cargo, this names the moved split portion, not its source.
     #[must_use]
     pub const fn discarded_food(self) -> Option<SurfaceResourceId> {
         self.discarded_food

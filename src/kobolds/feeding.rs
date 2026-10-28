@@ -9,6 +9,7 @@ use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{
     SurfaceResourceId, SurfaceResourceKind, SurfaceResourceRecord, relocate_scavenged_drop_step,
+    split_bulk_scavenged_drop_step,
 };
 use crate::survival::{FoodFreshness, freshness_from_history};
 
@@ -19,7 +20,7 @@ use super::scavenging::{
     matches_salvage_goal, reachable_inherited_salvage,
 };
 use super::{
-    DEN_LOOSE_CACHE_LIMIT, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL,
+    DEN_LOOSE_CACHE_LIMIT, SCOUT_BULK_SPLIT_BATCH, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL,
     SCOUT_MEAL_INTERVAL_TICKS, SCOUT_MEAL_MASS,
 };
 
@@ -168,6 +169,8 @@ pub(super) fn apply_scheduled_den_care(
 
 /// Vacate unusable edible-form custody as physical cargo. Spoilage, excessive heat and
 /// contaminated composition all make a food parcel unfit for this resident's meal.
+/// An oversized parcel must be divided into real carried portions rather than
+/// permanently blocking the den because no whole move fits the scout's carry limit.
 fn discard_unfit_den_food(
     registries: &Registries,
     state: &mut AppState,
@@ -175,23 +178,38 @@ fn discard_unfit_den_food(
     junction: VoxelCoord,
     at: SimulationTick,
 ) -> Option<SurfaceResourceId> {
+    if !den_exit_is_safe(registries, state, den, junction) {
+        return None;
+    }
     let source = state
         .surface()
         .available_resources_at(Some(den))
-        .find(|resource| {
+        .filter(|resource| {
             resource.kind() == SurfaceResourceKind::Drop
                 && resource.commodity().form() == crate::content::FORM_FOOD
-                && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
                 && !matches!(
                     food_condition(registries, resource, at),
                     Some(FoodFreshness::Fresh { .. })
                 )
-        })?
-        .id();
-    den_exit_is_safe(registries, state, den, junction)
-        .then(|| relocate_scavenged_drop_step(registries, state, source, den, junction))
-        .filter(|moved| *moved)
-        .map(|_| source)
+        })
+        // Whole cargo requires no new identity or split, so clear it first.
+        .min_by_key(|resource| (resource.remaining_mass() > SCOUT_CARRY_LIMIT, resource.id()))?;
+    let source_id = source.id();
+    if source.remaining_mass() <= SCOUT_CARRY_LIMIT {
+        relocate_scavenged_drop_step(registries, state, source_id, den, junction)
+            .then_some(source_id)
+    } else {
+        split_bulk_scavenged_drop_step(
+            registries,
+            state,
+            source_id,
+            den,
+            junction,
+            at,
+            SCOUT_BULK_SPLIT_BATCH,
+        )
+        .map(|(daughter, _)| daughter)
+    }
 }
 
 /// Reorganize a blocked den toward food, not toward an arbitrary scripted
