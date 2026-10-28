@@ -8,7 +8,7 @@ use crate::content::{
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
-use crate::spatial::{VoxelBounds, VoxelCoord};
+use crate::spatial::{ViewDirection, VoxelBounds, VoxelCoord};
 use crate::structural::{
     StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
 };
@@ -159,4 +159,88 @@ fn trusted_load_rejects_a_transplanted_tree_forged_through_a_narrow_post() {
             StateValidationError::World(WorldValidationError::InvalidStandingTree { root })
         )) if root == to
     ));
+}
+
+#[test]
+fn diagonal_sight_cannot_select_air_contact_past_a_tree_at_a_tied_corner() {
+    // At a shared X/Z ray boundary, the X neighbor is an otherwise valid
+    // target while the Z neighbor is the physical trunk. Voxel iteration
+    // order must not let the X target bypass tree occlusion.
+    let registries = build_registries();
+    let (seed, root) = (1..10_000)
+        .find_map(|value| {
+            let seed = WorldGenerationSeed::new(value);
+            let profile = WorldGenerationProfile::new(seed, BLOCK_STATE_STONE);
+            let root = trees::seeded_tree_identity(profile, ChunkCoord::new(0, 0))?.root();
+            let player_z = root.z() - 1;
+            let floor = root.y() - 1;
+            (generation::terrain_height(seed, root.x(), player_z) == floor
+                && generation::terrain_height(seed, root.x() + 1, player_z) <= root.y())
+            .then_some((seed, root))
+        })
+        .expect("tree with level southern ground and an open eastern ray cell");
+    let player_at = VoxelCoord::new(root.x(), root.y(), root.z() - 1);
+    let target = VoxelCoord::new(root.x() + 1, root.y() + 1, root.z() - 1);
+    let trunk = VoxelCoord::new(root.x(), root.y() + 1, root.z());
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, player_at)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(state.world().block_at(target), Some(BlockStateId::AIR));
+    assert!(state.world().tree_trunk_at(trunk).is_some());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let diagonal = ViewDirection::new(707_107, 0, 707_107).unwrap();
+    assert_eq!(
+        raycast_player_air_voxel_with_reach(&registries, &state, diagonal, 3_000, |voxel, _| {
+            (voxel == target).then_some(voxel)
+        },),
+        Ok(None),
+        "tree trunks must occlude combat contact at a shared voxel corner"
+    );
+    assert_eq!(
+        raycast_player_air_voxel(&registries, &state, diagonal, |voxel, _| {
+            (voxel == target).then_some(voxel)
+        }),
+        Ok(None),
+        "tree trunks must occlude pointed air interactions at the same corner"
+    );
+
+    let fell = validate_fell_tree(&registries, &state, root)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(fell.root(), root);
+    assert!(state.world().tree_trunk_at(trunk).is_none());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(
+        raycast_player_air_voxel_with_reach(&registries, &state, diagonal, 3_000, |voxel, _| {
+            (voxel == target).then_some(voxel)
+        }),
+        Ok(Some(target)),
+        "felling the tree must reopen the very same sightline"
+    );
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+    assert_eq!(
+        raycast_player_air_voxel(&registries, &loaded, diagonal, |voxel, _| {
+            (voxel == target).then_some(voxel)
+        }),
+        Ok(Some(target))
+    );
 }

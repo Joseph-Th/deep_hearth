@@ -121,13 +121,16 @@ plan when no physical member is hit. The empty plan cannot provide a placement s
 occupy generated air, so a pointed timber post may use the actual terrain behind it. Bounded
 structural footprint checks use the existing horizontal index and exact intersection tests,
 including for broad geometry.
+At a simultaneous voxel-face crossing, physical tree trunks take occlusion priority over
+otherwise selectable adjacent air targets, as do solid blocks and embodied full-cell panels.
 
 Standard stone-terrain chunks may also generate one deterministic, seed-positioned living tree
 record when its supporting ground and two-cell trunk are free. The world owner persists these
 sorted roots in an ordered spatial index (serialized as canonical arrays with duplicate-strict
-loading), treats trunk cells as solid for movement, interaction occlusion and construction,
-and refuses chunk generation that would intersect an admitted actor or any embodied
-structural member, including narrow posts that do not block an entire movement cell.
+loading), treats trunk cells as solid for movement, lighting, interaction occlusion,
+construction, storage placement and loose surface custody, and refuses generation
+that would intersect an admitted actor or any embodied structural member, including
+narrow posts that do not block an entire movement cell.
 Inert structural plans do not occupy a trunk cell. The same physical-material clearance
 applies to sapling relocation and trusted-load validation.
 Standing wood grows as a four-stage lazy elapsed-time projection: 4 kg/year for juveniles,
@@ -159,7 +162,9 @@ matter but settles proportional elapsed wear. Chopping due on the fatal tick sti
 before death releases attention, matching the other due-work owners.
 On the scheduled completion the world-to-surface felling transaction atomically transfers
 its exact current wood mass to a finite loose-log parcel after checking world, logistics,
-survival and surface revisions and the player's continuous position. An ordinary held break
+survival and surface revisions and the player's continuous position. Surface placement
+validates the output against the world after that specific tree is removed, without
+admitting loose matter into any other standing trunk. An ordinary held break
 cannot complete harvesting instantly. The lower-level `validate_fell_tree` remains a
 capability operation for controlled world-custody callers. A persistent world assimilation
 ledger accounts for wood accumulated from the environment, including wood already felled.
@@ -295,7 +300,7 @@ sounds on the authored scout clock. On a successful two-edge warning, an assembl
 and synchronous junction relay also produces its own impulse. Local perception
 follows a bounded 3-step timber, 5-step stone, or 6-step iron-clapper air route: generated
 worlds use a face-connected search through non-colliding voxels, rejecting solid
-rock and unloaded cells, whereas the pre-generation opening uses a short
+rock, standing tree trunks and unloaded cells, whereas the pre-generation opening uses a short
 Manhattan-radius approximation without inventing terrain. A bend may carry
 sound without carrying light or a sightline; in that case the pulse has
 `position() == None` rather than exposing the unseen rig coordinates. The

@@ -326,6 +326,39 @@ pub(crate) fn validate_create_surface_resources_at(
     specs: impl IntoIterator<Item = SurfaceResourceSpec>,
     created_at: SimulationTick,
 ) -> Result<ValidatedSurfaceResourceCreation, SurfaceResourceCreationError> {
+    validate_create_surface_resources_with_felling_at(registries, state, specs, created_at, None)
+}
+
+/// The world owner has already validated the one standing tree removed before its
+/// log parcel lands in the same atomic commit. Other surface admissions retain
+/// the ordinary trunk obstruction rule.
+pub(crate) fn validate_create_surface_resources_after_tree_felling_at(
+    registries: &Registries,
+    state: &AppState,
+    specs: impl IntoIterator<Item = SurfaceResourceSpec>,
+    created_at: SimulationTick,
+    root: VoxelCoord,
+) -> Result<ValidatedSurfaceResourceCreation, SurfaceResourceCreationError> {
+    assert!(
+        state.world().tree_at(root).is_some(),
+        "felling output requires a validated living tree at the removed root"
+    );
+    validate_create_surface_resources_with_felling_at(
+        registries,
+        state,
+        specs,
+        created_at,
+        Some(root),
+    )
+}
+
+fn validate_create_surface_resources_with_felling_at(
+    registries: &Registries,
+    state: &AppState,
+    specs: impl IntoIterator<Item = SurfaceResourceSpec>,
+    created_at: SimulationTick,
+    felled_root: Option<VoxelCoord>,
+) -> Result<ValidatedSurfaceResourceCreation, SurfaceResourceCreationError> {
     let specs = specs.into_iter().collect::<Vec<_>>();
     if specs.is_empty() {
         return Err(SurfaceResourceCreationError::Empty);
@@ -367,6 +400,7 @@ pub(crate) fn validate_create_surface_resources_at(
             state.world(),
             state.structures(),
             &record,
+            felled_root,
         )
         .map_err(SurfaceResourceCreationError::InvalidResource)?;
         records.push(record);

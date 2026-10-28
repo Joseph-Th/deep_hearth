@@ -245,7 +245,9 @@ fn propagated_light_level(
 }
 
 fn voxel_transmits_light(registries: &Registries, state: &AppState, position: VoxelCoord) -> bool {
-    if state.structures().blocks_full_cell(position) {
+    if state.structures().blocks_full_cell(position)
+        || state.world().tree_trunk_at(position).is_some()
+    {
         return false;
     }
     if state.world().generation_profile().is_none() {

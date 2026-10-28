@@ -33,6 +33,7 @@ pub(super) fn scout_visible_from(
     let generated = state.world().generation_profile().is_some();
     let transparent = |voxel| {
         !state.structures().blocks_full_cell(voxel)
+            && state.world().tree_trunk_at(voxel).is_none()
             && (!generated
                 || state
                     .world()

@@ -14,7 +14,7 @@ pub(crate) use creation::insert_surface_resource_for_test;
 pub(crate) use creation::{
     SurfaceResourceCreationCommitError, SurfaceResourceCreationError, SurfaceResourceSpec,
     SurfaceResourceSpecError, ValidatedSurfaceResourceCreation, validate_create_surface_resources,
-    validate_create_surface_resources_at,
+    validate_create_surface_resources_after_tree_felling_at, validate_create_surface_resources_at,
 };
 pub use drop_projection::{PlayerWorldDropProjection, available_player_world_drops};
 pub(crate) use footing::{OBSTRUCTING_RESIDUE_COMPACT_DEPTH_UM, exposed_residue_compact_depth_um};
@@ -61,7 +61,11 @@ pub(crate) fn relocate_scavenged_drop_step(
     to: crate::spatial::VoxelCoord,
 ) -> bool {
     if !from.is_face_adjacent_to(to)
-        || state::validation::surface_position_has_full_cube(registries.world(), state.world(), to)
+        || state::validation::surface_position_has_solid_world(
+            registries.world(),
+            state.world(),
+            to,
+        )
         || state.structures().blocks_full_cell(to)
         || !state.surface().get(resource).is_some_and(|record| {
             record.kind() == SurfaceResourceKind::Drop

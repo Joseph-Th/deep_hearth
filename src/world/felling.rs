@@ -16,7 +16,7 @@ use crate::spatial::VoxelCoord;
 use crate::surface::{
     SurfaceResourceCreationCommitError, SurfaceResourceCreationError, SurfaceResourceId,
     SurfaceResourceKind, SurfaceResourceSpec, SurfaceResourceValidationError,
-    ValidatedSurfaceResourceCreation, validate_create_surface_resources_at,
+    ValidatedSurfaceResourceCreation, validate_create_surface_resources_after_tree_felling_at,
 };
 
 /// Felling requires a living player next to a known standing trunk, not remote world access.
@@ -483,19 +483,25 @@ fn validate_fell_tree_at(
         MaterialComposition::pure(MATERIAL_WOOD),
     )
     .expect("a positive valid tree always yields a valid wood parcel");
-    let surface_creation = validate_create_surface_resources_at(registries, state, [spec], at)
-        .map_err(|error| match error {
-            SurfaceResourceCreationError::Empty => {
-                unreachable!("one tree always creates one wood parcel")
-            }
-            SurfaceResourceCreationError::IdExhausted => TreeFellingError::SurfaceIdExhausted,
-            SurfaceResourceCreationError::RevisionExhausted => {
-                TreeFellingError::SurfaceRevisionExhausted
-            }
-            SurfaceResourceCreationError::InvalidResource(error) => {
-                TreeFellingError::SurfacePlacement(error)
-            }
-        })?;
+    let surface_creation = validate_create_surface_resources_after_tree_felling_at(
+        registries,
+        state,
+        [spec],
+        at,
+        root,
+    )
+    .map_err(|error| match error {
+        SurfaceResourceCreationError::Empty => {
+            unreachable!("one tree always creates one wood parcel")
+        }
+        SurfaceResourceCreationError::IdExhausted => TreeFellingError::SurfaceIdExhausted,
+        SurfaceResourceCreationError::RevisionExhausted => {
+            TreeFellingError::SurfaceRevisionExhausted
+        }
+        SurfaceResourceCreationError::InvalidResource(error) => {
+            TreeFellingError::SurfacePlacement(error)
+        }
+    })?;
     Ok(ValidatedTreeFelling {
         expected_world_revision,
         next_world_revision,

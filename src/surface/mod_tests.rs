@@ -454,6 +454,88 @@ fn local_surface_index_tracks_creation_partial_use_relocation_and_depletion_acro
 }
 
 #[test]
+fn tree_trunk_rejects_new_loose_matter_and_scavenged_drop_relocation() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WORLD_SEED,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let tree = state
+        .world()
+        .trees()
+        .next()
+        .expect("seeded chunk has a tree");
+    let root = tree.root();
+    let head = VoxelCoord::new(root.x(), root.y() + 1, root.z());
+    let adjacent = [
+        VoxelCoord::new(head.x() - 1, head.y(), head.z()),
+        VoxelCoord::new(head.x() + 1, head.y(), head.z()),
+        VoxelCoord::new(head.x(), head.y(), head.z() - 1),
+        VoxelCoord::new(head.x(), head.y(), head.z() + 1),
+    ]
+    .into_iter()
+    .find(|&voxel| state.world().block_at(voxel) == Some(BlockStateId::AIR))
+    .expect("tree has an adjacent open cell");
+    assert_eq!(state.world().block_at(head), Some(BlockStateId::AIR));
+    assert!(state.world().tree_trunk_at(head).is_some());
+
+    let spec = |position| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(100_000),
+            TEMPERATURE,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap()
+    };
+    for voxel in [root, head] {
+        let before = state.clone();
+        let resource = SurfaceResourceId::new(state.surface().next_resource_id());
+        assert!(matches!(
+            validate_create_surface_resources(&registries, &state, [spec(voxel)]),
+            Err(SurfaceResourceCreationError::InvalidResource(
+                SurfaceResourceValidationError::EmbeddedInSolidWorld {
+                    resource: found,
+                    voxel: found_at,
+                }
+            )) if found == resource && found_at == voxel
+        ));
+        assert_eq!(state, before);
+    }
+    let creation =
+        validate_create_surface_resources(&registries, &state, [spec(adjacent)]).unwrap();
+    let id = creation.first_resource_id();
+    creation.commit(&mut state).unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert!(!super::relocate_scavenged_drop_step(
+        &registries,
+        &mut state,
+        id,
+        adjacent,
+        head,
+    ));
+    assert_eq!(state, before);
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap(),
+        state
+    );
+}
+
+#[test]
 fn scavenged_drop_cannot_relocate_into_generated_full_cube() {
     let registries = build_registries();
     let mut state = AppState::new();

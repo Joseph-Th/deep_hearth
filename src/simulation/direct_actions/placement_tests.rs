@@ -1,6 +1,9 @@
 //! Indexed support lookup keeps direct construction local and excludes inert plans.
 
-use super::{local_active_face_supports, single_voxel_bounds};
+use super::{
+    DirectPlacementTargetError, local_active_face_supports, single_voxel_bounds,
+    validate_direct_placement_position,
+};
 use crate::content::{
     FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
@@ -12,6 +15,32 @@ use crate::structural::{
     StructuralElementGeometry, StructuralElementId, add_structural_element,
     materialize_structural_element_for_test, validate_activate_structural_element,
 };
+use crate::world::{BlockStateId, ChunkCoord, WorldGenerationSeed, validate_generate_chunk};
+
+#[test]
+fn pointed_placement_rejects_both_physical_tree_trunk_cells() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(41),
+        ChunkCoord::new(0, 0),
+        crate::content::BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let root = state.world().trees().next().unwrap().root();
+    for voxel in [root, VoxelCoord::new(root.x(), root.y() + 1, root.z())] {
+        assert_eq!(state.world().block_at(voxel), Some(BlockStateId::AIR));
+        assert_eq!(
+            validate_direct_placement_position(&registries, &state, voxel),
+            Err(DirectPlacementTargetError::LocationOccupied { position: voxel }),
+        );
+    }
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
 
 #[test]
 fn supported_timber_uses_only_live_face_neighbors_after_trusted_load() {

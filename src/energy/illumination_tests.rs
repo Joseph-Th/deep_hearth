@@ -6,7 +6,7 @@ use crate::content::{
     make_test_registries_with_energy_store,
 };
 use crate::core::quantity::{Energy, Mass, Power};
-use crate::core::state::AppState;
+use crate::core::state::{AppState, validate_loaded_state};
 use crate::energy::{
     EnergyCarrier, EnergyStoreDefinition, EnergyStoreDefinitionId,
     add_energy_store_with_initial_for_fixture, passive_dissipation_ticks_until_empty,
@@ -24,7 +24,74 @@ use crate::world::{
     set_generated_block_for_test, validate_generate_chunk,
 };
 
-use super::{assess_local_illumination, project_local_light_sources};
+use super::{assess_local_illumination, project_local_light_sources, voxel_transmits_light};
+
+#[test]
+fn finite_local_light_cannot_pass_through_a_living_tree_trunk() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(41),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let root = state.world().trees().next().unwrap().root();
+    let trunk = VoxelCoord::new(root.x(), root.y() + 1, root.z());
+    let source = VoxelCoord::new(root.x() - 1, root.y() + 1, root.z());
+    assert_eq!(state.world().block_at(trunk), Some(BlockStateId::AIR));
+    assert_eq!(state.world().block_at(source), Some(BlockStateId::AIR));
+    assert!(state.world().tree_trunk_at(trunk).is_some());
+
+    let carried = validate_admit_player(&registries, &state, source)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(1_000_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            CAMPFIRE_FUEL_MASS,
+        ),
+    ] {
+        deposit_bulk_for_test(&registries, &mut state, carried, commodity, mass).unwrap();
+    }
+    let emitter =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, carried)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    validate_combust_fuel(&registries, &state, emitter, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(voxel_transmits_light(&registries, &state, source));
+    assert!(!voxel_transmits_light(&registries, &state, trunk));
+    assert!(assess_local_illumination(&registries, &state, source).level() > 0);
+    assert_eq!(
+        assess_local_illumination(&registries, &state, trunk).level(),
+        0
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+    assert_eq!(
+        assess_local_illumination(&registries, &loaded, trunk).level(),
+        0
+    );
+}
 
 #[test]
 fn ungenerated_opening_light_reaches_nearby_cells_and_replays() {

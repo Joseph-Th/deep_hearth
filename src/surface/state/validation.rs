@@ -499,17 +499,31 @@ pub(in crate::surface) fn validate_surface_resource_record(
     validate_material_profile(materials, key, record)
 }
 
-/// Shared physical placement rule for both new surface custody and decoded
-/// persistent custody. A missing world column is not yet solid authority.
-pub(in crate::surface) fn surface_position_has_full_cube(
+/// Shared physical world obstruction for new, relocated, and decoded loose custody.
+/// Tree trunks occupy cells whose underlying terrain block is still air.
+/// A missing world column is not yet solid authority.
+pub(in crate::surface) fn surface_position_has_solid_world(
     world_registry: &WorldRegistry,
     world: &WorldState,
     position: VoxelCoord,
 ) -> bool {
-    world
-        .block_at(position)
-        .and_then(|block| world_registry.block_for_state(block))
-        .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+    surface_position_has_solid_world_after_felling(world_registry, world, position, None)
+}
+
+fn surface_position_has_solid_world_after_felling(
+    world_registry: &WorldRegistry,
+    world: &WorldState,
+    position: VoxelCoord,
+    felled_root: Option<VoxelCoord>,
+) -> bool {
+    // A validated atomic felling removes only the named root before its log
+    // parcel lands. The adjacent upper trunk and all other trees remain solid.
+    (world.tree_trunk_at(position).is_some()
+        && !(felled_root == Some(position) && world.tree_at(position).is_some()))
+        || world
+            .block_at(position)
+            .and_then(|block| world_registry.block_for_state(block))
+            .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
 }
 
 pub(in crate::surface) fn validate_surface_resource_physical_position(
@@ -517,9 +531,15 @@ pub(in crate::surface) fn validate_surface_resource_physical_position(
     world: &WorldState,
     structures: &StructureState,
     record: &SurfaceResourceRecord,
+    felled_root: Option<VoxelCoord>,
 ) -> Result<(), SurfaceResourceValidationError> {
     if record.lifecycle() == SurfaceResourceLifecycle::Available
-        && surface_position_has_full_cube(world_registry, world, record.position())
+        && surface_position_has_solid_world_after_felling(
+            world_registry,
+            world,
+            record.position(),
+            felled_root,
+        )
     {
         return Err(SurfaceResourceValidationError::EmbeddedInSolidWorld {
             resource: record.id(),
@@ -559,7 +579,13 @@ pub(crate) fn validate_loaded_surface_resources(
     }
     for (key, record) in &state.resources {
         validate_surface_resource_record(materials, *key, record, current, current_control)?;
-        validate_surface_resource_physical_position(world_registry, world, structures, record)?;
+        validate_surface_resource_physical_position(
+            world_registry,
+            world,
+            structures,
+            record,
+            None,
+        )?;
     }
     if !state.has_valid_position_index() {
         return Err(SurfaceResourceValidationError::InvalidLocationIndex);

@@ -70,6 +70,7 @@ fn audible_path(
     let generated = state.world().generation_profile().is_some();
     let passable = |voxel| {
         !state.structures().blocks_full_cell(voxel)
+            && state.world().tree_trunk_at(voxel).is_none()
             && (!generated
                 || state
                     .world()

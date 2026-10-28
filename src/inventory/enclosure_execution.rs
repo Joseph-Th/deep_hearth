@@ -455,11 +455,12 @@ fn enclosure_position_is_solid(
     state: &AppState,
     position: VoxelCoord,
 ) -> bool {
-    state
-        .world()
-        .block_at(position)
-        .and_then(|block| registries.world().block_for_state(block))
-        .is_some_and(|block| block.collision() == crate::world::BlockCollisionShape::FullCube)
+    state.world().tree_trunk_at(position).is_some()
+        || state
+            .world()
+            .block_at(position)
+            .and_then(|block| registries.world().block_for_state(block))
+            .is_some_and(|block| block.collision() == crate::world::BlockCollisionShape::FullCube)
 }
 
 fn validate_enclosure_target(

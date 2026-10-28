@@ -227,6 +227,62 @@ fn player_storage_placement_rejects_generated_rock_and_stale_world_truth() {
 }
 
 #[test]
+fn carried_storage_enclosure_cannot_materialize_inside_a_living_tree() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state).unwrap();
+    let carried = validate_initialize_player_logistics(
+        &state,
+        VoxelCoord::new(32, 100, 32),
+        Mass::from_milligrams(5_000_000),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap()
+    .carried_stockpile();
+    let definition = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
+        definition.assembly_profile().input_mass(),
+        TEMPERATURE,
+    )
+    .unwrap();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(41),
+        ChunkCoord::new(0, 0),
+        crate::content::BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let root = state.world().trees().next().unwrap().root();
+    let original = state.clone();
+    for position in [root, VoxelCoord::new(root.x(), root.y() + 1, root.z())] {
+        assert_eq!(state.world().block_at(position), Some(BlockStateId::AIR));
+        assert_eq!(
+            validate_place_player_storage_at(
+                &registries,
+                &state,
+                STORAGE_ROUGH_TIMBER_FIELD_BOX,
+                position,
+            )
+            .err(),
+            Some(PlayerStoragePlacementError::GeneratedSolidTerrain { position }),
+        );
+        assert_eq!(state, original);
+    }
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn carried_storage_placement_cannot_bypass_exclusive_work() {
     let registries = build_registries();
     let mut state = AppState::new();

@@ -42,6 +42,39 @@ fn solid_generated_chunk() -> (Registries, AppState) {
     (registries, state)
 }
 
+#[test]
+fn generated_tree_trunk_occludes_local_sight_and_short_acoustic_paths() {
+    let (registries, state) = solid_generated_chunk();
+    let tree = state
+        .world()
+        .trees()
+        .next()
+        .expect("seeded stone chunk has a tree");
+    let root = tree.root();
+    let left = VoxelCoord::new(root.x() - 1, root.y() + 1, root.z());
+    let right = VoxelCoord::new(root.x() + 1, root.y() + 1, root.z());
+    let trunk = VoxelCoord::new(root.x(), root.y() + 1, root.z());
+    assert_eq!(state.world().block_at(left), Some(BlockStateId::AIR));
+    assert_eq!(state.world().block_at(right), Some(BlockStateId::AIR));
+    assert_eq!(state.world().block_at(trunk), Some(BlockStateId::AIR));
+    assert!(state.world().tree_trunk_at(trunk).is_some());
+
+    assert!(
+        !crate::kobolds::visibility::scout_visible_from(&registries, &state, left, right),
+        "wood cannot become transparent merely because the terrain block is air"
+    );
+    assert!(
+        !audible_path(
+            &registries,
+            &state,
+            left,
+            right,
+            KoboldJunkRigKind::TimberRatchet,
+        ),
+        "a short, face-connected sound path cannot pass through a solid trunk"
+    );
+}
+
 fn carve(registries: &Registries, state: &mut AppState, voxels: &[VoxelCoord]) {
     for &voxel in voxels {
         assert_eq!(state.world().block_at(voxel), Some(BLOCK_STATE_STONE));

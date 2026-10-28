@@ -395,10 +395,12 @@ fn advance_ray_boundary<T>(
         tied_axes,
     } = boundary_cells(state, *voxel, cursors, minimum)?;
     // Physical occlusion takes precedence over air-space selection at tied intersections.
+    // Trees are world-owned solid trunks, even though their underlying block state is air.
     for solid in [true, false] {
         for &(candidate, face, block_state) in touched[..count].iter().flatten() {
             if (targetable_full_cube(registries, block_state)
-                || state.structures().blocks_full_cell(candidate))
+                || state.structures().blocks_full_cell(candidate)
+                || state.world().tree_trunk_at(candidate).is_some())
                 != solid
             {
                 continue;
