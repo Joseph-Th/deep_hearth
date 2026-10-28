@@ -12,7 +12,8 @@ use super::WorldRegistry;
 use crate::core::state::AppState;
 
 use super::{
-    BlockCollisionShape, BlockStateId, FelledTreeRecord, TreeRecord, WorldGenerationProfile,
+    BlockCollisionShape, BlockStateId, FelledTreeRecord, TransplantedTreeRecord, TreeRecord,
+    WorldGenerationProfile,
 };
 
 pub const CHUNK_SIDE: usize = 16;
@@ -589,6 +590,8 @@ pub struct WorldState {
         deserialize_with = "deserialize_btree_map_no_duplicates_root_index"
     )]
     felled_trees: BTreeMap<VoxelCoord, FelledTreeRecord>,
+    /// Append-only authoritative path of seed-origin-preserving sapling relocations.
+    transplants: Vec<TransplantedTreeRecord>,
 }
 
 impl WorldState {
@@ -601,6 +604,7 @@ impl WorldState {
             trees: BTreeMap::new(),
             assimilated_wood_milligrams: 0,
             felled_trees: BTreeMap::new(),
+            transplants: Vec::new(),
         }
     }
 
@@ -631,6 +635,10 @@ impl WorldState {
     /// World-history receipts are for diagnostics and trusted-load checks, not discovery.
     pub(crate) fn felled_trees(&self) -> impl Iterator<Item = &FelledTreeRecord> {
         self.felled_trees.values()
+    }
+
+    pub(crate) fn transplants(&self) -> impl Iterator<Item = &TransplantedTreeRecord> {
+        self.transplants.iter()
     }
 
     #[must_use]
@@ -687,6 +695,36 @@ impl WorldState {
         Some(crate::core::quantity::AggregateMass::from_milligrams(total))
     }
 
+    /// Move a juvenile's complete woody biomass without creating or consuming matter.
+    /// The seed origin stays attached so future felling and trusted replay can audit it.
+    pub(crate) fn transplant_tree(
+        &mut self,
+        from: VoxelCoord,
+        to: VoxelCoord,
+        expected_revision: u64,
+        next_revision: u64,
+        at: crate::core::time::SimulationTick,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        assert!(
+            !self.trees.contains_key(&to),
+            "validated transplant destination occupied"
+        );
+        let tree = self
+            .trees
+            .remove(&from)
+            .expect("validated sapling disappeared");
+        assert!(self.trees.insert(to, tree.transplanted_to(to)).is_none());
+        self.transplants.push(TransplantedTreeRecord::new(
+            tree.origin_root(),
+            from,
+            to,
+            at,
+        ));
+        self.revision = next_revision;
+    }
+
     pub(crate) fn remove_felled_tree(
         &mut self,
         root: VoxelCoord,
@@ -711,7 +749,7 @@ impl WorldState {
             .expect("validated tree felling must retain external biosynthesis headroom");
         assert!(
             self.felled_trees
-                .insert(root, FelledTreeRecord::new(root, at))
+                .insert(root, FelledTreeRecord::new(tree, at))
                 .is_none(),
             "one generated tree may only be felled once"
         );

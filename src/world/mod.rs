@@ -6,6 +6,7 @@ mod felling;
 mod generation;
 mod state;
 mod targeting;
+mod transplant;
 mod trees;
 mod validation;
 
@@ -54,9 +55,13 @@ pub use state::{
 };
 pub use targeting::{PlayerBlockTarget, PlayerBlockTargetError, raycast_player_block};
 pub(crate) use targeting::{raycast_player_air_voxel, raycast_player_air_voxel_with_reach};
-pub(crate) use trees::FelledTreeRecord;
+pub use transplant::{
+    SaplingTransplantCommitError, SaplingTransplantError, SaplingTransplantOutcome,
+    ValidatedSaplingTransplant, validate_transplant_juvenile,
+};
 pub(crate) use trees::generated_tree;
 pub use trees::{BIOLOGICAL_YEAR_TICKS, TreeRecord};
+pub(crate) use trees::{FelledTreeRecord, TransplantedTreeRecord};
 pub use validation::{WorldValidationError, validate_loaded_world};
 
 #[cfg(test)]
@@ -66,6 +71,10 @@ mod tests;
 #[cfg(test)]
 #[path = "trees_tests.rs"]
 mod trees_tests;
+
+#[cfg(test)]
+#[path = "transplant_tests.rs"]
+mod transplant_tests;
 
 #[cfg(test)]
 #[path = "tree_chopping_tests.rs"]

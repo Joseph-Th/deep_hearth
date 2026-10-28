@@ -169,6 +169,15 @@ fn validate_tree_integrations(
     registries: &Registries,
     state: &AppState,
 ) -> Result<(), StateValidationError> {
+    for transplant in state.world().transplants() {
+        if transplant.transplanted_at() > state.tick() {
+            return Err(StateValidationError::World(
+                crate::world::WorldValidationError::InvalidTreeTransplant {
+                    origin: transplant.origin(),
+                },
+            ));
+        }
+    }
     for felled in state.world().felled_trees() {
         if felled.felled_at() > state.tick() {
             return Err(StateValidationError::World(

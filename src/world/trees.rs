@@ -29,6 +29,8 @@ const GROWTH_STAGES: [(u64, u64); 4] = [
 #[serde(deny_unknown_fields)]
 pub struct TreeRecord {
     root: VoxelCoord,
+    /// The generated seed site remains the tree's auditable biological identity after relocation.
+    origin: VoxelCoord,
     sprouted_at: SimulationTick,
     initial_wood: Mass,
 }
@@ -38,7 +40,53 @@ pub struct TreeRecord {
 #[serde(deny_unknown_fields)]
 pub(crate) struct FelledTreeRecord {
     root: VoxelCoord,
+    origin: VoxelCoord,
     felled_at: SimulationTick,
+}
+
+/// Immutable relocation evidence. Each original seed identity has one ordered
+/// path from its natural root through every subsequent juvenile transplant.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct TransplantedTreeRecord {
+    origin: VoxelCoord,
+    from: VoxelCoord,
+    to: VoxelCoord,
+    transplanted_at: SimulationTick,
+}
+
+impl TransplantedTreeRecord {
+    #[must_use]
+    pub(crate) const fn new(
+        origin: VoxelCoord,
+        from: VoxelCoord,
+        to: VoxelCoord,
+        transplanted_at: SimulationTick,
+    ) -> Self {
+        Self {
+            origin,
+            from,
+            to,
+            transplanted_at,
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn origin(self) -> VoxelCoord {
+        self.origin
+    }
+    #[must_use]
+    pub(crate) const fn from(self) -> VoxelCoord {
+        self.from
+    }
+    #[must_use]
+    pub(crate) const fn to(self) -> VoxelCoord {
+        self.to
+    }
+    #[must_use]
+    pub(crate) const fn transplanted_at(self) -> SimulationTick {
+        self.transplanted_at
+    }
 }
 
 impl FelledTreeRecord {
@@ -52,8 +100,17 @@ impl FelledTreeRecord {
         self.felled_at
     }
 
-    pub(super) const fn new(root: VoxelCoord, felled_at: SimulationTick) -> Self {
-        Self { root, felled_at }
+    pub(super) const fn new(tree: TreeRecord, felled_at: SimulationTick) -> Self {
+        Self {
+            root: tree.root,
+            origin: tree.origin,
+            felled_at,
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn origin_root(self) -> VoxelCoord {
+        self.origin
     }
 }
 
@@ -61,6 +118,21 @@ impl TreeRecord {
     #[must_use]
     pub const fn root(self) -> VoxelCoord {
         self.root
+    }
+
+    /// Seed-verified natural origin, unchanged by transplanting the young tree.
+    #[must_use]
+    pub const fn origin_root(self) -> VoxelCoord {
+        self.origin
+    }
+
+    pub(super) fn transplanted_to(self, destination: VoxelCoord) -> Self {
+        Self {
+            root: destination,
+            origin: self.origin,
+            sprouted_at: self.sprouted_at,
+            initial_wood: self.initial_wood,
+        }
     }
 
     #[must_use]
@@ -122,6 +194,7 @@ impl TreeRecord {
     pub(super) const fn new(root: VoxelCoord, initial_wood: Mass) -> Self {
         Self {
             root,
+            origin: root,
             sprouted_at: SimulationTick::ZERO,
             initial_wood,
         }

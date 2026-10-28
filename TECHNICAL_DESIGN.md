@@ -132,8 +132,15 @@ Standing wood grows as a four-stage lazy elapsed-time projection: 4 kg/year for 
 up to 1,600 kg dry wood. Stage boundaries are computed in integer time without per-tick
 updates, scheduled random checks or leaf-block churn. A biological year is 365 physical days.
 The present model represents only one temperate growth profile; species, light, soil, rainfall,
-actual foliage geometry, reproduction and planted saplings are not yet simulated. The canopy
-radius is a presentation hint rather than leaf collision or environmental shade.
+actual foliage geometry, reproduction and planted saplings are not yet simulated. A bounded
+`validate_transplant_juvenile` capability relocates an existing natural sapling below 10 kg
+between two floor-supported, collision-free locations adjacent to the same living,
+grounded, motionless player with no active work or prepared strike. Transplanting preserves the complete tree's wood, original seed-derived identity,
+sprouting timestamp and growth clock, with one atomic world revision; it creates no new
+sapling, seed, log parcel or inventory item. Both admission and commit check local
+obstructions, actor position, time, combat and owner revisions. No ordinary planting input, digging,
+soil/moisture response or timed uprooting work is modeled. The canopy radius is a
+presentation hint rather than leaf collision or environmental shade.
 Ordinary primary-break control pointing at a standing trunk starts exclusive tree-felling work
 with a selected carried stone or copper woodworking adze. A slow-tick schedule scales with
 woody mass (stone: 1.5 kg/tick; copper: 3 kg/tick, minimum eight ticks), charges physiological
@@ -152,10 +159,15 @@ its exact current wood mass to a finite loose-log parcel after checking world, l
 survival and surface revisions and the player's continuous position. An ordinary held break
 cannot complete harvesting instantly. The lower-level `validate_fell_tree` remains a
 capability operation for controlled world-custody callers. A persistent world assimilation
-ledger accounts for wood accumulated from the environment, including wood already felled. Each harvested tree leaves a compact, root-indexed and timestamped provenance
-receipt: trusted load reconstructs its seed-defined initial biomass, accumulated growth at
-felling, canonical order and uniqueness, and verifies the ledger exactly. Living tree locations,
-initial masses and sprouting dates must also match their seed-derived generation identities.
+ledger accounts for wood accumulated from the environment, including wood already felled.
+Each harvested tree leaves a compact, root-indexed and timestamped provenance receipt,
+including its original seed site when transplanted. Relocations append a strictly
+replayed sequence of original seed identity, source root, destination root and tick.
+Trusted load rejects missing, out-of-order, remote, future or inconsistent relocation
+history, reconstructs initial biomass and growth from the immutable seed identity,
+verifies each natural origin appears at most once across living and felled records,
+and audits the cumulative ledger. Both natural and transplanted roots must have physically supported,
+clear trunk cells, valid sprouting dates and seed-backed origin/mass provenance.
 The diagnostic matter `total()` is net of this verified external input while `world()` and
 `surface()` report their full physical masses. Felling does not add instant wood to player
 inventory, and the bounded opening's original fallen-timber gathering
@@ -221,7 +233,9 @@ or whether the caller is crossing an ownership boundary it does not control.
   prechecks shared-owner revisions before mutation; after the completion transaction succeeds, remaining
   phase applies are infallible and assertion-backed before the clock advances.
 - `CURRENT_SAVE_SCHEMA_VERSION` is the only accepted runtime payload shape; `RegistrySchemaVersion` identifies
-  authored identity and physical-definition compatibility.
+  authored identity and physical-definition compatibility. The tree-origin and transplant-receipt
+  fields require schema 123; saves from schema 122 and earlier need an explicit migration before loading
+  (no implicit compatibility fallback is provided).
 - Untrusted save data enters through `LoadedSaveEnvelope::into_state`; the [Trusted load](#trusted-load)
   section owns the promotion and validation contract. Raw `AppState` has no public `Deserialize` path.
 - Save encoding and storage are adapter concerns.
