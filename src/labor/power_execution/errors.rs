@@ -258,6 +258,10 @@ pub enum ManualPowerCommitError {
         equipment: EquipmentId,
         completes_at: ControlTick,
     },
+    EquipmentBusyTreeFelling {
+        equipment: EquipmentId,
+        completes_at: crate::core::time::SimulationTick,
+    },
     EnergyBusyProduction {
         store: EnergyStoreId,
         job: ProductionJobId,
@@ -295,6 +299,15 @@ impl Display for ManualPowerCommitError {
                 equipment.value(),
                 job.value()
             ),
+            Self::EquipmentBusyTreeFelling {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by tree chopping until tick {}",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::EquipmentBusyBlockExcavation {
                 equipment,
                 completes_at,
@@ -323,6 +336,7 @@ impl Error for ManualPowerCommitError {
             | Self::StaleEnergyRevision { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }
+            | Self::EquipmentBusyTreeFelling { .. }
             | Self::EquipmentBusyBlockExcavation { .. }
             | Self::EnergyBusyProduction { .. } => None,
         }

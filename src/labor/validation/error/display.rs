@@ -7,6 +7,11 @@ use super::PlayerWorkValidationError;
 impl Display for PlayerWorkValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::TreeFellingTargetMissing => formatter.write_str("active tree felling references missing standing timber"),
+            Self::TreeFellingTargetRemote => formatter.write_str("active tree felling requires an adjacent player"),
+            Self::TreeFellingEquipmentInvalid => formatter.write_str("active tree felling requires a carried woodcutting adze"),
+            Self::TreeFellingScheduleInvalid => formatter.write_str("active tree felling has an invalid schedule"),
+            Self::TreeFellingDurationMismatch => formatter.write_str("active tree felling duration disagrees with wood mass and equipment"),
             Self::WorkWithoutPlayer => formatter.write_str("player work exists without a player"),
             Self::PlayerAirborne => formatter.write_str(
                 "active player work requires the generated-world body to remain grounded",

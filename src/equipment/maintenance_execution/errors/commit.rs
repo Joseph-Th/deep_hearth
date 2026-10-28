@@ -51,6 +51,10 @@ pub enum EquipmentMaintenanceCommitError {
         equipment: EquipmentId,
         completes_at: ControlTick,
     },
+    EquipmentBusyTreeFelling {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
     StaleInventoryRevision {
         expected: u64,
         actual: u64,
@@ -120,6 +124,15 @@ impl Display for EquipmentMaintenanceCommitError {
                 equipment.value(),
                 completes_at.value()
             ),
+            Self::EquipmentBusyTreeFelling {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by tree chopping until simulation tick {}",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::EquipmentBusyBlockExcavation {
                 equipment,
                 completes_at,
@@ -184,6 +197,7 @@ impl Error for EquipmentMaintenanceCommitError {
                 equipment: _equipment,
                 completes_at: _completes_at,
             } => None,
+            Self::EquipmentBusyTreeFelling { .. } => None,
             Self::EquipmentBusyBlockExcavation {
                 equipment: _equipment,
                 completes_at: _completes_at,

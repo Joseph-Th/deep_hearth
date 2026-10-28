@@ -61,6 +61,10 @@ pub enum EquipmentUpgradeError {
         equipment: EquipmentId,
         completes_at: ControlTick,
     },
+    EquipmentBusyTreeFelling {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
         completes_at: SimulationTick,
@@ -165,6 +169,15 @@ impl Display for EquipmentUpgradeError {
                 equipment.value(),
                 completes_at.value()
             ),
+            Self::EquipmentBusyTreeFelling {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by tree chopping until simulation tick {}",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::EquipmentBusyBlockExcavation {
                 equipment,
                 completes_at,
@@ -241,6 +254,7 @@ impl Error for EquipmentUpgradeError {
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
             | Self::EquipmentBusyProspecting { .. }
+            | Self::EquipmentBusyTreeFelling { .. }
             | Self::EquipmentBusyBlockExcavation { .. }
             | Self::EquipmentUnderMaintenance { .. }
             | Self::UnknownSource { .. }
@@ -302,6 +316,10 @@ pub enum EquipmentUpgradeCommitError {
     EquipmentBusyBlockExcavation {
         equipment: EquipmentId,
         completes_at: ControlTick,
+    },
+    EquipmentBusyTreeFelling {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
     },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
@@ -380,6 +398,15 @@ impl Display for EquipmentUpgradeCommitError {
                 equipment.value(),
                 completes_at.value()
             ),
+            Self::EquipmentBusyTreeFelling {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by tree chopping until simulation tick {}",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::EquipmentBusyBlockExcavation {
                 equipment,
                 completes_at,
@@ -421,6 +448,7 @@ impl Error for EquipmentUpgradeCommitError {
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
             | Self::EquipmentBusyProspecting { .. }
+            | Self::EquipmentBusyTreeFelling { .. }
             | Self::EquipmentBusyBlockExcavation { .. }
             | Self::EquipmentUnderMaintenance { .. } => None,
         }

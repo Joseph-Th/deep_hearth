@@ -187,6 +187,7 @@ fn active_work_releases_now(
         return true;
     }
     match work {
+        PlayerWork::TreeFelling { work } => work.completes_at() == next_tick,
         PlayerWork::SurfaceGathering { work } => work.completes_at() == next_tick,
         PlayerWork::BlockExcavation { work } => {
             crate::core::time::ControlTick::from_simulation_tick(next_tick)

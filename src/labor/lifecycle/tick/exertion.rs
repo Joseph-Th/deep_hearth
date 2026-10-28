@@ -32,6 +32,7 @@ pub(crate) fn player_work_exertion(
         return exertion;
     };
     match work {
+        PlayerWork::TreeFelling { .. } => crate::world::tree_felling_exertion(),
         PlayerWork::SurfaceGathering { work } => registries
             .labor()
             .get_surface_gathering(work.method())

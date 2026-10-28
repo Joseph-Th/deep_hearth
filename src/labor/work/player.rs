@@ -9,13 +9,16 @@ use crate::production::ProductionJobId;
 use super::{
     BlockExcavationWork, DrinkingWork, EatingWork, EquipmentMaintenanceWork, ManualPowerWork,
     ProspectingWork, StorageEnclosureDismantlingWork, StructuralConstructionWork,
-    StructuralDismantlingWork, SurfaceGatheringWork,
+    StructuralDismantlingWork, SurfaceGatheringWork, TreeFellingWork,
 };
 
 /// Durable activity currently monopolizing the local player's labor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum PlayerWork {
+    TreeFelling {
+        work: TreeFellingWork,
+    },
     SurfaceGathering {
         work: SurfaceGatheringWork,
     },
@@ -59,7 +62,7 @@ impl PlayerWork {
     #[must_use]
     pub(in crate::labor) const fn future_world_revision_demand(self) -> u64 {
         match self {
-            Self::BlockExcavation { .. } => 1,
+            Self::BlockExcavation { .. } | Self::TreeFelling { .. } => 1,
             Self::SurfaceGathering { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
@@ -78,7 +81,7 @@ impl PlayerWork {
     #[must_use]
     pub(in crate::labor) const fn future_surface_revision_demand(self) -> u64 {
         match self {
-            Self::SurfaceGathering { .. } => 1,
+            Self::SurfaceGathering { .. } | Self::TreeFelling { .. } => 1,
             Self::BlockExcavation { work } if work.output().surface_position().is_some() => 1,
             Self::BlockExcavation { .. }
             | Self::ManualProduction { .. }
@@ -100,6 +103,7 @@ impl PlayerWork {
         match self {
             Self::SurfaceGathering { .. }
             | Self::BlockExcavation { .. }
+            | Self::TreeFelling { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
@@ -125,6 +129,7 @@ impl PlayerWork {
             Self::StorageEnclosureDismantling { .. } => 2,
             Self::StructuralDismantling { .. } => 1,
             Self::BlockExcavation { .. }
+            | Self::TreeFelling { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
@@ -141,6 +146,7 @@ impl PlayerWork {
     pub(in crate::labor) const fn future_surface_resource_id_demand(self) -> u32 {
         match self {
             Self::BlockExcavation { work } if work.output().surface_position().is_some() => 1,
+            Self::TreeFelling { .. } => 1,
             Self::SurfaceGathering { .. }
             | Self::BlockExcavation { .. }
             | Self::ManualProduction { .. }
@@ -163,6 +169,7 @@ impl PlayerWork {
             Self::ManualPower { .. } => 1,
             Self::SurfaceGathering { .. }
             | Self::BlockExcavation { .. }
+            | Self::TreeFelling { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::Prospecting { .. }
@@ -187,6 +194,7 @@ impl PlayerWork {
             | Self::EquipmentMaintenance { .. } => 1,
             Self::Prospecting { work } if work.equipment().is_some() => 1,
             Self::SurfaceGathering { .. }
+            | Self::TreeFelling { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::Prospecting { .. }
@@ -205,6 +213,7 @@ impl PlayerWork {
             Self::StructuralConstruction { .. } | Self::StructuralDismantling { .. } => 1,
             Self::SurfaceGathering { .. }
             | Self::BlockExcavation { .. }
+            | Self::TreeFelling { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
@@ -222,6 +231,7 @@ impl PlayerWork {
             Self::Prospecting { work } => Some(work),
             Self::SurfaceGathering { .. }
             | Self::BlockExcavation { .. }
+            | Self::TreeFelling { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
@@ -240,6 +250,7 @@ impl PlayerWork {
             Self::ManualPower { work } => Some(work),
             Self::SurfaceGathering { .. }
             | Self::BlockExcavation { .. }
+            | Self::TreeFelling { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::Prospecting { .. }
@@ -256,6 +267,7 @@ impl PlayerWork {
     pub(crate) const fn inline_schedule(self) -> Option<(SimulationTick, SimulationTick)> {
         match self {
             Self::SurfaceGathering { work } => Some((work.started_at(), work.completes_at())),
+            Self::TreeFelling { work } => Some((work.started_at(), work.completes_at())),
             Self::ManualPower { work } => Some((work.started_at(), work.completes_at())),
             Self::Prospecting { work } => Some((work.started_at(), work.completes_at())),
             Self::Eating { work } => Some((work.started_at(), work.completes_at())),
@@ -278,6 +290,7 @@ impl PlayerWork {
             Self::StructuralDismantling { work } => Some(work),
             Self::SurfaceGathering { .. }
             | Self::BlockExcavation { .. }
+            | Self::TreeFelling { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
@@ -296,6 +309,7 @@ impl PlayerWork {
             Self::EquipmentMaintenance { work } => Some(work),
             Self::SurfaceGathering { .. }
             | Self::BlockExcavation { .. }
+            | Self::TreeFelling { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
@@ -314,6 +328,7 @@ impl PlayerWork {
             Self::StorageEnclosureDismantling { work } => Some(work),
             Self::SurfaceGathering { .. }
             | Self::BlockExcavation { .. }
+            | Self::TreeFelling { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
@@ -332,6 +347,7 @@ impl PlayerWork {
             Self::StructuralConstruction { work } => Some(work),
             Self::SurfaceGathering { .. }
             | Self::BlockExcavation { .. }
+            | Self::TreeFelling { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
@@ -349,6 +365,7 @@ impl PlayerWork {
         match self {
             Self::SurfaceGathering { work } => Some(work),
             Self::BlockExcavation { .. }
+            | Self::TreeFelling { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
@@ -367,6 +384,7 @@ impl PlayerWork {
         match self {
             Self::BlockExcavation { work } => Some(work),
             Self::SurfaceGathering { .. }
+            | Self::TreeFelling { .. }
             | Self::ManualProduction { .. }
             | Self::Mining { .. }
             | Self::ManualPower { .. }
@@ -377,6 +395,14 @@ impl PlayerWork {
             | Self::StorageEnclosureDismantling { .. }
             | Self::StructuralConstruction { .. }
             | Self::StructuralDismantling { .. } => None,
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn tree_felling(self) -> Option<TreeFellingWork> {
+        match self {
+            Self::TreeFelling { work } => Some(work),
+            _ => None,
         }
     }
 }

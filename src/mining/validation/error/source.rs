@@ -32,6 +32,7 @@ impl Error for MiningJobValidationError {
             | Self::OutputStorageInvalid { .. }
             | Self::EquipmentAlsoUsedByProduction { .. }
             | Self::EquipmentAlsoUsedByManualPower { .. }
+            | Self::EquipmentAlsoUsedByTreeFelling { .. }
             | Self::EquipmentAlsoUsedByBlockExcavation { .. }
             | Self::MissingCapability { .. }
             | Self::CapabilityKindMismatch { .. }

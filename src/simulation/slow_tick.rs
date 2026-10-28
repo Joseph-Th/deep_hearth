@@ -30,7 +30,9 @@ use crate::survival::{
     SurvivalExertion, ThermalExposure, apply_survival_tick, assess_survival,
     decide_survival_tick_with_local_heat,
 };
-use crate::world::{apply_block_excavation_tick, decide_block_excavation_tick};
+use crate::world::{
+    apply_block_excavation_tick, decide_block_excavation_tick, validate_due_player_tree_felling,
+};
 
 /// Advances the full slow simulation by one 3.6-second physical/accounting quantum.
 ///
@@ -83,6 +85,8 @@ pub(super) fn advance_simulation_tick(
         next_tick,
     )
     .map_err(map_block_excavation_tick_error)?;
+    let tree_felling_plan = validate_due_player_tree_felling(registries, state, next_tick)
+        .map_err(|_| TickError::TreeFellingBlocked)?;
     let equipment_maintenance_plan = decide_equipment_maintenance_tick(state, next_tick);
     let field_prospecting_plan = decide_field_prospecting_tick(registries, state, next_tick)?;
     let manual_power_plan = decide_manual_power_tick(state, next_tick);
@@ -233,6 +237,13 @@ pub(super) fn advance_simulation_tick(
         player_dead_after_tick,
     )
     .map_err(|_error| TickError::PlayerWorkRevisionExhausted)?;
+    // Settle reserved standing wood before other owner completions can alter surface
+    // or structure revisions. This is exact mass transfer, not a second growth tick.
+    let tree_felling = tree_felling_plan.map(|validated| {
+        validated
+            .commit(state)
+            .unwrap_or_else(|error| panic!("prechecked due tree felling became stale: {error:?}"))
+    });
     let CompletionApplication {
         completions: production_completions,
         availability_changes: production_availability_changes,
@@ -278,6 +289,7 @@ pub(super) fn advance_simulation_tick(
         mining_output,
         surface_gathering,
         block_excavation,
+        tree_felling,
         manual_power,
         equipment_maintenance,
         storage_enclosure_dismantling,

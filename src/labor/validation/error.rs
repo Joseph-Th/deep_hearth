@@ -15,6 +15,11 @@ mod source;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerWorkValidationError {
+    TreeFellingTargetMissing,
+    TreeFellingTargetRemote,
+    TreeFellingEquipmentInvalid,
+    TreeFellingScheduleInvalid,
+    TreeFellingDurationMismatch,
     WorkWithoutPlayer,
     PlayerAirborne,
     PlayerMoving,

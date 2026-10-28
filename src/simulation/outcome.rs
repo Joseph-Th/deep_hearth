@@ -12,7 +12,9 @@ use crate::inventory::{
     StorageEnclosureDismantlingOutcome,
 };
 use crate::kobolds::{KoboldAlarmPulse, KoboldScoutEvent};
-use crate::labor::{ManualPowerOutcome, StructuralConstructionWork, SurfaceGatheringWork};
+use crate::labor::{
+    ManualPowerOutcome, StructuralConstructionWork, SurfaceGatheringWork, TreeFellingWork,
+};
 use crate::logistics::{
     PlayerActiveSelection, PlayerBodyMotionOutcome, PlayerEquipmentCarryError,
     PlayerPendingPrimaryBreakError, PlayerPendingSecondaryUseError,
@@ -34,7 +36,7 @@ use crate::survival::{
 };
 use crate::world::{
     BlockExcavationError, BlockExcavationOutcome, BlockExcavationStartOutcome, BlockStateId,
-    PlayerBlockTargetError,
+    PlayerBlockTargetError, TreeFellingOutcome, TreeFellingStartError,
 };
 
 /// Observable result of an attempted primary action on one authoritative control step.
@@ -52,6 +54,8 @@ pub enum PrimaryActionOutcome {
     PreparedStrike(PrimitiveAttackOutcome),
     PreparedStrikeRejected(PrimitiveAttackError),
     BlockExcavationStarted(BlockExcavationStartOutcome),
+    TreeFellingStarted(TreeFellingWork),
+    TreeFellingRejected(TreeFellingStartError),
     BlockExcavationRejected(BlockExcavationError),
     StructuralDismantlingStarted(StructuralDismantlingStartOutcome),
     StructuralDismantlingRejected(PlayerStructuralDismantlingError),
@@ -355,6 +359,7 @@ pub struct TickOutcome {
     pub(super) mining_output: Option<MiningOutputReceipt>,
     pub(super) surface_gathering: Option<SurfaceGatheringOutcome>,
     pub(super) block_excavation: Option<BlockExcavationOutcome>,
+    pub(super) tree_felling: Option<TreeFellingOutcome>,
     pub(super) manual_power: Option<ManualPowerOutcome>,
     pub(super) equipment_maintenance: Option<EquipmentMaintenanceOutcome>,
     pub(super) storage_enclosure_dismantling: Option<StorageEnclosureDismantlingOutcome>,
@@ -402,6 +407,11 @@ impl TickOutcome {
     #[must_use]
     pub const fn block_excavation(&self) -> Option<BlockExcavationOutcome> {
         self.block_excavation
+    }
+
+    #[must_use]
+    pub const fn tree_felling(&self) -> Option<TreeFellingOutcome> {
+        self.tree_felling
     }
 
     /// Returns direct player-powered energy generation that completed during this tick.
@@ -472,6 +482,7 @@ impl TickOutcome {
             mining_output,
             surface_gathering,
             block_excavation,
+            tree_felling,
             manual_power,
             equipment_maintenance,
             storage_enclosure_dismantling,
@@ -488,6 +499,7 @@ impl TickOutcome {
             mining_output.is_some(),
             surface_gathering.is_some(),
             block_excavation.is_some(),
+            tree_felling.is_some(),
             manual_power.is_some(),
             equipment_maintenance.is_some(),
             storage_enclosure_dismantling.is_some(),

@@ -134,17 +134,26 @@ updates, scheduled random checks or leaf-block churn. A biological year is 365 p
 The present model represents only one temperate growth profile; species, light, soil, rainfall,
 actual foliage geometry, reproduction and planted saplings are not yet simulated. The canopy
 radius is a presentation hint rather than leaf collision or environmental shade.
-`validate_fell_tree` is a living, adjacent-player capability operation, not an ordinary timed
-chopping gesture: it atomically transfers the entire standing woody mass to a single finite
-surface log parcel after checking world, logistics, survival and surface revisions as well
-as the player's exact continuous foot position, not merely their occupied voxel. A persistent
-world assimilation ledger accounts for wood accumulated from the environment, including wood
+Ordinary primary-break control pointing at a standing trunk starts exclusive tree-felling work
+with a selected carried stone or copper woodworking adze. A slow-tick schedule scales with
+woody mass (stone: 1.5 kg/tick; copper: 3 kg/tick, minimum eight ticks), charges physiological
+exertion, and is persisted and trusted-load validated. The selected adze is occupied for
+this work and cannot be reassigned to production, mining, maintenance, or other owners.
+Completion reserves one future world revision, one surface revision, and one resource ID.
+The rooted tree remains solid while work progresses; a fatal interruption before completion releases labor without harvesting matter.
+On the scheduled completion the world-to-surface felling transaction atomically transfers
+its exact current wood mass to a finite loose-log parcel after checking world, logistics,
+survival and surface revisions and the player's continuous position. An ordinary held break
+cannot complete harvesting instantly. The lower-level `validate_fell_tree` remains a
+capability operation for controlled world-custody callers; no chopping-equipment condition
+wear is modeled yet. A persistent world assimilation ledger accounts for wood accumulated from the environment, including wood
 already felled. Each harvested tree leaves a compact, root-indexed and timestamped provenance
 receipt: trusted load reconstructs its seed-defined initial biomass, accumulated growth at
 felling, canonical order and uniqueness, and verifies the ledger exactly. Living tree locations,
 initial masses and sprouting dates must also match their seed-derived generation identities.
 The diagnostic matter `total()` is net of this verified external input while `world()` and
-`surface()` report their full physical masses. Felling does not add instant wood to player inventory, and the bounded opening's original fallen-timber gathering
+`surface()` report their full physical masses. Felling does not add instant wood to player
+inventory, and the bounded opening's original fallen-timber gathering
 remains a separate, unchanged source.
 
 | Surface | Definitions / immutable input | Authoritative read / observation | Plan / resolve | Mutate / continue |

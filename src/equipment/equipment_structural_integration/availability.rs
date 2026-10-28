@@ -28,6 +28,9 @@ enum EquipmentSupportBlocker {
     BlockExcavation {
         completes_at: ControlTick,
     },
+    TreeFelling {
+        completes_at: SimulationTick,
+    },
     Maintenance {
         completes_at: SimulationTick,
     },
@@ -47,6 +50,9 @@ fn blocker(state: &AppState, equipment: EquipmentId) -> Option<EquipmentSupportB
         EquipmentOccupancy::ManualPower { .. } => Some(EquipmentSupportBlocker::ManualPower),
         EquipmentOccupancy::Prospecting { completes_at } => {
             Some(EquipmentSupportBlocker::Prospecting { completes_at })
+        }
+        EquipmentOccupancy::TreeFelling { completes_at } => {
+            Some(EquipmentSupportBlocker::TreeFelling { completes_at })
         }
         EquipmentOccupancy::BlockExcavation { completes_at } => {
             Some(EquipmentSupportBlocker::BlockExcavation { completes_at })
@@ -77,6 +83,12 @@ pub(super) fn support_validation_error(
         }
         EquipmentSupportBlocker::Prospecting { completes_at } => {
             EquipmentSupportError::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            }
+        }
+        EquipmentSupportBlocker::TreeFelling { completes_at } => {
+            EquipmentSupportError::EquipmentBusyTreeFelling {
                 equipment,
                 completes_at,
             }
@@ -116,6 +128,12 @@ pub(super) fn support_commit_error(
         }
         EquipmentSupportBlocker::Prospecting { completes_at } => {
             EquipmentSupportCommitError::EquipmentBusyProspecting {
+                equipment,
+                completes_at,
+            }
+        }
+        EquipmentSupportBlocker::TreeFelling { completes_at } => {
+            EquipmentSupportCommitError::EquipmentBusyTreeFelling {
                 equipment,
                 completes_at,
             }

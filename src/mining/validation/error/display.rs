@@ -188,6 +188,11 @@ impl Display for MiningJobValidationError {
                 "mining job {} equipment is also occupied by manual power generation",
                 job.value()
             ),
+            Self::EquipmentAlsoUsedByTreeFelling { job } => write!(
+                formatter,
+                "mining job {} cannot share chopping equipment",
+                job.value()
+            ),
             Self::EquipmentAlsoUsedByBlockExcavation { job } => write!(
                 formatter,
                 "mining job {} equipment is also occupied by direct block excavation",

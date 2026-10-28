@@ -223,6 +223,10 @@ pub enum FieldProspectingCommitError {
         equipment: EquipmentId,
         completes_at: crate::core::time::ControlTick,
     },
+    EquipmentBusyTreeFelling {
+        equipment: EquipmentId,
+        completes_at: crate::core::time::SimulationTick,
+    },
 }
 
 impl Display for FieldProspectingCommitError {
@@ -254,6 +258,15 @@ impl Display for FieldProspectingCommitError {
                 "prospecting equipment {} became occupied by direct manual power work",
                 equipment.value()
             ),
+            Self::EquipmentBusyTreeFelling {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by tree chopping until tick {}",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::EquipmentBusyBlockExcavation {
                 equipment,
                 completes_at,
@@ -276,6 +289,7 @@ impl Error for FieldProspectingCommitError {
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
+            | Self::EquipmentBusyTreeFelling { .. }
             | Self::EquipmentBusyBlockExcavation { .. } => None,
         }
     }

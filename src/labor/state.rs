@@ -10,7 +10,7 @@ use crate::inventory::{InventoryState, StockpileId};
 use super::work::{
     BlockExcavationWork, EquipmentMaintenanceWork, ManualPowerWork, PlayerWork, ProspectingWork,
     StorageEnclosureDismantlingWork, StructuralConstructionWork, StructuralDismantlingWork,
-    SurfaceGatheringWork,
+    SurfaceGatheringWork, TreeFellingWork,
 };
 
 /// Single-player labor owner with an explicit revision for cross-system transactions.
@@ -23,6 +23,23 @@ pub struct PlayerWorkState {
 }
 
 impl PlayerWorkState {
+    #[must_use]
+    pub(crate) fn tree_felling_due_at(&self, tick: SimulationTick) -> Option<TreeFellingWork> {
+        self.active
+            .and_then(PlayerWork::tree_felling)
+            .filter(|work| work.completes_at() == tick)
+    }
+
+    #[must_use]
+    pub(crate) fn get_tree_felling_equipment_occupant(
+        &self,
+        equipment: EquipmentId,
+    ) -> Option<TreeFellingWork> {
+        self.active
+            .and_then(PlayerWork::tree_felling)
+            .filter(|work| work.equipment() == equipment)
+    }
+
     #[must_use]
     pub(crate) const fn new() -> Self {
         Self {

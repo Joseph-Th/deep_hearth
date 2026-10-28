@@ -14,10 +14,15 @@ use crate::structural::StructuralCommitError;
 /// Failure returned before any mutation when a simulation tick cannot advance.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TickError {
+    TreeFellingBlocked,
     /// The high-frequency control clock has reached its representable maximum.
-    ControlClockExhausted { current: ControlTick },
+    ControlClockExhausted {
+        current: ControlTick,
+    },
     /// Slow-boundary stepping cannot skip active control-rate world physics.
-    ControlSteppingRequired { current: ControlTick },
+    ControlSteppingRequired {
+        current: ControlTick,
+    },
     /// Continuous player-body integration could not be represented.
     PlayerBodyMotion(PlayerBodyMotionError),
     /// Due output lots cannot be allocated without exhausting persistent lot identity space.
@@ -65,19 +70,40 @@ pub enum TickError {
     /// Due output weight cannot be resolved against its structural support.
     StructuralLoad(StockpileStructuralLoadError),
     /// Inventory changed after completion planning and before commit.
-    StaleInventoryRevision { expected: u64, actual: u64 },
+    StaleInventoryRevision {
+        expected: u64,
+        actual: u64,
+    },
     /// Production changed after completion planning and before commit.
-    StaleProductionRevision { expected: u64, actual: u64 },
+    StaleProductionRevision {
+        expected: u64,
+        actual: u64,
+    },
     /// Equipment changed after a wear-bearing completion was planned and before commit.
-    StaleEquipmentRevision { expected: u64, actual: u64 },
+    StaleEquipmentRevision {
+        expected: u64,
+        actual: u64,
+    },
     /// Energy storage changed after a released-energy completion was planned and before commit.
-    StaleEnergyRevision { expected: u64, actual: u64 },
+    StaleEnergyRevision {
+        expected: u64,
+        actual: u64,
+    },
     /// Structure changed after a stored-matter load completion was planned and before commit.
-    StaleStructureRevision { expected: u64, actual: u64 },
+    StaleStructureRevision {
+        expected: u64,
+        actual: u64,
+    },
     /// Player-work ownership changed after manual production resumption was planned.
-    StalePlayerWorkRevision { expected: u64, actual: u64 },
+    StalePlayerWorkRevision {
+        expected: u64,
+        actual: u64,
+    },
     /// Survival reserves changed after manual production resumption was planned.
-    StaleSurvivalRevision { expected: u64, actual: u64 },
+    StaleSurvivalRevision {
+        expected: u64,
+        actual: u64,
+    },
     /// A validated stored-matter structural consequence could not commit.
     Structure(StructuralCommitError),
 }
@@ -85,6 +111,9 @@ pub enum TickError {
 impl Display for TickError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::TreeFellingBlocked => {
+                formatter.write_str("due chopping cannot safely settle the tree's wood")
+            }
             Self::ControlClockExhausted { current } => write!(
                 formatter,
                 "control clock exhausted at tick {}",
@@ -213,6 +242,7 @@ impl Error for TickError {
             Self::Structure(error) => Some(error),
             Self::PlayerBodyMotion(error) => Some(error),
             Self::ControlClockExhausted { .. }
+            | Self::TreeFellingBlocked
             | Self::ControlSteppingRequired { .. }
             | Self::ProductionResumeTickOverflow { .. }
             | Self::StaleInventoryRevision { .. }

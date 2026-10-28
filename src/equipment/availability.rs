@@ -33,6 +33,9 @@ pub(crate) enum EquipmentOccupancy {
     BlockExcavation {
         completes_at: ControlTick,
     },
+    TreeFelling {
+        completes_at: SimulationTick,
+    },
 }
 
 /// Returns the authoritative current owner of one equipment instance, if it is occupied.
@@ -70,6 +73,14 @@ pub(crate) fn equipment_occupancy(
         .get_block_excavation_equipment_occupant(equipment)
     {
         return Some(EquipmentOccupancy::BlockExcavation {
+            completes_at: work.completes_at(),
+        });
+    }
+    if let Some(work) = state
+        .player_work()
+        .get_tree_felling_equipment_occupant(equipment)
+    {
+        return Some(EquipmentOccupancy::TreeFelling {
             completes_at: work.completes_at(),
         });
     }

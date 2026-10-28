@@ -26,8 +26,12 @@ pub use excavation::{
     ValidatedPlayerBlockExcavationStart, validate_start_player_block_excavation,
 };
 pub use felling::{
-    TreeFellingCommitError, TreeFellingError, TreeFellingOutcome, ValidatedTreeFelling,
-    validate_fell_tree,
+    TreeFellingCommitError, TreeFellingError, TreeFellingOutcome, TreeFellingStartError,
+    ValidatedTreeFelling, ValidatedTreeFellingStart, validate_fell_tree,
+    validate_start_player_tree_felling,
+};
+pub(crate) use felling::{
+    tree_felling_duration, tree_felling_exertion, validate_due_player_tree_felling,
 };
 pub(crate) use generation::WorldGenerationProfile;
 pub(crate) use generation::first_buried_stationary_enclosure_in_world;
@@ -61,6 +65,10 @@ mod tests;
 #[cfg(test)]
 #[path = "trees_tests.rs"]
 mod trees_tests;
+
+#[cfg(test)]
+#[path = "tree_chopping_tests.rs"]
+mod tree_chopping_tests;
 
 #[cfg(test)]
 #[path = "temple_tests.rs"]

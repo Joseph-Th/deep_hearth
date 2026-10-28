@@ -151,6 +151,12 @@ fn validate_commit_equipment(
         Some(EquipmentOccupancy::ManualPower { .. }) => {
             Err(FieldProspectingCommitError::EquipmentBusyManualPower { equipment })
         }
+        Some(EquipmentOccupancy::TreeFelling { completes_at }) => {
+            Err(FieldProspectingCommitError::EquipmentBusyTreeFelling {
+                equipment,
+                completes_at,
+            })
+        }
         Some(EquipmentOccupancy::BlockExcavation { completes_at }) => {
             Err(FieldProspectingCommitError::EquipmentBusyBlockExcavation {
                 equipment,

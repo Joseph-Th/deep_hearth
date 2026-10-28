@@ -49,6 +49,12 @@ fn resolve_provider_occupancy(
                 completes_at,
             })
         }
+        Some(EquipmentOccupancy::TreeFelling { completes_at }) => {
+            Err(EquipmentProviderError::TreeFellingInProgress {
+                equipment,
+                completes_at,
+            })
+        }
         Some(EquipmentOccupancy::BlockExcavation { completes_at }) => {
             Err(EquipmentProviderError::BlockExcavationInProgress {
                 equipment,

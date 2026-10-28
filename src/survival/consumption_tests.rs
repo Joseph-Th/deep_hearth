@@ -509,6 +509,7 @@ fn finish_direct_consumption(registries: &Registries, state: &mut AppState) -> u
         PlayerWork::Eating { work } => work.completes_at(),
         PlayerWork::Drinking { work } => work.completes_at(),
         other @ (PlayerWork::SurfaceGathering { .. }
+        | PlayerWork::TreeFelling { .. }
         | PlayerWork::BlockExcavation { .. }
         | PlayerWork::ManualProduction { .. }
         | PlayerWork::Mining { .. }

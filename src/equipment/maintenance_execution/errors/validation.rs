@@ -58,6 +58,10 @@ pub enum EquipmentMaintenanceError {
         equipment: EquipmentId,
         completes_at: ControlTick,
     },
+    EquipmentBusyTreeFelling {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
         completes_at: SimulationTick,
@@ -152,6 +156,15 @@ impl Display for EquipmentMaintenanceError {
             } => write!(
                 formatter,
                 "equipment {} is occupied by geological sampling until tick {} and cannot be serviced",
+                equipment.value(),
+                completes_at.value()
+            ),
+            Self::EquipmentBusyTreeFelling {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by tree chopping until simulation tick {}",
                 equipment.value(),
                 completes_at.value()
             ),
@@ -251,6 +264,7 @@ impl Error for EquipmentMaintenanceError {
                 equipment: _equipment,
                 completes_at: _completes_at,
             } => None,
+            Self::EquipmentBusyTreeFelling { .. } => None,
             Self::EquipmentBusyBlockExcavation {
                 equipment: _equipment,
                 completes_at: _completes_at,

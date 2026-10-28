@@ -417,7 +417,7 @@ but its production world generation is currently a six-position opening layout a
 | Aquifers | Worldgen water tables/flooded caves | Finite opening water store only | `GAP-P1` | Hydrology should own water table/recharge/flow. |
 | Ore placement | Seeded geological/worldgen placement | Hidden geology/deposits can be generated in controlled paths | `DIFFERENT+` | Keep geology as causal owner and extend it regionally into terrain chunks. Avoid independent scatter-noise ore blobs where geological structure can explain them. |
 | Structures | Villages, camps, dungeons, etc. | Player-built structures only; no generated built sites | `GAP-P2` | Generated ruins/camps/settlements can come after terrain, with material-backed world state where practical. |
-| Vegetation features | Trees/patches placed by feature passes | Standard stone chunks now generate one seed-positioned, persistent tree record with a two-cell trunk and lazy wood growth; opening fallen timber and forage remain separate finite sources | `PARTIAL` | Add regional forest density/species/soil rules, full vegetation geometry and normal-play felling. |
+| Vegetation features | Trees/patches placed by feature passes | Standard stone chunks now generate one seed-positioned, persistent tree record with a two-cell trunk and lazy wood growth; opening fallen timber and forage remain separate finite sources | `PARTIAL` | Add regional forest density/species/soil rules and full vegetation geometry; adze-based timed primary chopping now exists. |
 | Feature placement pipeline | What, where, biome ownership separated | No general generator | `PARITY+` opportunity | Preserve separation among generator definition, placement rule and regional/ecological eligibility. |
 | Chunk generation stages | Progressive chunk statuses allow partial work | None | `GAP-P0` | Use staged generation so terrain can stream before every expensive ecology/geology detail is complete. |
 | Discovery | Player sees/loads world by travel | Exact observation only on bounded graph edges | `GAP-P0` | Loaded/rendered local terrain itself becomes primary discovery. Information-gated geology remains deeper evidence, not permission to see ordinary ground. |
@@ -603,7 +603,7 @@ sandbox breadth," not "copy Minecraft's exact content."
 
 | Minecraft system family | Deep Hearth position | Priority / decision |
 | --- | --- | --- |
-| Trees as block structures | Persisted tree roots now obstruct movement and rays, with exact mass-backed, revision-checked felling into a loose log parcel; tree trunks are compact records, not separate log blocks, and no control-rate chopping gesture exists | `PARTIAL; GAP-P1` |
+| Trees as block structures | Tree trunks block movement and vision; primary break with a selected carried stone/copper adze now starts timed chopping, with survival exertion, durable save/load work, and exact conserved log parcels upon completion. Compact tree records are not separate block logs, and tool condition wear is not yet modeled | `PARTIAL; GAP-P1` |
 | Leaf decay | Foliage persistence should follow plant structure/health rather than a special leaf-distance counter if ecology can own it | `GAP-P2` |
 | Sapling growth | Generated juvenile trees gain biomass in four age/size stages of 4, 18, 40 and 22 kg per biological year, with a 1,600 kg cap; no planted saplings, species/soil/water/climate response or self-seeding yet | `PARTIAL; GAP-P2` |
 | Crop farming | Required eventually because agriculture is a core settlement economy | `GAP-P2` |

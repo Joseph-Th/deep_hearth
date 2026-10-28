@@ -138,6 +138,12 @@ fn validate_equipment_available(
                 completes_at,
             });
         }
+        Some(EquipmentOccupancy::TreeFelling { completes_at }) => {
+            return Err(StartProcessError::EquipmentBusyTreeFelling {
+                equipment,
+                completes_at,
+            });
+        }
         Some(EquipmentOccupancy::BlockExcavation { completes_at }) => {
             return Err(StartProcessError::EquipmentBusyBlockExcavation {
                 equipment,

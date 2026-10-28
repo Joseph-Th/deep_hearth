@@ -58,6 +58,12 @@ impl ValidatedEquipmentMaintenance {
                     completes_at,
                 });
             }
+            Some(EquipmentOccupancy::TreeFelling { completes_at }) => {
+                return Err(EquipmentMaintenanceCommitError::EquipmentBusyTreeFelling {
+                    equipment: self.equipment,
+                    completes_at,
+                });
+            }
             Some(EquipmentOccupancy::BlockExcavation { completes_at }) => {
                 return Err(
                     EquipmentMaintenanceCommitError::EquipmentBusyBlockExcavation {

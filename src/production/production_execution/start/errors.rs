@@ -165,5 +165,9 @@ pub enum StartProcessError {
         equipment: EquipmentId,
         completes_at: ControlTick,
     },
+    EquipmentBusyTreeFelling {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
     StructuralLoad(StockpileStructuralLoadError),
 }

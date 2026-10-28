@@ -128,6 +128,58 @@ pub(crate) fn validate_loaded_player_work(
     let available_energy = player.metabolic_energy();
     let available_hydration = player.hydration();
     match work {
+        PlayerWork::TreeFelling { work } => {
+            if active_jobs.has_any() {
+                return Err(PlayerWorkValidationError::MultiplePlayerJobs);
+            }
+            let tree = state
+                .world()
+                .tree_at(work.root())
+                .ok_or(PlayerWorkValidationError::TreeFellingTargetMissing)?;
+            let player = state
+                .logistics()
+                .player()
+                .ok_or(PlayerWorkValidationError::TreeFellingTargetRemote)?;
+            let at = player.position();
+            if at.y() != work.root().y()
+                || at
+                    .x()
+                    .abs_diff(work.root().x())
+                    .checked_add(at.z().abs_diff(work.root().z()))
+                    != Some(1)
+            {
+                return Err(PlayerWorkValidationError::TreeFellingTargetRemote);
+            }
+            crate::logistics::validate_player_equipment_access(state, work.equipment())
+                .map_err(|_| PlayerWorkValidationError::TreeFellingEquipmentInvalid)?;
+            let equipment = state
+                .equipment()
+                .get_equipment(work.equipment())
+                .ok_or(PlayerWorkValidationError::TreeFellingEquipmentInvalid)?;
+            if equipment.definition() != crate::content::EQUIPMENT_STONE_WOODWORKING_ADZE
+                && equipment.definition()
+                    != crate::content::EQUIPMENT_COPPER_REINFORCED_WOODWORKING_ADZE
+            {
+                return Err(PlayerWorkValidationError::TreeFellingEquipmentInvalid);
+            }
+            let schedule =
+                project_active_work_schedule(state.tick(), work.started_at(), work.completes_at())
+                    .ok_or(PlayerWorkValidationError::TreeFellingScheduleInvalid)?;
+            let original_mass = tree.wood_at(work.started_at());
+            if schedule.duration
+                != crate::world::tree_felling_duration(original_mass, equipment.definition())
+            {
+                return Err(PlayerWorkValidationError::TreeFellingDurationMismatch);
+            }
+            validate_remaining_resources(
+                registries,
+                state,
+                available_energy,
+                available_hydration,
+                crate::world::tree_felling_exertion(),
+                schedule.remaining,
+            )
+        }
         PlayerWork::SurfaceGathering { work } => validate_surface_gathering_work(
             registries,
             state,

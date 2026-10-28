@@ -41,6 +41,12 @@ fn commit_occupancy_error(
                 completes_at,
             }
         }
+        EquipmentOccupancy::TreeFelling { completes_at } => {
+            EquipmentDisassemblyCommitError::EquipmentBusyTreeFelling {
+                equipment,
+                completes_at,
+            }
+        }
         EquipmentOccupancy::BlockExcavation { completes_at } => {
             EquipmentDisassemblyCommitError::EquipmentBusyBlockExcavation {
                 equipment,

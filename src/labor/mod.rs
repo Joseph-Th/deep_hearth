@@ -39,7 +39,7 @@ pub use work::{
     BlockExcavationOutputCustody, BlockExcavationWork, DrinkingWork, EatingWork,
     EquipmentMaintenanceWork, ManualPowerWork, PlayerWork, ProspectingWork,
     StorageEnclosureDismantlingWork, StructuralConstructionWork, StructuralDismantlingWork,
-    SurfaceGatheringWork,
+    SurfaceGatheringWork, TreeFellingWork,
 };
 pub use work_resources::PlayerWorkResourceBudget;
 

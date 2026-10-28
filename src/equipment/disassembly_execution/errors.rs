@@ -60,6 +60,10 @@ pub enum EquipmentDisassemblyError {
         equipment: EquipmentId,
         completes_at: ControlTick,
     },
+    EquipmentBusyTreeFelling {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
         completes_at: SimulationTick,
@@ -164,6 +168,15 @@ impl Display for EquipmentDisassemblyError {
                 equipment.value(),
                 completes_at.value()
             ),
+            Self::EquipmentBusyTreeFelling {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by tree chopping until simulation tick {}",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::EquipmentBusyBlockExcavation {
                 equipment,
                 completes_at,
@@ -253,6 +266,7 @@ impl Error for EquipmentDisassemblyError {
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
             | Self::EquipmentBusyProspecting { .. }
+            | Self::EquipmentBusyTreeFelling { .. }
             | Self::EquipmentBusyBlockExcavation { .. }
             | Self::EquipmentUnderMaintenance { .. }
             | Self::UnknownDestination { .. }
@@ -321,6 +335,10 @@ pub enum EquipmentDisassemblyCommitError {
     EquipmentBusyBlockExcavation {
         equipment: EquipmentId,
         completes_at: ControlTick,
+    },
+    EquipmentBusyTreeFelling {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
     },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
@@ -404,6 +422,15 @@ impl Display for EquipmentDisassemblyCommitError {
                 equipment.value(),
                 completes_at.value()
             ),
+            Self::EquipmentBusyTreeFelling {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by tree chopping until simulation tick {}",
+                equipment.value(),
+                completes_at.value()
+            ),
             Self::EquipmentBusyBlockExcavation {
                 equipment,
                 completes_at,
@@ -447,6 +474,7 @@ impl Error for EquipmentDisassemblyCommitError {
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
             | Self::EquipmentBusyProspecting { .. }
+            | Self::EquipmentBusyTreeFelling { .. }
             | Self::EquipmentBusyBlockExcavation { .. }
             | Self::EquipmentUnderMaintenance { .. } => None,
         }

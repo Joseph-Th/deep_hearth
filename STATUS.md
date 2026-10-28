@@ -53,7 +53,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Energy and fluids | Finite power/loss-limited energy, campfire heat, drinking, and exact local/downhill fluid transfer with player choice previews. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; interaction-reach stack construction including real posts/framing and a supported cover panel; primary-break recovery. |
-| Block world | Eight mineral ores, temple rooms and caste bodies, excavation and targeting; stone chunks also hold persistent trees with solid trunks, lazy growth and conserved capability-only felling. No timed chopping, leaf geometry, planting, UI or residency. |
+| Block world | Eight ores, temple rooms, excavation and targeting. Generated trees grow lazily; stone/copper adzes chop them through timed work into conserved logs. No chopping wear, leaves, planting or residency. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation

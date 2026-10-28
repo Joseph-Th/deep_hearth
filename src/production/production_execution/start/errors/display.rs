@@ -267,6 +267,10 @@ impl Display for StartProcessError {
                 equipment.value(),
                 completes_at.value()
             ),
+            Self::EquipmentBusyTreeFelling { equipment, completes_at } => write!(
+                formatter, "equipment {} is chopping a tree until tick {}",
+                equipment.value(), completes_at.value()
+            ),
             Self::EquipmentBusyBlockExcavation {
                 equipment,
                 completes_at,

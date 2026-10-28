@@ -39,6 +39,12 @@ fn validate_equipment_availability(
                 completes_at,
             });
         }
+        Some(EquipmentOccupancy::TreeFelling { completes_at }) => {
+            return Err(EquipmentMaintenanceError::EquipmentBusyTreeFelling {
+                equipment,
+                completes_at,
+            });
+        }
         Some(EquipmentOccupancy::BlockExcavation { completes_at }) => {
             return Err(EquipmentMaintenanceError::EquipmentBusyBlockExcavation {
                 equipment,

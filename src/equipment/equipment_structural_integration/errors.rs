@@ -56,6 +56,10 @@ pub enum EquipmentSupportError {
         equipment: EquipmentId,
         completes_at: ControlTick,
     },
+    EquipmentBusyTreeFelling {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
         completes_at: SimulationTick,
@@ -118,6 +122,15 @@ impl Display for EquipmentSupportError {
                 "equipment {} is occupied by production job {} until tick {} and cannot be moved",
                 equipment.value(),
                 job.value(),
+                completes_at.value()
+            ),
+            Self::EquipmentBusyTreeFelling {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by tree chopping until tick {}",
+                equipment.value(),
                 completes_at.value()
             ),
             Self::EquipmentBusyBlockExcavation {
@@ -218,6 +231,7 @@ impl Error for EquipmentSupportError {
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
             | Self::EquipmentBusyProspecting { .. }
+            | Self::EquipmentBusyTreeFelling { .. }
             | Self::EquipmentBusyBlockExcavation { .. }
             | Self::EquipmentUnderMaintenance { .. }
             | Self::AggregateMassOverflow { .. }
@@ -272,6 +286,10 @@ pub enum EquipmentSupportCommitError {
         equipment: EquipmentId,
         completes_at: ControlTick,
     },
+    EquipmentBusyTreeFelling {
+        equipment: EquipmentId,
+        completes_at: SimulationTick,
+    },
     EquipmentUnderMaintenance {
         equipment: EquipmentId,
         completes_at: SimulationTick,
@@ -317,6 +335,15 @@ impl Display for EquipmentSupportCommitError {
                 "equipment {} became occupied by production job {} until tick {} before support commit",
                 equipment.value(),
                 job.value(),
+                completes_at.value()
+            ),
+            Self::EquipmentBusyTreeFelling {
+                equipment,
+                completes_at,
+            } => write!(
+                formatter,
+                "equipment {} is occupied by tree chopping until tick {}",
+                equipment.value(),
                 completes_at.value()
             ),
             Self::EquipmentBusyBlockExcavation {
@@ -377,6 +404,7 @@ impl Error for EquipmentSupportCommitError {
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
             | Self::EquipmentBusyProspecting { .. }
+            | Self::EquipmentBusyTreeFelling { .. }
             | Self::EquipmentBusyBlockExcavation { .. }
             | Self::EquipmentUnderMaintenance { .. } => None,
         }

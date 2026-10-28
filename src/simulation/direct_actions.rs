@@ -370,6 +370,20 @@ fn attempt_primary_break(
     state: &mut AppState,
     direction: ViewDirection,
 ) -> PrimaryActionOutcome {
+    if let Ok(Some(root)) =
+        crate::world::raycast_player_air_voxel(registries, state, direction, |voxel, _face| {
+            state.world().tree_trunk_at(voxel).map(|tree| tree.root())
+        })
+    {
+        return match crate::world::validate_start_player_tree_felling(registries, state, root) {
+            Ok(validated) => {
+                PrimaryActionOutcome::TreeFellingStarted(validated.commit(state).unwrap_or_else(
+                    |error| panic!("synchronous tree chopping became stale: {error:?}"),
+                ))
+            }
+            Err(error) => PrimaryActionOutcome::TreeFellingRejected(error),
+        };
+    }
     if let Some(pending) = state.logistics().pending_primary_break() {
         if pending.direction() == Some(direction)
             && state
