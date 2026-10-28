@@ -10,6 +10,7 @@ use crate::inventory::{
 use crate::logistics::validate_place_ground_stockpile;
 use crate::material::CommodityKey;
 use crate::player::validate_admit_player;
+use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
 use crate::survival::{Vitality, player_record_with_thermal_comfort};
 
@@ -146,4 +147,43 @@ fn full_local_destination_does_not_hide_an_obsolete_source_stack() {
         ))) if expected != actual
     ));
     assert_eq!(state, before);
+}
+
+#[test]
+fn quick_move_rejects_elapsed_stack_snapshot_even_without_inventory_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let destination = add_solid_stockpile_for_test(&mut state, CAPACITY).unwrap();
+    validate_place_ground_stockpile(&state, destination, HERE)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let stack = carried_wood_stack(&registries, &mut state);
+    assert!(validate_quick_move_player_stack(&registries, &state, &stack, destination).is_ok());
+
+    let inventory_revision = state.inventory().revision();
+    let projected_at = state.tick();
+    let outcome = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(outcome.tick(), state.tick());
+    assert_eq!(state.inventory().revision(), inventory_revision);
+    let before = state.clone();
+    assert_eq!(
+        validate_quick_move_player_stack(&registries, &state, &stack, destination).err(),
+        Some(PlayerQuickMoveError::Transfer(
+            GroundMaterialTransferError::Stack(MaterialStackProjectionError::StaleSimulationTick {
+                expected: projected_at,
+                actual: state.tick(),
+            })
+        ))
+    );
+    assert_eq!(state, before);
+    let refreshed = project_material_stacks(
+        &registries,
+        &state,
+        state.logistics().player().unwrap().carried_stockpile(),
+    )
+    .unwrap();
+    assert!(
+        validate_quick_move_player_stack(&registries, &state, &refreshed[0], destination).is_ok()
+    );
 }

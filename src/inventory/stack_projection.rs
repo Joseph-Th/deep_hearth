@@ -1,4 +1,4 @@
-//! Familiar revision-bound stack projection over authoritative material lots.
+//! Familiar revision- and tick-bound stack projection over authoritative material lots.
 //!
 //! Lots remain the inventory owner's physical records. This read surface groups only matter that
 //! the same owner already considers merge-compatible, so presentation and direct manipulation can
@@ -32,6 +32,13 @@ pub enum MaterialStackProjectionError {
         expected: u64,
         actual: u64,
     },
+    StaleSimulationTick {
+        expected: SimulationTick,
+        actual: SimulationTick,
+    },
+    StackMembershipChanged {
+        stockpile: StockpileId,
+    },
     SourceMismatch {
         expected: StockpileId,
         actual: StockpileId,
@@ -57,6 +64,17 @@ impl Display for MaterialStackProjectionError {
                 formatter,
                 "material stack expected inventory revision {expected} but current revision is {actual}"
             ),
+            Self::StaleSimulationTick { expected, actual } => write!(
+                formatter,
+                "material stack was projected at simulation tick {} but current tick is {}",
+                expected.value(),
+                actual.value()
+            ),
+            Self::StackMembershipChanged { stockpile } => write!(
+                formatter,
+                "material stack in stockpile {} no longer has the same physical lot membership",
+                stockpile.value()
+            ),
             Self::SourceMismatch { expected, actual } => write!(
                 formatter,
                 "material stack belongs to stockpile {} but transfer source is {}",
@@ -79,7 +97,7 @@ impl Display for MaterialStackProjectionError {
 
 impl Error for MaterialStackProjectionError {}
 
-/// One familiar stack projected from one inventory revision.
+/// One familiar stack projected from one inventory revision and simulation tick.
 ///
 /// Exact lot membership is intentionally private. Callers may inspect the physical distinctions
 /// that make this stack separate and pass the projection back to an owner action, but do not need
@@ -88,6 +106,7 @@ impl Error for MaterialStackProjectionError {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MaterialStackProjection {
     expected_inventory_revision: u64,
+    expected_tick: SimulationTick,
     stockpile: StockpileId,
     profile: MaterialLotProfile,
     provenance: MaterialLotProvenance,
@@ -165,7 +184,7 @@ impl MaterialStackProjection {
         self.storage_history
     }
 
-    pub(crate) fn validate_current(
+    fn validate_inventory_revision(
         &self,
         state: &AppState,
     ) -> Result<(), MaterialStackProjectionError> {
@@ -174,6 +193,41 @@ impl MaterialStackProjection {
             return Err(MaterialStackProjectionError::StaleInventoryRevision {
                 expected: self.expected_inventory_revision,
                 actual: actual_revision,
+            });
+        }
+        Ok(())
+    }
+
+    /// Reobserves the same physical stack after time advances without an inventory mutation.
+    ///
+    /// Inventory owns the private lot membership. Public commodity, provenance, and mass alone
+    /// cannot identify equal-looking food cohorts with different storage histories. Reproject
+    /// through the owner and retain the exact cohort rather than guessing its replacement.
+    pub fn refreshed(
+        &self,
+        registries: &Registries,
+        state: &AppState,
+    ) -> Result<Self, MaterialStackProjectionError> {
+        self.validate_inventory_revision(state)?;
+        project_material_stacks(registries, state, self.stockpile)?
+            .into_iter()
+            .find(|candidate| candidate.selections == self.selections)
+            .ok_or(MaterialStackProjectionError::StackMembershipChanged {
+                stockpile: self.stockpile,
+            })
+    }
+
+    /// Rejects snapshots retained beyond either an inventory mutation or an aging tick.
+    pub(crate) fn validate_current(
+        &self,
+        state: &AppState,
+    ) -> Result<(), MaterialStackProjectionError> {
+        self.validate_inventory_revision(state)?;
+        let actual_tick = state.tick();
+        if actual_tick != self.expected_tick {
+            return Err(MaterialStackProjectionError::StaleSimulationTick {
+                expected: self.expected_tick,
+                actual: actual_tick,
             });
         }
         Ok(())
@@ -299,6 +353,7 @@ pub fn project_material_stacks(
         indices.insert(key, stacks.len());
         stacks.push(MaterialStackProjection {
             expected_inventory_revision: revision,
+            expected_tick: at,
             stockpile,
             profile: lot.profile().clone(),
             provenance: lot.provenance(),

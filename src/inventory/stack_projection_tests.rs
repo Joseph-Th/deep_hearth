@@ -5,7 +5,8 @@ use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, apply_clock_advance};
 use crate::core::time::SimulationTick;
 use crate::inventory::{
-    StockpileStorageProfile, add_stockpile, deposit_lot_for_test, project_material_stacks,
+    MaterialStackProjectionError, StockpileStorageProfile, add_stockpile, deposit_lot_for_test,
+    project_material_stacks,
 };
 use crate::material::CommodityKey;
 
@@ -180,4 +181,76 @@ fn fragmented_stockpile_projection_keeps_cohorts_and_stable_order() {
             .stored_mass()
             .milligrams()
     );
+    apply_clock_advance(&mut state, SimulationTick::new(64));
+    let renewed = project_material_stacks(&registries, &state, stockpile).unwrap();
+    assert_eq!(stacks.len(), renewed.len());
+    for (prior, current) in stacks.iter().zip(renewed) {
+        assert_eq!(
+            prior.refreshed(&registries, &state),
+            Ok(current),
+            "each independently aged food cohort must retain its own physical identity"
+        );
+    }
+}
+
+#[test]
+fn stack_projection_expiration_tracks_time_without_inventory_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let stockpile = add_stockpile(
+        &mut state,
+        Mass::from_milligrams(100_000),
+        StockpileStorageProfile::unbounded_solid_only(),
+    )
+    .unwrap();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(50_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let projected = project_material_stacks(&registries, &state, stockpile).unwrap();
+    let inventory_revision = state.inventory().revision();
+    let before = state.tick();
+    assert_eq!(projected[0].validate_current(&state), Ok(()));
+
+    apply_clock_advance(&mut state, SimulationTick::new(before.value() + 1));
+    assert_eq!(state.inventory().revision(), inventory_revision);
+    let unchanged = state.clone();
+    assert_eq!(
+        projected[0].validate_current(&state),
+        Err(MaterialStackProjectionError::StaleSimulationTick {
+            expected: before,
+            actual: state.tick(),
+        })
+    );
+    assert_eq!(
+        state, unchanged,
+        "rejected retained projections cannot mutate custody"
+    );
+    let refreshed = project_material_stacks(&registries, &state, stockpile).unwrap();
+    assert_eq!(refreshed[0].validate_current(&state), Ok(()));
+    assert_eq!(
+        projected[0].refreshed(&registries, &state),
+        Ok(refreshed[0].clone()),
+        "the inventory owner must recover the same physical cohort after aging"
+    );
+    assert!(
+        refreshed[0].ambient_storage_age_parts() > projected[0].ambient_storage_age_parts(),
+        "the same lot's time-dependent exposure must be refreshed"
+    );
+    let _unrelated_stockpile = add_stockpile(
+        &mut state,
+        Mass::from_milligrams(100_000),
+        StockpileStorageProfile::unbounded_solid_only(),
+    )
+    .unwrap();
+    assert!(matches!(
+        projected[0].refreshed(&registries, &state),
+        Err(MaterialStackProjectionError::StaleInventoryRevision { expected, actual })
+            if expected == inventory_revision && actual != expected
+    ));
 }

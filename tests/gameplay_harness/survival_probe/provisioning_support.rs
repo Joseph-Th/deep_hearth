@@ -122,9 +122,22 @@ fn execute_planned_stack_meal(
     state: &mut AppState,
     portions: &[PlannedFoodStackPortion],
 ) -> (EatOutcome, u64) {
+    // Drinking advances the authoritative slow clock. The chosen meal portions remain
+    // actor policy, but their time-bound stack snapshots must be reacquired after that
+    // physical interval, not reused as if storage exposure had stopped.
+    let current = portions
+        .iter()
+        .map(|portion| {
+            portion
+                .stack
+                .refreshed(registries, state)
+                .unwrap_or_else(|error| panic!("survival meal cohort refresh failed: {error}"))
+        })
+        .collect::<Vec<_>>();
     let visible = portions
         .iter()
-        .map(|portion| FoodStackPortion::new(&portion.stack, portion.mass))
+        .zip(&current)
+        .map(|(portion, stack)| FoodStackPortion::new(stack, portion.mass))
         .collect::<Vec<_>>();
     let meal = validate_eat_stack_portions(registries, state, &visible)
         .unwrap_or_else(|error| panic!("survival visible-stack meal validation failed: {error}"))
@@ -149,7 +162,6 @@ pub(super) fn execute_recovery_drink(
 pub(super) fn execute_provisioning_actions(
     registries: &Registries,
     state: &mut AppState,
-    _prepared: &PreparedProvisioningWorld,
     portions: &[PlannedFoodStackPortion],
     drink_first: bool,
 ) -> ProvisioningActionOutcome {
