@@ -176,6 +176,9 @@ fn map_reform_commit_error(error: MaterialReformCommitError) -> EquipmentMainten
         MaterialReformCommitError::StaleInventoryRevision { expected, actual } => {
             EquipmentMaintenanceCommitError::StaleInventoryRevision { expected, actual }
         }
+        MaterialReformCommitError::StaleSimulationTick { expected, actual } => {
+            EquipmentMaintenanceCommitError::StaleSimulationTick { expected, actual }
+        }
         MaterialReformCommitError::Structure(error) => {
             EquipmentMaintenanceCommitError::Structure(error)
         }

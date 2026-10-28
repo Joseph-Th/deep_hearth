@@ -518,6 +518,70 @@ fn stale_relocation_token_is_rejected_without_mutation() {
 }
 
 #[test]
+fn elapsed_time_rejects_a_validated_preservation_transfer_without_mutation() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)).unwrap();
+    let destination = add_stockpile(
+        &mut state,
+        Mass::from_milligrams(20),
+        triple_preservation_profile(),
+    )
+    .unwrap();
+    let commodity = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        commodity,
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(300_000),
+    )
+    .unwrap();
+    let selection = validate_consumption_selection(
+        state.inventory(),
+        source,
+        &[MaterialInputSpec::new(commodity, Mass::from_milligrams(5))],
+    )
+    .unwrap();
+    let transaction =
+        validate_material_relocation_from_selection(&registries, &state, destination, selection)
+            .unwrap();
+    let expected = state.tick();
+    let inventory_revision = state.inventory().revision();
+    apply_clock_advance(&mut state, SimulationTick::new(expected.value() + 1));
+    assert_eq!(state.inventory().revision(), inventory_revision);
+    let before = state.clone();
+    assert_eq!(
+        transaction.commit(&mut state),
+        Err(MaterialRelocationCommitError::StaleSimulationTick {
+            expected,
+            actual: state.tick(),
+        })
+    );
+    assert_eq!(state, before);
+    let fresh = validate_material_relocation_for_test(
+        &registries,
+        &state,
+        source,
+        destination,
+        commodity,
+        Mass::from_milligrams(5),
+    )
+    .unwrap();
+    fresh.commit(&mut state).unwrap();
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .unwrap()
+            .stored_mass(),
+        Mass::from_milligrams(5)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn repeated_partial_relocations_coalesce_new_fragments_in_destination() {
     let registries = build_registries();
     let mut state = AppState::new();

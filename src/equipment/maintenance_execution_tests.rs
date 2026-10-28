@@ -15,7 +15,7 @@ use crate::content::{
 use crate::core::quantity::{
     AggregateMass, Area, Energy, Force, Length, Power, Temperature, Volume,
 };
-use crate::core::state::{StateValidationError, validate_loaded_state};
+use crate::core::state::{StateValidationError, apply_clock_advance, validate_loaded_state};
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
 use crate::energy::{

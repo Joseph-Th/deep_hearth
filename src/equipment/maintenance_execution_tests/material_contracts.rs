@@ -372,6 +372,50 @@ fn maintenance_rechecks_inventory_and_equipment_before_any_partial_commit() {
 }
 
 #[test]
+fn maintenance_rejects_an_elapsed_material_reform_before_equipment_changes() {
+    let registries = registries();
+    let mut state = AppState::new();
+    initialize_service_player(&registries, &mut state);
+    let equipment =
+        add_equipment(&registries, &mut state, TEST_DEFINITION, condition(500_000)).unwrap();
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)).unwrap();
+    let spent = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)).unwrap();
+    let lot = add_material(&registries, &mut state, source, Mass::from_milligrams(10));
+    let resolution = resolve_equipment_maintenance(
+        &registries,
+        &state,
+        EquipmentMaintenanceRequest::new(equipment, source, spent),
+    )
+    .unwrap();
+    let token = validate_equipment_maintenance(&registries, &state, resolution).unwrap();
+    let expected = state.tick();
+    let inventory_revision = state.inventory().revision();
+    apply_clock_advance(&mut state, SimulationTick::new(expected.value() + 1));
+    assert_eq!(state.inventory().revision(), inventory_revision);
+    let before = state.clone();
+    assert_eq!(
+        token.commit(&mut state),
+        Err(EquipmentMaintenanceCommitError::StaleSimulationTick {
+            expected,
+            actual: state.tick(),
+        })
+    );
+    assert_eq!(state, before);
+    assert_eq!(
+        state.inventory().get_lot(lot).unwrap().mass(),
+        Mass::from_milligrams(10)
+    );
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(equipment)
+            .unwrap()
+            .condition(),
+        condition(500_000)
+    );
+}
+
+#[test]
 fn maintenance_resolution_is_invalidated_by_equipment_change_before_validation() {
     let registries = registries();
     let mut state = AppState::new();

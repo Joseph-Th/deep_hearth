@@ -191,6 +191,75 @@ fn exact_reform_changes_only_physical_form_and_conserves_matter() {
 }
 
 #[test]
+fn elapsed_time_rejects_a_prevalidated_material_reform_without_panicking() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(20)).unwrap();
+    let destination = add_stockpile(
+        &mut state,
+        Mass::from_milligrams(20),
+        triple_preservation_profile(),
+    )
+    .unwrap();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        wood_log(),
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(300_000),
+    )
+    .unwrap();
+    let target = CommodityKey::new(MATERIAL_WOOD, FORM_CHIP);
+    let selection = validate_consumption_selection(
+        state.inventory(),
+        source,
+        &[MaterialInputSpec::new(wood_log(), Mass::from_milligrams(5))],
+    )
+    .unwrap();
+    let reform = validate_material_reform_from_selection(
+        &registries,
+        &state,
+        destination,
+        target,
+        selection,
+    )
+    .unwrap();
+    let expected = state.tick();
+    let inventory_revision = state.inventory().revision();
+    apply_clock_advance(&mut state, SimulationTick::new(expected.value() + 1));
+    assert_eq!(state.inventory().revision(), inventory_revision);
+    let before = state.clone();
+    assert_eq!(
+        reform.commit(&mut state),
+        Err(MaterialReformCommitError::StaleSimulationTick {
+            expected,
+            actual: state.tick(),
+        })
+    );
+    assert_eq!(state, before);
+    let fresh = validate_consumption_selection(
+        state.inventory(),
+        source,
+        &[MaterialInputSpec::new(wood_log(), Mass::from_milligrams(5))],
+    )
+    .unwrap();
+    validate_material_reform_from_selection(&registries, &state, destination, target, fresh)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .unwrap()
+            .get_mass(target),
+        Mass::from_milligrams(5)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn exact_reform_rejects_phase_change_at_shared_melting_boundary_without_mutation() {
     let registries = build_registries();
     let mut state = AppState::new();

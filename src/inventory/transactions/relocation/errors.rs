@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
+use crate::core::time::SimulationTick;
 use crate::structural::StructuralCommitError;
 
 use super::super::super::state::StockpileId;
@@ -107,7 +108,14 @@ impl Error for MaterialRelocationError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MaterialRelocationCommitError {
-    StaleInventoryRevision { expected: u64, actual: u64 },
+    StaleInventoryRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleSimulationTick {
+        expected: SimulationTick,
+        actual: SimulationTick,
+    },
     Structure(StructuralCommitError),
 }
 
@@ -117,6 +125,12 @@ impl Display for MaterialRelocationCommitError {
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
                 "validated material relocation expected inventory revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleSimulationTick { expected, actual } => write!(
+                formatter,
+                "validated material relocation expected simulation tick {} but current tick is {}",
+                expected.value(),
+                actual.value()
             ),
             Self::Structure(error) => write!(
                 formatter,
@@ -130,7 +144,7 @@ impl Error for MaterialRelocationCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleInventoryRevision { .. } => None,
+            Self::StaleInventoryRevision { .. } | Self::StaleSimulationTick { .. } => None,
         }
     }
 }

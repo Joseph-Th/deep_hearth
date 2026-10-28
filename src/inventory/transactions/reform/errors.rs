@@ -1,6 +1,7 @@
 //! Diagnostics for same-material form-reform validation and commit.
 
 use crate::core::quantity::Mass;
+use crate::core::time::SimulationTick;
 use crate::material::{CommodityKey, FormId, MaterialId};
 use crate::structural::StructuralCommitError;
 
@@ -51,6 +52,13 @@ pub(crate) enum MaterialReformError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum MaterialReformCommitError {
-    StaleInventoryRevision { expected: u64, actual: u64 },
+    StaleInventoryRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleSimulationTick {
+        expected: SimulationTick,
+        actual: SimulationTick,
+    },
     Structure(StructuralCommitError),
 }

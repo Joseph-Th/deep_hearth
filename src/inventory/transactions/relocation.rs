@@ -3,6 +3,7 @@
 #[cfg(test)]
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::material::MaterialInputSpec;
 use crate::registry::Registries;
 
@@ -28,15 +29,17 @@ use planning::{
     validate_relocation_endpoints,
 };
 
-/// Revision-bound relocation of one already-resolved exact lot selection between stockpiles.
+/// Revision- and tick-bound relocation of one already-resolved exact lot selection between stockpiles.
 ///
 /// Cross-owner systems use this when a physical resolver inspected specific lot slices before
 /// deciding a consequence. The relocation preserves selected profiles and provenance exactly and
-/// never substitutes equivalent-looking inventory at validation time.
+/// never substitutes equivalent-looking inventory at validation time. Storage-history transitions
+/// and lot-identity choices depend on the authoritative tick, so commit rejects elapsed plans.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedMaterialRelocation {
     expected_revision: u64,
+    expected_tick: SimulationTick,
     next_revision: u64,
     source: StockpileId,
     destination: StockpileId,
@@ -69,6 +72,12 @@ impl ValidatedMaterialRelocation {
             return Err(MaterialRelocationCommitError::StaleInventoryRevision {
                 expected: self.expected_revision,
                 actual,
+            });
+        }
+        if state.tick() != self.expected_tick {
+            return Err(MaterialRelocationCommitError::StaleSimulationTick {
+                expected: self.expected_tick,
+                actual: state.tick(),
             });
         }
         self.assert_matches_state(state);
@@ -241,6 +250,7 @@ pub(crate) fn validate_material_relocation_from_selection(
 
     Ok(ValidatedMaterialRelocation {
         expected_revision,
+        expected_tick: state.tick(),
         next_revision,
         source,
         destination,

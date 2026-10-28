@@ -2,6 +2,7 @@
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::material::{CommodityKey, MaterialInputSpec};
 use crate::registry::Registries;
 
@@ -26,14 +27,16 @@ use planning::{
     validate_reform_profiles,
 };
 
-/// Revision-bound reforming of exact selected matter into another physical form of the same material.
+/// Revision- and tick-bound reforming of selected matter into another form of the same material.
 ///
 /// The caller owns the physical reason for the form change. Inventory owns only exact withdrawal,
 /// destination storage admission, conserved mass, lot identity/provenance, and structural-load updates.
+/// Commit rejects elapsed plans before replaying the time-dependent storage-history transitions.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedMaterialReform {
     expected_revision: u64,
+    expected_tick: SimulationTick,
     next_revision: u64,
     source: StockpileId,
     destination: StockpileId,
@@ -62,6 +65,12 @@ impl ValidatedMaterialReform {
             return Err(MaterialReformCommitError::StaleInventoryRevision {
                 expected: self.expected_revision,
                 actual,
+            });
+        }
+        if state.tick() != self.expected_tick {
+            return Err(MaterialReformCommitError::StaleSimulationTick {
+                expected: self.expected_tick,
+                actual: state.tick(),
             });
         }
         self.assert_matches_state(state);
@@ -186,6 +195,7 @@ pub(crate) fn validate_material_reform_from_selection(
 
     Ok(ValidatedMaterialReform {
         expected_revision,
+        expected_tick: state.tick(),
         next_revision,
         source,
         destination,

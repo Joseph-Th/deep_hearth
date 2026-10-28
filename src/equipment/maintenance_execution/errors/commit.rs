@@ -55,6 +55,10 @@ pub enum EquipmentMaintenanceCommitError {
         expected: u64,
         actual: u64,
     },
+    StaleSimulationTick {
+        expected: SimulationTick,
+        actual: SimulationTick,
+    },
     Structure(StructuralCommitError),
     PlayerWork(PlayerWorkCommitError),
 }
@@ -129,6 +133,12 @@ impl Display for EquipmentMaintenanceCommitError {
                 formatter,
                 "validated equipment maintenance expected inventory revision {expected} but current revision is {actual}"
             ),
+            Self::StaleSimulationTick { expected, actual } => write!(
+                formatter,
+                "validated equipment maintenance expected simulation tick {} but current tick is {}",
+                expected.value(),
+                actual.value()
+            ),
             Self::Structure(error) => write!(
                 formatter,
                 "equipment maintenance material structural commit failed: {error}"
@@ -147,14 +157,9 @@ impl Error for EquipmentMaintenanceCommitError {
             Self::Structure(error) => Some(error),
             Self::PlayerWork(error) => Some(error),
             Self::StaleLogisticsRevision { .. } => None,
-            Self::StaleEquipmentRevision {
-                expected: _expected,
-                actual: _actual,
-            }
-            | Self::StaleInventoryRevision {
-                expected: _expected,
-                actual: _actual,
-            } => None,
+            Self::StaleEquipmentRevision { .. }
+            | Self::StaleInventoryRevision { .. }
+            | Self::StaleSimulationTick { .. } => None,
             Self::UnknownEquipment {
                 equipment: _equipment,
             } => None,
