@@ -10,8 +10,8 @@ pub use heating::{
     resolve_sensible_heating_process,
 };
 pub use registry::{
-    CastingPhaseChange, CastingProcessDefinition, MeltingProcessDefinition, PhaseChangeForms,
-    PhaseChangeProcessProfile, SensibleHeatingProcessDefinition, ThermalRegistry,
+    CastingPhaseChange, CastingProcessDefinition, FiringConversion, MeltingProcessDefinition,
+    PhaseChangeForms, PhaseChangeProcessProfile, SensibleHeatingProcessDefinition, ThermalRegistry,
 };
 pub use validation::ThermalJobValidationError;
 pub(crate) use validation::validate_loaded_thermal_job;

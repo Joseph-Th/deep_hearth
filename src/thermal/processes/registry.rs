@@ -3,9 +3,10 @@
 use std::collections::BTreeMap;
 
 use crate::capability::{CapabilityId, CapabilityRegistry};
+use crate::core::quantity::Temperature;
 use crate::energy::EnergyCarrier;
 use crate::maintenance::assert_valid_condition_wear_ppm_per_tick;
-use crate::material::MaterialRegistry;
+use crate::material::{CommodityKey, MaterialRegistry};
 use crate::production::{ProcessId, ProductionRegistry};
 
 mod phase_change;
@@ -18,8 +19,47 @@ pub use phase_change::{
 
 use validation::{
     validate_casting_material_references, validate_common_thermal_references,
-    validate_melting_form_references,
+    validate_firing_material_references, validate_melting_form_references,
 };
+
+/// A conserved, irreversible solid-form conversion induced by a heated batch.
+///
+/// The dry-clay approximation omits water-of-hydration and kiln gas chemistry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FiringConversion {
+    input: CommodityKey,
+    output: CommodityKey,
+    minimum_temperature: Temperature,
+}
+
+impl FiringConversion {
+    #[must_use]
+    pub const fn new(
+        input: CommodityKey,
+        output: CommodityKey,
+        minimum_temperature: Temperature,
+    ) -> Self {
+        assert!(minimum_temperature.millikelvin() > 0);
+        Self {
+            input,
+            output,
+            minimum_temperature,
+        }
+    }
+
+    #[must_use]
+    pub const fn input(self) -> CommodityKey {
+        self.input
+    }
+    #[must_use]
+    pub const fn output(self) -> CommodityKey {
+        self.output
+    }
+    #[must_use]
+    pub const fn minimum_temperature(self) -> Temperature {
+        self.minimum_temperature
+    }
+}
 
 /// Immutable declaration that one process is resolved as ideal sensible heating.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,6 +70,7 @@ pub struct SensibleHeatingProcessDefinition {
     max_batch_mass_capability: CapabilityId,
     energy_carrier: EnergyCarrier,
     condition_wear_ppm_per_active_tick: u32,
+    firing_conversion: Option<FiringConversion>,
 }
 
 impl SensibleHeatingProcessDefinition {
@@ -50,6 +91,7 @@ impl SensibleHeatingProcessDefinition {
             max_batch_mass_capability,
             energy_carrier,
             condition_wear_ppm_per_active_tick,
+            firing_conversion: None,
         }
     }
 
@@ -82,6 +124,18 @@ impl SensibleHeatingProcessDefinition {
     #[must_use]
     pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
         self.condition_wear_ppm_per_active_tick
+    }
+
+    #[must_use]
+    pub const fn with_firing_conversion(mut self, conversion: FiringConversion) -> Self {
+        assert!(self.firing_conversion.is_none());
+        self.firing_conversion = Some(conversion);
+        self
+    }
+
+    #[must_use]
+    pub const fn firing_conversion(self) -> Option<FiringConversion> {
+        self.firing_conversion
     }
 }
 
@@ -193,6 +247,9 @@ impl ThermalRegistry {
                 production,
                 capabilities,
             );
+            if let Some(conversion) = definition.firing_conversion() {
+                validate_firing_material_references(definition.process(), conversion, materials);
+            }
         }
         for definition in self.casting.values().copied() {
             validate_common_thermal_references(

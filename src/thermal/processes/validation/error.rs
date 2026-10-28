@@ -8,7 +8,7 @@ use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::time::TickSpan;
 use crate::energy::{EnergyCarrier, PowerDurationError};
 use crate::maintenance::{ActiveConditionDurationError, Condition};
-use crate::material::MaterialLotSpecError;
+use crate::material::{CommodityKey, MaterialLotSpecError};
 use crate::production::ProductionJobId;
 
 use super::super::super::PhaseSensibleHeatError;
@@ -18,6 +18,16 @@ use super::super::super::melting_execution::MeltingJobValidationError;
 /// Invalid persisted operation-specific thermal semantics discovered during exhaustive load audit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThermalJobValidationError {
+    WrongFiringInput {
+        job: ProductionJobId,
+        expected: CommodityKey,
+        actual: CommodityKey,
+    },
+    BelowFiringTemperature {
+        job: ProductionJobId,
+        required: Temperature,
+        actual: Temperature,
+    },
     Casting(CastingJobValidationError),
     Melting(MeltingJobValidationError),
     MissingEquipmentProvider {
@@ -110,6 +120,28 @@ pub enum ThermalJobValidationError {
 impl Display for ThermalJobValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::WrongFiringInput {
+                job,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "thermal job {} fires wrong input: expected {}, found {}",
+                job.value(),
+                expected.value(),
+                actual.value()
+            ),
+            Self::BelowFiringTemperature {
+                job,
+                required,
+                actual,
+            } => write!(
+                formatter,
+                "thermal job {} firing target {} mK below minimum {} mK",
+                job.value(),
+                actual.millikelvin(),
+                required.millikelvin()
+            ),
             Self::Casting(error) => write!(formatter, "invalid casting job: {error}"),
             Self::Melting(error) => write!(formatter, "invalid melting job: {error}"),
             Self::MissingEquipmentProvider { job } => write!(
@@ -269,6 +301,7 @@ impl Display for ThermalJobValidationError {
 impl Error for ThermalJobValidationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::WrongFiringInput { .. } | Self::BelowFiringTemperature { .. } => None,
             Self::Casting(error) => Some(error),
             Self::Melting(error) => Some(error),
             Self::Capability { error, .. } => Some(error),

@@ -27,3 +27,4 @@ pub(super) const DOUBLE_WALL_TIMBER_PROVISIONS_CHEST_BODY_MASS: Mass =
 pub(super) const BULK_TIMBER_PROVISIONS_CRATE_BODY_MASS: Mass = Mass::from_milligrams(3_200_000);
 pub(super) const INSULATED_TIMBER_PANTRY_BODY_MASS: Mass = Mass::from_milligrams(4_800_000);
 pub(super) const STONE_PROVISIONS_CROCK_BODY_MASS: Mass = Mass::from_milligrams(2_400_000);
+pub(super) const CLAY_CERAMIC_CROCK_BODY_MASS: Mass = Mass::from_milligrams(2_400_000);

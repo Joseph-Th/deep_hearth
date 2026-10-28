@@ -10,7 +10,6 @@ use deep_hearth::content::{
     STORAGE_ROUGH_TIMBER_FIELD_BOX, STORAGE_TIMBER_PROVISIONS_CHEST, build_registries,
 };
 use deep_hearth::core::quantity::Mass;
-use deep_hearth::inventory::StockpileStorageProfile;
 use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::{CommoditySource, CommodityUse};
 
@@ -19,6 +18,7 @@ use super::focused_witnesses::{
     SURVIVAL_STRONG_PRESERVATION_COVERAGE_SEED,
 };
 use super::preservation_route::preservation_construction_plan;
+use super::survival_preservation_catalog::preservation_storage_candidates;
 use super::survival_probe::preservation::preservation_storage_definition_for_policy_with_constraints;
 use super::survival_probe::preservation_decision::{
     SignedResourceDelta, evaluate_preservation_decision,
@@ -436,11 +436,12 @@ fn preservation_resource_deltas_preserve_comparison_direction() {
 #[test]
 fn preservation_storage_routes_are_authored_recoverable_tradeoffs() {
     let registries = build_registries();
-    let ambient = StockpileStorageProfile::unbounded_solid_only().preservation_multiplier_ppm();
-    let preservation = registries
-        .storage()
-        .definitions()
-        .filter(|definition| definition.storage_profile().preservation_multiplier_ppm() > ambient)
+    // This contract measures the executable manual-only construction market.
+    // The fired ceramic crock instead requires a thermal kiln/hearth and has a
+    // separate executed generated-world episode.
+    let preservation = preservation_storage_candidates(&registries)
+        .into_iter()
+        .map(|candidate| registries.storage().get(candidate.definition).unwrap())
         .collect::<Vec<_>>();
     assert!(
         !preservation.is_empty(),

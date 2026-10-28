@@ -87,6 +87,12 @@ fn map_sensible_heating_batch_error(
     error: SensibleHeatingBatchError,
 ) -> SensibleHeatingResolutionError {
     match error {
+        SensibleHeatingBatchError::WrongFiringInput { expected, actual } => {
+            SensibleHeatingResolutionError::WrongFiringInput { expected, actual }
+        }
+        SensibleHeatingBatchError::BelowFiringTemperature { required, actual } => {
+            SensibleHeatingResolutionError::BelowFiringTemperature { required, actual }
+        }
         SensibleHeatingBatchError::TargetBelowInputTemperature { current, target } => {
             SensibleHeatingResolutionError::TargetBelowInputTemperature { current, target }
         }
@@ -177,9 +183,13 @@ pub fn resolve_sensible_heating_process(
             },
         );
     }
-    let batch =
-        resolve_sensible_heating_batch(registries.materials(), inputs.consumed_inputs(), target)
-            .map_err(map_sensible_heating_batch_error)?;
+    let batch = resolve_sensible_heating_batch(
+        registries.materials(),
+        inputs.consumed_inputs(),
+        target,
+        definition.firing_conversion(),
+    )
+    .map_err(map_sensible_heating_batch_error)?;
     let required_energy = batch.required_energy();
     if required_energy.is_zero() {
         return Err(SensibleHeatingResolutionError::NoHeatingRequired);

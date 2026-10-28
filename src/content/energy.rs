@@ -13,7 +13,8 @@ use super::crafted_parts::{
 };
 use super::materials::{
     FORM_BOARD, FORM_CHIP, FORM_ELECTRICAL_WINDING, FORM_FLYWHEEL, FORM_HANDLE, FORM_LOG,
-    FORM_LUMP, FORM_REINFORCEMENT, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_LUMP, FORM_PACKED_CLAY_BINDER, FORM_REINFORCEMENT, MATERIAL_CLAY, MATERIAL_COPPER,
+    MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 pub const ENERGY_MECHANICAL_SMALL_DRIVE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(1);
@@ -38,6 +39,7 @@ pub const ENERGY_COPPER_BANDED_STONE_THERMAL_SINK: EnergyStoreDefinitionId =
 pub const ENERGY_STONE_RING_CAMPFIRE: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(14);
 pub const ENERGY_COPPER_WOUND_ELECTRICAL_BUFFER: EnergyStoreDefinitionId =
     EnergyStoreDefinitionId::new(15);
+pub const ENERGY_STONE_PIT_KILN_HEARTH: EnergyStoreDefinitionId = EnergyStoreDefinitionId::new(16);
 
 pub const CAMPFIRE_FUEL_MASS: Mass = Mass::from_milligrams(1_000_000);
 /// Usable thermal energy from one kilogram-scale primitive wood charge.
@@ -67,6 +69,33 @@ const TIMBER_FRAME_FLYWHEEL_BANK_PASSIVE_DISSIPATION_POWER: Power =
 
 pub(crate) fn build_energy_registry() -> EnergyRegistry {
     EnergyRegistry::new([
+        // Unlike a campfire's radiated warmth, a covered kiln has a bounded
+        // thermal extraction port. Combustion consumes real timber; heat lost
+        // passively cannot be used for firing or recovered as work energy.
+        EnergyStoreDefinition::new_with_transfer_limits(
+            ENERGY_STONE_PIT_KILN_HEARTH,
+            "fueled stone pit-kiln hearth",
+            EnergyCarrier::Thermal,
+            Energy::from_nanojoules(24_000_000_000_000_000),
+            Power::ZERO,
+            Power::from_microwatts(10_000_000_000),
+        )
+        .with_combustion_profile(CombustionProfile::new(
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            CAMPFIRE_FUEL_MASS,
+            CAMPFIRE_FUEL_THERMAL_ENERGY,
+        ))
+        .with_passive_dissipation_power(Power::from_microwatts(3_000_000_000))
+        .with_assembly_profile(MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+                Mass::from_milligrams(2_000_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_CLAY, FORM_PACKED_CLAY_BINDER),
+                Mass::from_milligrams(500_000),
+            ),
+        ])),
         EnergyStoreDefinition::new_with_transfer_limits(
             ENERGY_MECHANICAL_SMALL_DRIVE,
             "small mechanical drive",

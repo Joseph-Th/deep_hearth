@@ -9,14 +9,15 @@ use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialInputSpec};
 use crate::survival::SurvivalExertion;
 
 use super::crafted_parts::{
-    BULK_TIMBER_PROVISIONS_CRATE_BODY_MASS, DOUBLE_WALL_TIMBER_PROVISIONS_CHEST_BODY_MASS,
-    INSULATED_TIMBER_PANTRY_BODY_MASS, ROUGH_TIMBER_FIELD_BOX_BODY_MASS,
-    STONE_PROVISIONS_CROCK_BODY_MASS, TIMBER_PROVISIONS_CHEST_BODY_MASS,
+    BULK_TIMBER_PROVISIONS_CRATE_BODY_MASS, CLAY_CERAMIC_CROCK_BODY_MASS,
+    DOUBLE_WALL_TIMBER_PROVISIONS_CHEST_BODY_MASS, INSULATED_TIMBER_PANTRY_BODY_MASS,
+    ROUGH_TIMBER_FIELD_BOX_BODY_MASS, STONE_PROVISIONS_CROCK_BODY_MASS,
+    TIMBER_PROVISIONS_CHEST_BODY_MASS,
 };
 use super::{
-    FORM_BULK_CRATE_BODY, FORM_CHEST_BODY, FORM_DOUBLE_WALL_CHEST_BODY, FORM_INSULATED_PANTRY_BODY,
-    FORM_PACKED_CLAY_BINDER, FORM_REINFORCEMENT, FORM_ROUGH_BOX_BODY, FORM_STONE_CROCK_BODY,
-    MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_BULK_CRATE_BODY, FORM_CHEST_BODY, FORM_DOUBLE_WALL_CHEST_BODY, FORM_FIRED_CROCK,
+    FORM_INSULATED_PANTRY_BODY, FORM_PACKED_CLAY_BINDER, FORM_REINFORCEMENT, FORM_ROUGH_BOX_BODY,
+    FORM_STONE_CROCK_BODY, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
 };
 
 pub const STORAGE_TIMBER_PROVISIONS_CHEST: StorageDefinitionId = StorageDefinitionId::new(1);
@@ -32,6 +33,8 @@ pub const STORAGE_CLAY_DAUBED_TIMBER_PROVISIONS_BIN: StorageDefinitionId =
     StorageDefinitionId::new(8);
 /// Material-backed dry containment for loose industrial offcuts and dressing tailings.
 pub const STORAGE_CLAY_LINED_SPOIL_BAY: StorageDefinitionId = StorageDefinitionId::new(9);
+pub const STORAGE_FIRED_CERAMIC_PROVISIONS_CROCK: StorageDefinitionId =
+    StorageDefinitionId::new(10);
 const PROVISIONS_STORAGE_MAXIMUM_TEMPERATURE: Temperature = Temperature::from_millikelvin(333_150);
 const STORAGE_DISMANTLE_MILLIGRAMS_PER_TICK: u64 = 100_000;
 
@@ -115,6 +118,13 @@ pub(crate) fn build_storage_registry() -> StorageRegistry {
     .unwrap_or_else(|error| {
         panic!("carved stone provisions crock storage profile failed: {error}")
     });
+    let ceramic_crock_preservation = StockpileStorageProfile::with_preservation(
+        true,
+        false,
+        PROVISIONS_STORAGE_MAXIMUM_TEMPERATURE,
+        2_750_000,
+    )
+    .unwrap_or_else(|error| panic!("fired ceramic crock storage profile failed: {error}"));
     let copper_banded_crock_preservation = StockpileStorageProfile::with_preservation(
         true,
         false,
@@ -132,6 +142,18 @@ pub(crate) fn build_storage_registry() -> StorageRegistry {
     )
     .unwrap_or_else(|error| panic!("clay-daubed provisions bin storage profile failed: {error}"));
     StorageRegistry::new([
+        // Smaller than a heavy stone crock, but an actual sealed fired vessel:
+        // wood fuel and kiln labor purchase improved food-age protection.
+        storage_definition(
+            STORAGE_FIRED_CERAMIC_PROVISIONS_CROCK,
+            "fired ceramic provisions crock",
+            Mass::from_milligrams(6_000_000),
+            ceramic_crock_preservation,
+            MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_CLAY, FORM_FIRED_CROCK),
+                CLAY_CERAMIC_CROCK_BODY_MASS,
+            )]),
+        ),
         storage_definition(
             STORAGE_CLAY_LINED_SPOIL_BAY,
             "clay-lined spoil bay",

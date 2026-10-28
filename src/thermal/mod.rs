@@ -27,10 +27,10 @@ pub use planning::{
     assess_casting_lot_mass_envelope, assess_melting_lot_mass_envelope,
 };
 pub use processes::{
-    CastingPhaseChange, CastingProcessDefinition, MeltingProcessDefinition, PhaseChangeForms,
-    PhaseChangeProcessProfile, ResolvedSensibleHeating, SensibleHeatingProcessDefinition,
-    SensibleHeatingRequest, SensibleHeatingResolutionError, ThermalJobValidationError,
-    ThermalRegistry, resolve_sensible_heating_process,
+    CastingPhaseChange, CastingProcessDefinition, FiringConversion, MeltingProcessDefinition,
+    PhaseChangeForms, PhaseChangeProcessProfile, ResolvedSensibleHeating,
+    SensibleHeatingProcessDefinition, SensibleHeatingRequest, SensibleHeatingResolutionError,
+    ThermalJobValidationError, ThermalRegistry, resolve_sensible_heating_process,
 };
 
 pub(crate) use processes::validate_loaded_thermal_job;

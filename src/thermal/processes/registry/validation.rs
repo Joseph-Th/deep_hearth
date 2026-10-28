@@ -6,7 +6,44 @@ use crate::capability::{
 use crate::material::{CommodityKey, MaterialPhase, MaterialRegistry, ParticleSizeStatePolicy};
 use crate::production::{ProcessId, ProductionRegistry};
 
-use super::{CastingProcessDefinition, MeltingProcessDefinition};
+use super::{CastingProcessDefinition, FiringConversion, MeltingProcessDefinition};
+
+pub(super) fn validate_firing_material_references(
+    process: ProcessId,
+    conversion: FiringConversion,
+    materials: &MaterialRegistry,
+) {
+    assert_ne!(
+        conversion.input(),
+        conversion.output(),
+        "firing cannot be a no-op"
+    );
+    assert_eq!(
+        conversion.input().material(),
+        conversion.output().material(),
+        "firing process {} cannot silently change elemental composition",
+        process.value()
+    );
+    for commodity in [conversion.input(), conversion.output()] {
+        assert!(
+            materials.has_commodity(commodity),
+            "firing process {} references an unregistered commodity",
+            process.value()
+        );
+        let form = materials
+            .get_form(commodity.form())
+            .expect("registered commodity form exists");
+        assert_eq!(
+            form.phase(),
+            MaterialPhase::Solid,
+            "firing process must remain solid"
+        );
+        assert_eq!(
+            form.particle_size_policy(),
+            ParticleSizeStatePolicy::Untracked
+        );
+    }
+}
 
 pub(super) fn validate_casting_material_references(
     definition: CastingProcessDefinition,

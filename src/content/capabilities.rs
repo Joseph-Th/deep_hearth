@@ -48,6 +48,7 @@ pub(crate) const CAPABILITY_SULFIDE_PRECIPITATION_FLOW: CapabilityId = Capabilit
 pub(crate) const CAPABILITY_MAGNETIC_SEPARATOR_FLOW: CapabilityId = CapabilityId::new(41);
 pub(crate) const CAPABILITY_MAGNETIC_SEPARATOR_BATCH: CapabilityId = CapabilityId::new(42);
 pub(crate) const CAPABILITY_STONE_CHISELING_FLOW: CapabilityId = CapabilityId::new(43);
+pub(crate) const CAPABILITY_KILN_HEATING_POWER: CapabilityId = CapabilityId::new(44);
 
 fn higher_is_better(
     id: CapabilityId,
@@ -274,6 +275,11 @@ pub(crate) fn build_capability_registry() -> CapabilityRegistry {
             CAPABILITY_STONE_CHISELING_FLOW,
             "hand chisel precision stone shaping throughput",
             CapabilityValueKind::MassFlow,
+        ),
+        higher_is_better(
+            CAPABILITY_KILN_HEATING_POWER,
+            "wood-fueled kiln heat transfer power",
+            CapabilityValueKind::Power,
         ),
     ] {
         registry.register_capability(definition);

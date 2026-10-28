@@ -1,4 +1,9 @@
-//! Registry-derived preservation storage catalog shared by generation and investment evaluation.
+//! Registry-derived manual-buildable preservation catalog for survival policy evaluation.
+//!
+//! The survival policy harness executes a manually fabricated enclosure from offered raw
+//! materials. Thermally converted bodies need an independent heat/fuel/machine route, so
+//! those are evaluated through their own generated-world production episode rather than
+//! misrepresented as free manual products.
 
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::inventory::{StockpileStorageProfile, StorageDefinitionId};
@@ -21,6 +26,19 @@ pub(super) fn preservation_storage_candidates(
         .definitions()
         .filter(|definition| {
             definition.storage_profile().preservation_multiplier_ppm() > ambient_preservation
+        })
+        .filter(|definition| {
+            !definition
+                .assembly_profile()
+                .inputs()
+                .iter()
+                .any(|component| {
+                    registries
+                        .thermal()
+                        .sensible_heating_definitions()
+                        .filter_map(|process| process.firing_conversion())
+                        .any(|conversion| conversion.output() == component.commodity())
+                })
         })
         .map(|definition| PreservationStorageCandidate {
             definition: definition.id(),

@@ -464,8 +464,19 @@ fn primitive_commodity_has_root_route(
                     )
                 })
             });
+    let firing = !manual
+        && !casting
+        && !melting
+        && registries
+            .thermal()
+            .sensible_heating_definitions()
+            .filter_map(|definition| definition.firing_conversion())
+            .filter(|conversion| conversion.output() == commodity)
+            .any(|conversion| {
+                primitive_commodity_has_root_route(registries, conversion.input(), roots, visiting)
+            });
     assert!(visiting.remove(&commodity));
-    manual || casting || melting
+    manual || casting || melting || firing
 }
 
 #[test]

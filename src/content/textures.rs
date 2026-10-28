@@ -207,6 +207,9 @@ pub const OBJECT_FLINT_FLAKES: ObjectAppearanceId = ObjectAppearanceId::new(124)
 pub const OBJECT_FLINT_WOODWORKING_KNIFE: ObjectAppearanceId = ObjectAppearanceId::new(125);
 pub const OBJECT_COPPER_HAND_SAW: ObjectAppearanceId = ObjectAppearanceId::new(126);
 pub const OBJECT_COPPER_STONE_CHISEL: ObjectAppearanceId = ObjectAppearanceId::new(127);
+pub const OBJECT_CLAY_GREENWARE_CROCK: ObjectAppearanceId = ObjectAppearanceId::new(128);
+pub const OBJECT_FIRED_CERAMIC_CROCK: ObjectAppearanceId = ObjectAppearanceId::new(129);
+pub const OBJECT_STONE_PIT_KILN: ObjectAppearanceId = ObjectAppearanceId::new(130);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(

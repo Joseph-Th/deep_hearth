@@ -2,8 +2,9 @@
 
 use crate::capability::CapabilityValue;
 use crate::content::capabilities::{
-    CAPABILITY_COOLING_POWER, CAPABILITY_HEATING_POWER, CAPABILITY_SULFIDE_PRECIPITATION_FLOW,
-    CAPABILITY_THERMAL_BATCH, CAPABILITY_THERMAL_MAX_TEMPERATURE, CAPABILITY_TREADLE_DYNAMO_OUTPUT,
+    CAPABILITY_COOLING_POWER, CAPABILITY_HEATING_POWER, CAPABILITY_KILN_HEATING_POWER,
+    CAPABILITY_SULFIDE_PRECIPITATION_FLOW, CAPABILITY_THERMAL_BATCH,
+    CAPABILITY_THERMAL_MAX_TEMPERATURE, CAPABILITY_TREADLE_DYNAMO_OUTPUT,
     CAPABILITY_TREADLE_POWER_OUTPUT,
 };
 use crate::content::crafted_parts::{COPPER_ELECTRICAL_WINDING_MASS, TIMBER_FLYWHEEL_MASS};
@@ -26,9 +27,54 @@ use super::super::authoring::{
 use super::super::{
     EQUIPMENT_CLAY_FACED_STONE_CASTING_BED, EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO,
     EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD, EQUIPMENT_FOUR_POT_ARC_CRUCIBLE_FURNACE,
-    EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE, EQUIPMENT_STONE_INGOT_MOLD,
+    EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE, EQUIPMENT_STONE_INGOT_MOLD, EQUIPMENT_STONE_PIT_KILN,
     EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_TREADLE_DYNAMO,
 };
+
+/// Primitive pit-kiln firing chamber. A fired-ceramic process must still bind
+/// real wood-derived thermal energy from its separate fuel hearth; this equipment
+/// only constrains batch size, reachable temperature and serviceable clay lining.
+pub(super) fn stone_pit_kiln() -> EquipmentDefinition {
+    assembled_definition_with_condition_curves(
+        EQUIPMENT_STONE_PIT_KILN,
+        "stone pit kiln with clay lining",
+        MaterialAssemblyProfile::new(vec![
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+                Mass::from_milligrams(3_000_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_CLAY, FORM_PACKED_CLAY_BINDER),
+                Mass::from_milligrams(500_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                Mass::from_milligrams(800_000),
+            ),
+        ]),
+        profile([
+            (
+                CAPABILITY_KILN_HEATING_POWER,
+                CapabilityValue::Power(Power::from_microwatts(12_000_000_000)),
+            ),
+            (
+                CAPABILITY_THERMAL_MAX_TEMPERATURE,
+                CapabilityValue::Temperature(Temperature::from_millikelvin(1_150_000)),
+            ),
+            (
+                CAPABILITY_THERMAL_BATCH,
+                CapabilityValue::Mass(Mass::from_milligrams(2_400_000)),
+            ),
+        ]),
+        thresholds(),
+        vec![power_condition_curve(
+            CAPABILITY_KILN_HEATING_POWER,
+            500_000,
+            Power::from_microwatts(6_000_000_000),
+        )],
+    )
+    .with_assembly_component_maintenance(CommodityKey::new(MATERIAL_CLAY, FORM_PACKED_CLAY_BINDER))
+}
 
 const COPPER_ELECTRICAL_COMPONENT_MASS: Mass = Mass::from_milligrams(40_000);
 const FIRST_FOUNDRY_BATCH: Mass = Mass::from_milligrams(20_000);

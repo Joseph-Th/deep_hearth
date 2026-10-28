@@ -150,10 +150,15 @@ fn resolve_sensible_heating_batch_replay(
     job: &ProductionJobRecord,
     target: Temperature,
     traced_energy: Energy,
+    definition: SensibleHeatingProcessDefinition,
 ) -> Result<ResolvedSensibleHeatingBatch, ThermalJobValidationError> {
-    let batch =
-        resolve_sensible_heating_batch(registries.materials(), job.consumed_inputs(), target)
-            .map_err(|error| map_sensible_heating_batch_error(job.id(), error))?;
+    let batch = resolve_sensible_heating_batch(
+        registries.materials(),
+        job.consumed_inputs(),
+        target,
+        definition.firing_conversion(),
+    )
+    .map_err(|error| map_sensible_heating_batch_error(job.id(), error))?;
     let required_energy = batch.required_energy();
     if traced_energy != required_energy {
         return Err(ThermalJobValidationError::EnergyMismatch {
@@ -237,8 +242,13 @@ fn validate_loaded_sensible_heating_job(
     let context = resolve_sensible_heating_resources(registries, job, definition)?;
     let target = resolve_sensible_heating_target(job)?;
     let limits = validate_sensible_heating_equipment(job, &context, target)?;
-    let batch =
-        resolve_sensible_heating_batch_replay(registries, job, target, context.traced_energy)?;
+    let batch = resolve_sensible_heating_batch_replay(
+        registries,
+        job,
+        target,
+        context.traced_energy,
+        definition,
+    )?;
     validate_sensible_heating_timing(registries, job, &context, limits, batch.required_energy())?;
     validate_sensible_heating_outputs(job, batch)
 }
@@ -248,6 +258,20 @@ fn map_sensible_heating_batch_error(
     error: SensibleHeatingBatchError,
 ) -> ThermalJobValidationError {
     match error {
+        SensibleHeatingBatchError::WrongFiringInput { expected, actual } => {
+            ThermalJobValidationError::WrongFiringInput {
+                job,
+                expected,
+                actual,
+            }
+        }
+        SensibleHeatingBatchError::BelowFiringTemperature { required, actual } => {
+            ThermalJobValidationError::BelowFiringTemperature {
+                job,
+                required,
+                actual,
+            }
+        }
         SensibleHeatingBatchError::TargetBelowInputTemperature { current, target } => {
             ThermalJobValidationError::TargetBelowInputTemperature {
                 job,

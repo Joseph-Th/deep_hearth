@@ -80,6 +80,8 @@ pub const FORM_CRUSHER_JAW_FACE: FormId = FormId::new(33);
 pub const FORM_CRUSHER_BLOCK: FormId = FormId::new(34);
 pub const FORM_BLOCK: FormId = FormId::new(35);
 pub const FORM_MATTE: FormId = FormId::new(36);
+pub const FORM_GREENWARE_CROCK: FormId = FormId::new(37);
+pub const FORM_FIRED_CROCK: FormId = FormId::new(38);
 
 fn consolidated_form(id: FormId, name: &'static str) -> FormDefinition {
     FormDefinition::new(
@@ -139,6 +141,8 @@ fn register_forms(registry: &mut MaterialRegistry) {
         consolidated_form(FORM_INSULATED_PANTRY_BODY, "insulated timber pantry body"),
         consolidated_form(FORM_ROUGH_BOX_BODY, "rough timber field box body"),
         consolidated_form(FORM_STONE_CROCK_BODY, "carved stone provisions crock body"),
+        consolidated_form(FORM_GREENWARE_CROCK, "dry clay greenware crock"),
+        consolidated_form(FORM_FIRED_CROCK, "fired ceramic crock"),
         consolidated_form(FORM_SCREEN_PLATE, "perforated sizing screen plate"),
         consolidated_form(FORM_SAW_BLADE, "toothed frame-saw blade"),
         consolidated_form(FORM_TIMBER_RIDDLE_PANEL, "timber riddle panel"),
@@ -737,6 +741,14 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         (
             CommodityKey::new(MATERIAL_CLAY, FORM_LUMP),
             "clay-rich earth lump",
+        ),
+        (
+            CommodityKey::new(MATERIAL_CLAY, FORM_GREENWARE_CROCK),
+            "unfired clay crock greenware",
+        ),
+        (
+            CommodityKey::new(MATERIAL_CLAY, FORM_FIRED_CROCK),
+            "fired ceramic provisions crock body",
         ),
         (
             CommodityKey::new(MATERIAL_CLAY, FORM_TAILINGS),

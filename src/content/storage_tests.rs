@@ -617,6 +617,49 @@ fn preservation_salvage_requires_fresh_primary_input_before_rebuilding_fabricate
                 })
                 .collect::<Vec<_>>();
             if producers.is_empty() {
+                // The fired ceramic body is fabricated thermally rather than by
+                // hand: require the exact greenware -> fired form and an
+                // irreversible salvage route instead of silently excluding it
+                // from the body anti-arbitrage contract.
+                let firing = registries
+                    .thermal()
+                    .sensible_heating_definitions()
+                    .filter_map(|definition| definition.firing_conversion())
+                    .find(|conversion| conversion.output() == body.commodity());
+                if let Some(firing) = firing {
+                    fabricated_body_count += 1;
+                    assert!(
+                        registries
+                            .crafting()
+                            .manual_producers(firing.input())
+                            .any(|producer| producer
+                                .outputs()
+                                .iter()
+                                .any(|output| output.commodity() == firing.input()
+                                    && output.mass() == body.mass())),
+                        "fired vessel must have a physically shaped unfired precursor"
+                    );
+                    assert!(
+                        registries
+                            .crafting()
+                            .manual_consumers(body.commodity())
+                            .any(|salvage| salvage.input_mass() == body.mass()
+                                && salvage.outputs().iter().all(|output| output
+                                    .commodity()
+                                    .material()
+                                    == body.commodity().material()
+                                    && output.commodity() != firing.input()
+                                    && output.commodity() != body.commodity())
+                                && salvage
+                                    .outputs()
+                                    .iter()
+                                    .try_fold(Mass::ZERO, |total, output| total
+                                        .checked_add(output.mass()))
+                                    == Some(body.mass())),
+                        "fired ceramic salvage must conserve mass without recreating greenware"
+                    );
+                    continue;
+                }
                 // Direct structural additions such as copper bands are ordinary assembly
                 // components, not enclosure-body intermediates. Their primitive reachability is
                 // covered by the global infrastructure-route contract; this test owns only the

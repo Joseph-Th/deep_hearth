@@ -2,15 +2,24 @@
 
 use std::collections::BTreeMap;
 
+use super::registry::FiringConversion;
 use crate::core::quantity::{Energy, Mass, PreciseEnergy, Temperature};
 use crate::inventory::ConsumedMaterialTrace;
-use crate::material::{MaterialLotSpec, MaterialLotSpecError, MaterialRegistry};
+use crate::material::{CommodityKey, MaterialLotSpec, MaterialLotSpecError, MaterialRegistry};
 
 use super::super::physics::calculate_phase_sensible_heat_precise;
 use super::super::{HeatDirection, PhaseSensibleHeatError, SensibleHeatError};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum SensibleHeatingBatchError {
+    WrongFiringInput {
+        expected: CommodityKey,
+        actual: CommodityKey,
+    },
+    BelowFiringTemperature {
+        required: Temperature,
+        actual: Temperature,
+    },
     TargetBelowInputTemperature {
         current: Temperature,
         target: Temperature,
@@ -41,12 +50,32 @@ pub(super) fn resolve_sensible_heating_batch(
     materials: &MaterialRegistry,
     inputs: &[ConsumedMaterialTrace],
     target: Temperature,
+    firing: Option<FiringConversion>,
 ) -> Result<ResolvedSensibleHeatingBatch, SensibleHeatingBatchError> {
+    if let Some(conversion) = firing {
+        if target < conversion.minimum_temperature() {
+            return Err(SensibleHeatingBatchError::BelowFiringTemperature {
+                required: conversion.minimum_temperature(),
+                actual: target,
+            });
+        }
+    }
     let mut required_energy = PreciseEnergy::ZERO;
     let mut output_masses = BTreeMap::new();
 
     for trace in inputs {
         let profile = trace.profile();
+        let output_commodity = if let Some(conversion) = firing {
+            if profile.commodity() != conversion.input() {
+                return Err(SensibleHeatingBatchError::WrongFiringInput {
+                    expected: conversion.input(),
+                    actual: profile.commodity(),
+                });
+            }
+            conversion.output()
+        } else {
+            profile.commodity()
+        };
         if target < profile.temperature() {
             return Err(SensibleHeatingBatchError::TargetBelowInputTemperature {
                 current: profile.temperature(),
@@ -71,7 +100,7 @@ pub(super) fn resolve_sensible_heating_batch(
             .ok_or(SensibleHeatingBatchError::ArithmeticOverflow)?;
 
         let key = (
-            profile.commodity(),
+            output_commodity,
             profile.composition().clone(),
             profile.particle_size_distribution().cloned(),
         );

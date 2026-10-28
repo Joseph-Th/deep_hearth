@@ -1,17 +1,71 @@
 //! Manual preparation and reclamation of clay binder for settlement infrastructure.
 
+use crate::content::crafted_parts::CLAY_CERAMIC_CROCK_BODY_MASS;
 use crate::content::materials::{
-    FORM_CHIP, FORM_LUMP, FORM_PACKED_CLAY_BINDER, FORM_SCRAP, MATERIAL_CLAY,
+    FORM_CHIP, FORM_FIRED_CROCK, FORM_GREENWARE_CROCK, FORM_LUMP, FORM_PACKED_CLAY_BINDER,
+    FORM_SCRAP, MATERIAL_CLAY,
 };
-use crate::content::processes::{PROCESS_PACK_CLAY_BINDER, PROCESS_RECONDITION_CLAY_BINDER};
+use crate::content::processes::{
+    PROCESS_CRUSH_BROKEN_CERAMIC_CROCK, PROCESS_PACK_CLAY_BINDER, PROCESS_RECONDITION_CLAY_BINDER,
+    PROCESS_SHAPE_CLAY_GREENWARE_CROCK,
+};
 use crate::core::quantity::{Energy, Mass, Volume};
 use crate::core::time::TickSpan;
 use crate::crafting::{ManualCraftDefinition, ManualCraftOutput};
 use crate::material::CommodityKey;
 use crate::survival::SurvivalExertion;
 
-pub(super) fn definitions() -> [ManualCraftDefinition; 2] {
-    [pack_clay_binder(), recondition_clay_binder()]
+pub(super) fn definitions() -> [ManualCraftDefinition; 4] {
+    [
+        pack_clay_binder(),
+        recondition_clay_binder(),
+        shape_greenware_crock(),
+        crush_fired_crock(),
+    ]
+}
+
+/// Shape dry mineral clay into fragile greenware before any heat treatment.
+/// Water of hydration and drying shrinkage are not currently represented.
+fn shape_greenware_crock() -> ManualCraftDefinition {
+    ManualCraftDefinition::new(
+        PROCESS_SHAPE_CLAY_GREENWARE_CROCK,
+        CommodityKey::new(MATERIAL_CLAY, FORM_LUMP),
+        Mass::from_milligrams(2_800_000),
+        TickSpan::new(95),
+        clay_exertion(),
+        vec![
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_CLAY, FORM_GREENWARE_CROCK),
+                CLAY_CERAMIC_CROCK_BODY_MASS,
+            ),
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_CLAY, FORM_CHIP),
+                Mass::from_milligrams(400_000),
+            ),
+        ],
+    )
+}
+
+/// Recover fired ceramic as reusable mineral grit, not unfired raw clay.
+fn crush_fired_crock() -> ManualCraftDefinition {
+    ManualCraftDefinition::new(
+        PROCESS_CRUSH_BROKEN_CERAMIC_CROCK,
+        CommodityKey::new(MATERIAL_CLAY, FORM_FIRED_CROCK),
+        CLAY_CERAMIC_CROCK_BODY_MASS,
+        TickSpan::new(40),
+        clay_exertion(),
+        vec![ManualCraftOutput::new(
+            CommodityKey::new(MATERIAL_CLAY, FORM_CHIP),
+            CLAY_CERAMIC_CROCK_BODY_MASS,
+        )],
+    )
+}
+
+fn clay_exertion() -> SurvivalExertion {
+    SurvivalExertion::new(
+        Energy::from_nanojoules(750_000_000_000),
+        Volume::from_microliters(200),
+    )
 }
 
 /// Compacts locally dug clay-rich earth into portable binder cakes.

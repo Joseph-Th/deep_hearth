@@ -2,24 +2,26 @@
 
 use crate::core::quantity::Temperature;
 use crate::energy::EnergyCarrier;
+use crate::material::CommodityKey;
 use crate::thermal::{
-    CastingPhaseChange, CastingProcessDefinition, MeltingProcessDefinition, PhaseChangeForms,
-    PhaseChangeProcessProfile, SensibleHeatingProcessDefinition, ThermalRegistry,
+    CastingPhaseChange, CastingProcessDefinition, FiringConversion, MeltingProcessDefinition,
+    PhaseChangeForms, PhaseChangeProcessProfile, SensibleHeatingProcessDefinition, ThermalRegistry,
 };
 
 use super::capabilities::{
-    CAPABILITY_COOLING_POWER, CAPABILITY_HEATING_POWER, CAPABILITY_THERMAL_BATCH,
-    CAPABILITY_THERMAL_MAX_TEMPERATURE,
+    CAPABILITY_COOLING_POWER, CAPABILITY_HEATING_POWER, CAPABILITY_KILN_HEATING_POWER,
+    CAPABILITY_THERMAL_BATCH, CAPABILITY_THERMAL_MAX_TEMPERATURE,
 };
 use super::materials::{
-    FORM_BLOCK, FORM_CHIP, FORM_INGOT, FORM_MOLTEN, FORM_NATIVE_METAL, FORM_REINFORCEMENT,
-    FORM_SCRAP, MATERIAL_COPPER, MATERIAL_IRON, MATERIAL_LEAD, MATERIAL_TIN, MATERIAL_ZINC,
+    FORM_BLOCK, FORM_CHIP, FORM_FIRED_CROCK, FORM_GREENWARE_CROCK, FORM_INGOT, FORM_MOLTEN,
+    FORM_NATIVE_METAL, FORM_REINFORCEMENT, FORM_SCRAP, MATERIAL_CLAY, MATERIAL_COPPER,
+    MATERIAL_IRON, MATERIAL_LEAD, MATERIAL_TIN, MATERIAL_ZINC,
 };
 use super::processes::{
     PROCESS_CAST_IRON_INGOT, PROCESS_CAST_LEAD_INGOT, PROCESS_CAST_PURE_COPPER,
-    PROCESS_CAST_TIN_INGOT, PROCESS_CAST_ZINC_INGOT, PROCESS_HEAT_MATERIAL_BATCH,
-    PROCESS_MELT_PURE_COPPER, PROCESS_MELT_RECYCLED_IRON, PROCESS_MELT_RECYCLED_LEAD,
-    PROCESS_MELT_RECYCLED_TIN, PROCESS_MELT_RECYCLED_ZINC,
+    PROCESS_CAST_TIN_INGOT, PROCESS_CAST_ZINC_INGOT, PROCESS_FIRE_CLAY_CROCK,
+    PROCESS_HEAT_MATERIAL_BATCH, PROCESS_MELT_PURE_COPPER, PROCESS_MELT_RECYCLED_IRON,
+    PROCESS_MELT_RECYCLED_LEAD, PROCESS_MELT_RECYCLED_TIN, PROCESS_MELT_RECYCLED_ZINC,
 };
 
 pub(crate) fn build_thermal_registry() -> ThermalRegistry {
@@ -42,14 +44,29 @@ pub(crate) fn build_thermal_registry() -> ThermalRegistry {
         )
     };
     ThermalRegistry::new(
-        [SensibleHeatingProcessDefinition::new(
-            PROCESS_HEAT_MATERIAL_BATCH,
-            CAPABILITY_HEATING_POWER,
-            CAPABILITY_THERMAL_MAX_TEMPERATURE,
-            CAPABILITY_THERMAL_BATCH,
-            EnergyCarrier::Electrical,
-            10,
-        )],
+        [
+            SensibleHeatingProcessDefinition::new(
+                PROCESS_HEAT_MATERIAL_BATCH,
+                CAPABILITY_HEATING_POWER,
+                CAPABILITY_THERMAL_MAX_TEMPERATURE,
+                CAPABILITY_THERMAL_BATCH,
+                EnergyCarrier::Electrical,
+                10,
+            ),
+            SensibleHeatingProcessDefinition::new(
+                PROCESS_FIRE_CLAY_CROCK,
+                CAPABILITY_KILN_HEATING_POWER,
+                CAPABILITY_THERMAL_MAX_TEMPERATURE,
+                CAPABILITY_THERMAL_BATCH,
+                EnergyCarrier::Thermal,
+                40,
+            )
+            .with_firing_conversion(FiringConversion::new(
+                CommodityKey::new(MATERIAL_CLAY, FORM_GREENWARE_CROCK),
+                CommodityKey::new(MATERIAL_CLAY, FORM_FIRED_CROCK),
+                Temperature::from_millikelvin(1_100_000),
+            )),
+        ],
         [
             MeltingProcessDefinition::new(
                 PROCESS_MELT_PURE_COPPER,

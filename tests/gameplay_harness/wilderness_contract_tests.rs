@@ -98,6 +98,8 @@ use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 const WILDERNESS_WORLD_SEED: WorldGenerationSeed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
 const SETTLED_ADJACENT_LEG_SLOW_TICKS: u64 = 1;
 
+#[path = "wilderness_ceramics.rs"]
+mod ceramics;
 #[path = "wilderness_clay_progression.rs"]
 mod clay_progression;
 #[path = "wilderness_field_tools.rs"]
@@ -1908,6 +1910,7 @@ pub(super) fn evaluate_generated_wilderness_opening(
         && camp_goal == WildernessCampGoal::StayMobile
     {
         field_tools::generated_outcrop_supports_earned_flint_knife_copper_saw_and_chisel();
+        ceramics::generated_world_clay_becomes_a_fired_crock_with_wood_fuel();
     }
     review
 }

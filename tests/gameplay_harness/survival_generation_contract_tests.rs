@@ -2,9 +2,47 @@
 
 use std::collections::BTreeSet;
 
-use deep_hearth::content::build_registries;
+use deep_hearth::content::{
+    FORM_FIRED_CROCK, FORM_GREENWARE_CROCK, MATERIAL_CLAY, PROCESS_FIRE_CLAY_CROCK,
+    STORAGE_FIRED_CERAMIC_PROVISIONS_CROCK, build_registries,
+};
+use deep_hearth::material::CommodityKey;
 
 use super::survival_preservation_catalog::preservation_storage_candidates;
+
+#[test]
+fn manual_preservation_policy_does_not_invent_a_free_thermal_ceramic_body() {
+    let registries = build_registries();
+    let manual_choices = preservation_storage_candidates(&registries);
+    assert!(
+        !manual_choices
+            .iter()
+            .any(|candidate| candidate.definition == STORAGE_FIRED_CERAMIC_PROVISIONS_CROCK),
+        "manual policy lacks a kiln and cannot assemble fired ceramic from raw clay directly"
+    );
+    let ceramic = registries
+        .storage()
+        .get(STORAGE_FIRED_CERAMIC_PROVISIONS_CROCK)
+        .unwrap();
+    let greenware = CommodityKey::new(MATERIAL_CLAY, FORM_GREENWARE_CROCK);
+    let fired = CommodityKey::new(MATERIAL_CLAY, FORM_FIRED_CROCK);
+    assert_eq!(ceramic.assembly_profile().inputs()[0].commodity(), fired);
+    let firing = registries
+        .thermal()
+        .get_sensible_heating(PROCESS_FIRE_CLAY_CROCK)
+        .and_then(|process| process.firing_conversion())
+        .unwrap();
+    assert_eq!(firing.input(), greenware);
+    assert_eq!(firing.output(), fired);
+    assert!(
+        registries
+            .crafting()
+            .manual_producers(greenware)
+            .next()
+            .is_some(),
+        "the generated-world kiln episode must begin with shaped raw clay"
+    );
+}
 use super::survival_provisioning_policy::{
     DietProvisioningPolicy, diet_provisioning_policy_from_visible_recovery,
 };

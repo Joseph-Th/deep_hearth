@@ -8,13 +8,21 @@ use crate::core::quantity::{Mass, Temperature};
 use crate::energy::{EnergyCarrier, EnergySupplyError, PowerDurationError};
 use crate::equipment::EquipmentProviderError;
 use crate::maintenance::ActiveConditionDurationError;
-use crate::material::MaterialLotSpecError;
+use crate::material::{CommodityKey, MaterialLotSpecError};
 use crate::production::{ProcessId, ProcessInputError, ProcessResolutionError};
 use crate::thermal::PhaseSensibleHeatError;
 
 /// Failure while resolving exact material heating into a startable production outcome.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SensibleHeatingResolutionError {
+    WrongFiringInput {
+        expected: CommodityKey,
+        actual: CommodityKey,
+    },
+    BelowFiringTemperature {
+        required: Temperature,
+        actual: Temperature,
+    },
     UnknownThermalProcess {
         process: ProcessId,
     },
@@ -59,6 +67,18 @@ pub enum SensibleHeatingResolutionError {
 impl Display for SensibleHeatingResolutionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::WrongFiringInput { expected, actual } => write!(
+                formatter,
+                "firing requires commodity {} but selected {}",
+                expected.value(),
+                actual.value()
+            ),
+            Self::BelowFiringTemperature { required, actual } => write!(
+                formatter,
+                "firing requires {} mK but target is {} mK",
+                required.millikelvin(),
+                actual.millikelvin()
+            ),
             Self::UnknownThermalProcess { process } => write!(
                 formatter,
                 "process {} has no sensible-heating resolver definition",
@@ -130,6 +150,7 @@ impl Display for SensibleHeatingResolutionError {
 impl Error for SensibleHeatingResolutionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::WrongFiringInput { .. } | Self::BelowFiringTemperature { .. } => None,
             Self::Input(error) => Some(error),
             Self::Equipment(error) => Some(error),
             Self::Capability(error) => Some(error),
