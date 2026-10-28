@@ -19,7 +19,8 @@ use crate::core::state::AppState;
 use crate::core::time::ControlTick;
 use crate::equipment::{EquipmentId, EquipmentProviderError, resolve_available_equipment_provider};
 use crate::inventory::{
-    ValidatedInboundReservation, validate_inbound_reservation, validate_stockpile_storage,
+    StockpileId, ValidatedInboundReservation, validate_inbound_reservation,
+    validate_stockpile_storage,
 };
 use crate::labor::{
     BlockExcavationOutputCustody, BlockExcavationWork, PlayerWork, PlayerWorkCommitError,
@@ -62,16 +63,33 @@ impl BlockExcavationRequest {
 pub enum BlockExcavationError {
     Target(PlayerBlockTargetError),
     NoTarget,
-    TargetNotExcavatable { target: VoxelCoord },
+    TargetNotExcavatable {
+        target: VoxelCoord,
+    },
     NoActiveEquipment,
-    ActiveSelectionNotEquipment { commodity: CommodityKey },
-    NoApplicableMethod { equipment: EquipmentId },
+    ActiveSelectionNotEquipment {
+        commodity: CommodityKey,
+    },
+    NoApplicableMethod {
+        equipment: EquipmentId,
+    },
     ZeroMass,
-    MassExceedsCell { requested: Mass, available: Mass },
-    UnknownMethod { method: MiningMethodId },
+    MassExceedsCell {
+        requested: Mass,
+        available: Mass,
+    },
+    StorageEnclosureRequiresFloor {
+        target: VoxelCoord,
+        stockpile: StockpileId,
+    },
+    UnknownMethod {
+        method: MiningMethodId,
+    },
     EquipmentAccess(PlayerEquipmentAccessError),
     Equipment(EquipmentProviderError),
-    EquipmentMounted { equipment: EquipmentId },
+    EquipmentMounted {
+        equipment: EquipmentId,
+    },
     Physics(MiningPhysicsError),
     PlayerWork(PlayerWorkStartError),
     EquipmentRevisionExhausted,
@@ -119,6 +137,14 @@ impl Display for BlockExcavationError {
                 "block excavation requests {} mg but the targeted cell contains {} mg",
                 requested.milligrams(),
                 available.milligrams()
+            ),
+            Self::StorageEnclosureRequiresFloor { target, stockpile } => write!(
+                formatter,
+                "cannot remove block at ({},{},{}): storage enclosure {} still rests above it",
+                target.x(),
+                target.y(),
+                target.z(),
+                stockpile.value()
             ),
             Self::UnknownMethod { method } => {
                 write!(formatter, "unknown mining method {}", method.value())
@@ -169,6 +195,7 @@ impl Error for BlockExcavationError {
             | Self::NoApplicableMethod { .. }
             | Self::ZeroMass
             | Self::MassExceedsCell { .. }
+            | Self::StorageEnclosureRequiresFloor { .. }
             | Self::UnknownMethod { .. }
             | Self::EquipmentMounted { .. }
             | Self::EquipmentRevisionExhausted
@@ -183,13 +210,35 @@ impl Error for BlockExcavationError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BlockExcavationCommitError {
-    StaleWorldRevision { expected: u64, actual: u64 },
-    StaleLogisticsRevision { expected: u64, actual: u64 },
-    StaleEquipmentRevision { expected: u64, actual: u64 },
-    StaleInventoryRevision { expected: u64, actual: u64 },
-    StaleSurfaceRevision { expected: u64, actual: u64 },
-    StaleSurfaceIdentity { expected: u32, actual: u32 },
+    StaleWorldRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleEquipmentRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleInventoryRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleSurfaceRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleSurfaceIdentity {
+        expected: u32,
+        actual: u32,
+    },
     TargetChanged,
+    StorageEnclosureRequiresFloor {
+        target: VoxelCoord,
+        stockpile: StockpileId,
+    },
     EquipmentChanged,
     PlayerWork(PlayerWorkCommitError),
 }
@@ -224,6 +273,14 @@ impl Display for BlockExcavationCommitError {
             Self::TargetChanged => {
                 formatter.write_str("block excavation target changed before start")
             }
+            Self::StorageEnclosureRequiresFloor { target, stockpile } => write!(
+                formatter,
+                "block excavation cannot remove floor ({},{},{}): enclosure {} was placed above it",
+                target.x(),
+                target.y(),
+                target.z(),
+                stockpile.value()
+            ),
             Self::EquipmentChanged => {
                 formatter.write_str("block excavation equipment changed before start")
             }
@@ -248,6 +305,7 @@ impl Error for BlockExcavationCommitError {
             | Self::StaleSurfaceRevision { .. }
             | Self::StaleSurfaceIdentity { .. }
             | Self::TargetChanged
+            | Self::StorageEnclosureRequiresFloor { .. }
             | Self::EquipmentChanged => None,
         }
     }
@@ -347,6 +405,14 @@ impl ValidatedPlayerBlockExcavationStart {
         if state.world().block_at(self.work.target()) != Some(self.expected_state) {
             return Err(BlockExcavationCommitError::TargetChanged);
         }
+        if self.work.excavated_mass() == self.work.source_mass_before()
+            && let Some(stockpile) = storage_enclosure_resting_on(state, self.work.target())
+        {
+            return Err(BlockExcavationCommitError::StorageEnclosureRequiresFloor {
+                target: self.work.target(),
+                stockpile,
+            });
+        }
         let Some(equipment) = state.equipment().get_equipment(self.work.equipment()) else {
             return Err(BlockExcavationCommitError::EquipmentChanged);
         };
@@ -411,6 +477,17 @@ fn validate_start_player_block_excavation_targeted(
         return Err(BlockExcavationError::MassExceedsCell {
             requested: request.mass,
             available: source_mass,
+        });
+    }
+    // Direct enclosure placement demands a solid floor. Removing its last represented
+    // milligram must not silently leave a completed storage enclosure suspended in air.
+    // Partial excavation does not remove the collidable supporting cell.
+    if request.mass == source_mass
+        && let Some(stockpile) = storage_enclosure_resting_on(state, target.voxel())
+    {
+        return Err(BlockExcavationError::StorageEnclosureRequiresFloor {
+            target: target.voxel(),
+            stockpile,
         });
     }
     let method = registries.mining().get_method(request.method).ok_or(
@@ -532,5 +609,17 @@ fn validate_start_player_block_excavation_targeted(
         expected_surface_resource_id,
         work,
         player_work,
+    })
+}
+
+/// The stationary index is authoritative for exact-cell enclosure custody. Loose material and
+/// empty ground stockpiles do not require a full-cube terrain floor.
+fn storage_enclosure_resting_on(state: &AppState, floor: VoxelCoord) -> Option<StockpileId> {
+    let above = VoxelCoord::new(floor.x(), floor.y().checked_add(1)?, floor.z());
+    state.logistics().stockpiles_at(above).find(|&id| {
+        state
+            .inventory()
+            .get_stockpile(id)
+            .is_some_and(|stockpile| stockpile.enclosure().is_some())
     })
 }

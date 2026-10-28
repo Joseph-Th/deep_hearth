@@ -287,16 +287,88 @@ fn validate_unchanged_opening_residents(
     Ok(())
 }
 
+/// Common optimistic transaction guard for single-chunk and neighborhood
+/// generation. Both admissions inspect the same owners, so neither route may
+/// commit terrain against stale physical occupancy or reserved custody.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ChunkGenerationCommitGuard {
+    world_revision: u64,
+    surface_revision: u64,
+    logistics_revision: u64,
+    inventory_revision: u64,
+    structure_revision: u64,
+    player_work_revision: u64,
+    opening_residents: Option<[VoxelCoord; 2]>,
+}
+
+impl ChunkGenerationCommitGuard {
+    fn capture(state: &AppState) -> Self {
+        Self {
+            world_revision: state.world().revision(),
+            surface_revision: state.surface().revision(),
+            logistics_revision: state.logistics().revision(),
+            inventory_revision: state.inventory().revision(),
+            structure_revision: state.structures().revision(),
+            player_work_revision: state.player_work().revision(),
+            opening_residents: crate::kobolds::opening_kobold_positions(state),
+        }
+    }
+
+    fn precheck(
+        &self,
+        state: &AppState,
+        chunks: &[WorldChunk],
+    ) -> Result<(), ChunkGenerationCommitError> {
+        let actual = state.world().revision();
+        if actual != self.world_revision {
+            return Err(ChunkGenerationCommitError::StaleWorldRevision {
+                expected: self.world_revision,
+                actual,
+            });
+        }
+        let actual = state.surface().revision();
+        if actual != self.surface_revision {
+            return Err(ChunkGenerationCommitError::StaleSurfaceRevision {
+                expected: self.surface_revision,
+                actual,
+            });
+        }
+        let actual = state.logistics().revision();
+        if actual != self.logistics_revision {
+            return Err(ChunkGenerationCommitError::StaleLogisticsRevision {
+                expected: self.logistics_revision,
+                actual,
+            });
+        }
+        let actual = state.structures().revision();
+        if actual != self.structure_revision {
+            return Err(ChunkGenerationCommitError::StaleStructureRevision {
+                expected: self.structure_revision,
+                actual,
+            });
+        }
+        let actual = state.player_work().revision();
+        if actual != self.player_work_revision {
+            return Err(ChunkGenerationCommitError::StalePlayerWorkRevision {
+                expected: self.player_work_revision,
+                actual,
+            });
+        }
+        let actual = state.inventory().revision();
+        if actual != self.inventory_revision {
+            return Err(ChunkGenerationCommitError::StaleInventoryRevision {
+                expected: self.inventory_revision,
+                actual,
+            });
+        }
+        validate_unchanged_opening_residents(state, self.opening_residents, chunks)
+    }
+}
+
 #[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidatedChunkGeneration {
-    expected_revision: u64,
-    expected_surface_revision: u64,
-    expected_logistics_revision: u64,
-    expected_inventory_revision: u64,
-    expected_structure_revision: u64,
-    expected_player_work_revision: u64,
-    expected_opening_residents: Option<[VoxelCoord; 2]>,
+    guard: ChunkGenerationCommitGuard,
     next_revision: u64,
     profile: WorldGenerationProfile,
     chunk: WorldChunk,
@@ -309,59 +381,14 @@ impl ValidatedChunkGeneration {
     }
 
     pub fn commit(self, state: &mut AppState) -> Result<ChunkCoord, ChunkGenerationCommitError> {
-        let actual = state.world().revision();
-        if actual != self.expected_revision {
-            return Err(ChunkGenerationCommitError::StaleWorldRevision {
-                expected: self.expected_revision,
-                actual,
-            });
-        }
-        let actual_surface_revision = state.surface().revision();
-        if actual_surface_revision != self.expected_surface_revision {
-            return Err(ChunkGenerationCommitError::StaleSurfaceRevision {
-                expected: self.expected_surface_revision,
-                actual: actual_surface_revision,
-            });
-        }
-        let actual_logistics_revision = state.logistics().revision();
-        if actual_logistics_revision != self.expected_logistics_revision {
-            return Err(ChunkGenerationCommitError::StaleLogisticsRevision {
-                expected: self.expected_logistics_revision,
-                actual: actual_logistics_revision,
-            });
-        }
-        let actual_structure_revision = state.structures().revision();
-        if actual_structure_revision != self.expected_structure_revision {
-            return Err(ChunkGenerationCommitError::StaleStructureRevision {
-                expected: self.expected_structure_revision,
-                actual: actual_structure_revision,
-            });
-        }
-        let actual_player_work_revision = state.player_work().revision();
-        if actual_player_work_revision != self.expected_player_work_revision {
-            return Err(ChunkGenerationCommitError::StalePlayerWorkRevision {
-                expected: self.expected_player_work_revision,
-                actual: actual_player_work_revision,
-            });
-        }
-        let actual_inventory_revision = state.inventory().revision();
-        if actual_inventory_revision != self.expected_inventory_revision {
-            return Err(ChunkGenerationCommitError::StaleInventoryRevision {
-                expected: self.expected_inventory_revision,
-                actual: actual_inventory_revision,
-            });
-        }
         let coord = self.chunk.coord();
-        validate_unchanged_opening_residents(
-            state,
-            self.expected_opening_residents,
-            std::slice::from_ref(&self.chunk),
-        )?;
+        self.guard
+            .precheck(state, std::slice::from_ref(&self.chunk))?;
         if state.world().get_chunk(coord).is_some() {
             return Err(ChunkGenerationCommitError::ChunkAppeared { chunk: coord });
         }
         state.world_state_mut().insert_generated_chunks(
-            self.expected_revision,
+            self.guard.world_revision,
             self.next_revision,
             self.profile,
             vec![self.chunk],
@@ -374,13 +401,7 @@ impl ValidatedChunkGeneration {
 #[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidatedPlayerChunkDemand {
-    expected_revision: u64,
-    expected_surface_revision: u64,
-    expected_logistics_revision: u64,
-    expected_inventory_revision: u64,
-    expected_structure_revision: u64,
-    expected_player_work_revision: u64,
-    expected_opening_residents: Option<[VoxelCoord; 2]>,
+    guard: ChunkGenerationCommitGuard,
     next_revision: u64,
     profile: WorldGenerationProfile,
     chunks: Vec<WorldChunk>,
@@ -395,49 +416,7 @@ impl ValidatedPlayerChunkDemand {
         self,
         state: &mut AppState,
     ) -> Result<Vec<ChunkCoord>, ChunkGenerationCommitError> {
-        let actual = state.world().revision();
-        if actual != self.expected_revision {
-            return Err(ChunkGenerationCommitError::StaleWorldRevision {
-                expected: self.expected_revision,
-                actual,
-            });
-        }
-        let actual_surface_revision = state.surface().revision();
-        if actual_surface_revision != self.expected_surface_revision {
-            return Err(ChunkGenerationCommitError::StaleSurfaceRevision {
-                expected: self.expected_surface_revision,
-                actual: actual_surface_revision,
-            });
-        }
-        let actual_logistics_revision = state.logistics().revision();
-        if actual_logistics_revision != self.expected_logistics_revision {
-            return Err(ChunkGenerationCommitError::StaleLogisticsRevision {
-                expected: self.expected_logistics_revision,
-                actual: actual_logistics_revision,
-            });
-        }
-        let actual_structure_revision = state.structures().revision();
-        if actual_structure_revision != self.expected_structure_revision {
-            return Err(ChunkGenerationCommitError::StaleStructureRevision {
-                expected: self.expected_structure_revision,
-                actual: actual_structure_revision,
-            });
-        }
-        let actual_player_work_revision = state.player_work().revision();
-        if actual_player_work_revision != self.expected_player_work_revision {
-            return Err(ChunkGenerationCommitError::StalePlayerWorkRevision {
-                expected: self.expected_player_work_revision,
-                actual: actual_player_work_revision,
-            });
-        }
-        let actual_inventory_revision = state.inventory().revision();
-        if actual_inventory_revision != self.expected_inventory_revision {
-            return Err(ChunkGenerationCommitError::StaleInventoryRevision {
-                expected: self.expected_inventory_revision,
-                actual: actual_inventory_revision,
-            });
-        }
-        validate_unchanged_opening_residents(state, self.expected_opening_residents, &self.chunks)?;
+        self.guard.precheck(state, &self.chunks)?;
         for chunk in &self.chunks {
             if state.world().get_chunk(chunk.coord()).is_some() {
                 return Err(ChunkGenerationCommitError::ChunkAppeared {
@@ -451,7 +430,7 @@ impl ValidatedPlayerChunkDemand {
             .map(WorldChunk::coord)
             .collect::<Vec<_>>();
         state.world_state_mut().insert_generated_chunks(
-            self.expected_revision,
+            self.guard.world_revision,
             self.next_revision,
             self.profile,
             self.chunks,
@@ -487,13 +466,7 @@ pub fn validate_generate_chunk(
     let chunk = build_generated_chunk(registry, profile, coord)?;
     validate_generated_chunk_occupancy(registries, state, profile, &chunk)?;
     Ok(ValidatedChunkGeneration {
-        expected_revision,
-        expected_surface_revision: state.surface().revision(),
-        expected_logistics_revision: state.logistics().revision(),
-        expected_inventory_revision: state.inventory().revision(),
-        expected_structure_revision: state.structures().revision(),
-        expected_player_work_revision: state.player_work().revision(),
-        expected_opening_residents: crate::kobolds::opening_kobold_positions(state),
+        guard: ChunkGenerationCommitGuard::capture(state),
         next_revision,
         profile,
         chunk,
@@ -555,13 +528,7 @@ pub fn validate_generate_player_neighborhood(
         .checked_add(1)
         .unwrap_or_else(|| unreachable!("world headroom check includes player chunk demand"));
     Ok(Some(ValidatedPlayerChunkDemand {
-        expected_revision,
-        expected_surface_revision: state.surface().revision(),
-        expected_logistics_revision: state.logistics().revision(),
-        expected_inventory_revision: state.inventory().revision(),
-        expected_structure_revision: state.structures().revision(),
-        expected_player_work_revision: state.player_work().revision(),
-        expected_opening_residents: crate::kobolds::opening_kobold_positions(state),
+        guard: ChunkGenerationCommitGuard::capture(state),
         next_revision,
         profile,
         chunks,
