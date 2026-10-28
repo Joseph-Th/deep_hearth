@@ -78,7 +78,9 @@ pub struct SurfaceResourceRecord {
     remaining_mass: Mass,
     lifecycle: SurfaceResourceLifecycle,
     created_at: SimulationTick,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     automatic_pickup_delay_started_at: Option<ControlTick>,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     depleted_at: Option<SimulationTick>,
 }
 

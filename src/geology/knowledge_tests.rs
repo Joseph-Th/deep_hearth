@@ -138,6 +138,35 @@ fn knowledge_with_resource_mass(
 }
 
 #[test]
+fn acquired_geological_evidence_requires_explicit_optional_measurements() {
+    let registries = build_registries();
+    let (hardness, hardness_id) = knowledge_with_hardness(
+        GeologicalEvidenceKind::ExcavationSample,
+        vec![estimate(MATERIAL_COPPER, 975_000, 1_000_000)],
+    );
+    let (resource_mass, resource_id) =
+        knowledge_with_resource_mass(resource_band(detailed_resource_resolution(&registries), 1));
+    for observation in [
+        hardness.get_observation(hardness_id).unwrap(),
+        resource_mass.get_observation(resource_id).unwrap(),
+    ] {
+        let encoded = serde_json::to_value(observation).unwrap();
+        assert_eq!(
+            serde_json::from_value::<GeologicalObservationRecord>(encoded.clone()).unwrap(),
+            *observation
+        );
+        for field in ["excavation_hardness", "resource_mass"] {
+            let mut incomplete = encoded.clone();
+            assert!(incomplete.as_object_mut().unwrap().remove(field).is_some());
+            assert!(
+                serde_json::from_value::<GeologicalObservationRecord>(incomplete).is_err(),
+                "omitting {field} must not erase or reset acquired geological evidence"
+            );
+        }
+    }
+}
+
+#[test]
 fn loaded_state_rejects_abundance_precision_no_authored_method_can_emit() {
     let registries = build_registries();
     let mut app = AppState::new();

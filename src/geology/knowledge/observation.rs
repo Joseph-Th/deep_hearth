@@ -81,7 +81,9 @@ pub struct GeologicalObservationRecord {
     pub(in crate::geology) region: VoxelBounds,
     pub(in crate::geology) evidence: GeologicalEvidenceKind,
     pub(in crate::geology) findings: Vec<MaterialAbundanceEstimate>,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     pub(in crate::geology) excavation_hardness: Option<ExcavationHardnessEstimate>,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     pub(in crate::geology) resource_mass: Option<ResourceMassEstimate>,
     pub(in crate::geology) observed_at: SimulationTick,
 }

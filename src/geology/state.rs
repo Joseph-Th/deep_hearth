@@ -167,6 +167,7 @@ pub struct GeologicalDepositRecord {
     pub(super) composition: MaterialComposition,
     pub(super) lifecycle: GeologicalDepositLifecycle,
     pub(super) generated_at: SimulationTick,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     pub(super) depleted_at: Option<SimulationTick>,
 }
 

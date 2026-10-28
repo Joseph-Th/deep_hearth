@@ -18,6 +18,36 @@ use crate::spatial::VoxelCoord;
 use crate::survival::{Vitality, player_record_with_thermal_comfort};
 
 #[test]
+fn surface_drop_pickup_delay_and_depletion_fields_must_be_explicit() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        VoxelCoord::new(0, 0, 0),
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(20_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let id = insert_surface_resource_for_test(&registries, &mut state, spec).unwrap();
+    let resource = state.surface().get(id).unwrap();
+    let encoded = serde_json::to_value(resource).unwrap();
+    assert_eq!(
+        serde_json::from_value::<super::SurfaceResourceRecord>(encoded.clone()).unwrap(),
+        *resource
+    );
+    for field in ["automatic_pickup_delay_started_at", "depleted_at"] {
+        let mut incomplete = encoded.clone();
+        assert!(incomplete.as_object_mut().unwrap().remove(field).is_some());
+        assert!(
+            serde_json::from_value::<super::SurfaceResourceRecord>(incomplete).is_err(),
+            "omitted {field} must not change physical loose-matter history"
+        );
+    }
+}
+
+#[test]
 fn local_drop_only_requires_control_stepping_when_pickup_can_transfer_matter() {
     let registries = build_registries();
     let position = VoxelCoord::new(0, 0, 0);

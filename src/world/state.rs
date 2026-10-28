@@ -523,6 +523,7 @@ impl WorldChunk {
 #[serde(deny_unknown_fields)]
 pub struct WorldState {
     revision: u64,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     generation_profile: Option<WorldGenerationProfile>,
     chunks: Vec<WorldChunk>,
 }

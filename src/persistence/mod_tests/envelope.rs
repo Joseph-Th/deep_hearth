@@ -290,6 +290,7 @@ fn current_schema_requires_explicit_nullable_owner_lifecycle_fields() {
         ("combat", "last_attack_at"),
         ("combat", "prepared"),
         ("kobolds", "colony"),
+        ("world", "generation_profile"),
     ] {
         let mut incomplete = saved.clone();
         assert!(

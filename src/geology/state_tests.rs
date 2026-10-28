@@ -13,6 +13,37 @@ fn bounds() -> VoxelBounds {
 }
 
 #[test]
+fn deposit_depletion_time_must_be_present_even_when_null() {
+    for (mass, lifecycle) in [
+        (
+            Mass::from_milligrams(75),
+            GeologicalDepositLifecycle::Available,
+        ),
+        (Mass::ZERO, GeologicalDepositLifecycle::Depleted),
+    ] {
+        let (state, id) = extraction_state(mass, lifecycle);
+        let record = state.get_deposit(id).unwrap();
+        let encoded = serde_json::to_value(record).unwrap();
+        assert_eq!(
+            serde_json::from_value::<GeologicalDepositRecord>(encoded.clone()).unwrap(),
+            *record
+        );
+        let mut incomplete = encoded;
+        assert!(
+            incomplete
+                .as_object_mut()
+                .unwrap()
+                .remove("depleted_at")
+                .is_some()
+        );
+        assert!(
+            serde_json::from_value::<GeologicalDepositRecord>(incomplete).is_err(),
+            "omitted depletion history cannot change geological continuation"
+        );
+    }
+}
+
+#[test]
 fn loaded_validation_rejects_incoherent_depletion_timeline() {
     let registries = build_registries();
 
