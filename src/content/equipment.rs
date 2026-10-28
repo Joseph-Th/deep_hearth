@@ -88,6 +88,9 @@ pub const EQUIPMENT_COPPER_WOUND_MAGNETIC_SEPARATOR: EquipmentDefinitionId =
 /// First material-backed combat tools, assembled through normal equipment custody.
 pub const EQUIPMENT_WOODEN_CLUB: EquipmentDefinitionId = EquipmentDefinitionId::new(56);
 pub const EQUIPMENT_STONE_SPEAR: EquipmentDefinitionId = EquipmentDefinitionId::new(57);
+pub const EQUIPMENT_FLINT_WOODWORKING_KNIFE: EquipmentDefinitionId = EquipmentDefinitionId::new(58);
+pub const EQUIPMENT_COPPER_HAND_SAW: EquipmentDefinitionId = EquipmentDefinitionId::new(59);
+pub const EQUIPMENT_COPPER_STONE_CHISEL: EquipmentDefinitionId = EquipmentDefinitionId::new(60);
 
 pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
     EquipmentRegistry::new(

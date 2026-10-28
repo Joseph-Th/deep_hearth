@@ -100,6 +100,8 @@ const SETTLED_ADJACENT_LEG_SLOW_TICKS: u64 = 1;
 
 #[path = "wilderness_clay_progression.rs"]
 mod clay_progression;
+#[path = "wilderness_field_tools.rs"]
+mod field_tools;
 #[path = "wilderness_kobold_bulk.rs"]
 mod kobold_bulk;
 #[path = "wilderness_kobold_den.rs"]
@@ -1900,7 +1902,14 @@ pub(super) fn evaluate_generated_wilderness_opening(
     start_profile: WildernessStartProfile,
     camp_goal: WildernessCampGoal,
 ) -> WildernessOpeningReview {
-    evaluate_generated_wilderness_opening_internal(seed, start_profile, camp_goal)
+    let review = evaluate_generated_wilderness_opening_internal(seed, start_profile, camp_goal);
+    if seed == WILDERNESS_WORLD_SEED
+        && start_profile == WildernessStartProfile::Rested
+        && camp_goal == WildernessCampGoal::StayMobile
+    {
+        field_tools::generated_outcrop_supports_earned_flint_knife_copper_saw_and_chisel();
+    }
+    review
 }
 
 fn evaluate_generated_wilderness_opening_internal(

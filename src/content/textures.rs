@@ -201,6 +201,12 @@ pub const OBJECT_IRON_SULFIDE_MATTE: ObjectAppearanceId = ObjectAppearanceId::ne
 pub const OBJECT_COPPER_WOUND_MAGNETIC_SEPARATOR: ObjectAppearanceId = ObjectAppearanceId::new(119);
 pub const OBJECT_WOODEN_CLUB: ObjectAppearanceId = ObjectAppearanceId::new(120);
 pub const OBJECT_STONE_SPEAR: ObjectAppearanceId = ObjectAppearanceId::new(121);
+pub const OBJECT_FLINT_NODULE: ObjectAppearanceId = ObjectAppearanceId::new(122);
+pub const OBJECT_FLINT_CUTTING_HEAD: ObjectAppearanceId = ObjectAppearanceId::new(123);
+pub const OBJECT_FLINT_FLAKES: ObjectAppearanceId = ObjectAppearanceId::new(124);
+pub const OBJECT_FLINT_WOODWORKING_KNIFE: ObjectAppearanceId = ObjectAppearanceId::new(125);
+pub const OBJECT_COPPER_HAND_SAW: ObjectAppearanceId = ObjectAppearanceId::new(126);
+pub const OBJECT_COPPER_STONE_CHISEL: ObjectAppearanceId = ObjectAppearanceId::new(127);
 
 pub(crate) fn build_texture_registry() -> TextureRegistry {
     TextureRegistry::new(

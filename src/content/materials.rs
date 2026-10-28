@@ -35,6 +35,8 @@ pub const MATERIAL_QUARTZ: MaterialId = MaterialId::new(23);
 pub const MATERIAL_LEAD: MaterialId = MaterialId::new(24);
 /// Iron sulfide matte (FeS), recovered from iron precipitation of galena.
 pub const MATERIAL_IRON_SULFIDE: MaterialId = MaterialId::new(25);
+/// Siliceous knappable nodules, distinct from undifferentiated construction stone.
+pub const MATERIAL_FLINT: MaterialId = MaterialId::new(26);
 pub(crate) const COPPER_MELTING_POINT: Temperature = Temperature::from_millikelvin(1_357_770);
 pub(crate) const IRON_MELTING_POINT: Temperature = Temperature::from_millikelvin(1_811_000);
 pub(crate) const TIN_MELTING_POINT: Temperature = Temperature::from_millikelvin(505_080);
@@ -417,6 +419,15 @@ fn register_materials(registry: &mut MaterialRegistry) {
             ),
         ),
         MaterialDefinition::new(
+            MATERIAL_FLINT,
+            "flint",
+            MaterialProperties::new(
+                2_600,
+                ThermalProperties::new(800, None),
+                Some(StructuralProperties::new(120_000, 12_000)),
+            ),
+        ),
+        MaterialDefinition::new(
             MATERIAL_CLAY,
             "clay",
             MaterialProperties::new(1_900, ThermalProperties::new(900, None), None),
@@ -662,6 +673,16 @@ fn register_commodities(registry: &mut MaterialRegistry) {
             "roasted legumes",
         ),
         (CommodityKey::new(MATERIAL_STONE, FORM_LUMP), "stone"),
+        (CommodityKey::new(MATERIAL_FLINT, FORM_LUMP), "flint nodule"),
+        (
+            CommodityKey::new(MATERIAL_FLINT, FORM_TOOL),
+            "knapped flint cutting head",
+        ),
+        (CommodityKey::new(MATERIAL_FLINT, FORM_CHIP), "flint flakes"),
+        (
+            CommodityKey::new(MATERIAL_FLINT, FORM_SCRAP),
+            "worn flint head",
+        ),
         (CommodityKey::new(MATERIAL_STONE, FORM_BLOCK), "stone block"),
         (
             CommodityKey::new(MATERIAL_STONE, FORM_STONE_CROCK_BODY),

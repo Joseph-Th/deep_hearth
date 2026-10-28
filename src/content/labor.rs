@@ -23,7 +23,7 @@ use super::equipment::{
 };
 use super::{
     FORM_CHIP, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, MATERIAL_BERRIES, MATERIAL_CLAY,
-    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WILD_NUTS, MATERIAL_WOOD,
+    MATERIAL_COPPER, MATERIAL_FLINT, MATERIAL_STONE, MATERIAL_WILD_NUTS, MATERIAL_WOOD,
 };
 
 pub const MANUAL_POWER_HAND_CRANK: ManualPowerMethodId = ManualPowerMethodId::new(1);
@@ -41,6 +41,8 @@ pub const SURFACE_GATHERING_HAND_FORAGE_NUTS: SurfaceGatheringMethodId =
     SurfaceGatheringMethodId::new(6);
 pub const SURFACE_GATHERING_HAND_COLLECT_NATIVE_COPPER: SurfaceGatheringMethodId =
     SurfaceGatheringMethodId::new(7);
+pub const SURFACE_GATHERING_HAND_COLLECT_FLINT: SurfaceGatheringMethodId =
+    SurfaceGatheringMethodId::new(8);
 pub const MANUAL_POWER_FOOT_TREADLE: ManualPowerMethodId = ManualPowerMethodId::new(2);
 pub const MANUAL_POWER_WALKING_WHEEL: ManualPowerMethodId = ManualPowerMethodId::new(3);
 pub const MANUAL_POWER_TREADLE_DYNAMO: ManualPowerMethodId = ManualPowerMethodId::new(4);
@@ -147,6 +149,17 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 SurvivalExertion::new(
                     Energy::from_nanojoules(1_200_000_000_000),
                     Volume::from_microliters(300),
+                ),
+            ),
+            SurfaceGatheringDefinition::new(
+                SURFACE_GATHERING_HAND_COLLECT_FLINT,
+                CommodityKey::new(MATERIAL_FLINT, FORM_LUMP),
+                Mass::from_milligrams(1_000_000),
+                Mass::from_milligrams(300_000),
+                TickSpan::new(24),
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(900_000_000_000),
+                    Volume::from_microliters(220),
                 ),
             ),
         ],

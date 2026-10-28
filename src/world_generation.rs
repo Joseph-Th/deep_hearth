@@ -11,7 +11,8 @@ use std::fmt::{Display, Formatter};
 
 use crate::content::{
     FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE, MATERIAL_BERRIES,
-    MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WILD_NUTS, MATERIAL_WOOD,
+    MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_FLINT, MATERIAL_STONE, MATERIAL_WILD_NUTS,
+    MATERIAL_WOOD,
 };
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::AppState;
@@ -54,6 +55,8 @@ const CLAY_VARIATION_MG: u64 = 4_000_000;
 // an early useful result, not enough metal to build a foundry.
 const COPPER_FLOAT_BASE_MG: u64 = 80_000;
 const COPPER_FLOAT_VARIATION_MG: u64 = 40_000;
+const FLINT_BASE_MASS_MG: u64 = 900_000;
+const FLINT_VARIATION_MG: u64 = 600_000;
 // The source of the native-metal float is a finite, hard-rock outcrop seam.
 // A stone pick cannot extract it; a copper-reinforced pick can.
 const COPPER_SEAM_BASE_MG: u64 = 24_000_000;
@@ -653,6 +656,17 @@ pub fn validate_generate_initial_wilderness(
                 COPPER_FLOAT_VARIATION_MG,
             ),
         ),
+        generated_spec(
+            layout.clay,
+            CommodityKey::new(MATERIAL_FLINT, FORM_LUMP),
+            generated_mass(
+                seed,
+                spawn,
+                0x464C_494E_545F_4E44,
+                FLINT_BASE_MASS_MG,
+                FLINT_VARIATION_MG,
+            ),
+        ),
     ];
     let specs = specs
         .into_iter()
@@ -663,7 +677,7 @@ pub fn validate_generate_initial_wilderness(
     let surface_generation = validate_create_surface_resources(registries, state, specs).map_err(
         |error| match error {
             SurfaceResourceCreationError::Empty => {
-                unreachable!("built-in wilderness generation always emits six resources")
+                unreachable!("built-in wilderness generation always emits seven resources")
             }
             SurfaceResourceCreationError::IdExhausted => {
                 InitialWildernessGenerationError::SurfaceIdExhausted

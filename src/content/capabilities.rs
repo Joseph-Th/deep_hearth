@@ -47,6 +47,7 @@ pub(crate) const CAPABILITY_METAL_ABRASIVE_FINISHING_FLOW: CapabilityId = Capabi
 pub(crate) const CAPABILITY_SULFIDE_PRECIPITATION_FLOW: CapabilityId = CapabilityId::new(40);
 pub(crate) const CAPABILITY_MAGNETIC_SEPARATOR_FLOW: CapabilityId = CapabilityId::new(41);
 pub(crate) const CAPABILITY_MAGNETIC_SEPARATOR_BATCH: CapabilityId = CapabilityId::new(42);
+pub(crate) const CAPABILITY_STONE_CHISELING_FLOW: CapabilityId = CapabilityId::new(43);
 
 fn higher_is_better(
     id: CapabilityId,
@@ -268,6 +269,11 @@ pub(crate) fn build_capability_registry() -> CapabilityRegistry {
             CAPABILITY_MAGNETIC_SEPARATOR_BATCH,
             "electromagnetic mineral separator batch capacity",
             CapabilityValueKind::Mass,
+        ),
+        higher_is_better(
+            CAPABILITY_STONE_CHISELING_FLOW,
+            "hand chisel precision stone shaping throughput",
+            CapabilityValueKind::MassFlow,
         ),
     ] {
         registry.register_capability(definition);

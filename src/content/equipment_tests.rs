@@ -15,9 +15,10 @@ use crate::content::capabilities::{
     CAPABILITY_MINING_MAX_BATCH, CAPABILITY_MINING_MAX_HARDNESS,
     CAPABILITY_POWERED_STONE_GRINDING_FLOW, CAPABILITY_POWERED_WOOD_TURNING_FLOW,
     CAPABILITY_SAWING_FLOW, CAPABILITY_SCREEN_BATCH, CAPABILITY_SCREEN_FLOW,
-    CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW, CAPABILITY_STONE_GRINDING_FLOW,
-    CAPABILITY_TREADLE_POWER_OUTPUT, CAPABILITY_WALKING_WHEEL_POWER_OUTPUT,
-    CAPABILITY_WOOD_TURNING_FLOW, CAPABILITY_WOODWORKING_FLOW,
+    CAPABILITY_SEPARATOR_BATCH, CAPABILITY_SEPARATOR_FLOW, CAPABILITY_STONE_CHISELING_FLOW,
+    CAPABILITY_STONE_GRINDING_FLOW, CAPABILITY_TREADLE_POWER_OUTPUT,
+    CAPABILITY_WALKING_WHEEL_POWER_OUTPUT, CAPABILITY_WOOD_TURNING_FLOW,
+    CAPABILITY_WOODWORKING_FLOW,
 };
 use crate::content::materials::{
     FORM_BOARD, FORM_CRUSHER_BLOCK, FORM_CRUSHER_JAW_FACE, FORM_FLYWHEEL, FORM_GRINDSTONE_WHEEL,
@@ -43,6 +44,70 @@ fn failed_thermal_equipment_exposes_no_heat_transfer_capability() {
             None
         );
     }
+}
+
+#[test]
+fn portable_knife_saw_and_chisel_have_distinct_material_capability_and_service_roles() {
+    use crate::core::quantity::MassFlow;
+
+    let registry = build_equipment_registry();
+    for (tool, capability, speed, replaced, mass) in [
+        (
+            EQUIPMENT_FLINT_WOODWORKING_KNIFE,
+            CAPABILITY_WOODWORKING_FLOW,
+            14_000,
+            CommodityKey::new(crate::content::MATERIAL_FLINT, FORM_TOOL),
+            220_000,
+        ),
+        (
+            EQUIPMENT_COPPER_HAND_SAW,
+            CAPABILITY_SAWING_FLOW,
+            15_000,
+            CommodityKey::new(MATERIAL_COPPER, FORM_SAW_BLADE),
+            54_000,
+        ),
+        (
+            EQUIPMENT_COPPER_STONE_CHISEL,
+            CAPABILITY_STONE_CHISELING_FLOW,
+            8_000,
+            CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+            20_000,
+        ),
+    ] {
+        let definition = registry.get_equipment(tool).unwrap();
+        assert!(!definition.requires_structural_support());
+        assert!(definition.mass() < Mass::from_milligrams(500_000));
+        assert_eq!(
+            definition.capabilities().get_capability(capability),
+            Some(CapabilityValue::MassFlow(
+                MassFlow::from_milligrams_per_second(speed)
+            ))
+        );
+        let service = definition.maintenance_profile().unwrap();
+        assert_eq!(service.replacement(), replaced);
+        assert_eq!(
+            service.full_service_replacement_mass(),
+            Mass::from_milligrams(mass)
+        );
+    }
+
+    let saw = registry.get_equipment(EQUIPMENT_COPPER_HAND_SAW).unwrap();
+    let bench = registry
+        .get_equipment(EQUIPMENT_TIMBER_FRAME_SAW_BENCH)
+        .unwrap();
+    assert_eq!(
+        saw.capabilities()
+            .get_capability(CAPABILITY_WOODWORKING_FLOW),
+        None,
+        "hand sawing should not masquerade as general-purpose hewing"
+    );
+    assert_eq!(
+        bench.capabilities().get_capability(CAPABILITY_SAWING_FLOW),
+        Some(CapabilityValue::MassFlow(
+            MassFlow::from_milligrams_per_second(40_000)
+        )),
+        "an installed sawbench must retain a substantial throughput advantage"
+    );
 }
 
 #[test]

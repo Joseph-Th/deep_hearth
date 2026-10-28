@@ -3,8 +3,8 @@
 use crate::content::{
     BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS, BLOCK_STATE_STONE,
     FLUID_WATER, FORM_BOARD, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE,
-    FORM_ROUGH_BOX_BODY, MATERIAL_BERRIES, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_STONE,
-    MATERIAL_WILD_NUTS, MATERIAL_WOOD, STORAGE_ROUGH_TIMBER_FIELD_BOX,
+    FORM_ROUGH_BOX_BODY, MATERIAL_BERRIES, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_FLINT,
+    MATERIAL_STONE, MATERIAL_WILD_NUTS, MATERIAL_WOOD, STORAGE_ROUGH_TIMBER_FIELD_BOX,
     STRUCTURAL_PROFILE_AXIAL_COMPRESSION, build_registries,
 };
 use crate::core::quantity::{Mass, Pressure, Temperature, Volume};
@@ -911,7 +911,7 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
 
     let layout = generated_opening_layout(seed, spawn);
     let profile = generated_profile(&first);
-    assert_eq!(profile.len(), 6);
+    assert_eq!(profile.len(), 7);
     assert_eq!(
         first.logistics().traversable_edges().count(),
         INITIAL_WILDERNESS_ACCESS_EDGES
@@ -984,6 +984,12 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
         "first native copper must be a finite, smaller-than-foundry natural float"
     );
     assert!(
+        (Mass::from_milligrams(FLINT_BASE_MASS_MG)
+            ..=Mass::from_milligrams(FLINT_BASE_MASS_MG + FLINT_VARIATION_MG))
+            .contains(&mass_for(CommodityKey::new(MATERIAL_FLINT, FORM_LUMP))),
+        "the field knife's flint must be a finite discoverable nodule source"
+    );
+    assert!(
         (Mass::from_milligrams(TIMBER_BASE_MASS_MG)
             ..=Mass::from_milligrams(TIMBER_BASE_MASS_MG + TIMBER_VARIATION_MG))
             .contains(&mass_for(CommodityKey::new(MATERIAL_WOOD, FORM_LOG)))
@@ -1023,6 +1029,11 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
         position_for(CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL)),
         layout.clay,
         "the copper find shares a visible outcrop with clay, but must keep its own resource identity"
+    );
+    assert_eq!(
+        position_for(CommodityKey::new(MATERIAL_FLINT, FORM_LUMP)),
+        layout.clay,
+        "flint should be an independent resource at the visited outcrop, not starting stock"
     );
     let seam = first
         .geology()

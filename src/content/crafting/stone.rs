@@ -6,7 +6,9 @@ use crate::crafting::{ManualCraftDefinition, ManualCraftEquipmentProfile, Manual
 use crate::material::CommodityKey;
 use crate::survival::SurvivalExertion;
 
-use crate::content::capabilities::CAPABILITY_STONE_GRINDING_FLOW;
+use crate::content::capabilities::{
+    CAPABILITY_STONE_CHISELING_FLOW, CAPABILITY_STONE_GRINDING_FLOW,
+};
 use crate::content::crafted_parts::{
     STONE_CRUSHER_BLOCK_MASS, STONE_CRUSHER_JAW_FACE_MASS, STONE_DRAWPLATE_MASS,
     STONE_DRILL_BIT_MASS, STONE_FLYWHEEL_MASS, STONE_GRINDSTONE_WHEEL_MASS,
@@ -15,11 +17,12 @@ use crate::content::crafted_parts::{
 use crate::content::materials::{
     FORM_CHIP, FORM_CRUSHER_BLOCK, FORM_CRUSHER_JAW_FACE, FORM_DRAWPLATE, FORM_DRILL_BIT,
     FORM_FLYWHEEL, FORM_GRINDSTONE_WHEEL, FORM_LUMP, FORM_SCRAP, FORM_STONE_CROCK_BODY, FORM_TOOL,
-    MATERIAL_STONE,
+    MATERIAL_FLINT, MATERIAL_STONE,
 };
 use crate::content::processes::{
-    PROCESS_DRESS_STONE_CHIP_DRILL_BIT, PROCESS_GRIND_STONE_SCRAP_DRILL_BIT,
-    PROCESS_GRIND_STONE_SCRAP_TOOL, PROCESS_KNAP_STONE_CRUSHER_JAW_FACE,
+    PROCESS_CHISEL_STONE_PROVISIONS_CROCK, PROCESS_DRESS_STONE_CHIP_DRILL_BIT,
+    PROCESS_GRIND_STONE_SCRAP_DRILL_BIT, PROCESS_GRIND_STONE_SCRAP_TOOL,
+    PROCESS_KNAP_FLINT_CUTTING_HEAD, PROCESS_KNAP_STONE_CRUSHER_JAW_FACE,
     PROCESS_KNAP_STONE_DRILL_BIT, PROCESS_KNAP_STONE_TOOL, PROCESS_REKNAP_STONE_SCRAP_TOOL,
     PROCESS_SALVAGE_STONE_PROVISIONS_CROCK_BODY, PROCESS_SHAPE_STONE_CRUSHER_BLOCK,
     PROCESS_SHAPE_STONE_DRAWPLATE, PROCESS_SHAPE_STONE_FLYWHEEL,
@@ -27,7 +30,7 @@ use crate::content::processes::{
     PROCESS_SORT_AND_KNAP_STONE_CHIP_TOOL,
 };
 
-pub(super) fn definitions() -> [ManualCraftDefinition; 14] {
+pub(super) fn definitions() -> [ManualCraftDefinition; 16] {
     [
         knap_stone_tool(),
         sort_and_knap_stone_chip_tool(),
@@ -43,7 +46,56 @@ pub(super) fn definitions() -> [ManualCraftDefinition; 14] {
         shape_stone_drawplate(),
         shape_stone_provisions_crock(),
         salvage_stone_provisions_crock_body(),
+        knap_flint_cutting_head(),
+        chisel_stone_provisions_crock(),
     ]
+}
+
+/// Produces a compact working edge and real flake residue from a finite nodule.
+fn knap_flint_cutting_head() -> ManualCraftDefinition {
+    ManualCraftDefinition::new(
+        PROCESS_KNAP_FLINT_CUTTING_HEAD,
+        CommodityKey::new(MATERIAL_FLINT, FORM_LUMP),
+        Mass::from_milligrams(300_000),
+        TickSpan::new(30),
+        stone_exertion(),
+        vec![
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_FLINT, FORM_TOOL),
+                Mass::from_milligrams(220_000),
+            ),
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_FLINT, FORM_CHIP),
+                Mass::from_milligrams(80_000),
+            ),
+        ],
+    )
+}
+
+/// A copper chisel expedites an existing stone-crock project without free material
+/// recovery; a player still has to collect three kilograms of stone.
+fn chisel_stone_provisions_crock() -> ManualCraftDefinition {
+    ManualCraftDefinition::new(
+        PROCESS_CHISEL_STONE_PROVISIONS_CROCK,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(3_000_000),
+        TickSpan::new(110),
+        stone_exertion(),
+        vec![
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_STONE_CROCK_BODY),
+                STONE_PROVISIONS_CROCK_BODY_MASS,
+            ),
+            ManualCraftOutput::new(
+                CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+                Mass::from_milligrams(600_000),
+            ),
+        ],
+    )
+    .with_equipment_profile(ManualCraftEquipmentProfile::new_required(
+        CAPABILITY_STONE_CHISELING_FLOW,
+        5_000,
+    ))
 }
 
 /// Salvages useful large flakes from excavation debris. Intact stone remains quicker to work,

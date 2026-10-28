@@ -111,6 +111,8 @@ pub const PROCESS_HAND_PICK_HEMATITE: ProcessId = ProcessId::new(95);
 pub const PROCESS_REGRIND_HEMATITE_PICKING_TAILINGS: ProcessId = ProcessId::new(96);
 pub const PROCESS_SCAVENGE_HEMATITE_TAILINGS: ProcessId = ProcessId::new(97);
 pub const PROCESS_CLEAN_HEMATITE_CONCENTRATE: ProcessId = ProcessId::new(98);
+pub const PROCESS_KNAP_FLINT_CUTTING_HEAD: ProcessId = ProcessId::new(99);
+pub const PROCESS_CHISEL_STONE_PROVISIONS_CROCK: ProcessId = ProcessId::new(100);
 
 mod chemical;
 mod fabrication;

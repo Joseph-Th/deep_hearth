@@ -8,6 +8,7 @@ use crate::content::materials::{FORM_REINFORCEMENT, MATERIAL_COPPER};
 
 mod combat;
 mod dressing;
+mod field_tools;
 mod fieldwork;
 mod foundry;
 mod metalworking;
@@ -20,6 +21,9 @@ mod woodworking;
 
 pub(super) fn definitions() -> Vec<EquipmentDefinition> {
     vec![
+        field_tools::flint_woodworking_knife(),
+        field_tools::copper_hand_saw(),
+        field_tools::copper_stone_chisel(),
         combat::wooden_club(),
         combat::stone_spear(),
         dressing::stone_cobbing_hammer(),
