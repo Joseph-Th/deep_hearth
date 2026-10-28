@@ -126,7 +126,10 @@ Standard stone-terrain chunks may also generate one deterministic, seed-position
 record when its supporting ground and two-cell trunk are free. The world owner persists these
 sorted roots in an ordered spatial index (serialized as canonical arrays with duplicate-strict
 loading), treats trunk cells as solid for movement, interaction occlusion and construction,
-and refuses chunk generation that would intersect an admitted actor or embodied infrastructure.
+and refuses chunk generation that would intersect an admitted actor or any embodied
+structural member, including narrow posts that do not block an entire movement cell.
+Inert structural plans do not occupy a trunk cell. The same physical-material clearance
+applies to sapling relocation and trusted-load validation.
 Standing wood grows as a four-stage lazy elapsed-time projection: 4 kg/year for juveniles,
 18 kg/year for saplings, 40 kg/year for pole trees and 22 kg/year approaching maturity,
 up to 1,600 kg dry wood. Stage boundaries are computed in integer time without per-tick

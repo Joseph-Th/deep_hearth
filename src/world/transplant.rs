@@ -160,7 +160,7 @@ fn destination_clear(registries: &Registries, state: &AppState, root: VoxelCoord
     [root, VoxelCoord::new(root.x(), head_y, root.z())]
         .into_iter()
         .all(|voxel| {
-            !state.structures().blocks_full_cell(voxel)
+            !state.structures().has_embodied_member_at(voxel)
                 && !state.logistics().has_stationary_occupant_at(voxel)
                 && state
                     .surface()

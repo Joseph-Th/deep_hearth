@@ -141,6 +141,14 @@ impl StructureState {
         })
     }
 
+    /// Any embodied member occupies physical space here, including narrow posts that
+    /// do not block an entire movement cell. Inert plans have no physical volume.
+    #[must_use]
+    pub(crate) fn has_embodied_member_at(&self, voxel: VoxelCoord) -> bool {
+        self.elements_covering(voxel)
+            .any(|element| !element.embodied_material().is_empty())
+    }
+
     /// Conservative local broadphase for a shortest voxel route. A full-cell
     /// member anywhere inside the closed endpoint box may force a detour.
     /// Callers still resolve the actual open path; this indexed query lets
@@ -177,10 +185,7 @@ impl StructureState {
             .voxel_count()
             .is_some_and(|count| count <= MAX_INDEXED_INTERSECTION_VOXELS)
         {
-            return occupied_voxels(bounds).any(|voxel| {
-                self.elements_covering(voxel)
-                    .any(|element| !element.embodied_material().is_empty())
-            });
+            return occupied_voxels(bounds).any(|voxel| self.has_embodied_member_at(voxel));
         }
         self.elements_intersecting_horizontal_columns(
             bounds.min().x(),

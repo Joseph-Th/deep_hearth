@@ -598,7 +598,7 @@ fn validate_generated_chunk_occupancy(
             if crate::logistics::player_body_occupies_voxel(registries, state, voxel)
                 || crate::kobolds::opening_kobold_occupies_voxel(state, voxel)
                 || crate::kobolds::temple_caste_occupies_voxel(registries, state, voxel)
-                || state.structures().blocks_full_cell(voxel)
+                || state.structures().has_embodied_member_at(voxel)
                 || state.logistics().has_stationary_occupant_at(voxel)
                 || state
                     .surface()
@@ -953,7 +953,7 @@ pub(crate) fn first_solid_block_in_structural_bounds(
     }
     state
         .world()
-        .chunks()
+        .chunks_intersecting_horizontal_bounds(bounds)
         .find_map(|chunk| first_solid_block_intersecting_bounds(registries.world(), chunk, bounds))
 }
 

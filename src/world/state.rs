@@ -622,6 +622,28 @@ impl WorldState {
         self.chunks.iter()
     }
 
+    /// Generated columns intersecting a physical horizontal footprint, in canonical order.
+    /// Chunk identity is sorted by x then z, so bound the x range by binary search
+    /// rather than scanning distant columns for each structural construction request.
+    pub(crate) fn chunks_intersecting_horizontal_bounds(
+        &self,
+        bounds: crate::spatial::VoxelBounds,
+    ) -> impl Iterator<Item = &WorldChunk> {
+        let first_x = bounds.min().x().div_euclid(CHUNK_SIDE_I64);
+        let last_x = (bounds.max_exclusive().x() - 1).div_euclid(CHUNK_SIDE_I64);
+        let first_z = bounds.min().z().div_euclid(CHUNK_SIDE_I64);
+        let last_z = (bounds.max_exclusive().z() - 1).div_euclid(CHUNK_SIDE_I64);
+        let from = self
+            .chunks
+            .partition_point(|chunk| chunk.coord().x() < first_x);
+        let to = self
+            .chunks
+            .partition_point(|chunk| chunk.coord().x() <= last_x);
+        self.chunks[from..to]
+            .iter()
+            .filter(move |chunk| (first_z..=last_z).contains(&chunk.coord().z()))
+    }
+
     /// Standing trees are indexed by root location, not repeatedly scanned as block entities.
     pub fn trees(&self) -> impl Iterator<Item = &TreeRecord> {
         self.trees.values()

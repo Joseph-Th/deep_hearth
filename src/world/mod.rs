@@ -81,6 +81,14 @@ mod transplant_tests;
 mod tree_chopping_tests;
 
 #[cfg(test)]
+#[path = "tree_occupancy_tests.rs"]
+mod tree_occupancy_tests;
+
+#[cfg(test)]
+#[path = "chunk_query_tests.rs"]
+mod chunk_query_tests;
+
+#[cfg(test)]
 #[path = "temple_tests.rs"]
 mod temple_tests;
 
