@@ -74,7 +74,9 @@ impl Error for SensibleCoolingBatchError {
         match self {
             Self::Heat(error) => Some(error),
             Self::Output(error) => Some(error),
-            _ => None,
+            Self::WrongCommodity { .. }
+            | Self::InputNotHotter { .. }
+            | Self::ArithmeticOverflow => None,
         }
     }
 }

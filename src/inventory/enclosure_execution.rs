@@ -1,5 +1,6 @@
 //! Material-backed construction of preservation enclosures around existing stockpiles.
 
+use crate::core::quantity::Temperature;
 use crate::core::state::AppState;
 use crate::logistics::{
     ValidatedGroundStockpileAllocation, validate_allocate_player_ground_stockpile_at,
@@ -229,6 +230,9 @@ pub fn validate_place_player_storage(
 impl ValidatedStorageEnclosureConstruction {
     /// Transfers the exact selected construction matter into persistent enclosure ownership.
     pub fn commit(self, state: &mut AppState) -> Result<(), StorageEnclosureCommitError> {
+        if state.player_work().active().is_some() {
+            return Err(StorageEnclosureCommitError::PlayerBecameBusy);
+        }
         let actual_revision = state.inventory().revision();
         if actual_revision != self.expected_inventory_revision {
             return Err(StorageEnclosureCommitError::StaleInventoryRevision {
@@ -305,6 +309,9 @@ pub fn validate_build_storage_enclosure(
 ) -> Result<ValidatedStorageEnclosureConstruction, StorageEnclosureConstructionError> {
     let player_action = validate_optional_player_action(state)
         .map_err(|_| StorageEnclosureConstructionError::PlayerDead)?;
+    if state.player_work().active().is_some() {
+        return Err(StorageEnclosureConstructionError::PlayerBusy);
+    }
     let definition_record = registries
         .storage()
         .get(definition)
@@ -337,6 +344,7 @@ pub fn validate_build_storage_enclosure(
     validate_enclosure_target(definition_record, target_record, target, required_profile)?;
     validate_world_location(registries, state, target, source)?;
     let selection = select_enclosure_material(state, definition_record, source)?;
+    validate_enclosure_material_temperature(&selection)?;
     let next_profile = definition_record.storage_profile();
     validate_enclosure_contents(
         registries,
@@ -379,6 +387,28 @@ pub fn validate_build_storage_enclosure(
     })
 }
 
+/// Ordinary construction in generated world truth requires a collidable floor. Controlled
+/// ungenerated-space stockpiles have no physical terrain authority yet.
+fn generated_enclosure_has_ground_support(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+) -> bool {
+    if state.world().block_at(position).is_none() {
+        return true;
+    }
+    position
+        .y()
+        .checked_sub(1)
+        .and_then(|y| {
+            state
+                .world()
+                .block_at(VoxelCoord::new(position.x(), y, position.z()))
+        })
+        .and_then(|block| registries.world().block_for_state(block))
+        .is_some_and(|block| block.collision() == crate::world::BlockCollisionShape::FullCube)
+}
+
 fn validate_world_location(
     registries: &Registries,
     state: &AppState,
@@ -409,6 +439,11 @@ fn validate_world_location(
     }
     if enclosure_position_is_solid(registries, state, target_position) {
         return Err(StorageEnclosureConstructionError::GeneratedSolidTerrain {
+            position: target_position,
+        });
+    }
+    if !generated_enclosure_has_ground_support(registries, state, target_position) {
+        return Err(StorageEnclosureConstructionError::UnsupportedFloor {
             position: target_position,
         });
     }
@@ -468,6 +503,29 @@ fn validate_enclosure_target(
                 reserved: target_record.reserved_inbound(),
             },
         );
+    }
+    Ok(())
+}
+
+/// Selected stockpile cohorts must cool below the future enclosure's safe
+/// storage temperature before being assembled into a body.
+fn validate_enclosure_material_temperature(
+    selection: &ConsumptionSelection,
+) -> Result<(), StorageEnclosureConstructionError> {
+    // The container's *contents* limit is not the same as the admissible
+    // temperature of a warm body that is fully consumed during assembly.
+    let maximum = Temperature::from_millikelvin(353_150);
+    for trace in selection.consumed_inputs() {
+        let temperature = trace.profile().temperature();
+        if temperature > maximum {
+            return Err(
+                StorageEnclosureConstructionError::ConstructionMaterialTooHot {
+                    commodity: trace.profile().commodity(),
+                    temperature,
+                    maximum,
+                },
+            );
+        }
     }
     Ok(())
 }

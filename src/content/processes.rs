@@ -117,6 +117,10 @@ pub const PROCESS_SHAPE_CLAY_GREENWARE_CROCK: ProcessId = ProcessId::new(101);
 pub const PROCESS_FIRE_CLAY_CROCK: ProcessId = ProcessId::new(102);
 pub const PROCESS_CRUSH_BROKEN_CERAMIC_CROCK: ProcessId = ProcessId::new(103);
 pub const PROCESS_COOL_FIRED_CLAY_CROCK: ProcessId = ProcessId::new(104);
+pub const PROCESS_SHAPE_CLAY_INGOT_MOLD: ProcessId = ProcessId::new(105);
+pub const PROCESS_FIRE_CLAY_INGOT_MOLD: ProcessId = ProcessId::new(106);
+pub const PROCESS_COOL_FIRED_CLAY_INGOT_MOLD: ProcessId = ProcessId::new(107);
+pub const PROCESS_CRUSH_CERAMIC_INGOT_MOLD: ProcessId = ProcessId::new(108);
 
 mod chemical;
 mod fabrication;

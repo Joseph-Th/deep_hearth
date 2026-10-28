@@ -10,13 +10,24 @@ use super::super::capabilities::{
 use super::{
     PROCESS_CAST_IRON_INGOT, PROCESS_CAST_LEAD_INGOT, PROCESS_CAST_PURE_COPPER,
     PROCESS_CAST_TIN_INGOT, PROCESS_CAST_ZINC_INGOT, PROCESS_COOL_FIRED_CLAY_CROCK,
-    PROCESS_FIRE_CLAY_CROCK, PROCESS_HEAT_MATERIAL_BATCH, PROCESS_MELT_PURE_COPPER,
-    PROCESS_MELT_RECYCLED_IRON, PROCESS_MELT_RECYCLED_LEAD, PROCESS_MELT_RECYCLED_TIN,
-    PROCESS_MELT_RECYCLED_ZINC, thermal_resolver_requirements,
+    PROCESS_COOL_FIRED_CLAY_INGOT_MOLD, PROCESS_FIRE_CLAY_CROCK, PROCESS_FIRE_CLAY_INGOT_MOLD,
+    PROCESS_HEAT_MATERIAL_BATCH, PROCESS_MELT_PURE_COPPER, PROCESS_MELT_RECYCLED_IRON,
+    PROCESS_MELT_RECYCLED_LEAD, PROCESS_MELT_RECYCLED_TIN, PROCESS_MELT_RECYCLED_ZINC,
+    thermal_resolver_requirements,
 };
 
-pub(super) fn definitions() -> [ProcessDefinition; 13] {
+pub(super) fn definitions() -> [ProcessDefinition; 15] {
     [
+        ProcessDefinition::new(
+            PROCESS_COOL_FIRED_CLAY_INGOT_MOLD,
+            "cool fired ceramic casting mold against a finite heat sink",
+            thermal_resolver_requirements(CAPABILITY_KILN_COOLING_POWER),
+        ),
+        ProcessDefinition::new(
+            PROCESS_FIRE_CLAY_INGOT_MOLD,
+            "fire shaped clay ingot mold in a fueled pit kiln",
+            thermal_resolver_requirements(CAPABILITY_KILN_HEATING_POWER),
+        ),
         ProcessDefinition::new(
             PROCESS_COOL_FIRED_CLAY_CROCK,
             "cool fired clay crock on stone heat bed",

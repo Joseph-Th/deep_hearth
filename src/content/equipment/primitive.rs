@@ -73,6 +73,7 @@ pub(super) fn definitions() -> Vec<EquipmentDefinition> {
         foundry::stone_arc_crucible_furnace(),
         foundry::four_pot_arc_crucible_furnace(),
         foundry::stone_ingot_mold(),
+        foundry::fired_ceramic_ingot_mold(),
         foundry::stone_pit_kiln(),
         foundry::clay_faced_stone_casting_bed(),
         foundry::four_cavity_stone_ingot_mold(),

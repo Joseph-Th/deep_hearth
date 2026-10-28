@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::Mass;
+use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
 use crate::inventory::{
     StockpileId, StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedMaterialEgress,
@@ -40,6 +40,11 @@ pub enum EquipmentAssemblyError {
         commodity: CommodityKey,
         available: Mass,
         required: Mass,
+    },
+    AssemblyMaterialTooHot {
+        commodity: CommodityKey,
+        temperature: Temperature,
+        maximum: Temperature,
     },
     SourceMassOverflow {
         stockpile: StockpileId,
@@ -91,6 +96,16 @@ impl Display for EquipmentAssemblyError {
                 commodity.value(),
                 required.milligrams()
             ),
+            Self::AssemblyMaterialTooHot {
+                commodity,
+                temperature,
+                maximum,
+            } => write!(
+                formatter,
+                "equipment assembly material {commodity:?} is {} mK, above safe {} mK; cool it first",
+                temperature.millikelvin(),
+                maximum.millikelvin(),
+            ),
             Self::SourceMassOverflow { stockpile } => write!(
                 formatter,
                 "assembly source {} mass accounting overflowed",
@@ -135,6 +150,7 @@ impl Error for EquipmentAssemblyError {
                 available: _,
                 required: _,
             }
+            | Self::AssemblyMaterialTooHot { .. }
             | Self::SourceMassOverflow { stockpile: _ }
             | Self::StaleInventorySelection {
                 expected: _,
@@ -317,6 +333,19 @@ pub fn validate_assemble_equipment(
                 EquipmentAssemblyError::SourceMassOverflow { stockpile }
             }
         })?;
+    // Ordinary handling and assembly cannot safely use a kiln-hot solid.
+    // The exact selected thermal cohorts, not merely the commodity label,
+    // decide whether a body has completed its required cooling.
+    let safe_temperature = Temperature::from_millikelvin(353_150);
+    for trace in selection.consumed_inputs() {
+        if trace.profile().temperature() > safe_temperature {
+            return Err(EquipmentAssemblyError::AssemblyMaterialTooHot {
+                commodity: trace.profile().commodity(),
+                temperature: trace.profile().temperature(),
+                maximum: safe_temperature,
+            });
+        }
+    }
     let embodied_material = selection.consumed_inputs().to_vec();
     let egress =
         validate_material_egress_from_selection(state.inventory(), selection).map_err(|error| {

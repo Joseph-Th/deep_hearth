@@ -7,8 +7,8 @@ use crate::core::state::{AppState, validate_loaded_state};
 use crate::energy::{validate_assemble_energy_store, validate_combust_fuel};
 use crate::equipment::validate_assemble_equipment;
 use crate::inventory::{
-    MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test,
-    validate_build_storage_enclosure,
+    MaterialLotSelection, StorageEnclosureConstructionError, add_solid_stockpile_for_test,
+    deposit_lot_for_test, validate_build_storage_enclosure,
 };
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
@@ -232,6 +232,26 @@ fn dry_clay_greenware_requires_a_hot_fueled_kiln_and_fires_without_creating_matt
         baseline
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let storage_body_limit = Temperature::from_millikelvin(353_150);
+    let before_hot_assembly = state.clone();
+    assert_eq!(
+        validate_build_storage_enclosure(
+            &registries,
+            &state,
+            STORAGE_FIRED_CERAMIC_PROVISIONS_CROCK,
+            empty_provisions_store,
+            destination,
+        )
+        .err(),
+        Some(
+            StorageEnclosureConstructionError::ConstructionMaterialTooHot {
+                commodity: fired,
+                temperature: firing_temperature,
+                maximum: storage_body_limit,
+            }
+        )
+    );
+    assert_eq!(state, before_hot_assembly);
     // Greenware must cool through actual heat custody before its body is
     // installed in a provisions enclosure; a timer alone would erase energy.
     let hot_crock = [MaterialLotSelection::new(fired_lot_id, mass)];

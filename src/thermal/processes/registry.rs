@@ -29,11 +29,7 @@ pub struct SensibleCoolingProcessDefinition {
     process: ProcessId,
     commodity: CommodityKey,
     target_temperature: Temperature,
-    cooling_power_capability: CapabilityId,
-    max_temperature_capability: CapabilityId,
-    max_batch_mass_capability: CapabilityId,
-    energy_carrier: EnergyCarrier,
-    condition_wear_ppm_per_active_tick: u32,
+    profile: PhaseChangeProcessProfile,
 }
 
 impl SensibleCoolingProcessDefinition {
@@ -42,23 +38,14 @@ impl SensibleCoolingProcessDefinition {
         process: ProcessId,
         commodity: CommodityKey,
         target_temperature: Temperature,
-        cooling_power_capability: CapabilityId,
-        max_temperature_capability: CapabilityId,
-        max_batch_mass_capability: CapabilityId,
-        energy_carrier: EnergyCarrier,
-        condition_wear_ppm_per_active_tick: u32,
+        profile: PhaseChangeProcessProfile,
     ) -> Self {
-        assert_valid_condition_wear_ppm_per_tick(condition_wear_ppm_per_active_tick);
         assert!(target_temperature.millikelvin() > 0);
         Self {
             process,
             commodity,
             target_temperature,
-            cooling_power_capability,
-            max_temperature_capability,
-            max_batch_mass_capability,
-            energy_carrier,
-            condition_wear_ppm_per_active_tick,
+            profile,
         }
     }
     #[must_use]
@@ -75,23 +62,23 @@ impl SensibleCoolingProcessDefinition {
     }
     #[must_use]
     pub const fn cooling_power_capability(self) -> CapabilityId {
-        self.cooling_power_capability
+        self.profile.transfer_power_capability()
     }
     #[must_use]
     pub const fn max_temperature_capability(self) -> CapabilityId {
-        self.max_temperature_capability
+        self.profile.max_temperature_capability()
     }
     #[must_use]
     pub const fn max_batch_mass_capability(self) -> CapabilityId {
-        self.max_batch_mass_capability
+        self.profile.max_batch_mass_capability()
     }
     #[must_use]
     pub const fn energy_carrier(self) -> EnergyCarrier {
-        self.energy_carrier
+        self.profile.energy_carrier()
     }
     #[must_use]
     pub const fn condition_wear_ppm_per_active_tick(self) -> u32 {
-        self.condition_wear_ppm_per_active_tick
+        self.profile.condition_wear_ppm_per_active_tick()
     }
 }
 

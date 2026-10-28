@@ -115,7 +115,13 @@ impl Error for SensibleCoolingResolutionError {
             Self::Duration(error) => Some(error),
             Self::ConditionDuration(error) => Some(error),
             Self::Resolution(error) => Some(error),
-            _ => None,
+            Self::UnknownThermalProcess { .. }
+            | Self::MissingCoolingPower { .. }
+            | Self::MissingMaximumTemperature { .. }
+            | Self::MissingMaximumBatchMass { .. }
+            | Self::BatchMassExceedsEquipmentCapacity { .. }
+            | Self::InputTemperatureExceedsEquipmentMaximum { .. }
+            | Self::WrongEnergyCarrier { .. } => None,
         }
     }
 }
@@ -216,7 +222,22 @@ impl Error for SensibleCoolingJobValidationError {
             Self::Duration { error, .. } => Some(error),
             Self::ConditionDuration { error, .. } => Some(error),
             Self::Batch { error, .. } => Some(error),
-            _ => None,
+            Self::UnexpectedConsumedEnergy { .. }
+            | Self::MissingReleasedEnergy { .. }
+            | Self::MissingEquipmentProvider { .. }
+            | Self::UnknownEquipmentDefinition { .. }
+            | Self::UnknownEnergyDefinition { .. }
+            | Self::MissingCoolingPower { .. }
+            | Self::MissingMaximumTemperature { .. }
+            | Self::MissingMaximumBatchMass { .. }
+            | Self::BatchMassExceedsEquipmentCapacity { .. }
+            | Self::InputTemperatureExceedsEquipmentMaximum { .. }
+            | Self::WrongEnergyCarrier { .. }
+            | Self::EnergyMismatch { .. }
+            | Self::DurationMismatch { .. }
+            | Self::MissingEquipmentConditionOutcome { .. }
+            | Self::EquipmentConditionMismatch { .. }
+            | Self::OutputMismatch { .. } => None,
         }
     }
 }

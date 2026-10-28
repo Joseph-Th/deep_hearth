@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::Mass;
+use crate::core::quantity::{Mass, Temperature};
 use crate::inventory::{
     MaterialLotId, StockpileId, StockpileStorageError, StockpileStorageProfile,
     StockpileStructuralLoadError, StorageDefinitionId,
@@ -20,6 +20,7 @@ use crate::structural::{StructuralCommitError, StructuralElementId};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StorageEnclosureConstructionError {
     PlayerDead,
+    PlayerBusy,
     UnknownDefinition {
         definition: StorageDefinitionId,
     },
@@ -56,6 +57,9 @@ pub enum StorageEnclosureConstructionError {
     GeneratedSolidTerrain {
         position: VoxelCoord,
     },
+    UnsupportedFloor {
+        position: VoxelCoord,
+    },
     TargetBusyStorageDismantling {
         stockpile: StockpileId,
     },
@@ -85,6 +89,11 @@ pub enum StorageEnclosureConstructionError {
     },
     SourceMassOverflow {
         stockpile: StockpileId,
+    },
+    ConstructionMaterialTooHot {
+        commodity: CommodityKey,
+        temperature: Temperature,
+        maximum: Temperature,
     },
     InventoryRevisionExhausted,
     StructuralLoad(StockpileStructuralLoadError),
@@ -195,7 +204,20 @@ impl Error for PlayerStoragePlacementCommitError {
 impl Display for StorageEnclosureConstructionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::ConstructionMaterialTooHot {
+                commodity,
+                temperature,
+                maximum,
+            } => write!(
+                formatter,
+                "construction material {commodity:?} at {} mK exceeds storage assembly limit {} mK; cool it first",
+                temperature.millikelvin(),
+                maximum.millikelvin(),
+            ),
             Self::PlayerDead => formatter.write_str("dead player cannot build storage"),
+            Self::PlayerBusy => {
+                formatter.write_str("player cannot build storage during exclusive work")
+            }
             Self::UnknownDefinition { definition } => write!(
                 formatter,
                 "unknown storage enclosure definition {}",
@@ -275,6 +297,13 @@ impl Display for StorageEnclosureConstructionError {
                 position.y(),
                 position.z()
             ),
+            Self::UnsupportedFloor { position } => write!(
+                formatter,
+                "storage enclosure at ({},{},{}) has no solid generated-world floor",
+                position.x(),
+                position.y(),
+                position.z()
+            ),
             Self::TargetBusyStorageDismantling { stockpile } => write!(
                 formatter,
                 "stockpile {} participates in active storage-enclosure dismantling and cannot change enclosure",
@@ -346,6 +375,7 @@ impl Error for StorageEnclosureConstructionError {
             Self::StructuralLoad(error) => Some(error),
             Self::TargetAccess(error) | Self::SourceAccess(error) => Some(error),
             Self::PlayerDead
+            | Self::PlayerBusy
             | Self::UnknownDefinition { .. }
             | Self::UnknownTarget { .. }
             | Self::UnknownSource { .. }
@@ -355,11 +385,13 @@ impl Error for StorageEnclosureConstructionError {
             | Self::LocatedTargetSourceUnlocated { .. }
             | Self::LocatedTargetSourceRemote { .. }
             | Self::GeneratedSolidTerrain { .. }
+            | Self::UnsupportedFloor { .. }
             | Self::TargetBusyStorageDismantling { .. }
             | Self::TargetCapacityTooLarge { .. }
             | Self::TargetStorageProfileMismatch { .. }
             | Self::TargetHasReservedInbound { .. }
             | Self::InsufficientMaterial { .. }
+            | Self::ConstructionMaterialTooHot { .. }
             | Self::SourceMassOverflow { .. }
             | Self::InventoryRevisionExhausted => None,
         }
@@ -369,6 +401,7 @@ impl Error for StorageEnclosureConstructionError {
 /// Failure to commit a validated storage-enclosure construction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StorageEnclosureCommitError {
+    PlayerBecameBusy,
     StaleSurvivalRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
@@ -382,6 +415,8 @@ pub enum StorageEnclosureCommitError {
 impl Display for StorageEnclosureCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerBecameBusy => formatter
+                .write_str("player began exclusive work before storage construction commit"),
             Self::StaleSurvivalRevision { expected, actual } => write!(
                 formatter,
                 "storage construction expected survival revision {expected} but current revision is {actual}"
@@ -425,7 +460,8 @@ impl Error for StorageEnclosureCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleSurvivalRevision { .. }
+            Self::PlayerBecameBusy
+            | Self::StaleSurvivalRevision { .. }
             | Self::StaleInventoryRevision { .. }
             | Self::StaleLogisticsRevision { .. }
             | Self::StaleWorldRevision { .. }

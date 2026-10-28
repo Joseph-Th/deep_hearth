@@ -92,6 +92,8 @@ pub const EQUIPMENT_FLINT_WOODWORKING_KNIFE: EquipmentDefinitionId = EquipmentDe
 pub const EQUIPMENT_COPPER_HAND_SAW: EquipmentDefinitionId = EquipmentDefinitionId::new(59);
 pub const EQUIPMENT_COPPER_STONE_CHISEL: EquipmentDefinitionId = EquipmentDefinitionId::new(60);
 pub const EQUIPMENT_STONE_PIT_KILN: EquipmentDefinitionId = EquipmentDefinitionId::new(61);
+pub const EQUIPMENT_FIRED_CERAMIC_INGOT_MOLD: EquipmentDefinitionId =
+    EquipmentDefinitionId::new(62);
 
 pub(crate) fn build_equipment_registry() -> EquipmentRegistry {
     EquipmentRegistry::new(

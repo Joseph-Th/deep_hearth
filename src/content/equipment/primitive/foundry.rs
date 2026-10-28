@@ -7,11 +7,13 @@ use crate::content::capabilities::{
     CAPABILITY_THERMAL_MAX_TEMPERATURE, CAPABILITY_TREADLE_DYNAMO_OUTPUT,
     CAPABILITY_TREADLE_POWER_OUTPUT,
 };
-use crate::content::crafted_parts::{COPPER_ELECTRICAL_WINDING_MASS, TIMBER_FLYWHEEL_MASS};
+use crate::content::crafted_parts::{
+    CLAY_CERAMIC_INGOT_MOLD_BODY_MASS, COPPER_ELECTRICAL_WINDING_MASS, TIMBER_FLYWHEEL_MASS,
+};
 use crate::content::materials::{
-    FORM_BOARD, FORM_ELECTRICAL_WINDING, FORM_FLYWHEEL, FORM_HANDLE, FORM_INGOT, FORM_LUMP,
-    FORM_PACKED_CLAY_BINDER, FORM_REINFORCEMENT, FORM_SCRAP, FORM_STONE_CROCK_BODY, MATERIAL_CLAY,
-    MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
+    FORM_BOARD, FORM_ELECTRICAL_WINDING, FORM_FIRED_INGOT_MOLD, FORM_FLYWHEEL, FORM_HANDLE,
+    FORM_INGOT, FORM_LUMP, FORM_PACKED_CLAY_BINDER, FORM_REINFORCEMENT, FORM_SCRAP,
+    FORM_STONE_CROCK_BODY, MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_STONE, MATERIAL_WOOD,
 };
 use crate::core::quantity::{Energy, Mass, Power, Temperature, Volume};
 use crate::core::time::TickSpan;
@@ -26,9 +28,10 @@ use super::super::authoring::{
 };
 use super::super::{
     EQUIPMENT_CLAY_FACED_STONE_CASTING_BED, EQUIPMENT_DOUBLE_WOUND_TREADLE_DYNAMO,
-    EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD, EQUIPMENT_FOUR_POT_ARC_CRUCIBLE_FURNACE,
-    EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE, EQUIPMENT_STONE_INGOT_MOLD, EQUIPMENT_STONE_PIT_KILN,
-    EQUIPMENT_TIMBER_TREADLE_DRIVE, EQUIPMENT_TIMBER_TREADLE_DYNAMO,
+    EQUIPMENT_FIRED_CERAMIC_INGOT_MOLD, EQUIPMENT_FOUR_CAVITY_STONE_INGOT_MOLD,
+    EQUIPMENT_FOUR_POT_ARC_CRUCIBLE_FURNACE, EQUIPMENT_STONE_ARC_CRUCIBLE_FURNACE,
+    EQUIPMENT_STONE_INGOT_MOLD, EQUIPMENT_STONE_PIT_KILN, EQUIPMENT_TIMBER_TREADLE_DRIVE,
+    EQUIPMENT_TIMBER_TREADLE_DYNAMO,
 };
 
 /// Primitive pit-kiln firing chamber. A fired-ceramic process must still bind
@@ -377,6 +380,47 @@ pub(super) fn four_pot_arc_crucible_furnace() -> EquipmentDefinition {
                 Mass::from_milligrams(120_000),
             ),
         ]),
+    ))
+}
+
+/// Light refractory ceramic casting cavity, reusable and serviceable.
+///
+/// Unlike a shaped but unfired body, this actually has to pass through a
+/// fueled kiln and a finite-sink cooldown before assembling the mold.
+/// It handles a first-foundry 20 g pour faster than a hand-carved stone mold,
+/// at the expense of clay firing time, fuel, and thermal infrastructure.
+pub(super) fn fired_ceramic_ingot_mold() -> EquipmentDefinition {
+    assembled_definition_with_condition_curves(
+        EQUIPMENT_FIRED_CERAMIC_INGOT_MOLD,
+        "refractory ceramic ingot mold",
+        MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
+            CommodityKey::new(MATERIAL_CLAY, FORM_FIRED_INGOT_MOLD),
+            CLAY_CERAMIC_INGOT_MOLD_BODY_MASS,
+        )]),
+        profile([
+            (
+                CAPABILITY_COOLING_POWER,
+                CapabilityValue::Power(Power::from_microwatts(300_000_000)),
+            ),
+            (
+                CAPABILITY_THERMAL_MAX_TEMPERATURE,
+                CapabilityValue::Temperature(Temperature::from_millikelvin(1_450_000)),
+            ),
+            (
+                CAPABILITY_THERMAL_BATCH,
+                CapabilityValue::Mass(FIRST_FOUNDRY_BATCH),
+            ),
+        ]),
+        thresholds(),
+        vec![power_condition_curve(
+            CAPABILITY_COOLING_POWER,
+            500_000,
+            Power::from_microwatts(150_000_000),
+        )],
+    )
+    .with_maintenance_profile(component_maintenance(
+        CommodityKey::new(MATERIAL_CLAY, FORM_FIRED_INGOT_MOLD),
+        CLAY_CERAMIC_INGOT_MOLD_BODY_MASS,
     ))
 }
 

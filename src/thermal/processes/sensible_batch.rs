@@ -52,13 +52,13 @@ pub(super) fn resolve_sensible_heating_batch(
     target: Temperature,
     firing: Option<FiringConversion>,
 ) -> Result<ResolvedSensibleHeatingBatch, SensibleHeatingBatchError> {
-    if let Some(conversion) = firing {
-        if target < conversion.minimum_temperature() {
-            return Err(SensibleHeatingBatchError::BelowFiringTemperature {
-                required: conversion.minimum_temperature(),
-                actual: target,
-            });
-        }
+    if let Some(conversion) = firing
+        && target < conversion.minimum_temperature()
+    {
+        return Err(SensibleHeatingBatchError::BelowFiringTemperature {
+            required: conversion.minimum_temperature(),
+            actual: target,
+        });
     }
     let mut required_energy = PreciseEnergy::ZERO;
     let mut output_masses = BTreeMap::new();

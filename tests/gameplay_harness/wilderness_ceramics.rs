@@ -2,10 +2,12 @@
 
 use super::*;
 use deep_hearth::content::{
-    ENERGY_STONE_CERAMIC_COOLING_BED, ENERGY_STONE_PIT_KILN_HEARTH, EQUIPMENT_STONE_PIT_KILN,
-    FORM_FIRED_CROCK, FORM_GREENWARE_CROCK, FORM_PACKED_CLAY_BINDER, MATERIAL_CLAY,
-    PROCESS_COOL_FIRED_CLAY_CROCK, PROCESS_FIRE_CLAY_CROCK, STORAGE_CARVED_STONE_PROVISIONS_CROCK,
-    STORAGE_FIRED_CERAMIC_PROVISIONS_CROCK,
+    ENERGY_STONE_CERAMIC_COOLING_BED, ENERGY_STONE_PIT_KILN_HEARTH,
+    EQUIPMENT_FIRED_CERAMIC_INGOT_MOLD, EQUIPMENT_STONE_PIT_KILN, FORM_FIRED_CROCK,
+    FORM_FIRED_INGOT_MOLD, FORM_GREENWARE_CROCK, FORM_GREENWARE_INGOT_MOLD,
+    FORM_PACKED_CLAY_BINDER, MATERIAL_CLAY, PROCESS_COOL_FIRED_CLAY_CROCK,
+    PROCESS_COOL_FIRED_CLAY_INGOT_MOLD, PROCESS_FIRE_CLAY_CROCK, PROCESS_FIRE_CLAY_INGOT_MOLD,
+    STORAGE_CARVED_STONE_PROVISIONS_CROCK, STORAGE_FIRED_CERAMIC_PROVISIONS_CROCK,
 };
 use deep_hearth::core::quantity::Temperature;
 use deep_hearth::energy::{validate_assemble_energy_store, validate_combust_fuel};
@@ -55,7 +57,8 @@ pub(super) fn generated_world_clay_becomes_a_fired_crock_with_wood_fuel() {
     }
     let initial_matter = calculate_matter_accounting(&state).unwrap().total();
     let berries = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
-    let forage = adjacent_surface_resource(&state, berries).position();
+    let forage_patch = adjacent_surface_resource(&state, berries);
+    let forage = forage_patch.position();
     walk_continuous_body_adjacent_and_settle(&registries, &mut state, forage, "kiln forage leg");
     let water = adjacent_drinkable_source(&registries, &state).position();
     walk_continuous_body_adjacent_and_settle(&registries, &mut state, water, "kiln water leg");
@@ -71,7 +74,7 @@ pub(super) fn generated_world_clay_becomes_a_fired_crock_with_wood_fuel() {
         &registries,
         &mut state,
         clay_spur.resource(),
-        Mass::from_milligrams(3_000_000),
+        Mass::from_milligrams(4_000_000),
         "kiln clay harvest",
     );
     walk_continuous_body_adjacent_and_settle(&registries, &mut state, water, "kiln water return");
@@ -124,6 +127,14 @@ pub(super) fn generated_world_clay_becomes_a_fired_crock_with_wood_fuel() {
         green,
         1,
         "shape unfired vessel",
+    );
+    craft_in_place(
+        &registries,
+        &mut state,
+        clay,
+        CommodityKey::new(MATERIAL_CLAY, FORM_GREENWARE_INGOT_MOLD),
+        1,
+        "shape refractory ingot mold",
     );
     craft_in_place(&registries, &mut state, clay, binder, 2, "pack kiln lining");
     craft_in_place(
@@ -323,18 +334,88 @@ pub(super) fn generated_world_clay_becomes_a_fired_crock_with_wood_fuel() {
             > 0,
         "cooling must retain thermal energy for later dissipation"
     );
+    let ceramic_mold = fire_and_assemble_primitive_mold(
+        &registries,
+        &mut state,
+        carried,
+        kiln,
+        hearth,
+        cooling_bed,
+    );
+    assert_eq!(
+        state
+            .equipment()
+            .get_equipment(ceramic_mold)
+            .unwrap()
+            .definition(),
+        EQUIPMENT_FIRED_CERAMIC_INGOT_MOLD
+    );
     let vessel = registries
         .storage()
         .get(STORAGE_FIRED_CERAMIC_PROVISIONS_CROCK)
         .unwrap();
     assert_eq!(vessel.assembly_profile().inputs()[0].commodity(), fired);
+    let installed =
+        validate_place_player_storage(&registries, &state, STORAGE_FIRED_CERAMIC_PROVISIONS_CROCK)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    // Surface gathering is exact-voxel, not adjacent-reach. Return to the
+    // known forage resource's own voxel before requesting its visible option.
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut state,
+        forage,
+        "return to forage trail",
+    );
+    gather_in_batches(
+        &registries,
+        &mut state,
+        forage_patch.resource(),
+        Mass::from_milligrams(500_000),
+        "fresh food for sealed ceramic",
+    );
+    walk_continuous_body_adjacent_and_settle(
+        &registries,
+        &mut state,
+        junction,
+        "return to ceramic storage",
+    );
+    let berry_stack =
+        carried_material_stack(&registries, &state, berries, "ceramic sealed food deposit");
+    validate_drop_stack_to_ground(
+        &registries,
+        &state,
+        installed,
+        &berry_stack,
+        Mass::from_milligrams(500_000),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(installed)
+            .unwrap()
+            .get_mass(berries),
+        Mass::from_milligrams(500_000)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(installed)
+            .unwrap()
+            .storage_profile(),
+        vessel.storage_profile()
+    );
     assert_eq!(
         calculate_matter_accounting(&state).unwrap().total(),
         initial_matter
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     std::println!(
-        "PLAYER CERAMICS evidence=generated-opening resource=[clay:3kg stone:6kg timber:3kg] work=[shape-greenware pack-lining assemble-kiln assemble-hearth assemble-cooling-bed burn-log fire-vessel cool-vessel] gate=[900K:rejected 1100K:accepted] payoff=[fired-body:{}mg versus-stone:{}mg sealed-shelf:{}ppm versus-stone:{}ppm] cooldown=[ticks:{recovery_ticks} heat-received-nJ:{} room-temperature:true] matter=conserved persistence=validated",
+        "PLAYER CERAMICS evidence=generated-opening resource=[clay:4kg stone:6kg timber:3kg] work=[shape-greenware pack-lining assemble-kiln assemble-hearth assemble-cooling-bed burn-log fire-vessel cool-vessel fire-and-cool-ingot-mold install-storage fetch-berries store:500g] gate=[900K:rejected 1100K:accepted] payoff=[fired-body:{}mg versus-stone:{}mg sealed-shelf:{}ppm versus-stone:{}ppm casting-mold:assembled stored-real-food:true] cooldown=[ticks:{recovery_ticks} heat-received-nJ:{} room-temperature:true] matter=conserved persistence=validated",
         body_mass.milligrams(),
         stone_definition
             .assembly_profile()
@@ -348,4 +429,126 @@ pub(super) fn generated_world_clay_becomes_a_fired_crock_with_wood_fuel() {
             .preservation_multiplier_ppm(),
         cooling_energy.nanojoules(),
     );
+}
+
+fn fire_and_assemble_primitive_mold(
+    registries: &Registries,
+    state: &mut AppState,
+    carried: deep_hearth::inventory::StockpileId,
+    kiln: deep_hearth::equipment::EquipmentId,
+    hearth: deep_hearth::energy::EnergyStoreId,
+    cooling_bed: deep_hearth::energy::EnergyStoreId,
+) -> deep_hearth::equipment::EquipmentId {
+    let green = CommodityKey::new(MATERIAL_CLAY, FORM_GREENWARE_INGOT_MOLD);
+    let fired = CommodityKey::new(MATERIAL_CLAY, FORM_FIRED_INGOT_MOLD);
+    let mass = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_FIRED_CERAMIC_INGOT_MOLD)
+        .unwrap()
+        .assembly_profile()
+        .unwrap()
+        .input_mass();
+    let green_lot = state
+        .inventory()
+        .lots()
+        .find(|lot| lot.stockpile() == carried && lot.commodity() == green)
+        .unwrap()
+        .id();
+    let green_selection = [MaterialLotSelection::new(green_lot, mass)];
+    let heated = resolve_sensible_heating_process(
+        registries,
+        state,
+        SensibleHeatingRequest::new(
+            PROCESS_FIRE_CLAY_INGOT_MOLD,
+            carried,
+            &green_selection,
+            kiln,
+            hearth,
+            Temperature::from_millikelvin(1_100_000),
+        ),
+    )
+    .unwrap();
+    let fire_job = validate_start_player_process(
+        registries,
+        state,
+        heated.process_resolution(),
+        carried,
+        carried,
+    )
+    .unwrap()
+    .commit(state)
+    .unwrap();
+    let fire_end = state.production().get_job(fire_job).unwrap().completes_at();
+    advance_to(
+        registries,
+        state,
+        fire_end,
+        TickEventAllowance {
+            production_jobs: &[fire_job],
+            ..TickEventAllowance::default()
+        },
+        "fire first ceramic ingot mold",
+    );
+    let hot = state
+        .inventory()
+        .lots()
+        .find(|lot| lot.stockpile() == carried && lot.commodity() == fired)
+        .unwrap();
+    assert_eq!(hot.mass(), mass);
+    assert_eq!(hot.temperature(), Temperature::from_millikelvin(1_100_000));
+    let hot_selection = [MaterialLotSelection::new(hot.id(), mass)];
+    let cooling = resolve_sensible_cooling_process(
+        registries,
+        state,
+        SensibleCoolingRequest::new(
+            PROCESS_COOL_FIRED_CLAY_INGOT_MOLD,
+            carried,
+            &hot_selection,
+            kiln,
+            cooling_bed,
+        ),
+    )
+    .unwrap();
+    let cool_job = validate_start_player_process(
+        registries,
+        state,
+        cooling.process_resolution(),
+        carried,
+        carried,
+    )
+    .unwrap()
+    .commit(state)
+    .unwrap();
+    let cool_end = state.production().get_job(cool_job).unwrap().completes_at();
+    advance_to(
+        registries,
+        state,
+        cool_end,
+        TickEventAllowance {
+            production_jobs: &[cool_job],
+            ..TickEventAllowance::default()
+        },
+        "cool first ceramic ingot mold",
+    );
+    let cooled = state
+        .inventory()
+        .lots()
+        .find(|lot| lot.stockpile() == carried && lot.commodity() == fired)
+        .unwrap();
+    assert_eq!(cooled.temperature(), Temperature::from_millikelvin(293_150));
+    let mold = validate_assemble_equipment(
+        registries,
+        state,
+        EQUIPMENT_FIRED_CERAMIC_INGOT_MOLD,
+        carried,
+    )
+    .unwrap()
+    .commit(state)
+    .unwrap();
+    validate_pickup_equipment(registries, state, mold)
+        .unwrap()
+        .commit(state)
+        .unwrap();
+    assert_eq!(validate_loaded_state(registries, state), Ok(()));
+    mold
 }
