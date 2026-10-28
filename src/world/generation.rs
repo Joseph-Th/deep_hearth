@@ -80,6 +80,7 @@ pub enum ChunkGenerationError {
     StructureBuriedByTerrain { voxel: VoxelCoord },
     StorageEnclosureBuriedByTerrain { voxel: VoxelCoord },
     SurfaceResourceCollision { voxel: VoxelCoord },
+    TreePlacementObstructed { voxel: VoxelCoord },
     PlayerDemandCoordinateOverflow { center: ChunkCoord },
     WorldRevisionExhausted,
 }
@@ -168,6 +169,11 @@ impl Display for ChunkGenerationError {
                 voxel.x(),
                 voxel.y(),
                 voxel.z()
+            ),
+            Self::TreePlacementObstructed { voxel } => write!(
+                formatter,
+                "generated tree trunk at ({},{},{}) would intersect an existing actor or material",
+                voxel.x(), voxel.y(), voxel.z()
             ),
             Self::PlayerDemandCoordinateOverflow { center } => write!(
                 formatter,
@@ -584,6 +590,26 @@ fn validate_generated_chunk_occupancy(
     {
         return Err(ChunkGenerationError::TempleCasteInfrastructureCollision { voxel });
     }
+    if let Some(tree) = super::generated_tree(profile, chunk) {
+        for voxel in [
+            tree.root(),
+            VoxelCoord::new(tree.root().x(), tree.root().y() + 1, tree.root().z()),
+        ] {
+            if crate::logistics::player_body_occupies_voxel(registries, state, voxel)
+                || crate::kobolds::opening_kobold_occupies_voxel(state, voxel)
+                || crate::kobolds::temple_caste_occupies_voxel(registries, state, voxel)
+                || state.structures().blocks_full_cell(voxel)
+                || state.logistics().has_stationary_occupant_at(voxel)
+                || state
+                    .surface()
+                    .available_resources_at(Some(voxel))
+                    .next()
+                    .is_some()
+            {
+                return Err(ChunkGenerationError::TreePlacementObstructed { voxel });
+            }
+        }
+    }
     Ok(())
 }
 
@@ -922,6 +948,9 @@ pub(crate) fn first_solid_block_in_structural_bounds(
     state: &AppState,
     bounds: VoxelBounds,
 ) -> Option<VoxelCoord> {
+    if let Some(voxel) = state.world().first_tree_trunk_in_bounds(bounds) {
+        return Some(voxel);
+    }
     state
         .world()
         .chunks()
@@ -1114,7 +1143,7 @@ pub(crate) fn temple_warden_route_at(
     temple_site_at(registries, state, position).map(temple::TempleSite::warden_route)
 }
 
-fn terrain_height(seed: WorldGenerationSeed, x: i64, z: i64) -> i64 {
+pub(super) fn terrain_height(seed: WorldGenerationSeed, x: i64, z: i64) -> i64 {
     let cell_x = x.div_euclid(TERRAIN_LATTICE_SIDE);
     let cell_z = z.div_euclid(TERRAIN_LATTICE_SIDE);
     let fx = x.rem_euclid(TERRAIN_LATTICE_SIDE);

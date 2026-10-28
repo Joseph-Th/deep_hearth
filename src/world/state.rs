@@ -11,7 +11,7 @@ use super::WorldRegistry;
 #[cfg(test)]
 use crate::core::state::AppState;
 
-use super::{BlockCollisionShape, BlockStateId, WorldGenerationProfile};
+use super::{BlockCollisionShape, BlockStateId, TreeRecord, WorldGenerationProfile};
 
 pub const CHUNK_SIDE: usize = 16;
 pub const SECTION_SIDE: usize = 16;
@@ -526,6 +526,9 @@ pub struct WorldState {
     #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     generation_profile: Option<WorldGenerationProfile>,
     chunks: Vec<WorldChunk>,
+    trees: Vec<TreeRecord>,
+    /// Dry wood synthesized from the environment and already transferred out of trees.
+    assimilated_wood_milligrams: u128,
 }
 
 impl WorldState {
@@ -535,6 +538,8 @@ impl WorldState {
             revision: 0,
             generation_profile: None,
             chunks: Vec::new(),
+            trees: Vec::new(),
+            assimilated_wood_milligrams: 0,
         }
     }
 
@@ -550,6 +555,98 @@ impl WorldState {
 
     pub fn chunks(&self) -> impl ExactSizeIterator<Item = &WorldChunk> {
         self.chunks.iter()
+    }
+
+    /// Standing trees are indexed by root location, not repeatedly scanned as block entities.
+    pub fn trees(&self) -> impl Iterator<Item = &TreeRecord> {
+        self.trees.iter()
+    }
+
+    #[must_use]
+    pub fn tree_at(&self, root: VoxelCoord) -> Option<&TreeRecord> {
+        self.trees
+            .binary_search_by_key(&root, |tree| tree.root())
+            .ok()
+            .map(|index| &self.trees[index])
+    }
+
+    /// Physical trunk voxels have the same collision authority as terrain blocks.
+    #[must_use]
+    pub fn tree_trunk_at(&self, voxel: VoxelCoord) -> Option<&TreeRecord> {
+        self.tree_at(voxel).or_else(|| {
+            let below_y = voxel.y().checked_sub(1)?;
+            self.tree_at(VoxelCoord::new(voxel.x(), below_y, voxel.z()))
+        })
+    }
+
+    /// Bounded trunk lookup for construction geometry; the sorted root index avoids scanning
+    /// every distant tree in an expanding world.
+    pub(crate) fn first_tree_trunk_in_bounds(
+        &self,
+        bounds: crate::spatial::VoxelBounds,
+    ) -> Option<VoxelCoord> {
+        let start = self
+            .trees
+            .partition_point(|tree| tree.root().x() < bounds.min().x());
+        for tree in self.trees[start..]
+            .iter()
+            .take_while(|tree| tree.root().x() < bounds.max_exclusive().x())
+        {
+            let root = tree.root();
+            if bounds.has_voxel(root) {
+                return Some(root);
+            }
+            if let Some(y) = root.y().checked_add(1) {
+                let upper = VoxelCoord::new(root.x(), y, root.z());
+                if bounds.has_voxel(upper) {
+                    return Some(upper);
+                }
+            }
+        }
+        None
+    }
+
+    /// Current cumulative external biosynthesis, including the mass still held by living trees.
+    /// A projection avoids incrementing every tree on every 3.6-second simulation tick.
+    pub(crate) fn assimilated_wood_at(
+        &self,
+        at: crate::core::time::SimulationTick,
+    ) -> Option<crate::core::quantity::AggregateMass> {
+        let mut total = self.assimilated_wood_milligrams;
+        for tree in &self.trees {
+            let gained = tree
+                .wood_at(at)
+                .milligrams()
+                .checked_sub(tree.initial_wood().milligrams())?;
+            total = total.checked_add(u128::from(gained))?;
+        }
+        Some(crate::core::quantity::AggregateMass::from_milligrams(total))
+    }
+
+    pub(crate) fn remove_felled_tree(
+        &mut self,
+        root: VoxelCoord,
+        expected_revision: u64,
+        next_revision: u64,
+        at: crate::core::time::SimulationTick,
+    ) {
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        let index = self
+            .trees
+            .binary_search_by_key(&root, |tree| tree.root())
+            .expect("validated standing tree disappeared");
+        let gained = self.trees[index]
+            .wood_at(at)
+            .milligrams()
+            .checked_sub(self.trees[index].initial_wood().milligrams())
+            .expect("tree biomass cannot shrink below its initial mass");
+        self.assimilated_wood_milligrams = self
+            .assimilated_wood_milligrams
+            .checked_add(u128::from(gained))
+            .expect("validated tree felling must retain external biosynthesis headroom");
+        self.trees.remove(index);
+        self.revision = next_revision;
     }
 
     #[must_use]
@@ -591,6 +688,8 @@ impl WorldState {
             .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
             && self.block_at(position) == Some(BlockStateId::AIR)
             && self.block_at(head) == Some(BlockStateId::AIR)
+            && self.tree_trunk_at(position).is_none()
+            && self.tree_trunk_at(head).is_none()
     }
 
     pub(crate) fn represented_mass_at(
@@ -634,6 +733,7 @@ impl WorldState {
         );
         self.generation_profile = Some(profile);
         for chunk in chunks {
+            let tree = super::generated_tree(profile, &chunk);
             let coord = chunk.coord();
             let index = self
                 .chunks
@@ -646,6 +746,13 @@ impl WorldState {
                 "generated chunk insertion cannot replace existing world truth"
             );
             self.chunks.insert(index, chunk);
+            if let Some(tree) = tree {
+                let index = self
+                    .trees
+                    .binary_search_by_key(&tree.root(), |record| record.root())
+                    .expect_err("generated chunk cannot replace an existing tree");
+                self.trees.insert(index, tree);
+            }
         }
         self.revision = next_revision;
     }

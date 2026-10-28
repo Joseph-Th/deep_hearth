@@ -12,6 +12,10 @@ use super::{
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WorldValidationError {
+    InvalidStandingTree {
+        root: crate::spatial::VoxelCoord,
+    },
+    InvalidPhotosyntheticAccounting,
     GenerationProfileWithoutChunks,
     ChunksWithoutGenerationProfile,
     UnknownGenerationSolidState {
@@ -110,6 +114,16 @@ pub enum WorldValidationError {
 impl Display for WorldValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::InvalidStandingTree { root } => write!(
+                formatter,
+                "standing tree at ({},{},{}) is not a valid supported, unburied world tree",
+                root.x(),
+                root.y(),
+                root.z()
+            ),
+            Self::InvalidPhotosyntheticAccounting => formatter.write_str(
+                "world photosynthetic input is inconsistent with represented physical matter",
+            ),
             Self::GenerationProfileWithoutChunks => formatter
                 .write_str("world persists a terrain generation profile without generated chunks"),
             Self::ChunksWithoutGenerationProfile => formatter.write_str(
@@ -283,6 +297,28 @@ pub fn validate_loaded_world(
         validate_chunk_order(previous_chunk, chunk.coord())?;
         previous_chunk = Some(chunk.coord());
         validate_chunk(registry, chunk)?;
+    }
+    let mut previous_tree = None;
+    for tree in state.trees() {
+        let root = tree.root();
+        let valid = previous_tree.is_none_or(|previous| previous < root)
+            && tree.initial_wood().milligrams() > 0
+            && tree.initial_wood().milligrams() <= 1_600_000_000
+            && root.y().checked_sub(1).is_some_and(|floor| {
+                state
+                    .block_at(crate::spatial::VoxelCoord::new(root.x(), floor, root.z()))
+                    .and_then(|block| registry.block_for_state(block))
+                    .is_some_and(|block| block.collision() == super::BlockCollisionShape::FullCube)
+            })
+            && state.block_at(root) == Some(BlockStateId::AIR)
+            && root.y().checked_add(1).is_some_and(|head| {
+                state.block_at(crate::spatial::VoxelCoord::new(root.x(), head, root.z()))
+                    == Some(BlockStateId::AIR)
+            });
+        if !valid {
+            return Err(WorldValidationError::InvalidStandingTree { root });
+        }
+        previous_tree = Some(root);
     }
     Ok(())
 }

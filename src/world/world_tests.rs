@@ -849,7 +849,19 @@ fn fatal_tick_cancels_unfinished_block_excavation_without_extracting_matter() {
     );
     let matter_after = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("fatal block excavation matter final failed: {error}"));
-    assert_eq!(matter_after.total(), matter_before.total());
+    assert_eq!(
+        matter_after.total(),
+        matter_before.total(),
+        "world {:?}->{:?}, photosynthesis {:?}->{:?}, surface {:?}->{:?}, stored {:?}->{:?}",
+        matter_before.world(),
+        matter_after.world(),
+        matter_before.photosynthetic_input(),
+        matter_after.photosynthetic_input(),
+        matter_before.surface(),
+        matter_after.surface(),
+        matter_before.stored(),
+        matter_after.stored(),
+    );
 }
 
 #[test]
@@ -1111,13 +1123,31 @@ fn player_block_excavation_conserves_partial_cell_matter_and_round_trips_active_
     assert_eq!(state.player_work().active(), None);
     let matter_after = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("block excavation final matter accounting failed: {error}"));
-    assert_eq!(matter_after.total(), matter_before.total());
+    assert_eq!(
+        matter_after.total(),
+        matter_before.total(),
+        "world {:?}->{:?}, photosynthesis {:?}->{:?}, surface {:?}->{:?}, stored {:?}->{:?}",
+        matter_before.world(),
+        matter_after.world(),
+        matter_before.photosynthetic_input(),
+        matter_after.photosynthetic_input(),
+        matter_before.surface(),
+        matter_after.surface(),
+        matter_before.stored(),
+        matter_after.stored(),
+    );
     assert_eq!(
         matter_after.world(),
         matter_before
             .world()
             .checked_sub(crate::core::quantity::AggregateMass::from_mass(batch))
-            .unwrap_or_else(|| panic!("block excavation world matter underflow"))
+            .and_then(|remaining| remaining.checked_add(
+                matter_after
+                    .photosynthetic_input()
+                    .checked_sub(matter_before.photosynthetic_input())
+                    .expect("photosynthetic input never decreases")
+            ))
+            .unwrap_or_else(|| panic!("block excavation world matter overflow"))
     );
     assert_eq!(
         matter_after.stored(),
@@ -1631,13 +1661,31 @@ fn held_primary_excavation_drops_a_full_batch_when_carried_capacity_is_short() {
     );
     let matter_after = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("surface-drop matter accounting failed: {error}"));
-    assert_eq!(matter_after.total(), matter_before.total());
+    assert_eq!(
+        matter_after.total(),
+        matter_before.total(),
+        "world {:?}->{:?}, photosynthesis {:?}->{:?}, surface {:?}->{:?}, stored {:?}->{:?}",
+        matter_before.world(),
+        matter_after.world(),
+        matter_before.photosynthetic_input(),
+        matter_after.photosynthetic_input(),
+        matter_before.surface(),
+        matter_after.surface(),
+        matter_before.stored(),
+        matter_after.stored(),
+    );
     assert_eq!(
         matter_after.world(),
         matter_before
             .world()
             .checked_sub(crate::core::quantity::AggregateMass::from_mass(batch))
-            .unwrap_or_else(|| panic!("surface-drop world matter underflow"))
+            .and_then(|remaining| remaining.checked_add(
+                matter_after
+                    .photosynthetic_input()
+                    .checked_sub(matter_before.photosynthetic_input())
+                    .expect("photosynthetic input never decreases")
+            ))
+            .unwrap_or_else(|| panic!("surface-drop world matter overflow"))
     );
     assert_eq!(
         matter_after.surface(),
@@ -2224,8 +2272,16 @@ fn generated_terrain_is_included_in_exact_matter_accounting() {
     let accounting = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("world matter accounting failed: {error}"));
 
-    assert_eq!(accounting.world().milligrams(), expected);
-    assert_eq!(accounting.total().milligrams(), expected);
+    let woody_mass: u128 = state
+        .world()
+        .trees()
+        .map(|tree| u128::from(tree.wood_at(state.tick()).milligrams()))
+        .sum();
+    assert_eq!(accounting.world().milligrams(), expected + woody_mass);
+    assert_eq!(
+        accounting.total().milligrams(),
+        expected + woody_mass - accounting.photosynthetic_input().milligrams()
+    );
 }
 
 #[test]

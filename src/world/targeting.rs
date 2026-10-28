@@ -101,6 +101,8 @@ pub fn raycast_player_block(
             };
             if state.structures().blocks_full_cell(voxel) {
                 VoxelTraceStep::Blocked
+            } else if state.world().tree_trunk_at(voxel).is_some() {
+                VoxelTraceStep::Blocked
             } else if targetable_full_cube(registries, block_state) {
                 VoxelTraceStep::Hit(PlayerBlockTarget {
                     voxel,
@@ -180,7 +182,8 @@ fn trace_player_air_voxels<T>(
         direction,
         reach_nanometers,
         |voxel, block_state, face| {
-            let structure_blocks = state.structures().blocks_full_cell(voxel);
+            let structure_blocks = state.structures().blocks_full_cell(voxel)
+                || state.world().tree_trunk_at(voxel).is_some();
             if targetable_full_cube(registries, block_state)
                 || (structure_blocks && matches!(mode, AirRayMode::UnobstructedContact))
             {

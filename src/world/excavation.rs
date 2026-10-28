@@ -82,6 +82,9 @@ pub enum BlockExcavationError {
         target: VoxelCoord,
         stockpile: StockpileId,
     },
+    StandingTreeRequiresFloor {
+        target: VoxelCoord,
+    },
     UnknownMethod {
         method: MiningMethodId,
     },
@@ -146,6 +149,13 @@ impl Display for BlockExcavationError {
                 target.z(),
                 stockpile.value()
             ),
+            Self::StandingTreeRequiresFloor { target } => write!(
+                formatter,
+                "cannot remove block at ({},{},{}): a rooted tree still needs this floor",
+                target.x(),
+                target.y(),
+                target.z()
+            ),
             Self::UnknownMethod { method } => {
                 write!(formatter, "unknown mining method {}", method.value())
             }
@@ -196,6 +206,7 @@ impl Error for BlockExcavationError {
             | Self::ZeroMass
             | Self::MassExceedsCell { .. }
             | Self::StorageEnclosureRequiresFloor { .. }
+            | Self::StandingTreeRequiresFloor { .. }
             | Self::UnknownMethod { .. }
             | Self::EquipmentMounted { .. }
             | Self::EquipmentRevisionExhausted
@@ -488,6 +499,18 @@ fn validate_start_player_block_excavation_targeted(
         return Err(BlockExcavationError::StorageEnclosureRequiresFloor {
             target: target.voxel(),
             stockpile,
+        });
+    }
+    if request.mass == source_mass
+        && target.voxel().y().checked_add(1).is_some_and(|y| {
+            state
+                .world()
+                .tree_at(VoxelCoord::new(target.voxel().x(), y, target.voxel().z()))
+                .is_some()
+        })
+    {
+        return Err(BlockExcavationError::StandingTreeRequiresFloor {
+            target: target.voxel(),
         });
     }
     let method = registries.mining().get_method(request.method).ok_or(

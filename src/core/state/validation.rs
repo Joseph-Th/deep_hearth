@@ -102,6 +102,7 @@ pub fn validate_loaded_state(
     )
     .map_err(StateValidationError::Inventory)?;
     validate_loaded_logistics(registries, state).map_err(StateValidationError::Logistics)?;
+    validate_tree_integrations(registries, state)?;
     crate::combat::validate_loaded_combat_references(registries.equipment(), state)
         .map_err(StateValidationError::Combat)?;
 
@@ -145,7 +146,54 @@ pub fn validate_loaded_state(
     validate_loaded_player_work(registries, state, &state.systems.player_work)
         .map_err(StateValidationError::PlayerWork)?;
     validate_shared_future_capacity(state)?;
+    // This is a load-only conservation check, not a per-control-tick scan.
+    // Malformed external-biomass ledgers must not become trusted arithmetic state.
+    let atmospheric_input = state.world().assimilated_wood_at(state.tick());
+    if atmospheric_input.is_none()
+        || ((state.world().trees().next().is_some()
+            || atmospheric_input != Some(crate::core::quantity::AggregateMass::ZERO))
+            && crate::matter::calculate_matter_accounting(state).is_err())
+    {
+        return Err(StateValidationError::World(
+            crate::world::WorldValidationError::InvalidPhotosyntheticAccounting,
+        ));
+    }
 
+    Ok(())
+}
+
+/// Cross-owner tree clearance cannot be established from the isolated world snapshot.
+/// Trusted loads must reject trees moved into actors, built infrastructure, loose matter,
+/// or timestamps that claim biomass growth before the sapling existed.
+fn validate_tree_integrations(
+    registries: &Registries,
+    state: &AppState,
+) -> Result<(), StateValidationError> {
+    for tree in state.world().trees() {
+        let root = tree.root();
+        let head = root
+            .y()
+            .checked_add(1)
+            .map(|y| crate::spatial::VoxelCoord::new(root.x(), y, root.z()));
+        let invalid = tree.sprouted_at() > state.tick()
+            || [Some(root), head].into_iter().flatten().any(|voxel| {
+                state.structures().blocks_full_cell(voxel)
+                    || state.logistics().has_stationary_occupant_at(voxel)
+                    || state
+                        .surface()
+                        .available_resources_at(Some(voxel))
+                        .next()
+                        .is_some()
+                    || crate::logistics::player_body_occupies_voxel(registries, state, voxel)
+                    || crate::kobolds::opening_kobold_occupies_voxel(state, voxel)
+                    || crate::kobolds::temple_caste_occupies_voxel(registries, state, voxel)
+            });
+        if invalid {
+            return Err(StateValidationError::World(
+                crate::world::WorldValidationError::InvalidStandingTree { root },
+            ));
+        }
+    }
     Ok(())
 }
 

@@ -53,7 +53,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Energy and fluids | Finite power/loss-limited energy, campfire heat, drinking, and exact local/downhill fluid transfer with player choice previews. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; interaction-reach stack construction including real posts/framing and a supported cover panel; primary-break recovery. |
-| Block world | Mass-backed eight-mineral geology, temple rooms, seven assemblies and solid caste bodies, with locally coordinated archive and drive damage watches. Excavation and targeting exist; placement, UI, residency absent. |
+| Block world | Eight mineral ores, temple rooms and caste bodies, excavation and targeting; stone chunks also hold persistent trees with solid trunks, lazy growth and conserved capability-only felling. No timed chopping, leaf geometry, planting, UI or residency. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation
@@ -72,14 +72,14 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 | --- | --- |
 | Wilderness opening | Travel beyond the bounded graph, weather/climate, pathfinding, hydrology, enclosure, broad lighting, and complete first-day branches. Limited camp/refuge exists. |
 | Engine/platform | Graphics backend, window/input/audio integration, ECS, networking, and general engine shell. |
-| World representation | Residency, world summaries, general placement and block updates, partial shapes, regional geology, biome/ecology and clue discovery. |
+| World representation | Residency, general placement, partial shapes, regional geology, biomes and clues. |
 | Logistics | General access generation, routing/haulage/transport, remote acquisition, adapter inventory UI, fluid transport, and mounted-production geometry. |
 | Advanced geology/mining | Mixed-grade world ore, regional generation, voxel ore topology, laboratory/geophysical surveys, mechanized mining, drainage, ground control and tailings transport. |
 | Thermal/chemical industry | Environmental heat transport, vaporization, general combustion/fuel chemistry/emissions, mixed/alloy phases, reduction/smelting, alloying, forging, machining, and broad recycling. The campfire is not a general combustion or atmospheric model. |
 | Maintenance/structures | Maintenance tools, broader panels/shapes, cascade salvage, bending/shear/torsion/buckling, and terrain support. |
 | Power networks | Generic transfer, shafts/belts, advanced mechanical transmission, scalable electrical distribution/protection, steam, and spatial network integration. |
 | Hydrology | General fluid transport, surface/ground water, channels, pumps, irrigation, wastewater, sanitation, chemical blending/contamination, and pressure-dependent behavior. |
-| Ecology and society | Agriculture, ecology, lethal combat, armed creature attacks/pursuit, broader temple-caste duties and physiology, active relic restoration, recruitment, settlements, trade, economy, migration, and raids beyond the opening patrol. |
+| Ecology and society | Tree ecology (species, soil/water, foliage, planting), agriculture, lethal combat, armed creature attacks/pursuit, broader temple-caste duties and physiology, active relic restoration, recruitment, settlements, trade, economy, migration, and raids beyond the opening patrol. |
 | Industrial acquisition | Ordinary acquisition for industrial machinery, industrial energy systems, and supporting infrastructure. |
 | Save storage adapters | Save-file encoding/storage, filesystem atomicity, compression, and cloud storage. |
 

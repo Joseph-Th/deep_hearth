@@ -2,9 +2,11 @@
 
 mod definitions;
 mod excavation;
+mod felling;
 mod generation;
 mod state;
 mod targeting;
+mod trees;
 mod validation;
 
 pub(crate) use definitions::mixed_full_cube_mass;
@@ -22,6 +24,10 @@ pub use excavation::{
     BlockExcavationCommitError, BlockExcavationError, BlockExcavationOutcome,
     BlockExcavationOutputReceipt, BlockExcavationRequest, BlockExcavationStartOutcome,
     ValidatedPlayerBlockExcavationStart, validate_start_player_block_excavation,
+};
+pub use felling::{
+    TreeFellingCommitError, TreeFellingError, TreeFellingOutcome, ValidatedTreeFelling,
+    validate_fell_tree,
 };
 pub(crate) use generation::WorldGenerationProfile;
 pub(crate) use generation::first_buried_stationary_enclosure_in_world;
@@ -43,11 +49,17 @@ pub use state::{
 };
 pub use targeting::{PlayerBlockTarget, PlayerBlockTargetError, raycast_player_block};
 pub(crate) use targeting::{raycast_player_air_voxel, raycast_player_air_voxel_with_reach};
+pub(crate) use trees::generated_tree;
+pub use trees::{BIOLOGICAL_YEAR_TICKS, TreeRecord};
 pub use validation::{WorldValidationError, validate_loaded_world};
 
 #[cfg(test)]
 #[path = "world_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "trees_tests.rs"]
+mod trees_tests;
 
 #[cfg(test)]
 #[path = "temple_tests.rs"]

@@ -29,6 +29,7 @@ pub struct MatterAccounting {
     in_process: AggregateMass,
     consumed: AggregateMass,
     combusted: AggregateMass,
+    photosynthetic_input: AggregateMass,
     total: AggregateMass,
 }
 
@@ -100,7 +101,14 @@ impl MatterAccounting {
         self.combusted
     }
 
-    /// Total non-fluid matter represented by the implemented authoritative matter owners.
+    /// External atmospheric/environmental mass synthesized into living and subsequently felled wood.
+    /// This is a source flux, not another matter owner; it is deducted from conservation totals.
+    #[must_use]
+    pub const fn photosynthetic_input(self) -> AggregateMass {
+        self.photosynthetic_input
+    }
+
+    /// Conserved initial-system matter, net of explicit external photosynthetic input.
     #[must_use]
     pub const fn total(self) -> AggregateMass {
         self.total
@@ -121,6 +129,8 @@ pub enum MatterAccountingError {
     InProcessMassOverflow,
     ConsumedMassOverflow,
     CombustedMassOverflow,
+    PhotosyntheticInputOverflow,
+    PhotosyntheticInputExceedsPhysicalMass,
     TotalMassOverflow,
 }
 
@@ -159,6 +169,10 @@ impl Display for MatterAccountingError {
             Self::CombustedMassOverflow => {
                 formatter.write_str("combusted world matter exceeds aggregate mass range")
             }
+            Self::PhotosyntheticInputOverflow => formatter
+                .write_str("atmospheric wood assimilation exceeded the supported mass range"),
+            Self::PhotosyntheticInputExceedsPhysicalMass => formatter
+                .write_str("atmospheric wood assimilation exceeds represented physical matter"),
             Self::TotalMassOverflow => {
                 formatter.write_str("total world matter exceeds aggregate mass range")
             }
@@ -178,11 +192,20 @@ fn calculate_surface_mass(state: &AppState) -> Result<AggregateMass, MatterAccou
 
 fn calculate_world_mass(state: &AppState) -> Result<AggregateMass, MatterAccountingError> {
     sum_masses(
-        state.world().chunks().flat_map(|chunk| {
-            chunk
-                .sections()
-                .map(|section| AggregateMass::from_mass(section.represented_mass()))
-        }),
+        state
+            .world()
+            .chunks()
+            .flat_map(|chunk| {
+                chunk
+                    .sections()
+                    .map(|section| AggregateMass::from_mass(section.represented_mass()))
+            })
+            .chain(
+                state
+                    .world()
+                    .trees()
+                    .map(|tree| AggregateMass::from_mass(tree.wood_at(state.tick()))),
+            ),
         MatterAccountingError::WorldMassOverflow,
     )
 }
@@ -330,7 +353,11 @@ pub fn calculate_matter_accounting(
     let in_process = calculate_in_process_mass(state)?;
     let consumed = calculate_consumed_mass(state)?;
     let combusted = calculate_combusted_mass(state)?;
-    let total = calculate_total_mass(&[
+    let photosynthetic_input = state
+        .world()
+        .assimilated_wood_at(state.tick())
+        .ok_or(MatterAccountingError::PhotosyntheticInputOverflow)?;
+    let physical_total = calculate_total_mass(&[
         geological,
         world,
         surface,
@@ -343,6 +370,9 @@ pub fn calculate_matter_accounting(
         consumed,
         combusted,
     ])?;
+    let total = physical_total
+        .checked_sub(photosynthetic_input)
+        .ok_or(MatterAccountingError::PhotosyntheticInputExceedsPhysicalMass)?;
     Ok(MatterAccounting {
         geological,
         world,
@@ -355,6 +385,7 @@ pub fn calculate_matter_accounting(
         in_process,
         consumed,
         combusted,
+        photosynthetic_input,
         total,
     })
 }

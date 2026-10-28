@@ -326,6 +326,35 @@ impl AppState {
         &self.systems.world
     }
 
+    /// Only trunks physically adjoining the admitted player's voxel are observable.
+    /// World-wide forest records remain under the world owner.
+    pub fn available_adjacent_trees(&self) -> impl Iterator<Item = &crate::world::TreeRecord> {
+        let here = self
+            .systems
+            .logistics
+            .player()
+            .map(|player| player.position());
+        here.into_iter()
+            .flat_map(move |here| {
+                [
+                    here.x()
+                        .checked_add(1)
+                        .map(|x| crate::spatial::VoxelCoord::new(x, here.y(), here.z())),
+                    here.x()
+                        .checked_sub(1)
+                        .map(|x| crate::spatial::VoxelCoord::new(x, here.y(), here.z())),
+                    here.z()
+                        .checked_add(1)
+                        .map(|z| crate::spatial::VoxelCoord::new(here.x(), here.y(), z)),
+                    here.z()
+                        .checked_sub(1)
+                        .map(|z| crate::spatial::VoxelCoord::new(here.x(), here.y(), z)),
+                ]
+            })
+            .flatten()
+            .filter_map(|root| self.systems.world.tree_at(root))
+    }
+
     pub(crate) fn world_state_mut(&mut self) -> &mut WorldState {
         &mut self.systems.world
     }
