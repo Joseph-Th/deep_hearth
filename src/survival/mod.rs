@@ -47,6 +47,7 @@ pub use state::{
 };
 pub use validation::SurvivalValidationError;
 
+pub(crate) use lifecycle::apply_kobold_worksite_contact_injury;
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use lifecycle::initialize_player_survival;
 #[cfg(feature = "test-gameplay")]

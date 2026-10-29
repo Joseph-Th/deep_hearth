@@ -18,7 +18,7 @@ Progression:
 | Crafting and equipment | Flint/copper tools, kiln, cooling bed, fired ceramic casting mold, maintenance and upgrades; finite waste storage. |
 | Power | Human drives, mechanical stores, treadle generation, and plate/wound/rack electrical buffers. No power networks. |
 | Processing | Ore dressing, casting, PbS+Fe smelting; fueled ceramic firing, finite-sink cooling, safe-temperature assembly and food storage. No general reduction or passive cooling. |
-| Opening wilderness acquisition | Scouts forage, warn and steal drops. Player-made machinery draws physically reported raids on unenclosed stock; presence, light and field boxes deter theft, with loot recoverable. The player can make and wield a club in nonlethal contact with exact wear/exertion. Kobolds do not attack players. |
+| Opening wilderness acquisition | Scouts forage, warn and steal drops. Player-made machinery draws physically reported raids on unenclosed stock; presence, light and field boxes deter theft, with loot recoverable. The player can make and wield a club in nonlethal contact with exact wear/exertion. Enemy blows need a fitted stationary tool (owner scenario only). |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 
 ## Current integration frontier
@@ -79,7 +79,7 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 | Maintenance/structures | Maintenance tools, broader panels/shapes, cascade salvage, bending/shear/torsion/buckling, and terrain support. |
 | Power networks | Generic transfer, shafts/belts, advanced mechanical transmission, scalable electrical distribution/protection, steam, and spatial network integration. |
 | Hydrology | General fluid transport, surface/ground water, channels, pumps, irrigation, wastewater, sanitation, chemical blending/contamination, and pressure-dependent behavior. |
-| Ecology and society | Tree ecology and planting, agriculture, lethal combat, armed creature attacks/pursuit, broader temple duties/physiology, relic restoration, recruitment, settlements, trade, migration, breached enclosures and extended raids. |
+| Ecology and society | Tree ecology and planting, agriculture, lethal combat, mobile armed creature attacks/pursuit, broader temple duties/physiology, relic restoration, recruitment, settlements, trade, migration, breached enclosures and extended raids. |
 | Industrial acquisition | Ordinary acquisition for industrial machinery, industrial energy systems, and supporting infrastructure. |
 | Save storage adapters | Save-file encoding/storage, filesystem atomicity, compression, and cloud storage. |
 

@@ -18,6 +18,7 @@ use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::surface::{SurfaceResourceId, SurfaceResourceLifecycle};
 
 mod acoustics;
+mod defense;
 mod feeding;
 mod junkworks;
 mod mobilization;
@@ -158,8 +159,9 @@ impl KoboldSighting {
         self.is_wary
     }
 
-    /// A temple warden challenges an intruder, or an archivist visibly guards
-    /// a breached archive. No implicit attack or health bonus is granted.
+    /// Visible guarding includes a fitted scout at a threatened industrial
+    /// junction, a temple warden's challenge or an archivist's archive vigil.
+    /// It conveys physical readiness, not a remote combat buff.
     #[must_use]
     pub const fn is_defending(self) -> bool {
         self.is_defending
@@ -196,6 +198,7 @@ pub struct KoboldScoutEvent {
     discarded_food: Option<SurfaceResourceId>,
     cleared_cache: Option<SurfaceResourceId>,
     heard_junk_alarm: bool,
+    defensive_contact: Option<(SurfaceResourceId, u32)>,
 }
 
 impl KoboldScoutEvent {
@@ -288,6 +291,11 @@ impl KoboldScoutEvent {
     #[must_use]
     pub const fn heard_junk_alarm(self) -> bool {
         self.heard_junk_alarm
+    }
+    /// The actual fitted head used and nonlethal vitality loss in ppm.
+    #[must_use]
+    pub const fn defensive_contact(self) -> Option<(SurfaceResourceId, u32)> {
+        self.defensive_contact
     }
 }
 
@@ -609,7 +617,7 @@ impl KoboldState {
                 has_noticed_player_drop: colony.noticed_player_drop,
                 is_wary: colony.wary_until.is_some_and(|until| until > state.tick())
                     || colony.recently_shoved(KoboldRole::Scout, state.control_tick()),
-                is_defending: false,
+                is_defending: defense::scout_defends_visible_worksite(registries, state, colony),
                 balance_ppm: Some(colony.scout_balance_ppm),
                 mobilized: colony.mobilized_at.is_some(),
                 scavenged_material: colony

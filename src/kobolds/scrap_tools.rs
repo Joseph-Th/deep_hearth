@@ -44,6 +44,9 @@ impl KoboldPryFitting {
     fn matches(self, handle: SurfaceResourceId, head: SurfaceResourceId) -> bool {
         self.handle == handle && self.head == head
     }
+    pub(super) fn completed_for(self, tool: KoboldScrapLever) -> bool {
+        self.completed_at.is_some() && self.matches(tool.handle(), tool.head())
+    }
 }
 
 /// Alternative physical pry heads with distinct material loss per successful operation.

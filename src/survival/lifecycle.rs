@@ -7,10 +7,40 @@ use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::registry::Registries;
 
-use super::state::player_record;
+use super::state::{player_record, player_record_with_thermal_comfort};
 use super::{NutritionReserves, PlayerSurvivalRecord, Vitality};
 
 mod tick;
+
+/// Local blunt contact changes the same persisted vitality as a physical
+/// landing, never a separate combat HP pool. The provisional worksite
+/// counterstroke cannot cause instant death; survival owns terminal transitions.
+pub(crate) fn apply_kobold_worksite_contact_injury(
+    state: &mut AppState,
+    maximum_loss_ppm: u32,
+) -> Option<u32> {
+    let before = state.survival().player().copied()?;
+    let current = before.vitality().parts_per_million();
+    let actual = maximum_loss_ppm.min(current.saturating_sub(1));
+    if actual == 0 {
+        return None;
+    }
+    let revision = state.survival().revision();
+    let next_revision = revision.checked_add(1)?;
+    state.survival_state_mut().apply_player(
+        revision,
+        next_revision,
+        player_record_with_thermal_comfort(
+            before.metabolic_energy(),
+            before.hydration(),
+            Vitality::from_parts_per_million_unchecked(current - actual),
+            before.nutrition(),
+            before.vitality_recovery_remainder(),
+            before.thermal_comfort_ppm(),
+        ),
+    );
+    Some(actual)
+}
 
 #[cfg(test)]
 pub(crate) use tick::decide_survival_tick;

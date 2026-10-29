@@ -685,6 +685,39 @@ pub(crate) fn apply_kobold_scout_tick(
         apply_scheduled_den_care(registries, state, from, next_tick, pressured);
     let (heard_junk_alarm, alarm_pulses) = apply_watchman_tick(registries, state, next_tick);
     let pressured = pressured || heard_junk_alarm;
+    if let Some(contact) =
+        super::defense::attempt_worksite_counterstroke(registries, state, next_tick)
+    {
+        state
+            .kobold_state_mut()
+            .colony
+            .as_mut()
+            .unwrap()
+            .next_step_at = next_tick
+            .checked_add_span(TickSpan::new(SCOUT_STEP_TICKS))
+            .expect("worksite defense has the same bounded scout cadence");
+        return (
+            Some(KoboldScoutEvent {
+                position: from,
+                discovered_player_drop: false,
+                raided_stockpile: None,
+                relocated_drop: None,
+                fled_player: false,
+                fled_light: false,
+                turned_back_at_barrier: false,
+                cancelled_empty_cache_raid: false,
+                abandoned_drop: None,
+                foraged_food: None,
+                split_drop: None,
+                consumed_food: None,
+                discarded_food: None,
+                cleared_cache: None,
+                heard_junk_alarm: false,
+                defensive_contact: Some(contact),
+            }),
+            alarm_pulses,
+        );
+    }
     // Copper fitting occupies two real slow-clock work slots at the junction.
     // Player pressure, alarm warnings and absent parts interrupt unfinished work.
     if apply_pry_fitting_tick(state, next_tick, pressured) {
@@ -761,6 +794,7 @@ pub(crate) fn apply_kobold_scout_tick(
                 discarded_food: None,
                 cleared_cache: None,
                 heard_junk_alarm: false,
+                defensive_contact: None,
             }),
             alarm_pulses,
         );
@@ -919,6 +953,7 @@ pub(crate) fn apply_kobold_scout_tick(
         visible.then_some(KoboldScoutEvent {
             position: scout_position,
             heard_junk_alarm,
+            defensive_contact: None,
             discovered_player_drop: discovered,
             raided_stockpile: None,
             relocated_drop,

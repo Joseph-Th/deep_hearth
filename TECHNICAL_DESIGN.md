@@ -261,7 +261,7 @@ synchronized indexes.
 | `StructureState` | `AppState::structures()` | public read | Members, topology, embodied matter, source-separated loads, damage |
 | `WorldState` | `AppState::world()` | public read | Generated 16x16 chunk columns containing sorted 16-cubed sections with local block-state palettes, bit-packed indices, exact non-air/represented-mass summaries, sparse partial-cell mass overrides, and a revision; missing chunk means no generated world truth and a missing section inside a generated chunk means canonical air |
 | `SurfaceResourceState` | `AppState::available_surface_resources()` plus `available_adjacent_surface_resources` | public exact-player-local observation plus traversal-gated immediate-neighbor orientation | Finite loose world-space matter, persisted `Opportunity`/`Drop` interaction kind, lifecycle, and depletion, including generated opening-graph forage/stone/timber and player-created excavation drops; exact remote state, arbitrary-voxel queries, and persistence remain privileged |
-| `KoboldState` | `available_nearby_kobold_scouts` plus `TickOutcome::kobold_scout()` | public player-local sighting and event only | One opening den and deterministic three-cell patrol with bounded two-edge cache detours, conserved scavenging and foraging, player/firelight deterrence, and temporary caution and per-resident saved/recovering stance balance after physically local unarmed or crafted-weapon contact. Opaque terrain conceals local sightings; blocked destinations interrupt travel. No lethal injury, armed enemy attack, pursuit, or renderer body |
+| `KoboldState` | `available_nearby_kobold_scouts` plus `TickOutcome::kobold_scout()` | public player-local sighting and event only | One opening den and deterministic three-cell patrol with bounded two-edge cache detours, conserved scavenging and foraging, player/firelight deterrence, and temporary caution and per-resident saved/recovering stance balance after physically local unarmed or crafted-weapon contact. A reported scout can defend its stationary fitted-metal worksite with local nonfatal contact and recoverable head wear. Opaque terrain conceals local sightings; blocked destinations interrupt travel. No lethal injury, mobile armed enemy attack, pursuit, or renderer body |
 | `CombatState` | `PrimaryControlIntent::shove`, `PrimaryControlIntent::strike` and `ControlTickOutcome::primary_action()` | explicit player control-rate results | Persisted shared melee recovery plus optional saved ten-control-tick directional preparation, release or cancellation: 16-tick empty-hand shove, or selected, carried club/spear with authored reach, tempo, and equipment wear. Prepared strikes add 50% balance impact, double wear/exertion and twelve recovery ticks. All attempts debit checked survival energy/hydration (including misses) atomically with wear, recovery and resident response; preparation-locked equipment cannot be disassembled. Both resolve bounded occluding eye-ray contact, unique opening-kobold identity, condition-scaled footing disruption and an observable stagger; no tissue damage or ranged attacks |
 | `GeologyState` | `AppState::geology()` | core-only hidden truth | Finite hidden geological deposits and depletion; actor code must not enumerate this owner |
 | `GeologicalKnowledgeState` | `AppState::geological_knowledge()` | public actor-safe evidence | Acquired bounded observations only |
@@ -380,7 +380,27 @@ persistent work ledger or require an additional save shape. Nearby players
 may observe active unfinished work via
 `available_nearby_kobold_pry_work`; remote observers learn nothing.
 Fitting consumes scout time, not an invented assembly mass or equipment record.
-The lever is still not a portable tool or combat weapon.
+The lever is not a portable tool. A scout that has actually reported machinery
+can defend this **stationary** fitted-metal worksite while standing at the
+junction. A living player must occupy a visible, directly traversable face-adjacent
+cell; mere sight beyond that edge, a diagonal, a stone fallback or unfinished
+fitting cannot cause contact. A staggered, contact-shaken or wary scout and
+bright local illumination prevent the counterstroke. The attack occupies the
+normal five-simulation-tick patrol work slot and emits one locally visible
+`KoboldScoutEvent::defensive_contact` naming its exact metal head and vitality
+loss. Iron shoe, iron scrap tooth and copper fulcrum cause respectively 12,000,
+10,000 and 8,000 ppm of bounded blunt player vitality loss. Each blow uses
+the surface owner's two-revision abrasion transaction to shed the same 2, 4 or
+5 g of recoverable head material as a split; absent physical wear or exhausted
+headroom prevents the injury. The existing survival owner applies this loss
+*after* ordinary slow-tick settlement; it cannot directly kill the player and
+diet-supported recovery remains real. A locally visible scout sets its existing
+`KoboldSighting::is_defending` flag only while that same fitted head is ready
+for contact; removing the head or denying the report clears the warning.
+Damaging contact is currently proved
+through a deliberately fitted owner scenario, not ordinary generated-world
+enemy weapon acquisition. There is no mobile armed patrol, swept weapon hit
+volume, blood model or general kobold pursuit.
 
 In generated-world patrols, a scout's two-cell standing footprint requires
 actual free space, including the player's airborne body cells, concealed temple

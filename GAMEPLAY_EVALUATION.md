@@ -330,6 +330,30 @@ security against this unarmed opportunist. This proves a
 player-acquirable self-defense baseline, **not** enemy-carried weaponry or lasting
 injury. The focused wilderness report validates and retains the distinction.
 
+A separate **owner-level** defensive-worksite episode demonstrates the first
+bounded damaging kobold contact. The actual scout sees a physically placed
+electrical machine, returns home with that report, spends two consecutive
+slow patrol work slots fitting a real 60 g wooden handle to a 50 g iron ingot
+head, and then strikes a living player across one face-adjacent traversable
+approach. The exact locally visible counterstroke costs 12,000 ppm player
+vitality and moves 2 g from the original ingot into recoverable iron scrap,
+spending five more slow ticks before any further strike. A save before
+contact replays identically. An early-arriving player interrupts the fitting,
+an ordinary physical pickup of the head disarms the site, and a distant player
+cannot be struck. Sixteen consecutive hits consume 32 g and leave an unusable
+18 g head; a seventeenth hit cannot occur for free. Matter is conserved and
+all branches pass trusted-state validation. These owner fixtures do *not*
+demonstrate a generated-world supply of fitted enemy iron equipment, a
+portable weapon or lethal injury.
+
+The negative control equips the same completed 50 g iron shoe without any
+machinery witness or den report. It retains the head and player vitality
+on the same adjacent confrontation: physical tool possession alone does not
+grant a new military tactic. Local sighting marks the equipped, informed
+scout as defending *before* contact and clears that flag if the player takes
+the head. This reuses the existing observer-facing guard signal instead of
+inventing a global enemy warning.
+
 The camp-cache episode extends the same scout to one extra authored traversal edge.
 A player gathers 250 g of food, leaves it exposed at the original camp, then walks
 two ordinary body steps off-trail to avoid deterring the scout. The scout crosses

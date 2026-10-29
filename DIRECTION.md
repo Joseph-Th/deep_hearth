@@ -41,9 +41,12 @@ An unalerted colony cannot perform that raid. A real timber field box or an acti
 guarded approach protects the same material, with the enclosure requiring additional
 player work. An admitted player also now obtains and wields an actual wooden
 club in a generated-world scout encounter, establishing the actor-side melee
-baseline. Continue with a genuinely carried, fitted and wearing *kobold*
-improvised weapon through the combat owner's physical contact/injury boundaries
-before adding new residents; the stationary pry lever is not a combat weapon.
+baseline. A physically reported scout with a completed fitted metal-headed
+lever can now defend its **stationary** junction with finite, nonfatal blunt
+injury and conserved head wear in owner tests. Next prove an actual generated-world
+episode with worksite fitting, ordinary player sabotage and visible injury,
+then extend to a genuinely carried, fitted and wearing kobold weapon before
+adding new residents. The stationary lever does not justify mobile pursuit.
 Then prove a small finite group that can provision
 and sustain a limited off-route raid with visible staging and meaningful
 counterplay. Only after that connect a surface witness/messenger to one

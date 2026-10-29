@@ -476,7 +476,16 @@ inert copper relic cannot claim the worksite by mere proximity. Surplus material
 remain contestable. Players can take any part or guard an upgrade route to deny
 the resulting work advantage. Replacing a fitted ingot or handle requires new
 labor rather than inheriting a previous assembly. This remains a stationary
-arrangement, not yet a portable manufactured tool or combat weapon.
+arrangement, not yet a portable manufactured tool. After physically reporting
+machinery, the scout can grip its **finished metal-headed lever** to strike a
+player who confronts it across one unblocked, traversable worksite edge. This
+is a deliberately limited defensive escalation: blunt nonlethal injury costs
+the head actual recoverable abrasion and a full scout work interval. An early
+intrusion interrupts fitting, taking the head removes its threat, and distance,
+light or staggering the resident remain stronger options than blindly trading
+blows. The original stone wedge cannot launch this counterstroke. Expanding
+the contest beyond the stationary worksite still requires carried weapons,
+more physical hit geometry and demonstrated ordinary acquisition.
 
 The first industrially informed economic raid reaches beyond loose drops. A
 scout that has actually delivered its machinery report may spend a scheduled

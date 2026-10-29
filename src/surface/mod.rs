@@ -160,6 +160,76 @@ impl ScavengedPortionRequest {
     }
 }
 
+/// A fitted improvised head loses actual material on contact, even when no
+/// bulk stone is divided. Abrasion stays openly recoverable at its worksite.
+/// Failure is atomic: no source mass is spent unless residue can be created.
+pub(crate) fn abrade_scavenged_tool_head(
+    registries: &crate::registry::Registries,
+    state: &mut crate::core::state::AppState,
+    head: SurfaceResourceId,
+    from: crate::spatial::VoxelCoord,
+    at: crate::core::time::SimulationTick,
+    wear: crate::core::quantity::Mass,
+    residue_form: crate::material::FormId,
+) -> bool {
+    if !state.can_spend_surface_revisions(2) || wear.is_zero() {
+        return false;
+    }
+    let Some(resource) = state.surface().get(head) else {
+        return false;
+    };
+    if resource.kind() != SurfaceResourceKind::Drop
+        || resource.lifecycle() != SurfaceResourceLifecycle::Available
+        || resource.position() != from
+        || resource.remaining_mass() <= wear
+        || !registries
+            .materials()
+            .get_form(residue_form)
+            .is_some_and(|form| form.is_residual())
+    {
+        return false;
+    }
+    let Some(profile) = crate::material::MaterialLotSpec::with_composition(
+        crate::material::CommodityKey::new(resource.commodity().material(), residue_form),
+        wear,
+        resource.temperature(),
+        resource.composition().clone(),
+    )
+    .ok()
+    .map(|spec| crate::inventory::MaterialLotProfile::from_spec(&spec)) else {
+        return false;
+    };
+    let Some(age) = resource.ambient_storage_age_parts_at(at) else {
+        return false;
+    };
+    let Some(residue) = creation::SurfaceResourceSpec::from_existing_material(
+        SurfaceResourceKind::Drop,
+        from,
+        wear,
+        profile,
+        resource.material_provenance(),
+        age,
+    )
+    .ok() else {
+        return false;
+    };
+    let Ok(creation) =
+        creation::validate_create_surface_resources_at(registries, state, [residue], at)
+    else {
+        return false;
+    };
+    creation.apply(state);
+    let next_revision = state
+        .surface()
+        .revision()
+        .checked_add(1)
+        .expect("abrasion reserved source surface revision");
+    state
+        .surface_state_mut()
+        .apply_gathering(head, wear, at, next_revision);
+    true
+}
+
 /// Split a bulky drop with a local improvised head, retaining both exact physical
 /// outputs: the hauled daughter and the head's abrasion debris at the worksite.
 /// Creation and both source decrements are prevalidated as one surface operation.
