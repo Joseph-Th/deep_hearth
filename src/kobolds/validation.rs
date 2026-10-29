@@ -7,8 +7,9 @@ use crate::spatial::VoxelCoord;
 
 use super::{
     FIRST_SCOUT_TICK, FULL_BALANCE_PPM, KoboldColony, KoboldState, SCOUT_FORAGE_INTERVAL_TICKS,
-    SCOUT_MEAL_INTERVAL_TICKS, SCOUT_MEAL_MASS, SCOUT_STEP_TICKS, SCOUT_WARY_INTERVAL_TICKS,
-    scavenging::is_portable_drop, scrap_tools, temple_archivist, temple_guard,
+    SCOUT_MEAL_INTERVAL_TICKS, SCOUT_MEAL_MASS, SCOUT_SAFE_SCAVENGE_TEMPERATURE, SCOUT_STEP_TICKS,
+    SCOUT_WARY_INTERVAL_TICKS, scavenging::is_portable_drop, scrap_tools, temple_archivist,
+    temple_guard,
 };
 
 /// An opening resident's body cannot coexist with full-cell constructed
@@ -172,6 +173,7 @@ pub(crate) fn validate_loaded_kobolds(
         if colony.scout_step == 0
             || !colony.returning
             || !is_portable_drop(drop)
+            || drop.temperature() > SCOUT_SAFE_SCAVENGE_TEMPERATURE
             || drop.position() != colony.scout_position()
         {
             return Err("kobold dragged parcel has invalid route custody");

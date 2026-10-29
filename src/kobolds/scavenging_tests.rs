@@ -2,11 +2,11 @@
 
 use crate::content::{FORM_CHIP, FORM_FOOD, MATERIAL_BERRIES, MATERIAL_STONE, build_registries};
 use crate::core::quantity::{Mass, Temperature};
-use crate::core::state::{AppState, validate_loaded_state};
+use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::logistics::add_traversable_edge_for_test;
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
-use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::simulation::{advance_control_tick, advance_tick};
 use crate::spatial::VoxelCoord;
@@ -67,6 +67,54 @@ fn drop(position: VoxelCoord, food: bool, mass: u64) -> SurfaceResourceSpec {
         MaterialComposition::pure(material),
     )
     .unwrap()
+}
+
+#[test]
+fn trusted_load_rejects_hot_parcel_forged_into_a_returning_scouts_custody() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let path = route(&mut state);
+    validate_create_surface_resources(&registries, &state, [drop(path.far_stone, false, 250_000)])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([path.den, path.junction, path.tip]);
+    while state.tick().value() < 195 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    let parcel = state
+        .kobold_state()
+        .colony
+        .as_ref()
+        .unwrap()
+        .scavenged_drop
+        .expect("a physical far raid must have a returning parcel");
+    assert_eq!(
+        state.surface().get(parcel).unwrap().position(),
+        path.side_stone
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let serialized = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let valid: LoadedSaveEnvelope = serde_json::from_value(serialized.clone()).unwrap();
+    let restored = valid.into_state(&registries).unwrap();
+    assert_eq!(restored, state);
+
+    let mut forged = serialized;
+    let resource_key = parcel.value().to_string();
+    let temperature = &mut forged["state"]["systems"]["surface"]["resources"]
+        [resource_key.as_str()]["material"]["profile"]["temperature"];
+    assert_eq!(*temperature, serde_json::json!(293_150));
+    *temperature = serde_json::json!(373_150);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(forged).unwrap();
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Kobolds(
+            "kobold dragged parcel has invalid route custody"
+        )))
+    );
 }
 
 #[test]
