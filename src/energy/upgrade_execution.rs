@@ -3,12 +3,14 @@
 use crate::core::quantity::{Energy, Mass};
 use crate::core::state::AppState;
 use crate::inventory::{
-    ConsumedMaterialTrace, StockpileId, StockpileStoredMassChange, ValidatedMaterialEgress,
-    ValidatedStockpileStructuralLoad, apply_material_egress, validate_consumption_selection,
-    validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
+    ConsumedMaterialTrace, StockpileId, StockpileStoredMassChange,
+    TemperatureLimitedSelectionError, ValidatedMaterialEgress, ValidatedStockpileStructuralLoad,
+    apply_material_egress, validate_material_egress_from_selection,
+    validate_stockpile_stored_mass_changes, validate_temperature_limited_consumption_selection,
     validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::logistics::{validate_player_energy_store_access, validate_player_stockpile_access};
+use crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 
@@ -172,27 +174,42 @@ pub fn validate_upgrade_energy_store(
         }
         None => {}
     }
-    let selection =
-        validate_consumption_selection(state.inventory(), source, upgrade.additions().inputs())
-            .map_err(|error| match error {
-                crate::inventory::ConsumptionSelectionError::UnknownStockpile { stockpile } => {
-                    EnergyStoreUpgradeError::UnknownSource { stockpile }
-                }
-                crate::inventory::ConsumptionSelectionError::InsufficientMass {
-                    stockpile,
-                    commodity,
-                    available,
-                    requested,
-                } => EnergyStoreUpgradeError::InsufficientMaterial {
-                    stockpile,
-                    commodity,
-                    available,
-                    required: requested,
-                },
-                crate::inventory::ConsumptionSelectionError::MassOverflow { stockpile } => {
-                    EnergyStoreUpgradeError::SourceMassOverflow { stockpile }
-                }
-            })?;
+    let selection = validate_temperature_limited_consumption_selection(
+        state.inventory(),
+        source,
+        upgrade.additions().inputs(),
+        MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+    )
+    .map_err(|error| match error {
+        TemperatureLimitedSelectionError::Selection(
+            crate::inventory::ConsumptionSelectionError::UnknownStockpile { stockpile },
+        ) => EnergyStoreUpgradeError::UnknownSource { stockpile },
+        TemperatureLimitedSelectionError::Selection(
+            crate::inventory::ConsumptionSelectionError::InsufficientMass {
+                stockpile,
+                commodity,
+                available,
+                requested,
+            },
+        ) => EnergyStoreUpgradeError::InsufficientMaterial {
+            stockpile,
+            commodity,
+            available,
+            required: requested,
+        },
+        TemperatureLimitedSelectionError::Selection(
+            crate::inventory::ConsumptionSelectionError::MassOverflow { stockpile },
+        ) => EnergyStoreUpgradeError::SourceMassOverflow { stockpile },
+        TemperatureLimitedSelectionError::TooHot {
+            commodity,
+            temperature,
+            maximum,
+        } => EnergyStoreUpgradeError::UpgradeMaterialTooHot {
+            commodity,
+            temperature,
+            maximum,
+        },
+    })?;
     let additions = selection.consumed_inputs().to_vec();
     let egress =
         validate_material_egress_from_selection(state.inventory(), selection).map_err(|error| {

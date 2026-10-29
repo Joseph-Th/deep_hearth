@@ -5,9 +5,12 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Energy, Power};
 use crate::core::state::AppState;
-use crate::inventory::{ConsumptionSelectionError, StockpileId, validate_consumption_selection};
+use crate::inventory::{
+    ConsumptionSelectionError, StockpileId, TemperatureLimitedSelectionError,
+    validate_temperature_limited_consumption_selection,
+};
 use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
-use crate::material::MaterialInputSpec;
+use crate::material::{MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE, MaterialInputSpec};
 use crate::registry::Registries;
 
 use super::{
@@ -138,17 +141,25 @@ pub fn player_energy_store_upgrade_options(
             else {
                 continue;
             };
-            let material_ready = match validate_consumption_selection(
+            let material_ready = match validate_temperature_limited_consumption_selection(
                 state.inventory(),
                 source,
                 upgrade.additions().inputs(),
+                MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
             ) {
                 Ok(_) => true,
-                Err(ConsumptionSelectionError::InsufficientMass { .. }) => false,
-                Err(ConsumptionSelectionError::UnknownStockpile { stockpile }) => {
+                Err(TemperatureLimitedSelectionError::TooHot { .. })
+                | Err(TemperatureLimitedSelectionError::Selection(
+                    ConsumptionSelectionError::InsufficientMass { .. },
+                )) => false,
+                Err(TemperatureLimitedSelectionError::Selection(
+                    ConsumptionSelectionError::UnknownStockpile { stockpile },
+                )) => {
                     return Err(PlayerEnergyStoreUpgradeCatalogError::UnknownSource { stockpile });
                 }
-                Err(ConsumptionSelectionError::MassOverflow { stockpile }) => {
+                Err(TemperatureLimitedSelectionError::Selection(
+                    ConsumptionSelectionError::MassOverflow { stockpile },
+                )) => {
                     return Err(PlayerEnergyStoreUpgradeCatalogError::SourceMassOverflow {
                         stockpile,
                     });

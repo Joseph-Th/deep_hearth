@@ -1313,9 +1313,14 @@ same-tick ingress. A definition may also mark nonempty finite storage as a rende
 
 Material-backed energy-store upgrades are additive: registry validation requires carrier compatibility, non-
 regressing capacity/transfer semantics, non-increasing passive loss, and exact base-plus-additions embodiment.
+Energy-store body assembly and additive upgrades use inventory's hand-safe cohort selection at or below
+353,150 mK, as equipment and storage construction do. Hot-only construction stock yields typed rejection
+without mutation; when older hot and newer cool lots coexist, the same deterministic filtered selection
+consumes only eligible cool matter and preserves the exact material thermal energy in the destination body.
 Runtime upgrade requires an empty unoccupied store and preserves store identity/location/creation history.
 `player_energy_store_upgrade_options` enumerates eligible exact-local empty stores, reports
-material-ready/unready candidate additions, names and directional transfer limits, and never
+material-ready/unready candidate additions including the hand-safe temperature gate, names and directional
+transfer limits, and never
 reserves material. Selecting a row revalidates through `validate_upgrade_energy_store`; moving,
 charging or consuming inputs between observation and action cannot bypass ownership.
 The foundry's 15 kJ copper-plate buffer accepts one 54 g winding to become a 30 kJ wound

@@ -3,16 +3,17 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::{Energy, Mass};
+use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::state::AppState;
 use crate::inventory::{
-    StockpileId, StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedMaterialEgress,
-    ValidatedStockpileStructuralLoad, apply_material_egress, validate_consumption_selection,
-    validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
+    StockpileId, StockpileStoredMassChange, StockpileStructuralLoadError,
+    TemperatureLimitedSelectionError, ValidatedMaterialEgress, ValidatedStockpileStructuralLoad,
+    apply_material_egress, validate_material_egress_from_selection,
+    validate_stockpile_stored_mass_changes, validate_temperature_limited_consumption_selection,
     validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
-use crate::material::CommodityKey;
+use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE};
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
@@ -42,6 +43,11 @@ pub enum EnergyStoreAssemblyError {
     },
     SourceMassOverflow {
         stockpile: StockpileId,
+    },
+    AssemblyMaterialTooHot {
+        commodity: CommodityKey,
+        temperature: Temperature,
+        maximum: Temperature,
     },
     StaleInventorySelection {
         expected: u64,
@@ -97,6 +103,17 @@ impl Display for EnergyStoreAssemblyError {
                 "energy-store construction source {} mass accounting overflowed",
                 stockpile.value()
             ),
+            Self::AssemblyMaterialTooHot {
+                commodity,
+                temperature,
+                maximum,
+            } => write!(
+                formatter,
+                "energy-store construction commodity {} is at {} mK, above the {} mK safe hand-assembly limit",
+                commodity.value(),
+                temperature.millikelvin(),
+                maximum.millikelvin()
+            ),
             Self::StaleInventorySelection { expected, actual } => write!(
                 formatter,
                 "energy-store construction material selection expected inventory revision {expected} but current revision is {actual}"
@@ -133,6 +150,7 @@ impl Error for EnergyStoreAssemblyError {
             | Self::UnknownSource { .. }
             | Self::InsufficientMaterial { .. }
             | Self::SourceMassOverflow { .. }
+            | Self::AssemblyMaterialTooHot { .. }
             | Self::StaleInventorySelection { .. }
             | Self::InventoryRevisionExhausted
             | Self::StoreIdExhausted
@@ -289,26 +307,42 @@ pub fn validate_assemble_energy_store(
         .assembly_profile()
         .ok_or(EnergyStoreAssemblyError::NoAssemblyProfile { definition })?;
     validate_player_stockpile_access(state, source).map_err(EnergyStoreAssemblyError::Access)?;
-    let selection = validate_consumption_selection(state.inventory(), source, assembly.inputs())
-        .map_err(|error| match error {
-            crate::inventory::ConsumptionSelectionError::UnknownStockpile { stockpile } => {
-                EnergyStoreAssemblyError::UnknownSource { stockpile }
-            }
+    let selection = validate_temperature_limited_consumption_selection(
+        state.inventory(),
+        source,
+        assembly.inputs(),
+        MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+    )
+    .map_err(|error| match error {
+        TemperatureLimitedSelectionError::Selection(
+            crate::inventory::ConsumptionSelectionError::UnknownStockpile { stockpile },
+        ) => EnergyStoreAssemblyError::UnknownSource { stockpile },
+        TemperatureLimitedSelectionError::Selection(
             crate::inventory::ConsumptionSelectionError::InsufficientMass {
                 stockpile,
                 commodity,
                 available,
                 requested,
-            } => EnergyStoreAssemblyError::InsufficientMaterial {
-                stockpile,
-                commodity,
-                available,
-                required: requested,
             },
-            crate::inventory::ConsumptionSelectionError::MassOverflow { stockpile } => {
-                EnergyStoreAssemblyError::SourceMassOverflow { stockpile }
-            }
-        })?;
+        ) => EnergyStoreAssemblyError::InsufficientMaterial {
+            stockpile,
+            commodity,
+            available,
+            required: requested,
+        },
+        TemperatureLimitedSelectionError::Selection(
+            crate::inventory::ConsumptionSelectionError::MassOverflow { stockpile },
+        ) => EnergyStoreAssemblyError::SourceMassOverflow { stockpile },
+        TemperatureLimitedSelectionError::TooHot {
+            commodity,
+            temperature,
+            maximum,
+        } => EnergyStoreAssemblyError::AssemblyMaterialTooHot {
+            commodity,
+            temperature,
+            maximum,
+        },
+    })?;
     let embodied_material = selection.consumed_inputs().to_vec();
     let egress =
         validate_material_egress_from_selection(state.inventory(), selection).map_err(|error| {

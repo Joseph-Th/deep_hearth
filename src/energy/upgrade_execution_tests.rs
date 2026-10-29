@@ -380,6 +380,99 @@ fn reinforcement_source(registries: &Registries, state: &mut AppState) -> Stockp
 }
 
 #[test]
+fn energy_store_upgrade_and_catalog_reject_hot_reinforcement_but_accept_cool_stock() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let store = assemble_stone_flywheel(&registries, &mut state);
+    let origin = VoxelCoord::new(0, 0, 0);
+    crate::logistics::place_energy_store_for_fixture(&mut state, store, origin);
+    initialize_player_survival(&registries, &mut state).unwrap();
+    validate_initialize_player_logistics(&state, origin, Mass::from_milligrams(25_000_000))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(40_000)).unwrap();
+    validate_place_ground_stockpile(&state, source, origin)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let reinforcement = CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT);
+    let mass = Mass::from_milligrams(20_000);
+    let hot = Temperature::from_millikelvin(400_000);
+    let older_hot =
+        deposit_lot_for_test(&registries, &mut state, source, reinforcement, mass, hot).unwrap();
+    let before = state.clone();
+    let hot_option = player_energy_store_upgrade_options(&registries, &state, source)
+        .unwrap()
+        .into_iter()
+        .find(|option| option.target() == ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE)
+        .unwrap();
+    assert!(!hot_option.material_ready());
+    assert_eq!(
+        validate_upgrade_player_energy_store_option(&registries, &state, &hot_option).err(),
+        Some(EnergyStoreUpgradeError::UpgradeMaterialTooHot {
+            commodity: reinforcement,
+            temperature: hot,
+            maximum: crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+        }),
+    );
+    assert_eq!(
+        state, before,
+        "hot-only upgrades must not modify stored matter or store identity"
+    );
+
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        reinforcement,
+        mass,
+        TEMPERATURE,
+    )
+    .unwrap();
+    let ready_option = player_energy_store_upgrade_options(&registries, &state, source)
+        .unwrap()
+        .into_iter()
+        .find(|option| option.target() == ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE)
+        .unwrap();
+    assert!(ready_option.material_ready());
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    let energy_before = calculate_explicit_energy_accounting(&registries, &state)
+        .unwrap()
+        .total();
+    let upgraded = validate_upgrade_player_energy_store_option(&registries, &state, &ready_option)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(upgraded, store);
+    assert_eq!(state.inventory().get_lot(older_hot).unwrap().mass(), mass);
+    let record = state.energy().get_store(store).unwrap();
+    assert_eq!(
+        record.definition(),
+        ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE
+    );
+    assert!(record.embodied_material().iter().any(|trace| {
+        trace.profile().commodity() == reinforcement
+            && trace.mass() == mass
+            && trace.profile().temperature() == TEMPERATURE
+    }));
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(
+        calculate_explicit_energy_accounting(&registries, &state)
+            .unwrap()
+            .total(),
+        energy_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&save).unwrap();
+    assert_eq!(loaded.into_state(&registries), Ok(state));
+}
+
+#[test]
 fn energy_store_upgrade_reports_the_exact_missing_addition() {
     let registries = build_registries();
     let mut state = AppState::new();

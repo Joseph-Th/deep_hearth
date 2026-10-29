@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::{Energy, Mass};
+use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::inventory::{StockpileId, StockpileStructuralLoadError};
 use crate::logistics::{PlayerEnergyStoreAccessError, PlayerStockpileAccessError};
 use crate::material::CommodityKey;
@@ -55,6 +55,11 @@ pub enum EnergyStoreUpgradeError {
     },
     SourceMassOverflow {
         stockpile: StockpileId,
+    },
+    UpgradeMaterialTooHot {
+        commodity: CommodityKey,
+        temperature: Temperature,
+        maximum: Temperature,
     },
     StaleInventorySelection {
         expected: u64,
@@ -147,6 +152,17 @@ impl Display for EnergyStoreUpgradeError {
                 "energy-store upgrade source {} mass accounting overflowed",
                 stockpile.value()
             ),
+            Self::UpgradeMaterialTooHot {
+                commodity,
+                temperature,
+                maximum,
+            } => write!(
+                formatter,
+                "energy-store upgrade commodity {} is at {} mK, above the {} mK safe hand-assembly limit",
+                commodity.value(),
+                temperature.millikelvin(),
+                maximum.millikelvin()
+            ),
             Self::StaleInventorySelection { expected, actual } => write!(
                 formatter,
                 "energy-store upgrade material selection expected inventory revision {expected} but current revision is {actual}"
@@ -183,6 +199,7 @@ impl Error for EnergyStoreUpgradeError {
             | Self::UnknownSource { .. }
             | Self::InsufficientMaterial { .. }
             | Self::SourceMassOverflow { .. }
+            | Self::UpgradeMaterialTooHot { .. }
             | Self::StaleInventorySelection { .. }
             | Self::InventoryRevisionExhausted
             | Self::EnergyRevisionExhausted => None,

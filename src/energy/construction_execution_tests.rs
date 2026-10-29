@@ -190,6 +190,102 @@ fn energy_store_assembly_reports_the_exact_missing_component() {
 }
 
 #[test]
+fn energy_store_assembly_rejects_hot_body_without_changing_custody_or_state() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let source =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_100_000)).unwrap();
+    let flywheel = CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL);
+    let hot = Temperature::from_millikelvin(400_000);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        flywheel,
+        Mass::from_milligrams(900_000),
+        hot,
+    )
+    .unwrap();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+        Mass::from_milligrams(200_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let before = state.clone();
+    assert_eq!(
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, source)
+            .err(),
+        Some(EnergyStoreAssemblyError::AssemblyMaterialTooHot {
+            commodity: flywheel,
+            temperature: hot,
+            maximum: crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+        }),
+    );
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn energy_store_assembly_uses_cool_body_behind_older_hot_lot_and_preserves_energy() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let source =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000)).unwrap();
+    let flywheel = CommodityKey::new(MATERIAL_STONE, FORM_FLYWHEEL);
+    let mass = Mass::from_milligrams(900_000);
+    let hot = Temperature::from_millikelvin(400_000);
+    let cool = Temperature::from_millikelvin(293_150);
+    let older_hot =
+        deposit_lot_for_test(&registries, &mut state, source, flywheel, mass, hot).unwrap();
+    deposit_lot_for_test(&registries, &mut state, source, flywheel, mass, cool).unwrap();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+        Mass::from_milligrams(200_000),
+        cool,
+    )
+    .unwrap();
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    let energy_before = calculate_explicit_energy_accounting(&registries, &state)
+        .unwrap()
+        .total();
+    let store =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, source)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    assert_eq!(state.inventory().get_lot(older_hot).unwrap().mass(), mass);
+    let record = state.energy().get_store(store).unwrap();
+    assert_eq!(record.embodied_mass(), Mass::from_milligrams(1_100_000));
+    assert!(
+        record
+            .embodied_material()
+            .iter()
+            .all(|trace| trace.profile().temperature() == cool)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(
+        calculate_explicit_energy_accounting(&registries, &state)
+            .unwrap()
+            .total(),
+        energy_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&save).unwrap();
+    assert_eq!(loaded.into_state(&registries), Ok(state));
+}
+
+#[test]
 fn assembly_rejects_exhausted_store_id_without_consuming_material() {
     let (registries, state, source) = unassembled_store_fixture();
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
