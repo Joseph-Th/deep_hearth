@@ -2,7 +2,7 @@
 
 **Role:** Current runtime scope and reachability authority.
 
-Use [`README.md`](README.md) for routing, [`GAME_DESIGN.md`](GAME_DESIGN.md) for intent, and [`DIRECTION.md`](DIRECTION.md) for priority. Fixtures do not prove ordinary reachability.
+[`README.md`](README.md) routes tasks, [`GAME_DESIGN.md`](GAME_DESIGN.md) defines intent, and [`DIRECTION.md`](DIRECTION.md) prioritizes work. Fixtures do not prove reachability.
 
 ## Ordinary play
 
@@ -18,7 +18,7 @@ Progression:
 | Crafting and equipment | Flint/copper tools, kiln, cooling bed, fired ceramic casting mold, maintenance and upgrades; finite waste storage. |
 | Power | Human drives, mechanical stores, treadle generation, and plate/wound/rack electrical buffers. No power networks. |
 | Processing | Ore dressing, casting, PbS+Fe smelting; fueled ceramic firing, finite-sink cooling, safe-temperature assembly and food storage. No general reduction or passive cooling. |
-| Opening wilderness acquisition | Flint; scouts forage, alarm and raid exposed drops. An ordinary player-built flywheel can prompt a physical industrial report and subsequent raid of local unenclosed worksite stock; guarding, field-box construction or denying the report prevents that loss, and stolen matter remains recoverable. Light, players, walls and enclosures deter. Melee only staggers. |
+| Opening wilderness acquisition | Scouts forage, warn and steal drops. Player-made machinery draws physically reported raids on unenclosed stock; presence, light and field boxes deter theft, with loot recoverable. The player can make and wield a club in nonlethal contact with exact wear/exertion. Kobolds do not attack players. |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 
 ## Current integration frontier
@@ -46,14 +46,14 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | --- | --- |
 | Core | Persisted 20 Hz `ControlTick` + exact 72:1 `SimulationTick`; slow-step only when no control-rate consequence can occur. |
 | Persistence | Current-schema trusted load with deterministic derived-index rebuild and whole-state validation; byte storage is adapter-owned. |
-| Production | Timed conserved work, routed outputs, metal remelting/casting and iron tool upkeep. PbS+Fe precipitation makes molten lead and FeS matte; recovered lead can be cast and remelted. Gas-forming reactions are reference-only. |
+| Production | Timed conserved work, routed outputs, metal remelting/casting and iron upkeep. PbS+Fe produces molten lead and FeS matte; lead recasts. Gas reactions are reference-only. |
 | Crafting | Timed exact-lot processing, including iron head finishing with recoverable chips, equipment admission and conserved outputs. |
 | Logistics | 20 Hz body collision, carrying/load exertion, falling injury, equipment and inventory access, nine-slot hotbar, buffered actions. |
 | Loose surface matter | Finite gathering/drop custody; empty-hand local natural gathering; partial capacity-filling drop pickup. Deep exposed residue layers obstruct ground-storage footing until cleared. |
 | Energy and fluids | Finite power/loss-limited energy, campfire heat, drinking, and exact local/downhill fluid transfer with player choice previews. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; interaction-reach stack construction including real posts/framing and a supported cover panel; primary-break recovery. |
-| Block world | Eight ores, temple rooms, excavation and targeting. Generated trees grow lazily; stone/copper adzes chop them through timed work into conserved logs. Chopping wears tools; juvenile relocation is capability-only. No new saplings, leaves or residency. |
+| Block world | Eight ores, temple rooms, excavation and targeting. Lazy generated trees yield conserved logs from timed, wearing stone/copper adze work. Juvenile relocation is capability-only; no saplings, leaves or residency. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation
@@ -70,16 +70,16 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 
 | Area | Boundary |
 | --- | --- |
-| Wilderness opening | Travel beyond the bounded graph, weather/climate, pathfinding, hydrology, enclosure, broad lighting, and complete first-day branches. Limited camp/refuge exists. |
+| Wilderness opening | Travel beyond bounded graph, weather/climate, pathfinding, hydrology, general enclosures/lighting and full first-day branches. Limited camp/refuge exists. |
 | Engine/platform | Graphics backend, window/input/audio integration, ECS, networking, and general engine shell. |
 | World representation | Residency, general placement, partial shapes, regional geology, biomes and clues. |
 | Logistics | General access generation, routing/haulage/transport, remote acquisition, adapter inventory UI, fluid transport, and mounted-production geometry. |
 | Advanced geology/mining | Mixed-grade world ore, regional generation, voxel ore topology, laboratory/geophysical surveys, mechanized mining, drainage, ground control and tailings transport. |
-| Thermal/chemical industry | Environmental heat transport, vaporization, general combustion/fuel chemistry/emissions, mixed/alloy phases, reduction/smelting, alloying, forging, machining, and broad recycling. The campfire is not a general combustion or atmospheric model. |
+| Thermal/chemical industry | Environmental heat, vaporization, general combustion/emissions, alloy phases, reduction/smelting, alloying, forging, machining and recycling. Campfire is not an atmospheric model. |
 | Maintenance/structures | Maintenance tools, broader panels/shapes, cascade salvage, bending/shear/torsion/buckling, and terrain support. |
 | Power networks | Generic transfer, shafts/belts, advanced mechanical transmission, scalable electrical distribution/protection, steam, and spatial network integration. |
 | Hydrology | General fluid transport, surface/ground water, channels, pumps, irrigation, wastewater, sanitation, chemical blending/contamination, and pressure-dependent behavior. |
-| Ecology and society | Tree ecology (species, soil/water, foliage, planting), agriculture, lethal combat, armed creature attacks/pursuit, broader temple-caste duties and physiology, active relic restoration, recruitment, settlements, trade, economy, migration, breaching enclosures, and extended raids. |
+| Ecology and society | Tree ecology and planting, agriculture, lethal combat, armed creature attacks/pursuit, broader temple duties/physiology, relic restoration, recruitment, settlements, trade, migration, breached enclosures and extended raids. |
 | Industrial acquisition | Ordinary acquisition for industrial machinery, industrial energy systems, and supporting infrastructure. |
 | Save storage adapters | Save-file encoding/storage, filesystem atomicity, compression, and cloud storage. |
 

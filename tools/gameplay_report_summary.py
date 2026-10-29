@@ -695,6 +695,7 @@ def _focused_verbose_gameplay_report(
                     "KOBOLD DETOUR EXPERIENCE ", "KOBOLD BULK EXPERIENCE ",
                     "KOBOLD FAR CACHE EXPERIENCE ",
                     "KOBOLD INDUSTRIAL WORKSITE ",
+                    "PLAYER CLUB DEFENSE ",
                     "KOBOLD SIDE FOOD EXPERIENCE ",
                     "KOBOLD FOOD PRIORITY EXPERIENCE ",
                 )))
@@ -782,6 +783,10 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
         (line for line in lines if line.startswith("KOBOLD INDUSTRIAL WORKSITE ")),
         None,
     )
+    club_contact_witness = next(
+        (line for line in lines if line.startswith("PLAYER CLUB DEFENSE ")),
+        None,
+    )
     if nutrition_witness is not None:
         nutrition = re.search(
             r"nutrition-offered=\[fruit:(\d+)ppm protein:(\d+)ppm\]",
@@ -815,6 +820,8 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     # Keep one lived, need-triggered adaptation alongside the opening digest. Aggregate choice
     # counts cannot show whether an initially sensible restraint can later become useful action.
     if any(digest.startswith("GAMEPLAY wilderness ") for digest in ordinary_digests):
+        if scoped_ordinary and club_contact_witness is not None:
+            selected.append(club_contact_witness)
         if scoped_ordinary and industrial_raid_witness is not None:
             selected.append(industrial_raid_witness)
         opening = wilderness_player_experience(lines)

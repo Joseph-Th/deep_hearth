@@ -311,6 +311,25 @@ transaction retains material profile, age, provenance, exact matter accounting a
 save/load continuation. Enclosed storage, not simply a heavy exposed drop, remains
 the credible defense against ongoing scavenging.
 
+A separate armed-contact episode uses this identical generated wilderness opening,
+not a test-deposited weapon: the admitted player walks to a timber patch, gathers
+one kilogram, assembles a rough club, carries and selects it, then returns to
+meet the scout at its genuine first patrol junction. Matched direct player-control
+branches compare an unobstructed club strike with an empty-hand shove at the same
+distance and instant. The club changes resident balance to 720,000 ppm with
+3,000 ppm of real equipment wear and finite player energy/hydration consumption;
+the shove leaves 920,000 ppm balance and does not wear the carried club.
+The world conserves matter, all branches pass trusted admission, and club contact
+continues identically for 360 control ticks after save/load. An additional
+real 250 g gathered wild-nut parcel at the junction makes the tactical
+alternatives consequential: armed and unarmed physical presence both keep it
+safe, while leaving the site unattended lets the scout take the same parcel
+to its den, from which the player reclaims it through ordinary movement.
+The club has a higher exertion and wear cost without claiming improved food
+security against this unarmed opportunist. This proves a
+player-acquirable self-defense baseline, **not** enemy-carried weaponry or lasting
+injury. The focused wilderness report validates and retains the distinction.
+
 The camp-cache episode extends the same scout to one extra authored traversal edge.
 A player gathers 250 g of food, leaves it exposed at the original camp, then walks
 two ordinary body steps off-trail to avoid deterring the scout. The scout crosses

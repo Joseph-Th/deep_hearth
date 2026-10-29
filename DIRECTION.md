@@ -39,9 +39,11 @@ continuation: a player makes a stone flywheel, the scout witnesses it and report
 and the resulting raid can deprive an unattended worksite of recoverable stock.
 An unalerted colony cannot perform that raid. A real timber field box or an actively
 guarded approach protects the same material, with the enclosure requiring additional
-player work. Continue with a genuinely carried, fitted and wearing improvised
-weapon through the combat owner's real contact/injury boundaries before
-adding new residents; the stationary pry lever is not a combat weapon.
+player work. An admitted player also now obtains and wields an actual wooden
+club in a generated-world scout encounter, establishing the actor-side melee
+baseline. Continue with a genuinely carried, fitted and wearing *kobold*
+improvised weapon through the combat owner's physical contact/injury boundaries
+before adding new residents; the stationary pry lever is not a combat weapon.
 Then prove a small finite group that can provision
 and sustain a limited off-route raid with visible staging and meaningful
 counterplay. Only after that connect a surface witness/messenger to one

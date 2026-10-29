@@ -3212,6 +3212,36 @@ class GameplayReportContractTests(unittest.TestCase):
             gameplay_report_summary.wilderness_summary([
                 *lines, caution_record.replace("wary-window:40t", "wary-window:0t")
             ])
+        club_record = (
+            "PLAYER CLUB DEFENSE seed=0x1 episode=coverage/rested/scavenger-armed-contact "
+            "evidence=ordinary-generated-world "
+            "weapon=player-gathered-timber+assembled+carried+selected "
+            "contact=direct-control+unobstructed "
+            "result=[club-balance:720000ppm shove-balance:920000ppm club-wear:3000ppm] "
+            "cache=[exposed:250000mg club-protected:250000mg shove-protected:250000mg "
+            "unattended-stolen:250000mg reclaimed:250000mg] "
+            "exertion=finite recovery=canonical replay=360-control-ticks "
+            "matter=conserved injury=not-yet-implemented"
+        )
+        club_summary = gameplay_report_summary.wilderness_summary([*lines, club_record])
+        self.assertIn(
+            "club-contact=[armed:720000ppm shove:920000ppm wear:3000ppm "
+            "guarded:250000mg reclaimed:250000mg replay:360ct]",
+            club_summary,
+        )
+        with self.assertRaisesRegex(ValueError, "distinct finite, conserved contact"):
+            gameplay_report_summary.wilderness_summary([
+                *lines, club_record.replace("club-wear:3000ppm", "club-wear:0ppm"),
+            ])
+        with self.assertRaisesRegex(ValueError, "distinct finite, conserved contact"):
+            gameplay_report_summary.wilderness_summary([
+                *lines, club_record.replace("shove-balance:920000ppm", "shove-balance:720000ppm"),
+            ])
+        with self.assertRaisesRegex(ValueError, "distinct finite, conserved contact"):
+            gameplay_report_summary.wilderness_summary([
+                *lines, club_record.replace("unattended-stolen:250000mg",
+                                           "unattended-stolen:0mg"),
+            ])
         industrial_record = (
             "KOBOLD INDUSTRIAL WORKSITE seed=0x1 "
             "episode=coverage/rested/scavenger-industrial-worksite "
@@ -4783,6 +4813,24 @@ class GameplayReportContractTests(unittest.TestCase):
                 stdout,
                 {**environment, "DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE": "organic/rested/stay-mobile"},
             )
+
+    def test_focused_generated_armed_contact_does_not_merge_industrial_raid(self) -> None:
+        stdout = "\n".join((
+            "PROBE INPUT name=wilderness mode=explore",
+            "PLAYER CLUB DEFENSE seed=0x1 episode=coverage/rested/scavenger-armed-contact "
+            "evidence=ordinary-generated-world result=[club-balance:720000ppm]",
+            "KOBOLD INDUSTRIAL WORKSITE seed=0x1 "
+            "episode=coverage/rested/scavenger-industrial-worksite "
+            "evidence=ordinary-generated-world result=[stolen:260000mg]",
+        ))
+        replay = gameplay_report_summary.concise_gameplay_report(stdout, {
+            "DEEP_HEARTH_GAMEPLAY_VERBOSE": "1",
+            "DEEP_HEARTH_GAMEPLAY_FOCUS_SEED": "0x1",
+            "DEEP_HEARTH_GAMEPLAY_FOCUS_EPISODE": "coverage/rested/scavenger-armed-contact",
+        })
+        self.assertIn("continuity=one-wilderness-episode", replay)
+        self.assertIn("PLAYER CLUB DEFENSE", replay)
+        self.assertNotIn("KOBOLD INDUSTRIAL WORKSITE", replay)
 
     def test_woodworking_summary_preserves_no_tool_choice(self) -> None:
         summary = gameplay_report_summary.concise_gameplay_report(

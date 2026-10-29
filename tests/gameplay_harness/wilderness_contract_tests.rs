@@ -98,6 +98,8 @@ use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 const WILDERNESS_WORLD_SEED: WorldGenerationSeed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
 const SETTLED_ADJACENT_LEG_SLOW_TICKS: u64 = 1;
 
+#[path = "wilderness_armed_contact.rs"]
+mod armed_contact;
 #[path = "wilderness_ceramics.rs"]
 mod ceramics;
 #[path = "wilderness_clay_progression.rs"]
@@ -4837,6 +4839,7 @@ fn exercise_opening_two_food_ration(report: bool) {
 }
 
 pub(super) fn run_wilderness_report() {
+    armed_contact::exercise_generated_player_club_defense(true);
     kobold_industrial_raid::exercise_player_built_worksite_raid(true);
     kobold_bulk::exercise_kobold_bulk_scavenging(true);
     kobold_den::exercise_kobold_den_cache(true);
@@ -4942,6 +4945,7 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some() {
         run_wilderness_report();
     } else {
+        armed_contact::exercise_generated_player_club_defense(false);
         kobold_industrial_raid::exercise_player_built_worksite_raid(false);
         kobold_bulk::exercise_kobold_bulk_scavenging(false);
         kobold_den::exercise_kobold_den_cache(false);

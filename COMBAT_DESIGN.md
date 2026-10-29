@@ -50,6 +50,21 @@ An optional **committed prepared strike** adds a ten-control-tick windup to the 
 
 Contact can still force real retreat over available patrol edges once the resident is steady enough. Save/load, stale commits, material accounting, occlusion, differing reach and cooldown continuation have focused executable coverage. This **primitive armed-contact slice is still nonlethal** and does not claim hit-volume animations, wound physics, armor, guarding, projectiles, lethal attacks, defensive kobold strikes or recruited allies. Later damaging attacks must use swept weapon geometry and proper physical harm rather than equating the provisional eye-ray with a damage hitbox.
 
+The ordinary generated-wilderness control path now demonstrates this contact without
+fixture-provisioned equipment. The player harvests a real 1 kg timber log,
+assembles and carries a rough club, wields it, and meets the existing scout
+at its first patrol junction. On matched actual control inputs, club contact
+reduces the scout's stance to 720,000 ppm; an unarmed shove reduces it to
+920,000 ppm. The club loses 3,000 ppm condition, the actor spends finite
+energy and water, and the encounter continues identically through a trusted
+save and 360 more control ticks. The player also leaves a finite 250 g
+wild-nut ration at risk. Both the club and a simple unarmed approach prevent
+the same opportunistic theft, whereas a player who remains absent must reclaim
+the parcel from the den. The club therefore has a real material and survival
+cost without inventing a benefit over simply showing up to guard the cache.
+These are reversible footing consequences;
+no wound, blood loss or damage hitbox is inferred from this observation.
+
 ## Technological progression
 
 | Stage | Battlefield decisions | Industry and custody constraints |

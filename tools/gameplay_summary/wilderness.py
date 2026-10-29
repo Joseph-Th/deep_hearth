@@ -407,6 +407,46 @@ def wilderness_summary(lines: list[str]) -> str | None:
             f"meals:{sum(' meal:eat-needed ' in line for line in organic)} "
             f"water-visits:{sum(' visited:true ' in line for line in organic)}]"
         )
+    club_events = [line for line in lines if line.startswith("PLAYER CLUB DEFENSE ")]
+    if len(club_events) > 1:
+        raise ValueError("wilderness report has duplicate generated-world armed contacts")
+    club_contact = ""
+    if club_events:
+        witness = re.search(
+            r"\bevidence=ordinary-generated-world "
+            r"weapon=player-gathered-timber\+assembled\+carried\+selected "
+            r"contact=direct-control\+unobstructed "
+            r"result=\[club-balance:(\d+)ppm shove-balance:(\d+)ppm club-wear:(\d+)ppm\] "
+            r"cache=\[exposed:(\d+)mg club-protected:(\d+)mg shove-protected:(\d+)mg "
+            r"unattended-stolen:(\d+)mg reclaimed:(\d+)mg\] "
+            r"exertion=finite recovery=canonical replay=(\d+)-control-ticks "
+            r"matter=(conserved|lost) injury=not-yet-implemented",
+            club_events[0],
+        )
+        if witness is None:
+            raise ValueError("armed opening lacks real carried-weapon contact and recovery")
+        club, shove, wear, exposed, club_kept, shove_kept, stolen, recovered, replay = (
+            int(witness.group(i)) for i in range(1, 10)
+        )
+        if (
+            not 0 < club < shove < 1_000_000
+            or shove - club != 200_000
+            or wear != 3_000
+            or exposed <= 0
+            or club_kept != exposed
+            or shove_kept != exposed
+            or stolen != exposed
+            or recovered != stolen
+            or replay < 22
+            or witness.group(10) != "conserved"
+        ):
+            raise ValueError("armed opening must deliver distinct finite, conserved contact")
+        club_contact = (
+            "club-contact=["
+            f"armed:{club}ppm shove:{shove}ppm wear:{wear}ppm "
+            f"guarded:{club_kept}mg reclaimed:{recovered}mg "
+            f"replay:{replay}ct]"
+        )
     industrial_events = [
         line for line in lines if line.startswith("KOBOLD INDUSTRIAL WORKSITE ")
     ]
@@ -694,6 +734,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         f"{camp_warmth + ' ' if camp_warmth else ''}"
         f"{shelter} "
         f"{scavenger + ' ' if scavenger else ''}"
+        f"{club_contact + ' ' if club_contact else ''}"
         f"{industrial_raid + ' ' if industrial_raid else ''}"
         f"{natural_contest + ' ' if natural_contest else ''}"
         f"{den_raid + ' ' if den_raid else ''}"
