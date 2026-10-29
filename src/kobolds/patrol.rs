@@ -479,6 +479,152 @@ fn finish_return_cargo_exchange(
     (relocated, switched)
 }
 
+/// One physically ordered return-edge transfer. Observe external drops before moving the
+/// scout's existing parcel; later splits/forage must see the committed earlier custody
+/// changes, not an independent pre-movement snapshot.
+#[derive(Clone, Copy)]
+struct ScoutReturnCargoRequest {
+    choice: CargoDecision,
+    physically_clear: bool,
+    carried_drop: Option<SurfaceResourceId>,
+    cargo_blocked_at_den: bool,
+    dragged_candidate: Option<SurfaceResourceId>,
+    may_forage_on_return: bool,
+    forage_ready: bool,
+    forage_batch: Mass,
+    salvage_batch: Mass,
+    ignored_external: [Option<SurfaceResourceId>; 2],
+}
+
+#[must_use]
+struct ScoutReturnCargoOutcome {
+    can_move: bool,
+    discovered: bool,
+    relocated_drop: Option<SurfaceResourceId>,
+    split_drop: Option<(SurfaceResourceId, Mass)>,
+    foraged_food: Option<(SurfaceResourceId, Mass)>,
+    staged_tool_part: bool,
+    abandoned_drop: Option<SurfaceResourceId>,
+}
+
+fn execute_scout_return_cargo(
+    registries: &Registries,
+    state: &mut AppState,
+    request: ScoutReturnCargoRequest,
+) -> ScoutReturnCargoOutcome {
+    let ScoutReturnCargoRequest {
+        choice:
+            CargoDecision {
+                from,
+                to,
+                returning,
+                frightened,
+                den_space,
+                food_only,
+                mobilized,
+                at,
+            },
+        physically_clear,
+        carried_drop,
+        cargo_blocked_at_den,
+        dragged_candidate,
+        may_forage_on_return,
+        forage_ready,
+        forage_batch,
+        salvage_batch,
+        ignored_external,
+    } = request;
+    let (can_move, continuing_carried_custody) = scout_cargo_movement_allowed(
+        state,
+        physically_clear,
+        returning,
+        frightened,
+        cargo_blocked_at_den,
+        carried_drop,
+        dragged_candidate,
+    );
+    // Do not mistake the parcel dragged into the destination for new player loot.
+    let discovered =
+        can_move && finds_external_drop(registries, state, to, den_space, at, ignored_external);
+    let first_relocated = if can_move {
+        dragged_candidate
+            .filter(|id| relocate_scavenged_drop_step(registries, state, *id, from, to))
+    } else {
+        None
+    };
+    // Whole parcels retain identity; bulky piles yield one conserved daughter parcel.
+    let bulk_source = (can_move && returning && !frightened && first_relocated.is_none())
+        .then(|| local_split_source(registries, state, from, den_space, at, food_only, mobilized))
+        .flatten();
+    let split_drop = bulk_source.and_then(|source| {
+        split_scavenged_bulk_with_available_tool(
+            registries,
+            state,
+            ScoutSplitRequest {
+                source,
+                from,
+                to,
+                at,
+                bare_batch: salvage_batch,
+                den_space,
+            },
+        )
+    });
+    // Forage only if the whole/split drop transactions left the return edge unused.
+    let forage_source = (can_move
+        && returning
+        && may_forage_on_return
+        && first_relocated.is_none()
+        && split_drop.is_none()
+        && !frightened
+        && forage_ready)
+        .then(|| {
+            best_local_forage(registries, state, from, at, forage_batch.min(den_space))
+                .map(|(_, id)| id)
+        })
+        .flatten();
+    let foraged_food = forage_source.and_then(|source| {
+        forage_food_to_adjacent_den(
+            registries,
+            state,
+            source,
+            from,
+            to,
+            at,
+            forage_batch.min(den_space),
+        )
+    });
+    // Failed food exchanges must not abandon already-held cargo.
+    let (relocated_drop, switched_cargo) = finish_return_cargo_exchange(
+        registries,
+        state,
+        ScoutCargoExchange {
+            from,
+            to,
+            carried: carried_drop,
+            moved: first_relocated,
+            can_keep_carried: can_move && continuing_carried_custody,
+            new_parcel: split_drop
+                .map(|(id, _)| id)
+                .or(foraged_food.map(|(id, _)| id)),
+        },
+    );
+    let staged_tool_part = relocated_part_stays_at_junction(state, relocated_drop);
+    let abandoned_drop = (scout_releases_cargo(frightened, cargo_blocked_at_den, can_move)
+        || switched_cargo)
+        .then_some(carried_drop)
+        .flatten();
+    ScoutReturnCargoOutcome {
+        can_move,
+        discovered,
+        relocated_drop,
+        split_drop,
+        foraged_food,
+        staged_tool_part,
+        abandoned_drop,
+    }
+}
+
 /// Deterministic slow-tick patrol with finite, interruptible return-trip scavenging.
 ///
 /// The scout waits one visit before collecting an exposed drop. On retreat it takes one
@@ -587,126 +733,42 @@ pub(crate) fn apply_kobold_scout_tick(
         next_tick,
         colony.hungry,
     );
-    let (carried_drop, cargo_blocked_at_den, dragged_candidate) = plan_returning_cargo(
-        registries,
-        state,
-        colony,
-        CargoDecision {
-            from,
-            to: position,
-            returning,
-            frightened,
-            den_space,
-            food_only,
-            mobilized,
-            at: next_tick,
-        },
-    );
-    let (can_move, continuing_carried_custody) = scout_cargo_movement_allowed(
-        state,
-        physically_clear,
+    let cargo_choice = CargoDecision {
+        from,
+        to: position,
         returning,
         frightened,
-        cargo_blocked_at_den,
-        carried_drop,
-        dragged_candidate,
-    );
-    // Inspect the destination before any relocation. A scout dragging its own
-    // parcel home has not discovered a second exposed item there.
-    let discovered = can_move
-        && finds_external_drop(
-            registries,
-            state,
-            position,
-            den_space,
-            next_tick,
-            [cleared_cache, discarded_food],
-        );
-    let first_relocated = if can_move {
-        dragged_candidate
-            .filter(|id| relocate_scavenged_drop_step(registries, state, *id, from, position))
-    } else {
-        None
+        den_space,
+        food_only,
+        mobilized,
+        at: next_tick,
     };
-    // Whole portable parcels retain identity. Oversized exposed piles instead
-    // yield a bounded daughter parcel, leaving the exact remainder at the source.
-    let bulk_source = (can_move && returning && !frightened && first_relocated.is_none())
-        .then(|| {
-            local_split_source(
-                registries, state, from, den_space, next_tick, food_only, mobilized,
-            )
-        })
-        .flatten();
-    let split_drop = bulk_source.and_then(|source| {
-        split_scavenged_bulk_with_available_tool(
-            registries,
-            state,
-            ScoutSplitRequest {
-                source,
-                from,
-                to: position,
-                at: next_tick,
-                bare_batch: salvage_batch,
-                den_space,
-            },
-        )
-    });
-    // An unattended food patch is genuine competition even if the player has
-    // never dropped inventory. Loose parcels have priority; the scout forages at
-    // the junction only while returning to its adjacent den, in one conserved
-    // transaction that leaves the finite catch recoverable.
-    let forage_source = (can_move
-        && returning
-        && may_forage_on_return
-        && first_relocated.is_none()
-        && split_drop.is_none()
-        && !frightened
-        && forage_ready)
-        .then(|| {
-            best_local_forage(
-                registries,
-                state,
-                from,
-                next_tick,
-                forage_batch.min(den_space),
-            )
-            .map(|(_, id)| id)
-        })
-        .flatten();
-    let foraged_food = forage_source.and_then(|source| {
-        forage_food_to_adjacent_den(
-            registries,
-            state,
-            source,
-            from,
-            position,
-            next_tick,
-            forage_batch.min(den_space),
-        )
-    });
-    // Keep the original scrap only when no food transfer succeeded.
-    let (relocated_drop, switched_cargo) = finish_return_cargo_exchange(
+    let (carried_drop, cargo_blocked_at_den, dragged_candidate) =
+        plan_returning_cargo(registries, state, colony, cargo_choice);
+    let ScoutReturnCargoOutcome {
+        can_move,
+        discovered,
+        relocated_drop,
+        split_drop,
+        foraged_food,
+        staged_tool_part,
+        abandoned_drop,
+    } = execute_scout_return_cargo(
         registries,
         state,
-        ScoutCargoExchange {
-            from,
-            to: position,
-            carried: carried_drop,
-            moved: first_relocated,
-            can_keep_carried: can_move && continuing_carried_custody,
-            new_parcel: split_drop
-                .map(|(id, _)| id)
-                .or(foraged_food.map(|(id, _)| id)),
+        ScoutReturnCargoRequest {
+            choice: cargo_choice,
+            physically_clear,
+            carried_drop,
+            cargo_blocked_at_den,
+            dragged_candidate,
+            may_forage_on_return,
+            forage_ready,
+            forage_batch,
+            salvage_batch,
+            ignored_external: [cleared_cache, discarded_food],
         },
     );
-    // A recovered handle remains at the junction for a later stone wedge.
-    // The assembled kit likewise stays at its physical worksite, not in
-    // abstract scout equipment or the den cache.
-    let staged_tool_part = relocated_part_stays_at_junction(state, relocated_drop);
-    let abandoned_drop = (scout_releases_cargo(frightened, cargo_blocked_at_den, can_move)
-        || switched_cargo)
-        .then_some(carried_drop)
-        .flatten();
     let next_step_at = next_tick
         .checked_add_span(TickSpan::new(SCOUT_STEP_TICKS))
         .expect("bounded control-aligned simulation cannot overflow a scout schedule");
