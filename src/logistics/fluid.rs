@@ -22,6 +22,9 @@ pub(crate) enum FluidStorePlacementError {
         position: VoxelCoord,
         element: StructuralElementId,
     },
+    StandingTreeOccupied {
+        position: VoxelCoord,
+    },
     LogisticsRevisionExhausted,
 }
 
@@ -52,6 +55,13 @@ impl Display for FluidStorePlacementError {
                 position.z(),
                 element.value()
             ),
+            Self::StandingTreeOccupied { position } => write!(
+                formatter,
+                "fluid store cannot occupy standing tree trunk at voxel ({},{},{})",
+                position.x(),
+                position.y(),
+                position.z()
+            ),
             Self::LogisticsRevisionExhausted => {
                 formatter.write_str("logistics revision space is exhausted")
             }
@@ -68,6 +78,10 @@ pub(crate) enum FluidStorePlacementCommitError {
         actual: u64,
     },
     StaleFluidRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleWorldRevision {
         expected: u64,
         actual: u64,
     },
@@ -94,6 +108,10 @@ impl Display for FluidStorePlacementCommitError {
             Self::StaleFluidRevision { expected, actual } => write!(
                 formatter,
                 "fluid-store placement expected fluid revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleWorldRevision { expected, actual } => write!(
+                formatter,
+                "fluid-store placement expected world revision {expected} but current revision is {actual}"
             ),
             Self::UnknownStore { store } => write!(
                 formatter,
@@ -132,6 +150,7 @@ pub(crate) struct ValidatedFluidStorePlacement {
     expected_logistics_revision: u64,
     next_logistics_revision: u64,
     expected_fluid_revision: u64,
+    expected_world_revision: u64,
 }
 
 impl ValidatedFluidStorePlacement {
@@ -148,6 +167,13 @@ impl ValidatedFluidStorePlacement {
             return Err(FluidStorePlacementCommitError::StaleFluidRevision {
                 expected: self.expected_fluid_revision,
                 actual: actual_fluid_revision,
+            });
+        }
+        let actual_world_revision = state.world().revision();
+        if actual_world_revision != self.expected_world_revision {
+            return Err(FluidStorePlacementCommitError::StaleWorldRevision {
+                expected: self.expected_world_revision,
+                actual: actual_world_revision,
             });
         }
         if state.logistics().fluid_store_position(self.store).is_some() {
@@ -207,6 +233,11 @@ pub(crate) fn validate_place_fluid_store(
             element,
         });
     }
+    // Generated living trunks are world-owned full-cell obstructions. Bootstrap
+    // locations must not create a state that trusted-load validation rejects.
+    if state.world().tree_trunk_at(position).is_some() {
+        return Err(FluidStorePlacementError::StandingTreeOccupied { position });
+    }
     let expected_logistics_revision = state.logistics().revision();
     if !state.can_spend_logistics_revisions(1) {
         return Err(FluidStorePlacementError::LogisticsRevisionExhausted);
@@ -220,5 +251,6 @@ pub(crate) fn validate_place_fluid_store(
         expected_logistics_revision,
         next_logistics_revision,
         expected_fluid_revision: state.fluid().revision(),
+        expected_world_revision: state.world().revision(),
     })
 }

@@ -1324,6 +1324,11 @@ changes, player-authorized same-voxel decant and manual gravity feed from the
 player's exact source voxel into one explicitly located vessel immediately below in
 the same vertical column. The latter does not authorize sideways or upward transfer,
 skip a voxel, connect arbitrary vessels, or require a new fluid network owner.
+The crate-owned bootstrap location binder excludes either cell of a living tree trunk even
+when its generated terrain state is air. Its authorization binds the world revision, so
+generation or felling before commit requires a fresh placement decision. Chunk generation
+rejects a prospective standing trunk intersecting an existing located vessel.
+Bootstrap binding still does not imply ordinary terrain support or player-authorized transport.
 In a generated block world, a downhill target also requires explicitly generated,
 non-full-cube terrain at the receiving vessel. A solid block or missing chunk
 blocks the pour, and the transfer proof binds the world revision so intervening

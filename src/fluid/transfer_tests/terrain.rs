@@ -3,9 +3,105 @@
 use super::*;
 use crate::content::BLOCK_STATE_STONE;
 use crate::fluid::validate_gravity_feed_fluid_to_lower_store;
-use crate::world::{BlockStateId, ChunkCoord, WorldGenerationSeed, validate_generate_chunk};
+use crate::logistics::{FluidStorePlacementCommitError, FluidStorePlacementError};
+use crate::world::{
+    BlockStateId, ChunkCoord, ChunkGenerationError, WorldGenerationSeed, validate_generate_chunk,
+};
 
 const SEED: WorldGenerationSeed = WorldGenerationSeed::new(0xF17D_F10D_2026);
+
+#[test]
+fn fluid_bootstrap_rejects_both_living_trunk_cells_and_world_change_before_commit() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(41);
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let root = state
+        .world()
+        .trees()
+        .next()
+        .expect("seed must grow a tree")
+        .root();
+    let upper = VoxelCoord::new(root.x(), root.y() + 1, root.z());
+    let air = VoxelCoord::new(root.x(), root.y() + 2, root.z());
+    let store = add_fluid_store(&mut state, Volume::from_microliters(1_000_000)).unwrap();
+    for position in [root, upper] {
+        assert_eq!(state.world().block_at(position), Some(BlockStateId::AIR));
+        let before = state.clone();
+        assert_eq!(
+            validate_place_fluid_store(&state, store, position).err(),
+            Some(FluidStorePlacementError::StandingTreeOccupied { position }),
+        );
+        assert_eq!(state, before);
+    }
+    assert_eq!(state.world().block_at(air), Some(BlockStateId::AIR));
+    validate_place_fluid_store(&state, store, air)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    // A pending placement in ungenerated space cannot silently survive the
+    // chunk transaction that materializes a living trunk at its destination.
+    let mut ungenerated = AppState::new();
+    let unlocated = add_fluid_store(&mut ungenerated, Volume::from_microliters(1)).unwrap();
+    let token = validate_place_fluid_store(&ungenerated, unlocated, root).unwrap();
+    let expected = ungenerated.world().revision();
+    validate_generate_chunk(
+        &registries,
+        &ungenerated,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut ungenerated)
+    .unwrap();
+    let actual = ungenerated.world().revision();
+    let before = ungenerated.clone();
+    assert_eq!(
+        token.commit(&mut ungenerated),
+        Err(FluidStorePlacementCommitError::StaleWorldRevision { expected, actual }),
+    );
+    assert_eq!(ungenerated, before);
+    assert_eq!(
+        validate_place_fluid_store(&ungenerated, unlocated, root).err(),
+        Some(FluidStorePlacementError::StandingTreeOccupied { position: root }),
+    );
+    assert_eq!(validate_loaded_state(&registries, &ungenerated), Ok(()));
+
+    // The reverse order is symmetric: a previously located vessel prevents
+    // generating the seeded trunk through its existing physical custody.
+    let mut occupied = AppState::new();
+    let vessel = add_fluid_store(&mut occupied, Volume::from_microliters(1)).unwrap();
+    validate_place_fluid_store(&occupied, vessel, root)
+        .unwrap()
+        .commit(&mut occupied)
+        .unwrap();
+    let before = occupied.clone();
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &occupied,
+            seed,
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE,
+        )
+        .err(),
+        Some(ChunkGenerationError::TreePlacementObstructed { voxel: root }),
+    );
+    assert_eq!(occupied, before);
+    assert_eq!(validate_loaded_state(&registries, &occupied), Ok(()));
+}
 
 #[test]
 fn known_generated_stone_blocks_gravity_delivery_without_consuming_water() {

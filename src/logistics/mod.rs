@@ -55,6 +55,8 @@ pub(crate) use fixture::relocate_player_for_test;
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use fluid::validate_place_fluid_store;
 #[cfg(test)]
+pub(crate) use fluid::{FluidStorePlacementCommitError, FluidStorePlacementError};
+#[cfg(test)]
 pub(crate) use ground::GroundStockpilePlacementCommitError;
 pub(crate) use ground::validate_allocate_player_ground_stockpile_at;
 pub use ground::{
