@@ -52,6 +52,173 @@ const TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 const CHEST_MASS: Mass = Mass::from_milligrams(2_400_000);
 
 #[test]
+fn player_storage_placement_rejects_hot_construction_body_before_allocating_target() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state).unwrap();
+    let carried = validate_initialize_player_logistics(
+        &state,
+        VoxelCoord::new(0, 0, 0),
+        Mass::from_milligrams(10_000_000),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap()
+    .carried_stockpile();
+    let definition = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap();
+    let commodity = definition.assembly_profile().inputs()[0].commodity();
+    let hot = Temperature::from_millikelvin(400_000);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        definition.assembly_profile().input_mass(),
+        hot,
+    )
+    .unwrap();
+    let before = state.clone();
+    assert_eq!(
+        validate_place_player_storage(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX).err(),
+        Some(PlayerStoragePlacementError::Construction(
+            StorageEnclosureConstructionError::ConstructionMaterialTooHot {
+                commodity,
+                temperature: hot,
+                maximum: Temperature::from_millikelvin(353_150),
+            }
+        ))
+    );
+    assert_eq!(
+        state, before,
+        "rejected placement must not allocate a stockpile or spend matter"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn storage_placement_prefers_cool_body_over_older_hot_stock_and_conserves_matter() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state).unwrap();
+    let carried = validate_initialize_player_logistics(
+        &state,
+        VoxelCoord::new(0, 0, 0),
+        Mass::from_milligrams(10_000_000),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap()
+    .carried_stockpile();
+    let definition = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap();
+    let commodity = definition.assembly_profile().inputs()[0].commodity();
+    let mass = definition.assembly_profile().input_mass();
+    let hot = Temperature::from_millikelvin(400_000);
+    let older_hot =
+        deposit_lot_for_test(&registries, &mut state, carried, commodity, mass, hot).unwrap();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        mass,
+        TEMPERATURE,
+    )
+    .unwrap();
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    let target = validate_place_player_storage(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(state.inventory().get_lot(older_hot).unwrap().mass(), mass);
+    let enclosure = state
+        .inventory()
+        .get_stockpile(target)
+        .unwrap()
+        .enclosure()
+        .unwrap();
+    assert_eq!(enclosure.embodied_mass(), mass);
+    assert!(
+        enclosure
+            .embodied_material()
+            .iter()
+            .all(|trace| trace.profile().temperature() == TEMPERATURE)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn in_place_enclosure_build_uses_cool_material_when_older_cohort_is_hot() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let definition = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap();
+    let target =
+        add_solid_stockpile_for_test(&mut state, definition.maximum_stockpile_capacity()).unwrap();
+    let source =
+        add_solid_stockpile_for_test(&mut state, definition.maximum_stockpile_capacity()).unwrap();
+    let commodity = definition.assembly_profile().inputs()[0].commodity();
+    let mass = definition.assembly_profile().input_mass();
+    let hot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        commodity,
+        mass,
+        Temperature::from_millikelvin(400_000),
+    )
+    .unwrap();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        commodity,
+        mass,
+        TEMPERATURE,
+    )
+    .unwrap();
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_ROUGH_TIMBER_FIELD_BOX,
+        target,
+        source,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(state.inventory().get_lot(hot).unwrap().mass(), mass);
+    assert!(
+        state
+            .inventory()
+            .get_stockpile(target)
+            .unwrap()
+            .enclosure()
+            .unwrap()
+            .embodied_material()
+            .iter()
+            .all(|trace| trace.profile().temperature() == TEMPERATURE)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn located_enclosure_construction_rejects_generated_rock_and_stale_world_truth() {
     let registries = build_registries();
     let mut state = AppState::new();

@@ -4,18 +4,17 @@ use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::inventory::{
     ConsumedMaterialTrace, ConsumptionSelectionError, InventoryState, StockpileId,
-    StockpileStoredMassChange, ValidatedMaterialEgress, ValidatedStockpileStructuralLoad,
-    apply_material_egress, validate_material_egress_from_selection,
-    validate_stockpile_stored_mass_changes, validate_unreserved_stockpile_structural_load_headroom,
+    StockpileStoredMassChange, TemperatureLimitedSelectionError, ValidatedMaterialEgress,
+    ValidatedStockpileStructuralLoad, apply_material_egress,
+    validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
+    validate_temperature_limited_consumption_selection,
+    validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::logistics::{validate_player_equipment_access, validate_player_stockpile_access};
-use crate::material::MaterialInputSpec;
+use crate::material::{MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE, MaterialInputSpec};
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 
-use super::material_selection::{
-    EquipmentMaterialSelectionError, select_hand_safe_equipment_materials,
-};
 use super::state::EquipmentUpgradeMutation;
 use super::{EquipmentDefinitionId, EquipmentId, EquipmentOccupancy, equipment_occupancy};
 
@@ -50,9 +49,15 @@ pub(super) fn validate_upgrade_material_selection(
     source: StockpileId,
     inputs: &[MaterialInputSpec],
 ) -> Result<crate::inventory::ConsumptionSelection, EquipmentUpgradeError> {
-    select_hand_safe_equipment_materials(inventory, source, inputs).map_err(|error| match error {
-        EquipmentMaterialSelectionError::Selection(error) => map_upgrade_selection_error(error),
-        EquipmentMaterialSelectionError::TooHot {
+    validate_temperature_limited_consumption_selection(
+        inventory,
+        source,
+        inputs,
+        MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+    )
+    .map_err(|error| match error {
+        TemperatureLimitedSelectionError::Selection(error) => map_upgrade_selection_error(error),
+        TemperatureLimitedSelectionError::TooHot {
             commodity,
             temperature,
             maximum,

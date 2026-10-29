@@ -11,13 +11,11 @@ mod explicit;
 mod implicit;
 mod integrity;
 mod reservation;
+mod temperature;
 
 pub use explicit::ExplicitConsumptionSelectionError;
 pub(crate) use explicit::validate_explicit_consumption_selection;
-pub(crate) use implicit::{
-    ConsumptionSelectionError, validate_consumption_selection,
-    validate_consumption_selection_with_filter,
-};
+pub(crate) use implicit::{ConsumptionSelectionError, validate_consumption_selection};
 pub(in crate::inventory) use integrity::{
     assert_consumption_parts_match_state, assert_consumption_parts_match_state_iter,
     assert_consumption_parts_well_formed,
@@ -25,6 +23,9 @@ pub(in crate::inventory) use integrity::{
 pub(crate) use reservation::{
     ConsumptionReservation, ReservationError, apply_prechecked_consumption_reservation,
     validate_consumption_reservation_from_selection,
+};
+pub(crate) use temperature::{
+    TemperatureLimitedSelectionError, validate_temperature_limited_consumption_selection,
 };
 
 /// Explicit runtime selection of conserved matter from one homogeneous lot.

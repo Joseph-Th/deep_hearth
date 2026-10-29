@@ -1,11 +1,11 @@
 //! Material-backed construction of preservation enclosures around existing stockpiles.
 
-use crate::core::quantity::Temperature;
 use crate::core::state::AppState;
 use crate::logistics::{
     ValidatedGroundStockpileAllocation, validate_allocate_player_ground_stockpile_at,
     validate_player_stockpile_access,
 };
+use crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -17,9 +17,10 @@ use super::storage_validation::{
 use super::{
     ConsumedMaterialTrace, ConsumptionSelection, ConsumptionSelectionError, MaterialEgressError,
     StockpileEnclosureRecord, StockpileId, StockpileRecord, StockpileStorageProfile,
-    StockpileStoredMassChange, StorageDefinition, StorageDefinitionId, ValidatedMaterialEgress,
-    ValidatedStockpileStructuralLoad, apply_material_egress, validate_consumption_selection,
-    validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
+    StockpileStoredMassChange, StorageDefinition, StorageDefinitionId,
+    TemperatureLimitedSelectionError, ValidatedMaterialEgress, ValidatedStockpileStructuralLoad,
+    apply_material_egress, validate_material_egress_from_selection,
+    validate_stockpile_stored_mass_changes, validate_temperature_limited_consumption_selection,
     validate_unreserved_stockpile_structural_load_headroom,
 };
 
@@ -344,7 +345,6 @@ pub fn validate_build_storage_enclosure(
     validate_enclosure_target(definition_record, target_record, target, required_profile)?;
     validate_world_location(registries, state, target, source)?;
     let selection = select_enclosure_material(state, definition_record, source)?;
-    validate_enclosure_material_temperature(&selection)?;
     let next_profile = definition_record.storage_profile();
     validate_enclosure_contents(
         registries,
@@ -506,40 +506,34 @@ fn validate_enclosure_target(
     Ok(())
 }
 
-/// Selected stockpile cohorts must cool below the future enclosure's safe
-/// storage temperature before being assembled into a body.
-fn validate_enclosure_material_temperature(
-    selection: &ConsumptionSelection,
-) -> Result<(), StorageEnclosureConstructionError> {
-    // The container's *contents* limit is not the same as the admissible
-    // temperature of a warm body that is fully consumed during assembly.
-    let maximum = Temperature::from_millikelvin(353_150);
-    for trace in selection.consumed_inputs() {
-        let temperature = trace.profile().temperature();
-        if temperature > maximum {
-            return Err(
-                StorageEnclosureConstructionError::ConstructionMaterialTooHot {
-                    commodity: trace.profile().commodity(),
-                    temperature,
-                    maximum,
-                },
-            );
-        }
-    }
-    Ok(())
-}
-
+/// Both placement and in-place construction enforce the same body limit,
+/// distinct from the future enclosure's admissible contents temperature.
 fn select_enclosure_material(
     state: &AppState,
     definition: &StorageDefinition,
     source: StockpileId,
 ) -> Result<ConsumptionSelection, StorageEnclosureConstructionError> {
-    validate_consumption_selection(
+    let inputs = definition.assembly_profile().inputs();
+    match validate_temperature_limited_consumption_selection(
         state.inventory(),
         source,
-        definition.assembly_profile().inputs(),
-    )
-    .map_err(map_selection_error)
+        inputs,
+        MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+    ) {
+        Ok(selected) => Ok(selected),
+        Err(TemperatureLimitedSelectionError::TooHot {
+            commodity,
+            temperature,
+            maximum,
+        }) => Err(
+            StorageEnclosureConstructionError::ConstructionMaterialTooHot {
+                commodity,
+                temperature,
+                maximum,
+            },
+        ),
+        Err(TemperatureLimitedSelectionError::Selection(error)) => Err(map_selection_error(error)),
+    }
 }
 
 fn map_selection_error(error: ConsumptionSelectionError) -> StorageEnclosureConstructionError {

@@ -888,8 +888,11 @@ index preserves first-lot stack order and exact private lot membership without a
 candidate stacks per lot; it owns no additional persistent material custody.
 
 Material-backed storage enclosures own exact consolidated assembly traces and an authored storage profile.
-Construction moves exact traces into stockpile embodiment after verifying current contents fit the completed
-enclosure. Dismantling is timed player work: the enclosure remains active until completion, then exposure is
+Both ordinary player placement and in-place construction select exact hand-safe body cohorts at or below 353,150 mK.
+An older hot lot cannot block construction when enough newer cool material is present; hot-only stock returns a typed
+construction-material cooling rejection without allocating or modifying custody. Construction moves the selected
+traces into stockpile embodiment after verifying current contents fit the completed enclosure. Dismantling is timed
+player work: the enclosure remains active until completion, then exposure is
 checkpointed, ambient storage is restored, and exact enclosure traces land in the reserved recovery destination.
 General demolition is a different, absent authority.
 

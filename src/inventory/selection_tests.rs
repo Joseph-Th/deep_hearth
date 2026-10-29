@@ -1,7 +1,7 @@
 //! Contract tests for exact inventory selection.
 
 use super::*;
-use crate::content::{FORM_LOG, MATERIAL_STONE, MATERIAL_WOOD, build_registries};
+use crate::content::{FORM_LOG, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD, build_registries};
 use crate::core::quantity::Temperature;
 use crate::core::state::AppState;
 use crate::inventory::state::get_stockpile_mut_or_panic;
@@ -115,6 +115,51 @@ fn implicit_selection_shortage_reports_only_composition_eligible_free_mass() {
             requested: Mass::from_milligrams(4),
         })
     );
+}
+
+#[test]
+fn temperature_limited_selection_identifies_actual_cooling_blocker_in_multi_input_recipe() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100)).unwrap();
+    let wood = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let stone = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
+    let warm_wood = Temperature::from_millikelvin(370_000);
+    let hot_stone = Temperature::from_millikelvin(400_000);
+    for (commodity, temperature) in [
+        (wood, warm_wood),
+        (wood, Temperature::from_millikelvin(293_150)),
+        (stone, hot_stone),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            source,
+            commodity,
+            Mass::from_milligrams(10),
+            temperature,
+        )
+        .unwrap();
+    }
+    let before = state.clone();
+    let inputs = [
+        MaterialInputSpec::pure(wood, Mass::from_milligrams(10)),
+        MaterialInputSpec::pure(stone, Mass::from_milligrams(10)),
+    ];
+    assert_eq!(
+        validate_temperature_limited_consumption_selection(
+            state.inventory(),
+            source,
+            &inputs,
+            crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+        ),
+        Err(TemperatureLimitedSelectionError::TooHot {
+            commodity: stone,
+            temperature: hot_stone,
+            maximum: crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+        })
+    );
+    assert_eq!(state, before);
 }
 
 #[test]

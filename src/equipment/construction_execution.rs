@@ -7,22 +7,20 @@ use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
 use crate::inventory::{
     ConsumptionSelection, ConsumptionSelectionError, InventoryState, StockpileId,
-    StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedMaterialEgress,
-    ValidatedStockpileStructuralLoad, apply_material_egress,
+    StockpileStoredMassChange, StockpileStructuralLoadError, TemperatureLimitedSelectionError,
+    ValidatedMaterialEgress, ValidatedStockpileStructuralLoad, apply_material_egress,
     validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
+    validate_temperature_limited_consumption_selection,
     validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
 use crate::maintenance::Condition;
-use crate::material::{CommodityKey, MaterialInputSpec};
+use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE, MaterialInputSpec};
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
 use super::EquipmentDefinitionId;
-use super::material_selection::{
-    EquipmentMaterialSelectionError, select_hand_safe_equipment_materials,
-};
 use super::state::{EquipmentId, EquipmentRecord};
 
 fn map_assembly_selection_error(error: ConsumptionSelectionError) -> EquipmentAssemblyError {
@@ -53,9 +51,15 @@ pub(super) fn validate_assembly_material_selection(
     source: StockpileId,
     inputs: &[MaterialInputSpec],
 ) -> Result<ConsumptionSelection, EquipmentAssemblyError> {
-    select_hand_safe_equipment_materials(inventory, source, inputs).map_err(|error| match error {
-        EquipmentMaterialSelectionError::Selection(error) => map_assembly_selection_error(error),
-        EquipmentMaterialSelectionError::TooHot {
+    validate_temperature_limited_consumption_selection(
+        inventory,
+        source,
+        inputs,
+        MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+    )
+    .map_err(|error| match error {
+        TemperatureLimitedSelectionError::Selection(error) => map_assembly_selection_error(error),
+        TemperatureLimitedSelectionError::TooHot {
             commodity,
             temperature,
             maximum,

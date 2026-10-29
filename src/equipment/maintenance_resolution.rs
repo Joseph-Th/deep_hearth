@@ -10,16 +10,16 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
-use crate::inventory::{ConsumptionSelection, ConsumptionSelectionError, StockpileId};
+use crate::inventory::{
+    ConsumptionSelection, ConsumptionSelectionError, StockpileId, TemperatureLimitedSelectionError,
+    validate_temperature_limited_consumption_selection,
+};
 use crate::maintenance::Condition;
-use crate::material::{CommodityKey, MaterialInputSpec};
+use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE, MaterialInputSpec};
 use crate::registry::Registries;
 use crate::survival::SurvivalExertion;
 
 use super::definitions::EquipmentDefinitionId;
-use super::material_selection::{
-    EquipmentMaterialSelectionError, select_hand_safe_equipment_materials,
-};
 use super::state::EquipmentId;
 
 /// Opaque result of physical maintenance resolution.
@@ -218,19 +218,20 @@ pub fn resolve_equipment_maintenance(
         );
     }
     let required_replacement_mass = profile.required_replacement_mass(condition_before);
-    let material = select_hand_safe_equipment_materials(
+    let material = validate_temperature_limited_consumption_selection(
         state.inventory(),
         request.material_source,
         &[MaterialInputSpec::pure(
             profile.replacement(),
             required_replacement_mass,
         )],
+        MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
     )
     .map_err(|error| match error {
-        EquipmentMaterialSelectionError::Selection(
+        TemperatureLimitedSelectionError::Selection(
             ConsumptionSelectionError::UnknownStockpile { stockpile },
         ) => EquipmentMaintenanceResolutionError::UnknownMaterialSource { stockpile },
-        EquipmentMaterialSelectionError::Selection(
+        TemperatureLimitedSelectionError::Selection(
             ConsumptionSelectionError::InsufficientMass {
                 stockpile,
                 commodity,
@@ -243,10 +244,10 @@ pub fn resolve_equipment_maintenance(
             available,
             required: requested,
         },
-        EquipmentMaterialSelectionError::Selection(ConsumptionSelectionError::MassOverflow {
+        TemperatureLimitedSelectionError::Selection(ConsumptionSelectionError::MassOverflow {
             stockpile,
         }) => EquipmentMaintenanceResolutionError::MaterialSelectionMassOverflow { stockpile },
-        EquipmentMaterialSelectionError::TooHot {
+        TemperatureLimitedSelectionError::TooHot {
             commodity,
             temperature,
             maximum,
