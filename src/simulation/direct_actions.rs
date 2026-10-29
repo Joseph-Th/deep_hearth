@@ -68,7 +68,7 @@ pub(super) fn attempt_direct_actions_after_quick_access(
     // the same control slot. Otherwise the obsolete action would execute on the next
     // slow boundary even after the newer input was handled. Both buffered owners
     // reserve the revision needed for this early cancellation.
-    if combat_intent {
+    if combat_intent || input.drop_active_selection() {
         let _ = take_player_pending_primary_break(state);
     }
     if input.drop_active_selection()

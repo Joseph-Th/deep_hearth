@@ -1,12 +1,173 @@
 //! Direct interaction chooses real structural matter over overlapping unbuilt plans.
 
 use super::*;
-use crate::content::{MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION};
+use crate::content::{
+    FORM_CHIP, MATERIAL_STONE, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+};
 use crate::core::quantity::{Area, Length};
+use crate::logistics::{PlayerActiveSelection, validate_set_active_selection};
 use crate::spatial::VoxelBounds;
 use crate::structural::{
-    StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
+    StructuralElementGeometry, StructuralElementId, add_structural_element,
+    materialize_structural_element_for_test,
 };
+
+fn materialized_break_target(
+    registries: &Registries,
+    state: &mut AppState,
+    floor_y: i64,
+) -> StructuralElementId {
+    let target = VoxelCoord::new(2, floor_y + 1, 0);
+    for x in 1..=2 {
+        set_generated_block_for_test(
+            registries.world(),
+            state,
+            VoxelCoord::new(x, floor_y + 1, 0),
+            BlockStateId::AIR,
+        );
+    }
+    let geometry = StructuralElementGeometry::new(
+        VoxelBounds::new(target, VoxelCoord::new(3, floor_y + 2, 1)).unwrap(),
+        Length::from_micrometers(1_000_000),
+        Area::from_square_millimeters(1_000_000),
+    )
+    .unwrap();
+    let panel = add_structural_element(
+        registries,
+        state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(registries, state, panel, FORM_LOG);
+    panel
+}
+
+#[test]
+fn queued_use_does_not_erase_movement_on_its_due_control_sample() {
+    use crate::core::state::validate_loaded_state;
+    use crate::logistics::validate_buffer_player_secondary_use;
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+
+    let (registries, mut state, _) = generated_grounded_player_at(0, 0);
+    for _ in 1..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    let origin = state.logistics().player().unwrap().body().foot_position();
+    let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
+    validate_buffer_player_secondary_use(&state, direction)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    let input = PlayerDirectControlInput::new(PlayerControlInput::new(
+        HorizontalControlInput::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0).unwrap(),
+    ));
+    let outcome = advance_control_tick_with_direct_input(&registries, &mut state, input).unwrap();
+    let replayed = advance_control_tick_with_direct_input(&registries, &mut replay, input).unwrap();
+    assert_eq!(outcome, replayed);
+    assert!(outcome.simulation().is_some());
+    assert_eq!(
+        outcome.secondary_action(),
+        Some(&SecondaryActionOutcome::BufferedContextChanged),
+        "moving on the exact due sample invalidates the queued origin"
+    );
+    assert_ne!(
+        state.logistics().player().unwrap().body().foot_position(),
+        origin,
+        "buffered use must never freeze the requested control-rate movement"
+    );
+    assert!(state.logistics().pending_secondary_use().is_none());
+    assert_eq!(state, replay);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn drop_command_replaces_buffered_primary_break_at_and_before_due_boundary() {
+    use crate::core::state::validate_loaded_state;
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+
+    for drop_on_boundary in [false, true] {
+        let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
+        let panel = materialized_break_target(&registries, &mut state, floor_y);
+        let carried = state.logistics().player().unwrap().carried_stockpile();
+        let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+        let mass = Mass::from_milligrams(1000);
+        let _ = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+        validate_set_active_selection(
+            &registries,
+            &state,
+            Some(PlayerActiveSelection::Material(commodity)),
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+        let structures_before = state.structures().clone();
+        let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
+        let queued = advance_control_tick_with_direct_input(
+            &registries,
+            &mut state,
+            PlayerDirectControlInput::NEUTRAL
+                .with_primary(PrimaryControlIntent::break_target(direction)),
+        )
+        .unwrap();
+        assert_eq!(
+            queued.primary_action(),
+            Some(&PrimaryActionOutcome::QueuedUntilSimulationBoundary)
+        );
+        assert_eq!(
+            state.logistics().pending_primary_break().unwrap().element(),
+            panel
+        );
+        if drop_on_boundary {
+            while state.control_tick().value() + 1 < CONTROL_TICKS_PER_SIMULATION_TICK {
+                let _ = advance_control_tick(&registries, &mut state).unwrap();
+            }
+        }
+        let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        let drop_input = PlayerDirectControlInput::NEUTRAL.with_drop_active_selection();
+        let current =
+            advance_control_tick_with_direct_input(&registries, &mut state, drop_input).unwrap();
+        let restored =
+            advance_control_tick_with_direct_input(&registries, &mut replay, drop_input).unwrap();
+        assert_eq!(current, restored);
+        assert_eq!(current.primary_action(), None);
+        assert!(matches!(
+            current.active_selection_drop(),
+            Some(ActiveSelectionDropOutcome::MaterialDropped(_))
+        ));
+        assert!(state.logistics().pending_primary_break().is_none());
+        while !state.control_tick().is_simulation_boundary() {
+            let current = advance_control_tick(&registries, &mut state).unwrap();
+            let restored = advance_control_tick(&registries, &mut replay).unwrap();
+            assert_eq!(current, restored);
+            assert_eq!(current.primary_action(), None);
+        }
+        assert_eq!(state.structures(), &structures_before);
+        assert_eq!(state.player_work().active(), None);
+        assert_eq!(state, replay);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+}
 
 #[test]
 fn queued_contextual_use_rejects_sub_voxel_movement_after_save_load() {
@@ -74,31 +235,7 @@ fn queued_structural_break_rejects_sub_voxel_retargeting_after_save_load() {
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 
     let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
-    let target = VoxelCoord::new(2, floor_y + 1, 0);
-    for x in 1..=2 {
-        set_generated_block_for_test(
-            registries.world(),
-            &mut state,
-            VoxelCoord::new(x, floor_y + 1, 0),
-            BlockStateId::AIR,
-        );
-    }
-    let geometry = StructuralElementGeometry::new(
-        VoxelBounds::new(target, VoxelCoord::new(3, floor_y + 2, 1)).unwrap(),
-        Length::from_micrometers(1_000_000),
-        Area::from_square_millimeters(1_000_000),
-    )
-    .unwrap();
-    let panel = add_structural_element(
-        &registries,
-        &mut state,
-        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
-        MATERIAL_WOOD,
-        geometry,
-        true,
-    )
-    .unwrap();
-    materialize_structural_element_for_test(&registries, &mut state, panel, FORM_LOG);
+    let _ = materialized_break_target(&registries, &mut state, floor_y);
     let original_structures = state.structures().clone();
     let origin = state.logistics().player().unwrap().body().foot_position();
     let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
@@ -174,31 +311,7 @@ fn combat_input_replaces_buffered_structural_break_without_later_dismantling() {
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 
     let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
-    let target = VoxelCoord::new(2, floor_y + 1, 0);
-    for x in 1..=2 {
-        set_generated_block_for_test(
-            registries.world(),
-            &mut state,
-            VoxelCoord::new(x, floor_y + 1, 0),
-            BlockStateId::AIR,
-        );
-    }
-    let geometry = StructuralElementGeometry::new(
-        VoxelBounds::new(target, VoxelCoord::new(3, floor_y + 2, 1)).unwrap(),
-        Length::from_micrometers(1_000_000),
-        Area::from_square_millimeters(1_000_000),
-    )
-    .unwrap();
-    let panel = add_structural_element(
-        &registries,
-        &mut state,
-        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
-        MATERIAL_WOOD,
-        geometry,
-        true,
-    )
-    .unwrap();
-    materialize_structural_element_for_test(&registries, &mut state, panel, FORM_LOG);
+    let panel = materialized_break_target(&registries, &mut state, floor_y);
     let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
     let queued = advance_control_tick_with_direct_input(
         &registries,

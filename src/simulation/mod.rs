@@ -218,14 +218,10 @@ fn advance_control_tick_unstaged(
         .survival()
         .player()
         .is_some_and(|player| player.vitality() == crate::survival::Vitality::ZERO);
-    let preserve_pending_context = (has_pending_primary && input.primary().is_none())
-        || (has_pending_secondary && input.secondary().is_none() && !input.drop_active_selection());
-    let body_input = if preserve_pending_context {
-        PlayerControlInput::NEUTRAL
-    } else {
-        input.movement()
-    };
-    let body_plan = decide_player_body_motion(registries, state, body_input, true)
+    // Buffered interactions are tied to the physical position at admission. Do not
+    // suppress a new movement sample to keep a queued gesture artificially valid:
+    // its owner rejects the stale context after the body actually moves.
+    let body_plan = decide_player_body_motion(registries, state, input.movement(), true)
         .map_err(TickError::PlayerBodyMotion)?;
     let body_motion = apply_player_body_motion(state, body_plan);
     let surface_drop_pickup = decide_automatic_surface_drop_pickup(registries, state)
@@ -236,7 +232,7 @@ fn advance_control_tick_unstaged(
             .primary()
             .is_none()
             .then_some(PrimaryActionOutcome::PlayerDead)
-    } else if has_pending_primary && input.primary().is_some() {
+    } else if has_pending_primary && (input.primary().is_some() || input.drop_active_selection()) {
         let _ = crate::logistics::take_player_pending_primary_break(state);
         None
     } else {
