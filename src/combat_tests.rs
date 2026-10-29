@@ -1807,6 +1807,46 @@ fn loaded_prepared_strike_must_reserve_its_fatal_cleanup_revision() {
         .unwrap()
         .into_state(&registries)
         .unwrap();
+    // The same last legal prepared revision must also tolerate a *fatal*
+    // slow tick: the survival owner clears it without overflowing combat.
+    let mut fatal = recovered.clone();
+    let before = *fatal.survival().player().unwrap();
+    let survival_revision = fatal.survival().revision();
+    fatal.survival_state_mut().apply_player(
+        survival_revision,
+        survival_revision + 1,
+        crate::survival::player_record(
+            Energy::ZERO,
+            before.hydration(),
+            crate::survival::Vitality::from_parts_per_million_unchecked(
+                registries
+                    .survival()
+                    .physiology()
+                    .starvation_vitality_loss_ppm_per_tick(),
+            ),
+            before.nutrition(),
+            before.vitality_recovery_remainder(),
+        ),
+    );
+    assert_eq!(validate_loaded_state(&registries, &fatal), Ok(()));
+    for _ in 0..crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK {
+        let _ = crate::simulation::advance_control_tick(&registries, &mut fatal).unwrap();
+    }
+    assert_eq!(
+        fatal.survival().player().unwrap().vitality(),
+        crate::survival::Vitality::ZERO
+    );
+    assert!(fatal.combat().prepared.is_none());
+    assert_eq!(fatal.combat().revision(), u64::MAX - 1);
+    assert_eq!(validate_loaded_state(&registries, &fatal), Ok(()));
+    let persisted_fatal = serde_json::from_slice::<LoadedSaveEnvelope>(
+        &serde_json::to_vec(&SaveEnvelope::new(&registries, &fatal)).unwrap(),
+    )
+    .unwrap()
+    .into_state(&registries)
+    .unwrap();
+    assert_eq!(persisted_fatal, fatal);
+
     assert_eq!(
         validate_cancel_primitive_preparation(&recovered)
             .unwrap()
