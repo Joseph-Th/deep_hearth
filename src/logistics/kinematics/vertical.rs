@@ -153,7 +153,15 @@ fn crossed_floor_y(
     proposed_y: i64,
     current_y: i64,
 ) -> Result<Option<i64>, PlayerBodyMotionError> {
-    let min_y = proposed_y.div_euclid(NANOMETERS_PER_VOXEL);
+    // The lower face of the body may land exactly on a block's upper face.
+    // Include the cell immediately below that plane, just as grounding does,
+    // or an exact-face landing is reported as airborne for an extra tick.
+    let first_cell = proposed_y.div_euclid(NANOMETERS_PER_VOXEL);
+    let min_y = if proposed_y.rem_euclid(NANOMETERS_PER_VOXEL) == 0 {
+        first_cell - 1
+    } else {
+        first_cell
+    };
     let max_y = current_y
         .checked_sub(1)
         .ok_or(PlayerBodyMotionError::CoordinateOverflow)?
@@ -225,3 +233,7 @@ pub(super) fn supporting_floor_y(
     .ok()
     .flatten()
 }
+
+#[cfg(test)]
+#[path = "vertical_tests.rs"]
+mod tests;
