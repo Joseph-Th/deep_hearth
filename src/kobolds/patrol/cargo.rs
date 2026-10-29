@@ -110,8 +110,8 @@ fn split_scavenged_bulk_with_available_tool(
             .then(|| current_junction_scrap_lever(state, colony))
             .flatten()
     });
-    if let Some(tool) = tool {
-        split_bulk_scavenged_drop_with_head_wear(
+    if let Some(tool) = tool
+        && let Some(split) = split_bulk_scavenged_drop_with_head_wear(
             registries,
             state,
             ScavengedPortionRequest::new(
@@ -125,17 +125,21 @@ fn split_scavenged_bulk_with_available_tool(
             tool.kind().abrasion_per_split(),
             tool.kind().abrasion_form(),
         )
-    } else {
-        split_bulk_scavenged_drop_step(
-            registries,
-            state,
-            source,
-            from,
-            to,
-            at,
-            bare_batch.min(den_space),
-        )
+    {
+        return Some(split);
     }
+    // Tool assistance may fail when its second output (recoverable abrasion)
+    // cannot be admitted. That failed atomic attempt leaves the source intact,
+    // so ordinary hand splitting remains a legitimate smaller transaction.
+    split_bulk_scavenged_drop_step(
+        registries,
+        state,
+        source,
+        from,
+        to,
+        at,
+        bare_batch.min(den_space),
+    )
 }
 
 fn relocated_part_stays_at_junction(
@@ -352,3 +356,7 @@ pub(super) fn execute_scout_return_cargo(
         abandoned_drop,
     }
 }
+
+#[cfg(test)]
+#[path = "cargo_tests.rs"]
+mod tests;
