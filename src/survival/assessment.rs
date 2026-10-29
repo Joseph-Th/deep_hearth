@@ -25,9 +25,10 @@ pub struct PlayerUnheatedComfortRunway {
     if_covered: TickSpan,
 }
 
-/// Time until the player's first hunger/thirst warning while resting without intake.
+/// Time until a living player's first hunger/thirst warning while resting without intake.
 /// Movement, labor, meals, illness or other future changes invalidate these conditional
-/// estimates; they are not a guarantee of uninterrupted safe travel.
+/// estimates; they are not a guarantee of uninterrupted safe travel. No forecast is
+/// offered while already-admitted intake is scheduled to change the reserves.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PlayerRestingProvisionRunway {
     hungry_in: Option<TickSpan>,
@@ -71,6 +72,11 @@ pub fn assess_player_resting_provision_runway(
     state: &AppState,
 ) -> Option<PlayerRestingProvisionRunway> {
     let player = state.survival().player()?;
+    if player.vitality() == Vitality::ZERO
+        || state.survival().pending_direct_consumption().is_some()
+    {
+        return None;
+    }
     let physiology = registries.survival().physiology();
     Some(PlayerRestingProvisionRunway {
         hungry_in: warning_runway(
@@ -118,6 +124,9 @@ pub fn assess_player_unheated_comfort_runway(
     state: &AppState,
 ) -> Option<PlayerUnheatedComfortRunway> {
     let player = state.survival().player()?;
+    if player.vitality() == Vitality::ZERO {
+        return None;
+    }
     let cover = assess_player_overhead_cover(registries, state)?;
     let comfort = registries.survival().physiology().thermal_comfort();
     let if_open = comfort
