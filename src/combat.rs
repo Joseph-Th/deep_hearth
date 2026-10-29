@@ -73,6 +73,12 @@ impl CombatState {
         self.last_attack_at.is_some_and(|last| last >= at)
     }
     pub(crate) fn validate(&self, now: ControlTick) -> Result<(), &'static str> {
+        // An active windup always owes one more combat revision, whether the
+        // player deliberately cancels, releases the strike, or dies. A forged
+        // saved revision at u64::MAX would panic during fatal cleanup.
+        if self.prepared.is_some() && self.revision == u64::MAX {
+            return Err("prepared combat stance has no revision space for cancellation");
+        }
         if self.last_attack_at.is_some_and(|at| at > now)
             || (self.revision == 0 && (self.last_attack_at.is_some() || self.prepared.is_some()))
             || (self.last_attack_at.is_none() && self.recovery_control_ticks != 0)

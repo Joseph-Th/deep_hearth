@@ -18,7 +18,7 @@ use crate::inventory::{
 };
 use crate::logistics::{
     LogisticsValidationError, add_traversable_edge_for_test, validate_allocate_ground_stockpile,
-    validate_place_ground_stockpile,
+    validate_place_fluid_store, validate_place_ground_stockpile,
 };
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
@@ -144,6 +144,57 @@ fn terrain_generation_cannot_bury_a_completed_stationary_storage_enclosure() {
         "generated solid rock cannot occupy the voxel of material-backed stationary storage"
     );
     assert_eq!(state, before);
+}
+
+#[test]
+fn generated_stone_seals_a_located_fluid_vessel_without_discarding_its_contents() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let at = VoxelCoord::new(5, WORLD_MIN_Y, 5);
+    let contents = Volume::from_microliters(500_000);
+    let vessel = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        Volume::from_microliters(1_000_000),
+        FLUID_WATER,
+        contents,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_place_fluid_store(&state, vessel, at)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x5749_4C44_4552_4E53),
+        ChunkCoord::containing(at),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(state.world().block_at(at), Some(BLOCK_STATE_STONE));
+    assert_eq!(state.logistics().fluid_store_position(vessel), Some(at));
+    assert_eq!(
+        state.fluid().get_store(vessel).unwrap().stored_volume(),
+        contents
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
 }
 
 #[test]

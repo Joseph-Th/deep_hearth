@@ -1763,3 +1763,57 @@ fn saved_future_combat_history_is_rejected() {
         .apply_attack(0, ControlTick::new(1), SHOVE_RECOVERY_TICKS);
     assert!(validate_loaded_state(&registries, &state).is_err());
 }
+
+#[test]
+fn loaded_prepared_strike_must_reserve_its_fatal_cleanup_revision() {
+    use crate::content::EQUIPMENT_WOODEN_CLUB;
+    use crate::core::state::StateValidationError;
+
+    let (registries, mut state, _, _, tip) = opening_contact_world_after(0);
+    validate_admit_player(&registries, &state, tip)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    arm_player(&registries, &mut state, EQUIPMENT_WOODEN_CLUB);
+    let _ = validate_prepare_primitive_strike(&registries, &state, east())
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(state.combat().has_prepared_strike());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let baseline = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    // Preparation can never legitimately leave zero combat revisions for
+    // cancellation or fatality. Both require a future committed owner step.
+    let mut forged = baseline.clone();
+    forged["state"]["systems"]["combat"]["revision"] = serde_json::json!(u64::MAX);
+    let invalid = serde_json::from_value::<LoadedSaveEnvelope>(forged)
+        .unwrap()
+        .into_state(&registries);
+    assert_eq!(
+        invalid,
+        Err(crate::persistence::LoadError::InvalidState(
+            StateValidationError::Combat(
+                "prepared combat stance has no revision space for cancellation"
+            )
+        ))
+    );
+
+    // The highest admissible odd prepared revision retains enough headroom
+    // for cancellation, and the resulting state remains a trusted save.
+    let mut limiting = baseline;
+    limiting["state"]["systems"]["combat"]["revision"] = serde_json::json!(u64::MAX - 2);
+    let mut recovered = serde_json::from_value::<LoadedSaveEnvelope>(limiting)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(
+        validate_cancel_primitive_preparation(&recovered)
+            .unwrap()
+            .commit(&mut recovered)
+            .unwrap(),
+        PrimitivePreparationOutcome::Cancelled
+    );
+    assert_eq!(recovered.combat().revision(), u64::MAX - 1);
+    assert_eq!(validate_loaded_state(&registries, &recovered), Ok(()));
+}
