@@ -375,6 +375,10 @@ fn attempt_primary_break(
             state.world().tree_trunk_at(voxel).map(|tree| tree.root())
         })
     {
+        // Tree chopping executes immediately rather than using the structural
+        // boundary queue. It supersedes a previously buffered break even when
+        // the newly selected chopping tool cannot start this different work.
+        let _ = take_player_pending_primary_break(state);
         return match crate::world::validate_start_player_tree_felling(registries, state, root) {
             Ok(validated) => {
                 PrimaryActionOutcome::TreeFellingStarted(validated.commit(state).unwrap_or_else(

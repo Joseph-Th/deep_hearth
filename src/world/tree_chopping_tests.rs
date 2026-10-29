@@ -104,6 +104,146 @@ fn equipped_young_tree() -> (crate::registry::Registries, AppState, VoxelCoord) 
 }
 
 #[test]
+fn retargeted_tree_chop_replaces_queued_structural_break_without_later_ghost_action() {
+    use crate::content::{FORM_LOG, STRUCTURAL_PROFILE_AXIAL_COMPRESSION};
+    use crate::core::quantity::{Area, Length};
+    use crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
+    use crate::spatial::VoxelBounds;
+    use crate::structural::{
+        StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
+    };
+
+    let (registries, mut state, root) = equipped_young_tree();
+    let player = state.logistics().player().unwrap().position();
+    let sign = if player.z().rem_euclid(CHUNK_SIDE as i64) < CHUNK_SIDE as i64 - 3 {
+        1_i64
+    } else {
+        -1_i64
+    };
+    let panel_voxel = VoxelCoord::new(player.x(), root.y() + 1, player.z() + 2 * sign);
+    for distance in 1..=2 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(player.x(), root.y() + 1, player.z() + distance * sign),
+            BlockStateId::AIR,
+        );
+    }
+    let panel = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        StructuralElementGeometry::new(
+            VoxelBounds::new(
+                panel_voxel,
+                VoxelCoord::new(
+                    panel_voxel.x() + 1,
+                    panel_voxel.y() + 1,
+                    panel_voxel.z() + 1,
+                ),
+            )
+            .unwrap(),
+            Length::from_micrometers(1_000_000),
+            Area::from_square_millimeters(1_000_000),
+        )
+        .unwrap(),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, panel, FORM_LOG);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let _ = advance_control_tick(&registries, &mut state).unwrap();
+    let toward_panel =
+        ViewDirection::new(0, 0, sign as i32 * VIEW_DIRECTION_PARTS_PER_MILLION).unwrap();
+    let queued = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_primary(PrimaryControlIntent::break_target(toward_panel)),
+    )
+    .unwrap();
+    assert_eq!(
+        queued.primary_action(),
+        Some(&PrimaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    assert_eq!(
+        state.logistics().pending_primary_break().unwrap().element(),
+        panel
+    );
+
+    let toward_tree = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
+    let mut without_tool = state.clone();
+    validate_set_active_selection(&registries, &without_tool, None)
+        .unwrap()
+        .commit(&mut without_tool)
+        .unwrap();
+    let rejected = advance_control_tick_with_direct_input(
+        &registries,
+        &mut without_tool,
+        PlayerDirectControlInput::NEUTRAL
+            .with_primary(PrimaryControlIntent::break_target(toward_tree)),
+    )
+    .unwrap();
+    assert!(matches!(
+        rejected.primary_action(),
+        Some(PrimaryActionOutcome::TreeFellingRejected(
+            TreeFellingStartError::NoActiveChoppingTool
+        ))
+    ));
+    assert!(without_tool.logistics().pending_primary_break().is_none());
+    assert!(without_tool.structures().get_element(panel).is_some());
+    assert_eq!(validate_loaded_state(&registries, &without_tool), Ok(()));
+    let no_tool_saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &without_tool)).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&no_tool_saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap(),
+        without_tool
+    );
+
+    let redirected = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_primary(PrimaryControlIntent::break_target(toward_tree)),
+    )
+    .unwrap();
+    assert!(matches!(
+        redirected.primary_action(),
+        Some(PrimaryActionOutcome::TreeFellingStarted(work)) if work.root() == root
+    ));
+    assert!(
+        state.logistics().pending_primary_break().is_none(),
+        "a new tree-chopping gesture must cancel the older structural break"
+    );
+    assert!(state.structures().get_element(panel).is_some());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while !state.control_tick().is_simulation_boundary() {
+        let next = advance_control_tick(&registries, &mut state).unwrap();
+        assert_eq!(
+            next,
+            advance_control_tick(&registries, &mut replay).unwrap()
+        );
+        assert_eq!(next.primary_action(), None);
+    }
+    assert_eq!(
+        state.control_tick().value(),
+        CONTROL_TICKS_PER_SIMULATION_TICK
+    );
+    assert_eq!(state, replay);
+    assert!(state.structures().get_element(panel).is_some());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn control_rate_chopping_persists_and_completes_with_exact_mass() {
     let (registries, mut state, root) = equipped_young_tree();
     let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
