@@ -57,7 +57,9 @@ pub(super) fn scout_wants_loose_drop(
     resource: &crate::surface::SurfaceResourceRecord,
     at: SimulationTick,
 ) -> bool {
-    scout_wants_drop(registries, resource, at)
+    // Loose parcels must satisfy the same bare-handed heat limit as exposed stockpile lots.
+    resource.temperature() <= SCOUT_SAFE_SCAVENGE_TEMPERATURE
+        && scout_wants_drop(registries, resource, at)
         && !is_staged_relay_component(state, resource)
         && !is_staged_scrap_tool_part(state, resource)
 }

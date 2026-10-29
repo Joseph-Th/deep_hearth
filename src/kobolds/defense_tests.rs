@@ -5,7 +5,7 @@ use crate::content::{
     ENERGY_ELECTRICAL_BUFFER, FORM_HANDLE, FORM_INGOT, FORM_SCRAP, MATERIAL_IRON, MATERIAL_WOOD,
     build_registries,
 };
-use crate::core::quantity::{Energy, Mass};
+use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::state::validate_loaded_state;
 use crate::energy::add_energy_store_with_initial_for_fixture;
 use crate::kobolds::KoboldPryHeadKind;

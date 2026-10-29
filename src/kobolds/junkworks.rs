@@ -16,7 +16,7 @@ use crate::surface::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceReco
 
 use super::scavenging::is_servant_era_salvage;
 use super::visibility::scout_visible_from;
-use super::{FIRST_SCOUT_TICK, KoboldColony, SCOUT_STEP_TICKS};
+use super::{FIRST_SCOUT_TICK, KoboldColony, SCOUT_SAFE_SCAVENGE_TEMPERATURE, SCOUT_STEP_TICKS};
 
 const CORE_MINIMUM: Mass = Mass::from_milligrams(10_000);
 const STRIKER_MINIMUM: Mass = Mass::from_milligrams(20_000);
@@ -105,17 +105,23 @@ impl KoboldJunkRig {
     }
 }
 
+fn hand_safe_junk_part(resource: &SurfaceResourceRecord) -> bool {
+    resource.kind() == SurfaceResourceKind::Drop
+        && resource.temperature() <= SCOUT_SAFE_SCAVENGE_TEMPERATURE
+}
+
 pub(super) fn is_junk_striker(resource: &SurfaceResourceRecord) -> bool {
     let commodity = resource.commodity();
-    ((commodity.material() == MATERIAL_WOOD
-        && [FORM_HANDLE, FORM_BOARD].contains(&commodity.form()))
-        || (commodity.material() == MATERIAL_STONE && commodity.form() == FORM_CHIP)
-        || is_iron_chime_striker(resource))
+    hand_safe_junk_part(resource)
+        && ((commodity.material() == MATERIAL_WOOD
+            && [FORM_HANDLE, FORM_BOARD].contains(&commodity.form()))
+            || (commodity.material() == MATERIAL_STONE && commodity.form() == FORM_CHIP)
+            || is_iron_chime_striker(resource))
         && resource.remaining_mass() >= STRIKER_MINIMUM
 }
 
 pub(super) fn is_iron_chime_striker(resource: &SurfaceResourceRecord) -> bool {
-    resource.kind() == SurfaceResourceKind::Drop
+    hand_safe_junk_part(resource)
         && resource.commodity().material() == MATERIAL_IRON
         && resource.commodity().form() == FORM_SCRAP
         && resource.remaining_mass() >= STRIKER_MINIMUM
@@ -128,7 +134,9 @@ pub(super) fn den_needs_striker(state: &AppState, den: VoxelCoord) -> bool {
         if resource.kind() != SurfaceResourceKind::Drop {
             continue;
         }
-        has_core |= is_servant_era_salvage(resource) && resource.remaining_mass() >= CORE_MINIMUM;
+        has_core |= hand_safe_junk_part(resource)
+            && is_servant_era_salvage(resource)
+            && resource.remaining_mass() >= CORE_MINIMUM;
         has_striker |= is_junk_striker(resource);
     }
     has_core && !has_striker
@@ -141,7 +149,7 @@ fn selected_core_at(state: &AppState, position: VoxelCoord) -> Option<SurfaceRes
         .surface()
         .available_resources_at(Some(position))
         .find(|resource| {
-            resource.kind() == SurfaceResourceKind::Drop
+            hand_safe_junk_part(resource)
                 && is_servant_era_salvage(resource)
                 && resource.remaining_mass() >= CORE_MINIMUM
         })
@@ -162,7 +170,7 @@ fn selected_striker_at(
         state
             .surface()
             .available_resources_at(Some(position))
-            .filter(|resource| resource.kind() == SurfaceResourceKind::Drop)
+            .filter(|resource| hand_safe_junk_part(resource))
     };
     if let Some(resource) = drops().find(|resource| is_iron_chime_striker(resource)) {
         return Some((resource.id(), KoboldJunkRigKind::IronChime));

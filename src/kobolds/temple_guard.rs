@@ -21,7 +21,7 @@ use super::{
     visibility::{scout_visible_from, within_manhattan_reach},
 };
 
-/// One inspection of the inner gallery every 2.4 simulated hours. Unvisited
+/// One inspection cycle every 120 slow ticks (7.2 simulated minutes). Unvisited
 /// sanctuaries stay at their standing post and consume no offscreen AI work.
 const TEMPLE_INSPECTION_CYCLE_TICKS: u64 = 120;
 const TEMPLE_INSPECTION_LOCAL_REACH: u64 = 8;

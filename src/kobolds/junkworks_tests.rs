@@ -149,6 +149,53 @@ fn two_hop_alarm_fixture() -> (Registries, AppState, SurfaceResourceId) {
 }
 
 #[test]
+fn hot_salvaged_parts_do_not_assemble_a_warning_device() {
+    let (registries, mut state) = mobilized_den();
+    for (material, form) in [
+        (MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+        (MATERIAL_IRON, FORM_SCRAP),
+    ] {
+        let hot = SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            DEN,
+            CommodityKey::new(material, form),
+            Mass::from_milligrams(50_000),
+            Temperature::from_millikelvin(373_150),
+            MaterialComposition::pure(material),
+        )
+        .unwrap();
+        validate_create_surface_resources(&registries, &state, [hot])
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    }
+    assert!(current_den_rig(&state, state.kobold_state().colony.as_ref().unwrap()).is_none());
+    let core = put_drop(
+        &registries,
+        &mut state,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+    );
+    assert!(den_needs_striker(&state, DEN));
+    let striker = put_drop(
+        &registries,
+        &mut state,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+    );
+    let rig = current_den_rig(&state, state.kobold_state().colony.as_ref().unwrap()).unwrap();
+    assert_eq!(
+        (rig.core(), rig.striker(), rig.kind()),
+        (core, striker, KoboldJunkRigKind::TimberRatchet)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+}
+
+#[test]
 fn undersized_iron_fragment_cannot_replace_a_working_wooden_clapper() {
     let (registries, mut state) = mobilized_den();
     put_drop(

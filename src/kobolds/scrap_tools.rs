@@ -16,7 +16,10 @@ use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceRecord};
 
 use super::visibility::scout_visible_from;
-use super::{FIRST_SCOUT_TICK, KoboldColony, SCOUT_CARRY_LIMIT, SCOUT_STEP_TICKS};
+use super::{
+    FIRST_SCOUT_TICK, KoboldColony, SCOUT_CARRY_LIMIT, SCOUT_SAFE_SCAVENGE_TEMPERATURE,
+    SCOUT_STEP_TICKS,
+};
 
 const MINIMUM_PART_MASS: Mass = Mass::from_milligrams(20_000);
 pub(super) const LEVER_SPLIT_BATCH: Mass = Mass::from_milligrams(500_000);
@@ -107,46 +110,47 @@ impl KoboldScrapLever {
     }
 }
 
-fn is_handle(resource: &SurfaceResourceRecord) -> bool {
+fn hand_safe_portable_part(resource: &SurfaceResourceRecord) -> bool {
     resource.kind() == SurfaceResourceKind::Drop
+        && resource.temperature() <= SCOUT_SAFE_SCAVENGE_TEMPERATURE
+        && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
+}
+
+fn is_handle(resource: &SurfaceResourceRecord) -> bool {
+    hand_safe_portable_part(resource)
         && resource.commodity().material() == MATERIAL_WOOD
         && resource.commodity().form() == FORM_HANDLE
         && resource.remaining_mass() >= MINIMUM_PART_MASS
-        && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
 }
 
 fn is_wedge(resource: &SurfaceResourceRecord) -> bool {
-    resource.kind() == SurfaceResourceKind::Drop
+    hand_safe_portable_part(resource)
         && resource.commodity().material() == MATERIAL_STONE
         && resource.commodity().form() == FORM_CHIP
         && resource.remaining_mass() >= MINIMUM_PART_MASS
-        && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
 }
 
 fn is_copper_fulcrum(resource: &SurfaceResourceRecord) -> bool {
-    resource.kind() == SurfaceResourceKind::Drop
+    hand_safe_portable_part(resource)
         && resource.commodity().material() == MATERIAL_COPPER
         && resource.commodity().form() == FORM_INGOT
         && resource.remaining_mass() >= MINIMUM_PART_MASS
-        && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
 }
 
 fn is_iron_shoe(resource: &SurfaceResourceRecord) -> bool {
-    resource.kind() == SurfaceResourceKind::Drop
+    hand_safe_portable_part(resource)
         && resource.commodity().material() == MATERIAL_IRON
         && resource.commodity().form() == FORM_INGOT
         && resource.remaining_mass() >= MINIMUM_PART_MASS
-        && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
 }
 
 /// This is a *head-sized* irregular fragment, not every tiny loose clapper.
 /// It remains exposed, finite iron scrap even after an actual fitting.
 fn is_iron_scrap_tooth(resource: &SurfaceResourceRecord) -> bool {
-    resource.kind() == SurfaceResourceKind::Drop
+    hand_safe_portable_part(resource)
         && resource.commodity().material() == MATERIAL_IRON
         && resource.commodity().form() == FORM_SCRAP
         && resource.remaining_mass() >= MINIMUM_IRON_SCRAP_TOOTH
-        && resource.remaining_mass() <= SCOUT_CARRY_LIMIT
 }
 
 fn selected_handle(state: &AppState, colony: &KoboldColony) -> Option<SurfaceResourceId> {

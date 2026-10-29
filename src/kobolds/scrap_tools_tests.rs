@@ -53,6 +53,82 @@ fn drop_at(
 }
 
 #[test]
+fn hot_parts_cannot_form_a_worksite_tool_even_when_already_staged() {
+    let registries = build_registries();
+    for hot_handle in [false, true] {
+        let mut state = AppState::new();
+        for (a, b) in [(DEN, JUNCTION), (JUNCTION, TIP)] {
+            add_traversable_edge_for_test(&mut state, a, b);
+        }
+        state
+            .kobold_state_mut()
+            .apply_opening_colony([DEN, JUNCTION, TIP]);
+        let hot_material = if hot_handle {
+            MATERIAL_WOOD
+        } else {
+            MATERIAL_STONE
+        };
+        let hot_form = if hot_handle { FORM_HANDLE } else { FORM_CHIP };
+        let hot = SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            JUNCTION,
+            CommodityKey::new(hot_material, hot_form),
+            Mass::from_milligrams(50_000),
+            Temperature::from_millikelvin(373_150),
+            MaterialComposition::pure(hot_material),
+        )
+        .unwrap();
+        let planned = validate_create_surface_resources(&registries, &state, [hot]).unwrap();
+        let hot_id = planned.first_resource_id();
+        planned.commit(&mut state).unwrap();
+        let cool_material = if hot_handle {
+            MATERIAL_STONE
+        } else {
+            MATERIAL_WOOD
+        };
+        let cool_form = if hot_handle { FORM_CHIP } else { FORM_HANDLE };
+        let cool_id = drop_at(
+            &registries,
+            &mut state,
+            JUNCTION,
+            cool_material,
+            cool_form,
+            Mass::from_milligrams(50_000),
+        );
+        let colony = state.kobold_state().colony.as_ref().unwrap();
+        assert!(current_junction_scrap_lever(&state, colony).is_none());
+        let replacement_id = drop_at(
+            &registries,
+            &mut state,
+            JUNCTION,
+            hot_material,
+            hot_form,
+            Mass::from_milligrams(50_000),
+        );
+        let tool =
+            current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+                .unwrap();
+        assert_eq!(
+            tool.handle(),
+            if hot_handle { replacement_id } else { cool_id }
+        );
+        assert_eq!(
+            tool.head(),
+            if hot_handle { cool_id } else { replacement_id }
+        );
+        assert_ne!(tool.handle(), hot_id);
+        assert_ne!(tool.head(), hot_id);
+        let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        assert_eq!(state, loaded);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+}
+
+#[test]
 fn physical_pry_fitting_requires_explicit_completion_state() {
     for completed_at in [None, Some(SimulationTick::new(205))] {
         let fitting = KoboldPryFitting {

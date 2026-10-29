@@ -1,7 +1,6 @@
 //! An informed scout can defend its real fitted worksite tool at arm's reach.
 //! The head stays at the junction: this is not yet a portable armed patrol.
 
-use crate::core::quantity::Temperature;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::energy::assess_local_illumination;
@@ -10,9 +9,9 @@ use crate::surface::{SurfaceResourceId, abrade_scavenged_tool_head};
 use crate::survival::{Vitality, apply_kobold_worksite_contact_injury};
 
 use super::scrap_tools::{KoboldPryHeadKind, KoboldScrapLever, current_junction_scrap_lever};
-use super::{KoboldColony, KoboldRole, SCOUT_DETERRENT_LIGHT_LEVEL};
-
-const CONTACT_SAFE_TEMPERATURE: Temperature = Temperature::from_millikelvin(333_150);
+use super::{
+    KoboldColony, KoboldRole, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_SAFE_SCAVENGE_TEMPERATURE,
+};
 
 /// One observable, ready-to-grip local weapon. The read-only sighting and
 /// actual contact share this gate, so no warning appears for an unfitted,
@@ -37,7 +36,7 @@ pub(super) fn ready_worksite_tool(
         return None;
     }
     let head = state.surface().get(tool.head())?;
-    (head.temperature() <= CONTACT_SAFE_TEMPERATURE
+    (head.temperature() <= SCOUT_SAFE_SCAVENGE_TEMPERATURE
         && head.remaining_mass() > tool.kind().abrasion_per_split())
     .then_some(tool)
 }

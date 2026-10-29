@@ -10,9 +10,14 @@ use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::simulation::{advance_control_tick, advance_tick};
 use crate::spatial::VoxelCoord;
-use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources};
+use crate::surface::{
+    SurfaceResourceId, SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources,
+};
 
-use super::{reachable_far_drop, reachable_side_drop};
+use super::{
+    ScavengeRoute, local_portable_source, local_split_source, reachable_far_drop,
+    reachable_side_drop,
+};
 
 struct Route {
     den: VoxelCoord,
@@ -62,6 +67,98 @@ fn drop(position: VoxelCoord, food: bool, mass: u64) -> SurfaceResourceSpec {
         MaterialComposition::pure(material),
     )
     .unwrap()
+}
+
+#[test]
+fn hot_loose_stone_is_not_stealable_but_cool_stone_is_recovered_normally() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let path = route(&mut state);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([path.den, path.junction, path.tip]);
+    let hot_id = SurfaceResourceId::new(state.surface().next_resource_id());
+    let cool_id = SurfaceResourceId::new(hot_id.value() + 1);
+    let hot = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        path.side_stone,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(1_500_000),
+        Temperature::from_millikelvin(373_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    validate_create_surface_resources(
+        &registries,
+        &state,
+        [hot, drop(path.side_stone, false, 250_000)],
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let capacity = Mass::from_milligrams(500_000);
+    assert_eq!(
+        local_portable_source(
+            &registries,
+            &state,
+            path.side_stone,
+            capacity,
+            state.tick(),
+            false,
+            false
+        ),
+        Some(cool_id)
+    );
+    assert_eq!(
+        local_split_source(
+            &registries,
+            &state,
+            path.side_stone,
+            capacity,
+            state.tick(),
+            false,
+            false
+        ),
+        None
+    );
+    assert_eq!(
+        reachable_side_drop(
+            &registries,
+            &state,
+            ScavengeRoute::new([path.den, path.junction, path.tip], None),
+            capacity,
+            state.tick(),
+            false
+        ),
+        Some(path.side_stone)
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.tick().value() < 200 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(hot_id).unwrap().position(),
+        path.side_stone
+    );
+    assert_eq!(
+        state.surface().get(hot_id).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_500_000)
+    );
+    assert_eq!(state.surface().get(cool_id).unwrap().position(), path.den);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

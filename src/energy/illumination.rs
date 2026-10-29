@@ -1,6 +1,6 @@
 //! Renderer-neutral local illumination derived from finite located energy stores.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeSet, VecDeque};
 
 use crate::core::arithmetic::checked_mul_div_ceil;
 use crate::core::state::AppState;
@@ -153,6 +153,15 @@ pub fn assess_local_illumination(
 ) -> LocalIlluminationAssessment {
     let mut level = 0_u8;
     let mut strongest_source = None;
+    // An opaque destination cannot receive light from any source. Check once
+    // before searching each overlapping emitter's bounded propagation graph.
+    if !voxel_transmits_light(registries, state, position) {
+        return LocalIlluminationAssessment {
+            position,
+            level,
+            strongest_source,
+        };
+    }
     // Authored finite light cannot influence voxels beyond its bounded radius.
     // Query location custody through its position index, not all world stores.
     let candidates = state
@@ -214,7 +223,9 @@ fn propagated_light_level(
             - u8::try_from(distance).expect("distance is below bounded source light level");
     }
 
-    let mut reached = BTreeMap::from([(source.position(), source.level())]);
+    // Breadth-first discovery visits each cell by its shortest path, hence its
+    // strongest contribution. No per-cell level map or repeat relaxation is needed.
+    let mut visited = BTreeSet::from([source.position()]);
     let mut frontier = VecDeque::from([(source.position(), source.level())]);
     while let Some((position, level)) = frontier.pop_front() {
         if level <= 1 {
@@ -225,19 +236,18 @@ fn propagated_light_level(
             let Some(adjacent) = face.adjacent_voxel(position) else {
                 continue;
             };
-            if reached
-                .get(&adjacent)
-                .is_some_and(|existing| *existing >= next_level)
-            {
+            // Even through completely open terrain, a ray must lose at least
+            // one level per remaining Manhattan step. Do not explore branches
+            // that cannot arrive with positive light at the queried cell.
+            if u128::from(next_level) <= manhattan_distance(adjacent, target) {
                 continue;
             }
-            if !voxel_transmits_light(registries, state, adjacent) {
+            if !voxel_transmits_light(registries, state, adjacent) || !visited.insert(adjacent) {
                 continue;
             }
             if adjacent == target {
                 return next_level;
             }
-            reached.insert(adjacent, next_level);
             frontier.push_back((adjacent, next_level));
         }
     }
