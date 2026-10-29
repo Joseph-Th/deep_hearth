@@ -1610,6 +1610,57 @@ fn cache_stone(
 }
 
 #[test]
+fn industrial_den_exchanges_only_hand_safe_stored_cargo_for_visible_salvage() {
+    let (registries, mut state, route) =
+        scenario(EnergyCarrier::Mechanical, Some(route_machinery()));
+    advance_to(&registries, &mut state, 579);
+    let raw = |mass, temperature| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            route[0],
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(mass),
+            temperature,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap()
+    };
+    let plan = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            raw(250_000, Temperature::from_millikelvin(373_150)),
+            raw(225_000, Temperature::from_millikelvin(293_150)),
+        ],
+    )
+    .unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut state).unwrap();
+    let copper = copper_winding(&registries, &mut state, route[3]);
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 595);
+    advance_to(&registries, &mut replay, 595);
+    assert_eq!(state, replay);
+    assert_eq!(state.surface().get(ids[0]).unwrap().position(), route[0]);
+    assert_eq!(
+        state.surface().get(ids[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(250_000)
+    );
+    assert_eq!(state.surface().get(ids[1]).unwrap().position(), route[1]);
+    assert_eq!(state.surface().get(copper).unwrap().position(), route[0]);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn a_partly_free_industrial_den_only_evicts_if_intact_salvage_does_not_fit() {
     let (registries, mut short, route) =
         scenario(EnergyCarrier::Mechanical, Some(route_machinery()));

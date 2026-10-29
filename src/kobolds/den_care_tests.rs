@@ -65,6 +65,129 @@ fn resource(position: VoxelCoord, kind: SurfaceResourceKind, food: bool) -> Surf
 }
 
 #[test]
+fn hot_den_scrap_is_not_evicted_to_make_room_for_a_real_food_serving() {
+    let (registries, mut state, [den, junction, _, _]) = setup();
+    let stone = |mass, temperature| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            den,
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(mass),
+            temperature,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap()
+    };
+    let planned = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            stone(475_000, Temperature::from_millikelvin(373_150)),
+            stone(25_000, Temperature::from_millikelvin(293_150)),
+            resource(junction, SurfaceResourceKind::Opportunity, true),
+        ],
+    )
+    .unwrap();
+    let ids = planned.resource_ids().collect::<Vec<_>>();
+    planned.commit(&mut state).unwrap();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(
+        advance_tick(&registries, &mut state).unwrap(),
+        advance_tick(&registries, &mut replay).unwrap()
+    );
+    assert_eq!(state.surface().get(ids[0]).unwrap().position(), den);
+    assert_eq!(
+        state.surface().get(ids[1]).unwrap().position(),
+        junction,
+        "the scout must clear cool scrap rather than grasp the hot first parcel"
+    );
+    while state.tick().value() < 600 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(state.surface().get(ids[0]).unwrap().position(), den);
+    assert_eq!(
+        state.surface().get(ids[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(475_000)
+    );
+    assert_eq!(
+        state.surface().get(ids[2]).unwrap().remaining_mass(),
+        Mass::from_milligrams(275_000),
+        "available cool-cargo space still funds one real forage transfer"
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn hot_unfit_food_cannot_be_discarded_but_cool_spoiled_food_still_can() {
+    use crate::inventory::{MaterialLotProfile, MaterialLotProvenance, STORAGE_AGE_PARTS_PER_TICK};
+    use crate::material::MaterialLotSpec;
+
+    let (registries, mut state, [den, junction, _, _]) = setup();
+    let commodity = CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD);
+    let hot = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        den,
+        commodity,
+        Mass::from_milligrams(100_000),
+        Temperature::from_millikelvin(333_151),
+        MaterialComposition::pure(MATERIAL_WILD_NUTS),
+    )
+    .unwrap();
+    let cooled_mass = Mass::from_milligrams(80_000);
+    let profile = MaterialLotProfile::from_spec(
+        &MaterialLotSpec::with_composition(
+            commodity,
+            cooled_mass,
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_WILD_NUTS),
+        )
+        .unwrap(),
+    );
+    let shelf = registries
+        .survival()
+        .get_food(commodity)
+        .unwrap()
+        .shelf_life();
+    let spoiled = SurfaceResourceSpec::from_existing_material(
+        SurfaceResourceKind::Drop,
+        den,
+        cooled_mass,
+        profile,
+        MaterialLotProvenance::single(SimulationTick::ZERO),
+        u128::from(shelf.value()) * STORAGE_AGE_PARTS_PER_TICK,
+    )
+    .unwrap();
+    let plan = validate_create_surface_resources(&registries, &state, [hot, spoiled]).unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut state).unwrap();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(
+        advance_tick(&registries, &mut state).unwrap(),
+        advance_tick(&registries, &mut replay).unwrap()
+    );
+    assert_eq!(state, replay);
+    assert_eq!(state.surface().get(ids[0]).unwrap().position(), den);
+    assert_eq!(state.surface().get(ids[1]).unwrap().position(), junction);
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn partly_fed_den_preserves_scrap_when_existing_space_fits_the_remaining_ration() {
     let (registries, mut world, [den, junction, _, _]) = setup();
     let local = |material, form, amount| {
@@ -965,9 +1088,11 @@ fn hungry_colony_releases_one_real_stone_parcel_for_nearby_food_then_eats() {
 }
 
 #[test]
-fn temperature_unfit_den_food_is_discarded_and_fresh_foraging_restores_the_meal() {
-    // Both frozen and overheated food occupy real den capacity but cannot be consumed.
-    for temperature_mk in [250_000, 400_000] {
+fn temperature_unfit_den_food_only_frees_the_den_when_hand_safe() {
+    // Neither nearly frozen nor overheated food is edible, but the scout can
+    // only carry away the former without unsafe contact.
+    for temperature_mk in [272_000, 400_000] {
+        let hand_safe = temperature_mk <= super::SCOUT_SAFE_SCAVENGE_TEMPERATURE.millikelvin();
         let (registries, mut state, [den, junction, _, _]) = setup();
         let unfit = SurfaceResourceSpec::new(
             SurfaceResourceKind::Drop,
@@ -1008,8 +1133,8 @@ fn temperature_unfit_den_food_is_discarded_and_fresh_foraging_restores_the_meal(
         assert_eq!(first, advance_tick(&registries, &mut replay).unwrap());
         assert_eq!(
             state.surface().get(ids[0]).unwrap().position(),
-            junction,
-            "inedible food must not trap the resident's full den cache"
+            if hand_safe { junction } else { den },
+            "inedible food can be discarded only when it is safe to handle"
         );
         assert_eq!(
             state.surface().get(ids[0]).unwrap().remaining_mass(),
@@ -1025,17 +1150,20 @@ fn temperature_unfit_den_food_is_discarded_and_fresh_foraging_restores_the_meal(
         assert_eq!(state, replay);
         assert_eq!(
             state.surface().get(ids[1]).unwrap().remaining_mass(),
-            Mass::from_milligrams(200_000),
-            "the now-free den must accept real nearby edible forage"
+            Mass::from_milligrams(if hand_safe { 200_000 } else { 300_000 }),
+            "only an actually emptied den can accept edible forage"
         );
-        assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+        assert_eq!(
+            state.kobold_state().colony.as_ref().unwrap().hungry,
+            !hand_safe
+        );
         assert_eq!(
             calculate_matter_accounting(&state)
                 .unwrap()
                 .consumed()
                 .milligrams(),
-            20_000,
-            "the scout eats fresh forage, not the unfit stored food"
+            if hand_safe { 20_000 } else { 0 },
+            "the scout cannot eat or magically discard overheated food"
         );
         assert_eq!(
             calculate_matter_accounting(&state).unwrap().total(),
@@ -1116,7 +1244,7 @@ fn oversized_inert_cache_is_split_to_make_room_for_real_forage() {
 }
 
 #[test]
-fn oversized_unfit_food_is_split_and_evicted_until_the_den_can_forage() {
+fn oversized_hand_safe_unfit_food_is_split_and_evicted_until_the_den_can_forage() {
     let (registries, mut state, [den, junction, _, _]) = setup();
     let unfit_mass = Mass::from_milligrams(1_200_000);
     let unfit = SurfaceResourceSpec::new(
@@ -1124,7 +1252,7 @@ fn oversized_unfit_food_is_split_and_evicted_until_the_den_can_forage() {
         den,
         CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
         unfit_mass,
-        Temperature::from_millikelvin(400_000),
+        Temperature::from_millikelvin(272_000),
         MaterialComposition::pure(MATERIAL_WILD_NUTS),
     )
     .unwrap();
@@ -1161,7 +1289,7 @@ fn oversized_unfit_food_is_split_and_evicted_until_the_den_can_forage() {
             .available_resources_at(Some(junction))
             .any(|drop| drop.kind() == SurfaceResourceKind::Drop
                 && drop.remaining_mass() == Mass::from_milligrams(250_000)
-                && drop.temperature() == Temperature::from_millikelvin(400_000)),
+                && drop.temperature() == Temperature::from_millikelvin(272_000)),
         "the split must create a physical recoverable parcel at the junction"
     );
     while state.tick().value() < 720 {
@@ -1188,7 +1316,7 @@ fn oversized_unfit_food_is_split_and_evicted_until_the_den_can_forage() {
             .consumed()
             .milligrams(),
         20_000,
-        "the scout must recover its meal from fresh forage, never from the hot food"
+        "the scout must recover its meal from fresh forage, never from the cold unfit food"
     );
     assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));

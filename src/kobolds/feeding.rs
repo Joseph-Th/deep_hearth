@@ -21,7 +21,7 @@ use super::scavenging::{
 };
 use super::{
     DEN_LOOSE_CACHE_LIMIT, SCOUT_BULK_SPLIT_BATCH, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL,
-    SCOUT_MEAL_INTERVAL_TICKS, SCOUT_MEAL_MASS,
+    SCOUT_MEAL_INTERVAL_TICKS, SCOUT_MEAL_MASS, SCOUT_SAFE_SCAVENGE_TEMPERATURE,
 };
 
 /// A food parcel is evaluated from its actual aging history, not its form alone.
@@ -169,8 +169,8 @@ pub(super) fn apply_scheduled_den_care(
 
 /// Vacate unusable edible-form custody as physical cargo. Spoilage, excessive heat and
 /// contaminated composition all make a food parcel unfit for this resident's meal.
-/// An oversized parcel must be divided into real carried portions rather than
-/// permanently blocking the den because no whole move fits the scout's carry limit.
+/// Only hand-safe parcels can be physically discarded; hot food remains in den custody.
+/// Oversized hand-safe parcels are divided into real carried portions.
 fn discard_unfit_den_food(
     registries: &Registries,
     state: &mut AppState,
@@ -185,7 +185,8 @@ fn discard_unfit_den_food(
         .surface()
         .available_resources_at(Some(den))
         .filter(|resource| {
-            resource.kind() == SurfaceResourceKind::Drop
+            resource.temperature() <= SCOUT_SAFE_SCAVENGE_TEMPERATURE
+                && resource.kind() == SurfaceResourceKind::Drop
                 && resource.commodity().form() == crate::content::FORM_FOOD
                 && !matches!(
                     food_condition(registries, resource, at),
@@ -275,7 +276,8 @@ fn clear_inert_cache_for_food(
         .surface()
         .available_resources_at(Some(den))
         .filter(|resource| {
-            resource.kind() == SurfaceResourceKind::Drop
+            resource.temperature() <= SCOUT_SAFE_SCAVENGE_TEMPERATURE
+                && resource.kind() == SurfaceResourceKind::Drop
                 && resource.commodity().form() != crate::content::FORM_FOOD
         })
         // Prefer a whole portable parcel: it frees space without allocating a
@@ -359,7 +361,8 @@ fn clear_inert_cache_for_industry(
         .surface()
         .available_resources_at(Some(den))
         .filter(|resource| {
-            resource.kind() == SurfaceResourceKind::Drop
+            resource.temperature() <= SCOUT_SAFE_SCAVENGE_TEMPERATURE
+                && resource.kind() == SurfaceResourceKind::Drop
                 && resource.commodity().form() != crate::content::FORM_FOOD
                 && !is_servant_era_salvage(resource)
                 && Some(resource.id()) != protected_striker
