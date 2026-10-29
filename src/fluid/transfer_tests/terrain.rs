@@ -2,13 +2,96 @@
 
 use super::*;
 use crate::content::BLOCK_STATE_STONE;
-use crate::fluid::validate_gravity_feed_fluid_to_lower_store;
+use crate::fluid::{player_fluid_transfer_options, validate_gravity_feed_fluid_to_lower_store};
 use crate::logistics::{FluidStorePlacementCommitError, FluidStorePlacementError};
 use crate::world::{
-    BlockStateId, ChunkCoord, ChunkGenerationError, WorldGenerationSeed, validate_generate_chunk,
+    BlockStateId, ChunkCoord, ChunkGenerationError, WORLD_MIN_Y, WorldGenerationSeed,
+    set_generated_block_for_test, validate_generate_chunk,
 };
 
 const SEED: WorldGenerationSeed = WorldGenerationSeed::new(0xF17D_F10D_2026);
+
+#[test]
+fn generated_world_bottom_cannot_gravity_feed_into_unknown_vertical_space() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        SEED,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let source_position = VoxelCoord::new(0, WORLD_MIN_Y, 0);
+    let destination_position = VoxelCoord::new(0, WORLD_MIN_Y - 1, 0);
+    for y in WORLD_MIN_Y..=WORLD_MIN_Y + 2 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(0, y, 0),
+            BlockStateId::AIR,
+        );
+    }
+    let source = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        Volume::from_microliters(1_000_000),
+        FLUID_WATER,
+        Volume::from_microliters(500_000),
+        ROOM_TEMPERATURE,
+    )
+    .unwrap();
+    let destination = add_fluid_store(&mut state, Volume::from_microliters(1_000_000)).unwrap();
+    for (store, position) in [
+        (source, source_position),
+        (destination, destination_position),
+    ] {
+        validate_place_fluid_store(&state, store, position)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    }
+    validate_admit_player(&registries, &state, source_position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        state.world().block_at(source_position),
+        Some(BlockStateId::AIR)
+    );
+    assert_eq!(state.world().block_at(destination_position), None);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let options =
+        player_fluid_transfer_options(&registries, &state, Volume::from_microliters(10_000))
+            .unwrap();
+    assert_eq!(options.len(), 1);
+    assert_eq!(options[0].source(), source);
+    assert_eq!(options[0].destination(), destination);
+    assert_eq!(
+        options[0].blocker(),
+        Some(&FluidTransferError::UnknownGravityTerrain {
+            destination_position
+        })
+    );
+    let before = state.clone();
+    assert_eq!(
+        validate_gravity_feed_fluid_to_lower_store(
+            &registries,
+            &state,
+            source,
+            destination,
+            Volume::from_microliters(10_000),
+        )
+        .err(),
+        Some(FluidTransferError::UnknownGravityTerrain {
+            destination_position
+        }),
+    );
+    assert_eq!(state, before);
+}
 
 #[test]
 fn fluid_bootstrap_rejects_both_living_trunk_cells_and_world_change_before_commit() {

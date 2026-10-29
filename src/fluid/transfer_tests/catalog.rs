@@ -338,7 +338,7 @@ fn catalog_requires_an_admitted_living_player_and_positive_request() {
 }
 
 #[test]
-fn discovery_reports_unknown_downhill_terrain_without_remote_custody_leaks() {
+fn discovery_preserves_ungenerated_downhill_access_after_distant_chunk_generation() {
     use crate::content::BLOCK_STATE_STONE;
     use crate::world::{ChunkCoord, WorldGenerationSeed, validate_generate_chunk};
 
@@ -376,11 +376,47 @@ fn discovery_reports_unknown_downhill_terrain_without_remote_custody_leaks() {
     assert_eq!(choices.len(), 1);
     assert_eq!(choices[0].source(), fixture.source);
     assert_eq!(choices[0].destination(), fixture.destination);
+    assert_eq!(choices[0].route(), PlayerFluidTransferRoute::OneVoxelDown);
+    assert!(choices[0].is_ready());
     assert_eq!(
-        choices[0].blocker(),
-        Some(&FluidTransferError::UnknownGravityTerrain {
-            destination_position: BELOW,
-        })
+        choices[0].source_after().unwrap().volume(),
+        Volume::from_microliters(999_995),
+    );
+    assert_eq!(
+        choices[0].destination_after().unwrap().volume(),
+        Volume::from_microliters(5),
     );
     assert_eq!(fixture.state, before);
+
+    // An unrelated generated chunk neither grants remote custody nor blocks
+    // an actual local pour in the still-ungenerated opening graph.
+    let saved =
+        serde_json::to_vec(&SaveEnvelope::new(&fixture.registries, &fixture.state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&fixture.registries)
+        .unwrap();
+    assert_eq!(
+        player_fluid_transfer_options(&fixture.registries, &replay, Volume::from_microliters(5))
+            .unwrap(),
+        choices
+    );
+    let original = calculate_fluid_volume_accounting(&fixture.state).unwrap();
+    let _ = validate_player_fluid_transfer_option(&fixture.registries, &fixture.state, &choices[0])
+        .unwrap()
+        .commit(&mut fixture.state)
+        .unwrap();
+    let _ = validate_player_fluid_transfer_option(&fixture.registries, &replay, &choices[0])
+        .unwrap()
+        .commit(&mut replay)
+        .unwrap();
+    assert_eq!(fixture.state, replay);
+    assert_eq!(
+        calculate_fluid_volume_accounting(&fixture.state),
+        Ok(original)
+    );
+    assert_eq!(
+        validate_loaded_state(&fixture.registries, &fixture.state),
+        Ok(())
+    );
 }
