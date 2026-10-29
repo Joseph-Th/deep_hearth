@@ -9,6 +9,7 @@ use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
+use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
 
 fn standing_tree_fixture() -> (crate::registry::Registries, AppState, VoxelCoord) {
@@ -47,6 +48,64 @@ fn standing_tree_fixture() -> (crate::registry::Registries, AppState, VoxelCoord
     .unwrap();
     assert!(state.world().tree_at(root).is_some());
     (registries, state, root)
+}
+
+#[test]
+fn generated_stone_worlds_admit_players_and_trusted_load_across_distinct_seeds() {
+    let registries = build_registries();
+    let chunks = [
+        ChunkCoord::new(-1, 0),
+        ChunkCoord::new(0, -1),
+        ChunkCoord::new(0, 0),
+        ChunkCoord::new(1, 0),
+    ];
+    for seed_value in 0..256_u64 {
+        let seed = WorldGenerationSeed::new(seed_value);
+        let mut state = AppState::new();
+        for chunk in chunks {
+            validate_generate_chunk(&registries, &state, seed, chunk, BLOCK_STATE_STONE)
+                .unwrap_or_else(|error| panic!("seed {seed_value}: {error}"))
+                .commit(&mut state)
+                .unwrap_or_else(|error| panic!("seed {seed_value}: {error}"));
+        }
+        let ground_y = generation::terrain_height(seed, 0, 0);
+        let spawn = VoxelCoord::new(0, ground_y + 1, 0);
+        assert!(
+            state
+                .world()
+                .has_standing_clearance(registries.world(), spawn),
+            "seed {seed_value} does not support the ordinary spawn",
+        );
+        validate_admit_player(&registries, &state, spawn)
+            .unwrap_or_else(|error| panic!("seed {seed_value}: admission {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("seed {seed_value}: admission commit {error}"));
+        let _ = advance_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("seed {seed_value}: slow tick {error}"));
+        assert_eq!(
+            validate_loaded_state(&registries, &state),
+            Ok(()),
+            "generated seed {seed_value} cannot be trusted",
+        );
+        if seed_value.is_multiple_of(32) {
+            let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
+                .unwrap_or_else(|error| panic!("seed {seed_value}: encode {error}"));
+            let mut loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+                .unwrap_or_else(|error| panic!("seed {seed_value}: decode {error}"))
+                .into_state(&registries)
+                .unwrap_or_else(|error| panic!("seed {seed_value}: load {error}"));
+            assert_eq!(loaded, state, "seed {seed_value} changes during save/load");
+            let original_outcome = advance_tick(&registries, &mut state)
+                .unwrap_or_else(|error| panic!("seed {seed_value}: continued tick {error}"));
+            let replay_outcome = advance_tick(&registries, &mut loaded)
+                .unwrap_or_else(|error| panic!("seed {seed_value}: replay tick {error}"));
+            assert_eq!(
+                replay_outcome, original_outcome,
+                "seed {seed_value} changes outcomes after reload",
+            );
+            assert_eq!(loaded, state, "seed {seed_value} diverges after reload");
+        }
+    }
 }
 
 #[test]
