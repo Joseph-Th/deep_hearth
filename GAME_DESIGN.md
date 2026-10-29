@@ -416,6 +416,49 @@ from a surface den do not instantly inform a buried archive; temple response nee
 routes, signals, witnesses and its own finite capacity. Calm coexistence or leaving valuable
 infrastructure intact must be viable outcomes, not merely a delay until a fixed combat wave.
 
+### Escalation as a competing economy
+
+A secured first camp is a success, not a temporary immunity that an enemy tier
+must cancel. Subsequent kobold pressure should follow the expanding *exposed
+dependencies* of the player's economy: food and loose tools first, then worksite
+stores and resource routes, then transport, extractive infrastructure, and
+eventually industrial supply and strategic sites. An attack is meaningful when
+it changes the player's best feasible plan or consumes productive attention,
+labor or material. Mere enemy durability, extra raid counts, and level-matched
+damage are not sufficient.
+
+The faction has two distinct, constrained capability paths. Surface scavenger
+improvisation grows from physically recovered and refitted parts, local work
+time and repeatable food-supported labor; it favors replaceable but unreliable
+tools, improvised protection, route disruption and opportunistic raids. Temple
+capability begins with ancient embodied installations, high-caste expertise,
+finite irreplaceable parts and actual service requirements; it favors
+concentrated defensive force, unusual equipment and local positional
+advantages, but does not magically scale into a reproducible industrial army.
+Contact between the two paths requires actual travelers or working
+communication along a traversable route. A colony with no temple access cannot
+unlock wardens by observing the player's equipment.
+
+| Player's achievement | New conditional kobold opportunity | Meaningful counterplay |
+| --- | --- | --- |
+| Reliable food and basic camp | Repeatedly exploit exposed food, tools and unguarded local stores | Enclose or move supplies, guard a route, interrupt theft, recover a den cache |
+| Protected primary storage and first machinery | Recover precision scrap, raid accessible open worksite stockpiles, build purpose-specific implements | Preserve the original components, use enclosed stores, illuminate approaches, cut salvage access |
+| Outlying mines, processing and transport | Interdict physically reachable input/output routes with finite provisioned groups | Fortify critical edges, organize escort or alternate routes, disrupt enemy provisions |
+| Industrial production and territorial expansion | Maintain workshops, defenses and raids over time where real resources support them | Reconnaissance, logistical denial, persistent local victories, negotiated boundaries |
+| Excavation into a functioning temple district | Mobilize local heavy defenders or activate surviving devices with actual energy, crews and upkeep | Interpret the site, control physical approaches, disable supplies, repair or negotiate |
+
+A successful colony operation must pay an opportunity cost. A resident who
+works on a crude weapon cannot simultaneously forage; copper allocated to a
+warning relay is not also a shield fitting; a temple engine that expends a
+scarce part must become harder to maintain. Losses, denied access, low
+provisions, and repeated failed incursions should lead to withdrawal or new
+goals, not automatic reinforcement. Player-secured territory and deliberate
+peace can stay secured. Warning signs should precede new threats where
+physically plausible: changed tracks, component scavenging, worksite noise,
+outgoing messengers, guarded caches or a visibly active temple facility.
+Enemy escalation should be evaluated by **distinct player decisions** across
+matched counterfactual states, not by an enemy-strength score.
+
 The first material-backed worksite is a crude pry lever: a wooden handle and a
 stone wedge or reclaimed solid copper ingot stay at the junction as recoverable
 parcels. The same scavenger can physically upgrade its crude stone head from
@@ -434,6 +477,19 @@ remain contestable. Players can take any part or guard an upgrade route to deny
 the resulting work advantage. Replacing a fitted ingot or handle requires new
 labor rather than inheriting a previous assembly. This remains a stationary
 arrangement, not yet a portable manufactured tool or combat weapon.
+
+The first industrially informed economic raid reaches beyond loose drops. A
+scout that has actually delivered its machinery report may spend a scheduled
+work slot extracting one finite, cool, accessible material-lot portion from an
+unenclosed ground stockpile at its present patrol cell. The withdrawal creates
+a recoverable loose parcel **there**, preserving its material properties,
+age and provenance; only a later permitted return step carries it toward the
+den. Existing loose material takes priority, hunger and danger interrupt the
+raid, and limited den capacity bounds repeated theft. Enclosed, structurally
+mounted, reserved and distant stores cannot be emptied by this operation.
+This makes protecting *distributed* inventories matter without pretending a
+small scout can break a proper enclosure. It does not constitute weapon
+manufacture, assault, general pathfinding or temple intervention.
 
 Further faction milestones are ordered by causality rather than combat tier: meaningful
 work time, tool portability and choices between implements, alarm parts and provisions; then a

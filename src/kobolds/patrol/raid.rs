@@ -13,7 +13,8 @@ use super::super::junkworks::{
 use super::super::scavenging::{
     ScavengeRoute, best_local_forage, has_local_scout_interest, is_portable_drop,
     local_portable_source, local_split_source, matches_salvage_goal, reachable_detour_drop,
-    reachable_detour_food, reachable_inherited_salvage, scout_wants_loose_drop,
+    reachable_detour_food, reachable_far_stockpile, reachable_inherited_salvage,
+    reachable_side_stockpile, scout_wants_loose_drop,
 };
 use super::super::scrap_tools::{is_needed_outer_tool_part, junction_awaits_better_head};
 use super::super::visibility::scout_visible_from;
@@ -460,6 +461,18 @@ pub(super) fn choose_outbound_detour(
     } else {
         inherited_salvage()
             .or_else(|| loose_cache(false))
+            .or_else(|| {
+                (colony.mobilized_at.is_some() && !den_space.is_zero())
+                    .then(|| {
+                        reachable_side_stockpile(registries, state, route, at)
+                            .map(|cell| (cell, None))
+                            .or_else(|| {
+                                reachable_far_stockpile(registries, state, route, at)
+                                    .map(|(first, goal)| (first, Some(goal)))
+                            })
+                    })
+                    .flatten()
+            })
             .or_else(wild_food)
     }
 }

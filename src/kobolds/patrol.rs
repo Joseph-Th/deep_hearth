@@ -10,7 +10,8 @@ use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{
     ScavengedPortionRequest, SurfaceResourceId, SurfaceResourceLifecycle,
-    forage_food_to_adjacent_den, relocate_scavenged_drop_step, split_bulk_scavenged_drop_step,
+    forage_food_to_adjacent_den, relocate_scavenged_drop_step,
+    scavenge_unenclosed_ground_stockpile_material, split_bulk_scavenged_drop_step,
     split_bulk_scavenged_drop_with_head_wear,
 };
 use crate::survival::Vitality;
@@ -19,9 +20,9 @@ use super::feeding::apply_scheduled_den_care;
 use super::junkworks::KoboldAlarmPulse;
 use super::mobilization::observe_progress;
 use super::scavenging::{
-    best_local_forage, den_cache_space, finds_external_drop, is_portable_drop,
-    local_portable_source, local_split_source, scout_goal_has_supplies, scout_wants_loose_drop,
-    should_seek_local_food,
+    best_local_forage, den_cache_space, finds_external_drop, has_local_scout_interest,
+    is_portable_drop, local_portable_source, local_split_source, local_unenclosed_stockpile_target,
+    scout_goal_has_supplies, scout_wants_loose_drop, should_seek_local_food,
 };
 use super::scrap_tools::{
     LEVER_SPLIT_BATCH, apply_pry_fitting_tick, current_junction_scrap_lever,
@@ -30,8 +31,8 @@ use super::scrap_tools::{
 use super::visibility::scout_visible_from;
 use super::watchman::apply_watchman_tick;
 use super::{
-    KoboldColony, KoboldScoutEvent, KoboldTrailKind, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_STEP_TICKS,
-    SCOUT_WARY_INTERVAL_TICKS,
+    KoboldColony, KoboldScoutEvent, KoboldTrailKind, SCOUT_DETERRENT_LIGHT_LEVEL,
+    SCOUT_SAFE_SCAVENGE_TEMPERATURE, SCOUT_STEP_TICKS, SCOUT_WARY_INTERVAL_TICKS,
 };
 
 use raid::{ScoutRaidInterest, choose_outbound_detour, scout_raid_interest};
@@ -205,6 +206,7 @@ fn plan_scout_move(
             den_space,
             forage_ready,
             next_tick,
+            colony.mobilized_at.is_some(),
         );
     let turned_back_at_barrier = !proposed_returning
         && proposed_step > colony.scout_step
@@ -688,6 +690,79 @@ pub(crate) fn apply_kobold_scout_tick(
     if apply_pry_fitting_tick(state, next_tick, pressured) {
         return (None, alarm_pulses);
     }
+    // A reported industrial encounter gives the scout a reason to inspect
+    // exposed *ground storage*, not only loose drops. Extraction costs this
+    // complete patrol work slot and leaves the parcel openly recoverable here.
+    // The next step must move it by the same physical cargo route as any loot.
+    // Existing loose cargo and food needs retain priority; fear, light, walls,
+    // player presence and den capacity can prevent the raid altogether.
+    let ground_target = state.kobold_state().colony.as_ref().and_then(|colony| {
+        let space = den_cache_space(state, colony.route[0]);
+        (colony.mobilized_at.is_some()
+            && colony.scout_step != 0
+            && !colony.returning
+            && colony.scavenged_drop.is_none()
+            && !colony.hungry
+            && !pressured
+            && !space.is_zero()
+            && !has_local_scout_interest(
+                registries,
+                state,
+                from,
+                space,
+                forage_ready,
+                next_tick,
+                false,
+            ))
+        .then(|| {
+            local_unenclosed_stockpile_target(registries, state, from, next_tick)
+                .map(|(stockpile, lot)| (stockpile, lot, colony.salvage_batch().min(space)))
+        })
+        .flatten()
+    });
+    if let Some((stockpile, lot, maximum_mass)) = ground_target
+        && let Some((_, stolen)) = scavenge_unenclosed_ground_stockpile_material(
+            registries,
+            state,
+            stockpile,
+            lot,
+            from,
+            next_tick,
+            maximum_mass,
+            SCOUT_SAFE_SCAVENGE_TEMPERATURE,
+        )
+    {
+        state
+            .kobold_state_mut()
+            .colony
+            .as_mut()
+            .expect("ground raid retains its resident scout")
+            .next_step_at = next_tick
+            .checked_add_span(TickSpan::new(SCOUT_STEP_TICKS))
+            .expect("bounded ground raid cannot overflow its scout clock");
+        let visible = player_position
+            .is_some_and(|player| scout_visible_from(registries, state, from, player));
+        return (
+            visible.then_some(KoboldScoutEvent {
+                position: from,
+                discovered_player_drop: false,
+                raided_stockpile: Some((stockpile, stolen)),
+                relocated_drop: None,
+                fled_player: false,
+                fled_light: false,
+                turned_back_at_barrier: false,
+                cancelled_empty_cache_raid: false,
+                abandoned_drop: None,
+                foraged_food: None,
+                split_drop: None,
+                consumed_food: None,
+                discarded_food: None,
+                cleared_cache: None,
+                heard_junk_alarm: false,
+            }),
+            alarm_pulses,
+        );
+    }
     let colony = state
         .kobold_state()
         .colony
@@ -843,6 +918,7 @@ pub(crate) fn apply_kobold_scout_tick(
             position: scout_position,
             heard_junk_alarm,
             discovered_player_drop: discovered,
+            raided_stockpile: None,
             relocated_drop,
             fled_player: (pressured_by_player || ahead_is_guarded) && can_move,
             fled_light: (pressured_by_light || (turned_back_at_barrier && ahead_is_lit))

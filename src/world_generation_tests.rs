@@ -756,6 +756,41 @@ fn terrain_backed_wilderness_generation_selects_only_standable_opening_layout() 
 }
 
 #[test]
+fn wilderness_generation_rejects_a_seed_that_conflicts_with_existing_terrain() {
+    let registries = build_registries();
+    let terrain_seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let other_seed = WorldGenerationSeed::new(0x4B4F_424F_4C44);
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        terrain_seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let before = state.clone();
+    let spawn = VoxelCoord::new(8, 2, 8);
+    assert!(matches!(
+        validate_generate_initial_wilderness(&registries, &state, other_seed, spawn),
+        Err(InitialWildernessGenerationError::TerrainSeedMismatch {
+            established,
+            requested,
+        }) if established == terrain_seed && requested == other_seed
+    ));
+    assert_eq!(
+        state, before,
+        "rejected generation must not change any owner"
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
 fn opening_generation_never_places_residents_inside_embodied_full_footprint_panel() {
     let registries = build_registries();
     let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);

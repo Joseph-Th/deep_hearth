@@ -8,9 +8,10 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::quantity::{AggregateMass, Mass};
+use crate::core::quantity::{AggregateMass, Mass, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::{ControlTick, SimulationTick};
+use crate::inventory::StockpileId;
 use crate::material::{CommodityKey, MaterialId};
 use crate::registry::Registries;
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -50,6 +51,8 @@ const FIRST_SCOUT_TICK: u64 = 180;
 const SCOUT_STEP_TICKS: u64 = 5;
 /// One scout moves a portable parcel, not an arbitrarily heavy abandoned bulk pile.
 const SCOUT_CARRY_LIMIT: Mass = Mass::from_milligrams(1_000_000);
+/// Bare-handed scavengers cannot safely retrieve hot workshop output.
+const SCOUT_SAFE_SCAVENGE_TEMPERATURE: Temperature = Temperature::from_millikelvin(333_150);
 /// Limited loose staging space at the den; source scarcity alone is not its capacity.
 const DEN_LOOSE_CACHE_LIMIT: Mass = Mass::from_milligrams(500_000);
 const SCOUT_FORAGE_BATCH: Mass = Mass::from_milligrams(100_000);
@@ -180,6 +183,7 @@ impl KoboldSighting {
 pub struct KoboldScoutEvent {
     position: VoxelCoord,
     discovered_player_drop: bool,
+    raided_stockpile: Option<(StockpileId, Mass)>,
     relocated_drop: Option<SurfaceResourceId>,
     fled_player: bool,
     fled_light: bool,
@@ -203,6 +207,13 @@ impl KoboldScoutEvent {
     #[must_use]
     pub const fn discovered_player_drop(self) -> bool {
         self.discovered_player_drop
+    }
+
+    /// Finite matter taken from a visibly reached, unenclosed ground store.
+    /// Extraction is a separate work step before the scout carries the parcel.
+    #[must_use]
+    pub const fn raided_stockpile(self) -> Option<(StockpileId, Mass)> {
+        self.raided_stockpile
     }
 
     /// One real parcel physically moved with the scout this tick.

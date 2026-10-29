@@ -18,7 +18,7 @@ Progression:
 | Crafting and equipment | Flint/copper tools, kiln, cooling bed, fired ceramic casting mold, maintenance and upgrades; finite waste storage. |
 | Power | Human drives, mechanical stores, treadle generation, and plate/wound/rack electrical buffers. No power networks. |
 | Processing | Ore dressing, casting, PbS+Fe smelting; fueled ceramic firing, finite-sink cooling, safe-temperature assembly and food storage. No general reduction or passive cooling. |
-| Opening wilderness acquisition | Finite flint at clay/copper spur. Scouts raid, forage and alarm. Light, players, walls and enclosed storage deter or obstruct them. Melee startles or staggers, without wounds. |
+| Opening wilderness acquisition | Flint; scouts forage, alarm and raid exposed drops. After reporting industry, they raid local unenclosed stockpiles; loot stays recoverable. Light, players, walls and enclosures deter. Melee only staggers. |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 
 ## Current integration frontier
@@ -79,7 +79,7 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 | Maintenance/structures | Maintenance tools, broader panels/shapes, cascade salvage, bending/shear/torsion/buckling, and terrain support. |
 | Power networks | Generic transfer, shafts/belts, advanced mechanical transmission, scalable electrical distribution/protection, steam, and spatial network integration. |
 | Hydrology | General fluid transport, surface/ground water, channels, pumps, irrigation, wastewater, sanitation, chemical blending/contamination, and pressure-dependent behavior. |
-| Ecology and society | Tree ecology (species, soil/water, foliage, planting), agriculture, lethal combat, armed creature attacks/pursuit, broader temple-caste duties and physiology, active relic restoration, recruitment, settlements, trade, economy, migration, and raids beyond the opening patrol. |
+| Ecology and society | Tree ecology (species, soil/water, foliage, planting), agriculture, lethal combat, armed creature attacks/pursuit, broader temple-caste duties and physiology, active relic restoration, recruitment, settlements, trade, economy, migration, breaching enclosures, and extended raids. |
 | Industrial acquisition | Ordinary acquisition for industrial machinery, industrial energy systems, and supporting infrastructure. |
 | Save storage adapters | Save-file encoding/storage, filesystem atomicity, compression, and cloud storage. |
 

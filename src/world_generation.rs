@@ -106,6 +106,10 @@ pub enum InitialWildernessGenerationError {
     KoboldsAlreadyGenerated,
     FluidAlreadyGenerated,
     LogisticsAlreadyPopulated,
+    TerrainSeedMismatch {
+        established: WorldGenerationSeed,
+        requested: WorldGenerationSeed,
+    },
     SurfaceIdExhausted,
     SurfaceRevisionExhausted,
     FluidStoreIdExhausted,
@@ -153,6 +157,15 @@ impl Display for InitialWildernessGenerationError {
                 .write_str("initial wilderness water generation requires pristine fluid state"),
             Self::LogisticsAlreadyPopulated => formatter
                 .write_str("initial wilderness generation requires pristine logistics state"),
+            Self::TerrainSeedMismatch {
+                established,
+                requested,
+            } => write!(
+                formatter,
+                "wilderness seed {} differs from established terrain seed {}",
+                requested.value(),
+                established.value()
+            ),
             Self::SurfaceIdExhausted => {
                 formatter.write_str("surface resource identifier space is exhausted")
             }
@@ -207,6 +220,7 @@ impl Error for InitialWildernessGenerationError {
             | Self::KoboldsAlreadyGenerated
             | Self::FluidAlreadyGenerated
             | Self::LogisticsAlreadyPopulated
+            | Self::TerrainSeedMismatch { .. }
             | Self::SurfaceIdExhausted
             | Self::SurfaceRevisionExhausted
             | Self::FluidStoreIdExhausted
@@ -581,13 +595,18 @@ pub fn validate_generate_initial_wilderness(
     if !state.logistics().is_pristine_generation_state() {
         return Err(InitialWildernessGenerationError::LogisticsAlreadyPopulated);
     }
-    let layout = if state.world().generation_profile().is_some() {
-        generated_opening_layout_matching(seed, spawn, |position| {
+    let layout = match state.world().generation_profile() {
+        Some(profile) if profile.seed() != seed => {
+            return Err(InitialWildernessGenerationError::TerrainSeedMismatch {
+                established: profile.seed(),
+                requested: seed,
+            });
+        }
+        Some(_) => generated_opening_layout_matching(seed, spawn, |position| {
             opening_resident_has_physical_clearance(registries, state, position)
         })
-        .ok_or(InitialWildernessGenerationError::NoTraversableTerrainLayout)?
-    } else {
-        generated_opening_layout(seed, spawn)
+        .ok_or(InitialWildernessGenerationError::NoTraversableTerrainLayout)?,
+        None => generated_opening_layout(seed, spawn),
     };
     // The generated outcrop is a half-open one-voxel deposit. Check the caller's
     // arbitrary coordinates before authoring any cross-owner generation plans.

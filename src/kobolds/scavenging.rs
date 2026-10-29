@@ -6,9 +6,12 @@ use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::energy::assess_local_illumination;
+use crate::inventory::{MaterialLotId, MaterialLotRecord, StockpileId};
+use crate::material::{CommodityKey, MaterialPhase};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle};
+use crate::survival::{FoodFreshness, freshness_from_history};
 
 use super::feeding::{scout_wants_drop, scout_wants_food_opportunity};
 use super::junkworks::{
@@ -20,6 +23,7 @@ use super::scrap_tools::{is_needed_outer_tool_part, is_staged_scrap_tool_part};
 use super::visibility::scout_visible_from;
 use super::{
     DEN_LOOSE_CACHE_LIMIT, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_MEAL_MASS,
+    SCOUT_SAFE_SCAVENGE_TEMPERATURE,
 };
 
 /// Choose the largest *recoverable* local forage portion, rather than the oldest
@@ -56,6 +60,95 @@ pub(super) fn scout_wants_loose_drop(
     scout_wants_drop(registries, resource, at)
         && !is_staged_relay_component(state, resource)
         && !is_staged_scrap_tool_part(state, resource)
+}
+
+/// A scavenger only touches hand-safe solids. Food is useful only when
+/// it remains fresh and edible under the specific stockpile's storage history.
+/// This is read-only eligibility; the custody owner repeats physical checks
+/// when it validates the actual inventory-to-surface transfer.
+fn scout_can_extract_lot(
+    registries: &Registries,
+    lot: &MaterialLotRecord,
+    preservation_multiplier_ppm: u32,
+    at: SimulationTick,
+) -> bool {
+    let commodity = lot.commodity();
+    if lot.temperature() > SCOUT_SAFE_SCAVENGE_TEMPERATURE
+        || !registries
+            .materials()
+            .get_form(commodity.form())
+            .is_some_and(|form| form.phase() == MaterialPhase::Solid)
+    {
+        return false;
+    }
+    if commodity.form() != crate::content::FORM_FOOD {
+        return true;
+    }
+    let Some(food) = registries.survival().get_food(commodity) else {
+        return false;
+    };
+    lot.composition().pure_material() == Some(commodity.material())
+        && food.consumption_temperature().contains(lot.temperature())
+        && matches!(
+            freshness_from_history(
+                lot.storage_history(),
+                preservation_multiplier_ppm,
+                at,
+                food.shelf_life()
+            ),
+            Ok(FoodFreshness::Fresh { .. })
+        )
+}
+
+/// An informed scavenger can remove a finite portion from an exposed ground
+/// cache, but not from a carried pack, enclosure, supported installation or
+/// reserved store. Only the *current* scout cell is considered. Food must
+/// remain fresh and at an edible temperature; shaped precision metal is the
+/// next priority, followed by other useful stock in stable identity order.
+/// No distant inventory or hidden cache can influence the choice.
+pub(super) fn local_unenclosed_stockpile_target(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    at: SimulationTick,
+) -> Option<(StockpileId, MaterialLotId)> {
+    let mut best = None;
+    for source in state.logistics().stockpiles_at(position) {
+        let Some(store) = state.inventory().get_stockpile(source) else {
+            continue;
+        };
+        if store.enclosure().is_some()
+            || store.supported_by().is_some()
+            || !store.reserved_inbound().is_zero()
+        {
+            continue;
+        }
+        for (commodity, _) in store.contents() {
+            for lot_id in state.inventory().lot_ids_for_commodity(source, commodity) {
+                let Some(lot) = state.inventory().get_lot(lot_id) else {
+                    continue;
+                };
+                if !scout_can_extract_lot(
+                    registries,
+                    lot,
+                    store.storage_profile().preservation_multiplier_ppm(),
+                    at,
+                ) {
+                    continue;
+                }
+                let priority = (
+                    commodity.form() != crate::content::FORM_FOOD,
+                    !is_servant_era_commodity(commodity),
+                    source,
+                    lot_id,
+                );
+                if best.is_none_or(|(previous, _, _)| priority < previous) {
+                    best = Some((priority, source, lot_id));
+                }
+            }
+        }
+    }
+    best.map(|(_, source, lot)| (source, lot))
 }
 
 /// Short food parcels cannot satisfy one meal. Prefer a complete local ration;
@@ -168,6 +261,7 @@ pub(super) fn scout_goal_has_supplies(
     space: Mass,
     forage_ready: bool,
     at: SimulationTick,
+    mobilized: bool,
 ) -> bool {
     state
         .surface()
@@ -179,6 +273,9 @@ pub(super) fn scout_goal_has_supplies(
                     && !space.is_zero()
                     && scout_wants_food_opportunity(registries, resource, at))
         })
+        || (mobilized
+            && !space.is_zero()
+            && local_unenclosed_stockpile_target(registries, state, goal, at).is_some())
 }
 
 /// Decide whether the scout should turn home from its present cell.
@@ -358,6 +455,74 @@ impl ScavengeRoute {
             player_position,
         }
     }
+}
+
+/// An informed scout may divert to one genuinely visible, reachable exposed
+/// outpost store from its patrol junction. Distant inventory is never scanned:
+/// the existing short traversal graph, local sight, barriers, light and player
+/// presence admit every candidate before a side route is selected.
+pub(super) fn reachable_side_stockpile(
+    registries: &Registries,
+    state: &AppState,
+    route: ScavengeRoute,
+    at: SimulationTick,
+) -> Option<VoxelCoord> {
+    state
+        .logistics()
+        .traversable_destinations(route.junction)
+        .filter(|cell| *cell != route.den && *cell != route.authored_tip)
+        .filter(|cell| local_unenclosed_stockpile_target(registries, state, *cell, at).is_some())
+        .filter(|cell| {
+            scout_visible_from(registries, state, route.junction, *cell)
+                && unguarded_unlit_cell(
+                    registries,
+                    state,
+                    route.junction,
+                    *cell,
+                    route.player_position,
+                )
+        })
+        .min()
+}
+
+/// A two-edge industrial outpost is a legitimate raid destination only if
+/// its actual ground custody and both route cells are currently accessible,
+/// dark and visibly linked to the scout's junction. Missing world truth does
+/// not authorize a path. The route is chosen deterministically by coordinates.
+pub(super) fn reachable_far_stockpile(
+    registries: &Registries,
+    state: &AppState,
+    route: ScavengeRoute,
+    at: SimulationTick,
+) -> Option<(VoxelCoord, VoxelCoord)> {
+    let ScavengeRoute {
+        junction,
+        den,
+        authored_tip,
+        player_position,
+    } = route;
+    state
+        .logistics()
+        .traversable_destinations(junction)
+        .filter(|first| *first != den && *first != authored_tip)
+        .flat_map(|first| {
+            state
+                .logistics()
+                .traversable_destinations(first)
+                .filter(move |goal| {
+                    *goal != junction && *goal != den && *goal != authored_tip && *goal != first
+                })
+                .filter(move |goal| {
+                    local_unenclosed_stockpile_target(registries, state, *goal, at).is_some()
+                })
+                .map(move |goal| (first, goal))
+        })
+        .filter(|(first, goal)| {
+            scout_visible_from(registries, state, junction, *goal)
+                && unguarded_unlit_cell(registries, state, junction, *first, player_position)
+                && unguarded_unlit_cell(registries, state, *first, *goal, player_position)
+        })
+        .min()
 }
 
 /// Search only neighboring traversal cells, not the full history of world resources.
@@ -608,11 +773,14 @@ pub(super) fn reachable_detour_food(
 /// raw rock or copper ore. This only classifies existing, authored loose goods:
 /// an installed or carried machine is never loot in this surface-resource query.
 pub(super) fn is_servant_era_salvage(resource: &crate::surface::SurfaceResourceRecord) -> bool {
+    is_servant_era_commodity(resource.commodity())
+}
+
+fn is_servant_era_commodity(commodity: CommodityKey) -> bool {
     use crate::content::{
         FORM_DRILL_BIT, FORM_ELECTRICAL_WINDING, FORM_FLYWHEEL, FORM_REINFORCEMENT, FORM_SAW_BLADE,
         FORM_TOOL, MATERIAL_COPPER,
     };
-    let commodity = resource.commodity();
     commodity.material() == MATERIAL_COPPER
         && [
             FORM_DRILL_BIT,
@@ -733,3 +901,7 @@ mod tests;
 #[cfg(test)]
 #[path = "loot_sight_tests.rs"]
 mod loot_sight_tests;
+
+#[cfg(test)]
+#[path = "stockpile_raid_tests.rs"]
+mod stockpile_raid_tests;
