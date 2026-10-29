@@ -18,7 +18,7 @@ Progression:
 | Crafting and equipment | Flint/copper tools, kiln, cooling bed, fired ceramic casting mold, maintenance and upgrades; finite waste storage. |
 | Power | Human drives, mechanical stores, treadle generation, and plate/wound/rack electrical buffers. No power networks. |
 | Processing | Ore dressing, casting, PbS+Fe smelting; fueled ceramic firing, finite-sink cooling, safe-temperature assembly and food storage. No general reduction or passive cooling. |
-| Opening wilderness acquisition | Flint; scouts forage, alarm and raid exposed drops. After reporting industry, they raid local unenclosed stockpiles; loot stays recoverable. Light, players, walls and enclosures deter. Melee only staggers. |
+| Opening wilderness acquisition | Flint; scouts forage, alarm and raid exposed drops. An ordinary player-built flywheel can prompt a physical industrial report and subsequent raid of local unenclosed worksite stock; guarding, field-box construction or denying the report prevents that loss, and stolen matter remains recoverable. Light, players, walls and enclosures deter. Melee only staggers. |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 
 ## Current integration frontier

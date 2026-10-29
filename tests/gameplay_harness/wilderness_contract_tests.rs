@@ -118,6 +118,8 @@ mod kobold_far_cache;
 mod kobold_food_preference;
 #[path = "wilderness_kobold_foraging.rs"]
 mod kobold_foraging;
+#[path = "wilderness_kobold_industrial_raid.rs"]
+mod kobold_industrial_raid;
 #[path = "wilderness_kobold_side_food.rs"]
 mod kobold_side_food;
 #[path = "wilderness_mobile_continuation.rs"]
@@ -4835,6 +4837,7 @@ fn exercise_opening_two_food_ration(report: bool) {
 }
 
 pub(super) fn run_wilderness_report() {
+    kobold_industrial_raid::exercise_player_built_worksite_raid(true);
     kobold_bulk::exercise_kobold_bulk_scavenging(true);
     kobold_den::exercise_kobold_den_cache(true);
     kobold_detour::exercise_kobold_side_branch_scavenging(true);
@@ -4939,6 +4942,7 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
     if std::env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some() {
         run_wilderness_report();
     } else {
+        kobold_industrial_raid::exercise_player_built_worksite_raid(false);
         kobold_bulk::exercise_kobold_bulk_scavenging(false);
         kobold_den::exercise_kobold_den_cache(false);
         kobold_detour::exercise_kobold_side_branch_scavenging(false);

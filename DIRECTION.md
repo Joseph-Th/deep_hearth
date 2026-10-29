@@ -34,13 +34,15 @@ first real nonlethal contact, then material-backed melee and defense, physical i
 ammunition and supply, and only then voluntary allied roles and industrial formations.
 Recruitment must not be a virtual army-unlock detached from den food and existing residents.
 
-Kobold escalation should first turn the present informed-scavenger theft of
-reachable, unenclosed ground stock into a defensible player-facing economic
-problem. Prove a generated-world episode with guarded vs. unguarded stockpile
-custody, ordinary player recovery and correct on-screen warning, not just an
-owner fixture. Then connect a genuinely carried, fitted and wearing improvised
+The first informed-scavenger economic contest now has an ordinary generated-world
+continuation: a player makes a stone flywheel, the scout witnesses it and reports home,
+and the resulting raid can deprive an unattended worksite of recoverable stock.
+An unalerted colony cannot perform that raid. A real timber field box or an actively
+guarded approach protects the same material, with the enclosure requiring additional
+player work. Continue with a genuinely carried, fitted and wearing improvised
 weapon through the combat owner's real contact/injury boundaries before
-adding new residents. Next prove a small finite group that can provision
+adding new residents; the stationary pry lever is not a combat weapon.
+Then prove a small finite group that can provision
 and sustain a limited off-route raid with visible staging and meaningful
 counterplay. Only after that connect a surface witness/messenger to one
 existing temple district and an actual finite temple service operation.

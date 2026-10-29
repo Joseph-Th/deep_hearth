@@ -491,6 +491,17 @@ This makes protecting *distributed* inventories matter without pretending a
 small scout can break a proper enclosure. It does not constitute weapon
 manufacture, assault, general pathfinding or temple intervention.
 
+The first complete generated-world economic contest begins with a player harvesting
+stone and timber, shaping a real mechanical flywheel and placing ordinary worksite
+stock. The scout may recognize the machine only through local sight and a real den
+report; a matched unalerted worksite remains safe from *stockpile* extraction.
+With a report, unattended ground stock is vulnerable. Staying to guard it prevents
+the loss but ties up the actor; making a timber field box costs additional handcraft
+time and matter but protects the same cache unattended. Returning through the
+physical raid route can reclaim the stolen material. This decision and recovery
+must survive trusted save/load and matter accounting without creating a special
+scavenger UI or spawning additional residents.
+
 Further faction milestones are ordered by causality rather than combat tier: meaningful
 work time, tool portability and choices between implements, alarm parts and provisions; then a
 sustained surface group with finite residents and report-driven defense; finally

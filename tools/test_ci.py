@@ -3212,6 +3212,37 @@ class GameplayReportContractTests(unittest.TestCase):
             gameplay_report_summary.wilderness_summary([
                 *lines, caution_record.replace("wary-window:40t", "wary-window:0t")
             ])
+        industrial_record = (
+            "KOBOLD INDUSTRIAL WORKSITE seed=0x1 "
+            "episode=coverage/rested/scavenger-industrial-worksite "
+            "evidence=ordinary-generated-world player-built=stone-flywheel+field-box "
+            "witness=[drive-assembled:144t mobilized-observed:261t] "
+            "choices=[unattended-stock:stolen-260000mg unalerted-stock:safe-600000mg "
+            "guarded-stock:safe-600000mg enclosed-stock:safe-600000mg] "
+            "intervention=[guard:presence box:joinery-175t] "
+            "recovery=[route+den:actual-pickup-260000mg] "
+            "save-replay:true matter=conserved witness-wait:115t"
+        )
+        industrial_summary = gameplay_report_summary.wilderness_summary([*lines, industrial_record])
+        self.assertIn(
+            "scout-industrial=[reported:261t stolen:260000mg unalerted:600000mg "
+            "guarded:600000mg enclosed:600000mg box-work:175t reclaimed:260000mg]",
+            industrial_summary,
+        )
+        with self.assertRaisesRegex(ValueError, "avoidable, paid for and recoverable"):
+            gameplay_report_summary.wilderness_summary([
+                *lines, industrial_record.replace("box:joinery-175t", "box:joinery-0t")
+            ])
+        with self.assertRaisesRegex(ValueError, "avoidable, paid for and recoverable"):
+            gameplay_report_summary.wilderness_summary([
+                *lines, industrial_record.replace("unalerted-stock:safe-600000mg",
+                                                   "unalerted-stock:safe-0mg")
+            ])
+        with self.assertRaisesRegex(ValueError, "avoidable, paid for and recoverable"):
+            gameplay_report_summary.wilderness_summary([
+                *lines, industrial_record.replace("actual-pickup-260000mg",
+                                                   "actual-pickup-0mg")
+            ])
         camp_record = (
             "KOBOLD FAR CACHE EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-camp-cache "
             "cache:250000mg stolen:250000mg recovered:250000mg guarded:250000mg "

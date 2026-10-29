@@ -407,6 +407,46 @@ def wilderness_summary(lines: list[str]) -> str | None:
             f"meals:{sum(' meal:eat-needed ' in line for line in organic)} "
             f"water-visits:{sum(' visited:true ' in line for line in organic)}]"
         )
+    industrial_events = [
+        line for line in lines if line.startswith("KOBOLD INDUSTRIAL WORKSITE ")
+    ]
+    if len(industrial_events) > 1:
+        raise ValueError("wilderness report has duplicate industrial raid experiences")
+    industrial_raid = ""
+    if industrial_events:
+        witness = re.search(
+            r"\bevidence=ordinary-generated-world player-built=stone-flywheel\+field-box "
+            r"witness=\[drive-assembled:(\d+)t mobilized-observed:(\d+)t\] "
+            r"choices=\[unattended-stock:stolen-(\d+)mg unalerted-stock:safe-(\d+)mg "
+            r"guarded-stock:safe-(\d+)mg enclosed-stock:safe-(\d+)mg\] "
+            r"intervention=\[guard:presence box:joinery-(\d+)t\] "
+            r"recovery=\[route\+den:actual-pickup-(\d+)mg\] "
+            r"save-replay:(true|false) matter=(conserved|lost) witness-wait:(\d+)t",
+            industrial_events[0],
+        )
+        if witness is None:
+            raise ValueError("industrial raid witness lacks a real protected worksite comparison")
+        built, seen, stolen, unalerted, guarded, enclosed, joinery, recovered, wait = (
+            int(witness.group(i)) for i in (1, 2, 3, 4, 5, 6, 7, 8, 11)
+        )
+        if (
+            seen <= built
+            or not 0 < stolen <= unalerted
+            or unalerted != guarded
+            or guarded != enclosed
+            or joinery <= 0
+            or recovered != stolen
+            or wait <= 0
+            or witness.group(9) != "true"
+            or witness.group(10) != "conserved"
+        ):
+            raise ValueError("industrial raid must be witnessed, avoidable, paid for and recoverable")
+        industrial_raid = (
+            "scout-industrial=["
+            f"reported:{seen}t stolen:{stolen}mg "
+            f"unalerted:{unalerted}mg guarded:{guarded}mg enclosed:{enclosed}mg "
+            f"box-work:{joinery}t reclaimed:{recovered}mg]"
+        )
     encounters = [line for line in lines if line.startswith("KOBOLD EXPERIENCE ")]
     if len(encounters) > 1:
         raise ValueError("wilderness report has more than one lived scavenger encounter")
@@ -654,6 +694,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
         f"{camp_warmth + ' ' if camp_warmth else ''}"
         f"{shelter} "
         f"{scavenger + ' ' if scavenger else ''}"
+        f"{industrial_raid + ' ' if industrial_raid else ''}"
         f"{natural_contest + ' ' if natural_contest else ''}"
         f"{den_raid + ' ' if den_raid else ''}"
         f"{detour + ' ' if detour else ''}"
