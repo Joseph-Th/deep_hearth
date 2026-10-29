@@ -9,8 +9,8 @@ use crate::energy::assess_local_illumination;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{
-    ScavengedPortionRequest, SurfaceResourceId, SurfaceResourceLifecycle,
-    forage_food_to_adjacent_den, relocate_scavenged_drop_step,
+    ScavengedGroundStockpileRequest, ScavengedPortionRequest, SurfaceResourceId,
+    SurfaceResourceLifecycle, forage_food_to_adjacent_den, relocate_scavenged_drop_step,
     scavenge_unenclosed_ground_stockpile_material, split_bulk_scavenged_drop_step,
     split_bulk_scavenged_drop_with_head_wear,
 };
@@ -724,12 +724,14 @@ pub(crate) fn apply_kobold_scout_tick(
         && let Some((_, stolen)) = scavenge_unenclosed_ground_stockpile_material(
             registries,
             state,
-            stockpile,
-            lot,
-            from,
-            next_tick,
-            maximum_mass,
-            SCOUT_SAFE_SCAVENGE_TEMPERATURE,
+            ScavengedGroundStockpileRequest::new(
+                stockpile,
+                lot,
+                from,
+                next_tick,
+                maximum_mass,
+                SCOUT_SAFE_SCAVENGE_TEMPERATURE,
+            ),
         )
     {
         state

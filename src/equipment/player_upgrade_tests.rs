@@ -6,7 +6,7 @@ use crate::content::{
     MATERIAL_WOOD, build_registries,
 };
 use crate::core::quantity::{Mass, Temperature};
-use crate::core::state::AppState;
+use crate::core::state::{AppState, validate_loaded_state};
 use crate::equipment::validate_assemble_equipment;
 use crate::inventory::deposit_lot_for_test;
 use crate::material::CommodityKey;
@@ -116,4 +116,158 @@ fn player_equipment_upgrade_option_tracks_material_readiness_and_revalidates_bas
             actual: EQUIPMENT_COPPER_REINFORCED_PICK,
         }) if equipment == pick
     ));
+}
+
+fn local_stone_pick_upgrade_fixture() -> (Registries, AppState, StockpileId, EquipmentId) {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let carried = validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+    }
+    let pick = validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    (registries, state, carried, pick)
+}
+
+fn reinforced_pick_option(
+    registries: &Registries,
+    state: &AppState,
+    carried: StockpileId,
+    pick: EquipmentId,
+) -> PlayerEquipmentUpgradeOption {
+    player_equipment_upgrade_options(registries, state, carried)
+        .unwrap()
+        .into_iter()
+        .find(|option| {
+            option.equipment() == pick
+                && option.target_definition() == EQUIPMENT_COPPER_REINFORCED_PICK
+        })
+        .unwrap()
+}
+
+#[test]
+fn equipment_upgrade_rejects_hot_additions_without_spending_material() {
+    let (registries, mut state, carried, pick) = local_stone_pick_upgrade_fixture();
+    let inputs = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_COPPER_REINFORCED_PICK)
+        .unwrap()
+        .upgrade_profile()
+        .unwrap()
+        .additions()
+        .inputs();
+    let hot = Temperature::from_millikelvin(400_000);
+    for input in inputs {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            input.commodity(),
+            input.mass(),
+            hot,
+        )
+        .unwrap();
+    }
+    let before = state.clone();
+    let option = reinforced_pick_option(&registries, &state, carried, pick);
+    assert!(!option.material_ready());
+    assert!(matches!(
+        validate_upgrade_player_equipment_option(&registries, &state, &option),
+        Err(EquipmentUpgradeError::UpgradeMaterialTooHot {
+            temperature,
+            maximum,
+            ..
+        }) if temperature == hot && maximum == Temperature::from_millikelvin(353_150)
+    ));
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn equipment_upgrade_uses_cool_additions_and_preserves_older_hot_stock() {
+    let (registries, mut state, carried, pick) = local_stone_pick_upgrade_fixture();
+    let inputs = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_COPPER_REINFORCED_PICK)
+        .unwrap()
+        .upgrade_profile()
+        .unwrap()
+        .additions()
+        .inputs();
+    let hot = Temperature::from_millikelvin(400_000);
+    let cool = Temperature::from_millikelvin(293_150);
+    let mut hot_lots = Vec::new();
+    for input in inputs {
+        let id = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            input.commodity(),
+            input.mass(),
+            hot,
+        )
+        .unwrap();
+        hot_lots.push((id, input.mass()));
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            input.commodity(),
+            input.mass(),
+            cool,
+        )
+        .unwrap();
+    }
+    let before_mass = calculate_matter_accounting(&state).unwrap().total();
+    let option = reinforced_pick_option(&registries, &state, carried, pick);
+    assert!(option.material_ready());
+    validate_upgrade_player_equipment_option(&registries, &state, &option)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        state.equipment().get_equipment(pick).unwrap().definition(),
+        EQUIPMENT_COPPER_REINFORCED_PICK
+    );
+    for (id, mass) in hot_lots {
+        assert_eq!(state.inventory().get_lot(id).unwrap().mass(), mass);
+    }
+    assert!(
+        state
+            .equipment()
+            .get_equipment(pick)
+            .unwrap()
+            .embodied_material()
+            .iter()
+            .all(|trace| trace.profile().temperature() == cool)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        before_mass
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }

@@ -3,13 +3,14 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::Mass;
+use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
-use crate::inventory::{ConsumptionSelectionError, StockpileId, validate_consumption_selection};
+use crate::inventory::StockpileId;
 use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
 use crate::material::{CommodityKey, MaterialInputSpec};
 use crate::registry::Registries;
 
+use super::construction_execution::validate_assembly_material_selection;
 use super::{
     EquipmentAssemblyError, EquipmentDefinitionId, ValidatedEquipmentAssembly,
     validate_assemble_equipment,
@@ -24,6 +25,11 @@ pub enum PlayerEquipmentAssemblyAvailability {
         commodity: CommodityKey,
         available: Mass,
         required: Mass,
+    },
+    MaterialTooHot {
+        commodity: CommodityKey,
+        temperature: Temperature,
+        maximum: Temperature,
     },
 }
 
@@ -148,29 +154,41 @@ pub fn player_equipment_assembly_options(
             Some((definition, assembly))
         })
         .map(|(definition, assembly)| {
-            let availability = match validate_consumption_selection(
+            let availability = match validate_assembly_material_selection(
                 state.inventory(),
                 source,
                 assembly.inputs(),
             ) {
                 Ok(_) => PlayerEquipmentAssemblyAvailability::Ready,
-                Err(ConsumptionSelectionError::InsufficientMass {
+                Err(EquipmentAssemblyError::AssemblyMaterialTooHot {
+                    commodity,
+                    temperature,
+                    maximum,
+                }) => PlayerEquipmentAssemblyAvailability::MaterialTooHot {
+                    commodity,
+                    temperature,
+                    maximum,
+                },
+                Err(EquipmentAssemblyError::InsufficientMaterial {
                     commodity,
                     available,
-                    requested,
+                    required,
                     ..
                 }) => PlayerEquipmentAssemblyAvailability::MissingMaterial {
                     commodity,
                     available,
-                    required: requested,
+                    required,
                 },
-                Err(ConsumptionSelectionError::UnknownStockpile { stockpile }) => {
+                Err(EquipmentAssemblyError::UnknownSource { stockpile }) => {
                     return Err(PlayerEquipmentAssemblyCatalogError::UnknownSource { stockpile });
                 }
-                Err(ConsumptionSelectionError::MassOverflow { stockpile }) => {
+                Err(EquipmentAssemblyError::SourceMassOverflow { stockpile }) => {
                     return Err(PlayerEquipmentAssemblyCatalogError::SourceMassOverflow {
                         stockpile,
                     });
+                }
+                Err(_) => {
+                    unreachable!("assembly material selection returns only material blockers")
                 }
             };
             Ok(PlayerEquipmentAssemblyOption {

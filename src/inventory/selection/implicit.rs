@@ -6,7 +6,8 @@ use crate::core::quantity::Mass;
 use crate::material::{CommodityKey, MaterialInputSpec};
 
 use super::super::state::{
-    ConsumedMaterialTrace, InventoryState, LotSlice, MaterialLotId, StockpileId, StockpileRecord,
+    ConsumedMaterialTrace, InventoryState, LotSlice, MaterialLotId, MaterialLotRecord, StockpileId,
+    StockpileRecord,
 };
 use super::ConsumptionSelection;
 
@@ -31,6 +32,17 @@ pub(crate) fn validate_consumption_selection(
     source: StockpileId,
     inputs: &[MaterialInputSpec],
 ) -> Result<ConsumptionSelection, ConsumptionSelectionError> {
+    validate_consumption_selection_with_filter(state, source, inputs, |_| true)
+}
+
+/// Allows an operation to exclude physically ineligible cohorts without changing inventory's
+/// canonical exact mass, composition, revision, or stable identity allocation rules.
+pub(crate) fn validate_consumption_selection_with_filter(
+    state: &InventoryState,
+    source: StockpileId,
+    inputs: &[MaterialInputSpec],
+    eligible: impl Fn(&MaterialLotRecord) -> bool,
+) -> Result<ConsumptionSelection, ConsumptionSelectionError> {
     let Some(source_record) = state.get_stockpile(source) else {
         return Err(ConsumptionSelectionError::UnknownStockpile { stockpile: source });
     };
@@ -39,13 +51,14 @@ pub(crate) fn validate_consumption_selection(
     let mut lot_slices = Vec::new();
     let mut selected_by_lot = BTreeMap::<MaterialLotId, Mass>::new();
     for input in inputs {
-        let selected = select_input_lot_slices(state, source_record, input, &mut selected_by_lot)
-            .map_err(|available| ConsumptionSelectionError::InsufficientMass {
-            stockpile: source,
-            commodity: input.commodity(),
-            available,
-            requested: input.mass(),
-        })?;
+        let selected =
+            select_input_lot_slices(state, source_record, input, &mut selected_by_lot, &eligible)
+                .map_err(|available| ConsumptionSelectionError::InsufficientMass {
+                stockpile: source,
+                commodity: input.commodity(),
+                available,
+                requested: input.mass(),
+            })?;
         total_consumed = total_consumed
             .checked_add(input.mass())
             .ok_or(ConsumptionSelectionError::MassOverflow { stockpile: source })?;
@@ -84,14 +97,15 @@ fn select_input_lot_slices(
     source: &StockpileRecord,
     input: &MaterialInputSpec,
     selected_by_lot: &mut BTreeMap<MaterialLotId, Mass>,
+    eligible: &impl Fn(&MaterialLotRecord) -> bool,
 ) -> Result<Vec<LotSlice>, Mass> {
     let mut remaining = input.mass();
     let mut available = Mass::ZERO;
     let mut slices = Vec::new();
 
-    // Fixed-input recipes intentionally use stable persistent identity as their generic allocation
-    // order. This is not a FIFO/FEFO policy: owners whose outcome depends on age or another local
-    // lot property must require explicit lot selection, as direct food consumption does.
+    // Stable persistent identity orders the physically eligible lots. This is not a FIFO/FEFO
+    // policy: an owner may exclude unsafe cohorts, but operations that prioritize age or another
+    // outcome-specific lot property use explicit selection, as direct food consumption does.
     for lot_id in inventories.lot_ids_for_commodity(source.id, input.commodity()) {
         let lot = inventories.get_lot(lot_id).unwrap_or_else(|| {
             panic!(
@@ -100,7 +114,7 @@ fn select_input_lot_slices(
                 lot_id.value()
             )
         });
-        if !input.is_satisfied_by(lot.composition()) {
+        if !input.is_satisfied_by(lot.composition()) || !eligible(lot) {
             continue;
         }
 

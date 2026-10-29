@@ -128,9 +128,10 @@ pub fn player_equipment_maintenance_options(
         let request = EquipmentMaintenanceRequest::new(record.id(), carried, carried);
         let replacement_ready = match resolve_equipment_maintenance(registries, state, request) {
             Ok(_) => true,
-            Err(EquipmentMaintenanceResolutionError::InsufficientReplacementMaterial {
-                ..
-            }) => false,
+            Err(
+                EquipmentMaintenanceResolutionError::InsufficientReplacementMaterial { .. }
+                | EquipmentMaintenanceResolutionError::ReplacementMaterialTooHot { .. },
+            ) => false,
             Err(EquipmentMaintenanceResolutionError::MaterialSelectionMassOverflow { .. }) => false,
             Err(error) => panic!(
                 "runtime invariant broken: local maintainable equipment could not resolve player service option: {error}"

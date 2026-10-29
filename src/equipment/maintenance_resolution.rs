@@ -7,18 +7,19 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::Mass;
+use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
-use crate::inventory::{
-    ConsumptionSelection, ConsumptionSelectionError, StockpileId, validate_consumption_selection,
-};
+use crate::inventory::{ConsumptionSelection, ConsumptionSelectionError, StockpileId};
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, MaterialInputSpec};
 use crate::registry::Registries;
 use crate::survival::SurvivalExertion;
 
 use super::definitions::EquipmentDefinitionId;
+use super::material_selection::{
+    EquipmentMaterialSelectionError, select_hand_safe_equipment_materials,
+};
 use super::state::EquipmentId;
 
 /// Opaque result of physical maintenance resolution.
@@ -98,6 +99,11 @@ pub enum EquipmentMaintenanceResolutionError {
         available: Mass,
         required: Mass,
     },
+    ReplacementMaterialTooHot {
+        commodity: CommodityKey,
+        temperature: Temperature,
+        maximum: Temperature,
+    },
     MaterialSelectionMassOverflow {
         stockpile: StockpileId,
     },
@@ -156,6 +162,16 @@ impl Display for EquipmentMaintenanceResolutionError {
                 commodity.value(),
                 required.milligrams()
             ),
+            Self::ReplacementMaterialTooHot {
+                commodity,
+                temperature,
+                maximum,
+            } => write!(
+                formatter,
+                "maintenance replacement {commodity:?} is {} mK, above safe {} mK; cool it first",
+                temperature.millikelvin(),
+                maximum.millikelvin(),
+            ),
             Self::MaterialSelectionMassOverflow { stockpile } => write!(
                 formatter,
                 "maintenance replacement selection overflows mass accounting in stockpile {}",
@@ -202,7 +218,7 @@ pub fn resolve_equipment_maintenance(
         );
     }
     let required_replacement_mass = profile.required_replacement_mass(condition_before);
-    let material = validate_consumption_selection(
+    let material = select_hand_safe_equipment_materials(
         state.inventory(),
         request.material_source,
         &[MaterialInputSpec::pure(
@@ -211,23 +227,34 @@ pub fn resolve_equipment_maintenance(
         )],
     )
     .map_err(|error| match error {
-        ConsumptionSelectionError::UnknownStockpile { stockpile } => {
-            EquipmentMaintenanceResolutionError::UnknownMaterialSource { stockpile }
-        }
-        ConsumptionSelectionError::InsufficientMass {
-            stockpile,
-            commodity,
-            available,
-            requested,
-        } => EquipmentMaintenanceResolutionError::InsufficientReplacementMaterial {
+        EquipmentMaterialSelectionError::Selection(
+            ConsumptionSelectionError::UnknownStockpile { stockpile },
+        ) => EquipmentMaintenanceResolutionError::UnknownMaterialSource { stockpile },
+        EquipmentMaterialSelectionError::Selection(
+            ConsumptionSelectionError::InsufficientMass {
+                stockpile,
+                commodity,
+                available,
+                requested,
+            },
+        ) => EquipmentMaintenanceResolutionError::InsufficientReplacementMaterial {
             stockpile,
             commodity,
             available,
             required: requested,
         },
-        ConsumptionSelectionError::MassOverflow { stockpile } => {
-            EquipmentMaintenanceResolutionError::MaterialSelectionMassOverflow { stockpile }
-        }
+        EquipmentMaterialSelectionError::Selection(ConsumptionSelectionError::MassOverflow {
+            stockpile,
+        }) => EquipmentMaintenanceResolutionError::MaterialSelectionMassOverflow { stockpile },
+        EquipmentMaterialSelectionError::TooHot {
+            commodity,
+            temperature,
+            maximum,
+        } => EquipmentMaintenanceResolutionError::ReplacementMaterialTooHot {
+            commodity,
+            temperature,
+            maximum,
+        },
     })?;
     Ok(EquipmentMaintenanceResolution {
         equipment: request.equipment,

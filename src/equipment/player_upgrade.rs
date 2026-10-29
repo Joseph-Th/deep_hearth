@@ -5,11 +5,12 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::inventory::{ConsumptionSelectionError, StockpileId, validate_consumption_selection};
+use crate::inventory::StockpileId;
 use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
 use crate::material::MaterialInputSpec;
 use crate::registry::Registries;
 
+use super::upgrade_execution::validate_upgrade_material_selection;
 use super::{
     EquipmentDefinitionId, EquipmentId, EquipmentUpgradeError, ValidatedEquipmentUpgrade,
     equipment_occupancy, validate_upgrade_equipment,
@@ -144,21 +145,25 @@ pub fn player_equipment_upgrade_options(
             else {
                 continue;
             };
-            let material_ready = match validate_consumption_selection(
+            let material_ready = match validate_upgrade_material_selection(
                 state.inventory(),
                 source,
                 upgrade.additions().inputs(),
             ) {
                 Ok(_) => true,
-                Err(ConsumptionSelectionError::InsufficientMass { .. }) => false,
-                Err(ConsumptionSelectionError::UnknownStockpile { stockpile }) => {
+                Err(
+                    EquipmentUpgradeError::InsufficientMaterial { .. }
+                    | EquipmentUpgradeError::UpgradeMaterialTooHot { .. },
+                ) => false,
+                Err(EquipmentUpgradeError::UnknownSource { stockpile }) => {
                     return Err(PlayerEquipmentUpgradeCatalogError::UnknownSource { stockpile });
                 }
-                Err(ConsumptionSelectionError::MassOverflow { stockpile }) => {
+                Err(EquipmentUpgradeError::SourceMassOverflow { stockpile }) => {
                     return Err(PlayerEquipmentUpgradeCatalogError::SourceMassOverflow {
                         stockpile,
                     });
                 }
+                Err(_) => unreachable!("upgrade material selection returns only material blockers"),
             };
             options.push(PlayerEquipmentUpgradeOption {
                 equipment: record.id(),

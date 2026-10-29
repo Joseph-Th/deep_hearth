@@ -18,7 +18,9 @@ use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::simulation::{advance_control_tick, advance_tick};
-use crate::surface::scavenge_unenclosed_ground_stockpile_material;
+use crate::surface::{
+    ScavengedGroundStockpileRequest, scavenge_unenclosed_ground_stockpile_material,
+};
 
 const DEN: VoxelCoord = VoxelCoord::new(-1, 0, 0);
 const JUNCTION: VoxelCoord = VoxelCoord::new(0, 0, 0);
@@ -633,12 +635,14 @@ fn local_guard_prevents_the_stockpile_raid_and_remote_extraction_is_atomic() {
         scavenge_unenclosed_ground_stockpile_material(
             &registries,
             &mut state,
-            stockpile,
-            lot,
-            TIP,
-            at,
-            STOLEN,
-            SCOUT_SAFE_SCAVENGE_TEMPERATURE,
+            ScavengedGroundStockpileRequest::new(
+                stockpile,
+                lot,
+                TIP,
+                at,
+                STOLEN,
+                SCOUT_SAFE_SCAVENGE_TEMPERATURE,
+            ),
         )
         .is_none(),
         "a source at a different voxel must not be transferred remotely"

@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::Mass;
+use crate::core::quantity::{Mass, Temperature};
 use crate::core::time::{ControlTick, SimulationTick};
 use crate::inventory::{StockpileId, StockpileStructuralLoadError};
 use crate::logistics::{PlayerEquipmentAccessError, PlayerStockpileAccessError};
@@ -77,6 +77,11 @@ pub enum EquipmentUpgradeError {
         commodity: CommodityKey,
         available: Mass,
         required: Mass,
+    },
+    UpgradeMaterialTooHot {
+        commodity: CommodityKey,
+        temperature: Temperature,
+        maximum: Temperature,
     },
     SourceMassOverflow {
         stockpile: StockpileId,
@@ -214,6 +219,16 @@ impl Display for EquipmentUpgradeError {
                 commodity.value(),
                 required.milligrams()
             ),
+            Self::UpgradeMaterialTooHot {
+                commodity,
+                temperature,
+                maximum,
+            } => write!(
+                formatter,
+                "equipment-upgrade material {commodity:?} is {} mK, above safe {} mK; cool it first",
+                temperature.millikelvin(),
+                maximum.millikelvin(),
+            ),
             Self::SourceMassOverflow { stockpile } => write!(
                 formatter,
                 "equipment-upgrade source {} mass accounting overflowed",
@@ -259,6 +274,7 @@ impl Error for EquipmentUpgradeError {
             | Self::EquipmentUnderMaintenance { .. }
             | Self::UnknownSource { .. }
             | Self::InsufficientMaterial { .. }
+            | Self::UpgradeMaterialTooHot { .. }
             | Self::SourceMassOverflow { .. }
             | Self::StaleInventorySelection { .. }
             | Self::InventoryRevisionExhausted

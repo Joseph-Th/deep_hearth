@@ -1251,8 +1251,12 @@ Equipment owns identity, condition, embodied traces, occupancy, world location t
 structural support. Fixed machinery requires valid support for new work and contributes its own structural-load
 channel.
 
-Assembly consumes exact traces. Additive upgrades preserve identity, condition, prior embodiment, location, and
-maintenance semantics while adding authored matter; inherited capabilities may not regress at the preserved
+Assembly consumes exact traces. Player assembly, additive equipment upgrades, and equipment maintenance select
+physically hand-safe material cohorts in stable inventory order, retrying without unsafe hot cohorts if an earlier
+lot is too hot. Assembly discovery reports the actual cooling blocker; upgrade and maintenance discovery mark
+hot-only material unready, and their executors report typed cooling rejections. All three operations revalidate
+the same selection and safety limit. Additive upgrades preserve identity, condition, prior embodiment, location,
+and maintenance semantics while adding authored matter; inherited capabilities may not regress at the preserved
 condition. Disassembly and worn recovery follow authored material routes.
 
 Maintenance is physical. Admission commits the exact replacement/component exchange and represented spent matter,

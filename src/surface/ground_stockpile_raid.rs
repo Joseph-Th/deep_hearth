@@ -27,16 +27,49 @@ use super::{
 /// The exact egress and surface creation are prevalidated before either owner
 /// changes. The caller supplies the scout's physically reached position and
 /// decides whether its existing food, threat and scheduling rules permit work.
-pub(crate) fn scavenge_unenclosed_ground_stockpile_material(
-    registries: &Registries,
-    state: &mut AppState,
+#[derive(Clone, Copy)]
+pub(crate) struct ScavengedGroundStockpileRequest {
     source: StockpileId,
-    lot_id: MaterialLotId,
+    lot: MaterialLotId,
     position: VoxelCoord,
     at: SimulationTick,
     maximum_mass: Mass,
     maximum_temperature: Temperature,
+}
+
+impl ScavengedGroundStockpileRequest {
+    pub(crate) const fn new(
+        source: StockpileId,
+        lot: MaterialLotId,
+        position: VoxelCoord,
+        at: SimulationTick,
+        maximum_mass: Mass,
+        maximum_temperature: Temperature,
+    ) -> Self {
+        Self {
+            source,
+            lot,
+            position,
+            at,
+            maximum_mass,
+            maximum_temperature,
+        }
+    }
+}
+
+pub(crate) fn scavenge_unenclosed_ground_stockpile_material(
+    registries: &Registries,
+    state: &mut AppState,
+    request: ScavengedGroundStockpileRequest,
 ) -> Option<(SurfaceResourceId, Mass)> {
+    let ScavengedGroundStockpileRequest {
+        source,
+        lot: lot_id,
+        position,
+        at,
+        maximum_mass,
+        maximum_temperature,
+    } = request;
     if maximum_mass.is_zero()
         || !state.can_spend_inventory_revisions(1)
         || !state.can_spend_surface_revisions(1)

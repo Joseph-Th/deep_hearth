@@ -11,6 +11,7 @@ mod fixture_execution;
 mod maintenance_execution;
 mod maintenance_resolution;
 mod mass_flow_schedule;
+mod material_selection;
 mod player_assembly;
 mod player_maintenance;
 mod player_recovery;

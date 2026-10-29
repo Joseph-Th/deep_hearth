@@ -11,6 +11,7 @@ use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::logistics::validate_place_ground_stockpile;
 use crate::maintenance::Condition;
 use crate::material::CommodityKey;
+use crate::matter::calculate_matter_accounting;
 use crate::player::validate_admit_player;
 use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
@@ -159,4 +160,100 @@ fn player_maintenance_action_services_local_pick_and_returns_spent_material_to_c
             .map(|record| record.condition()),
         Some(Condition::PRISTINE)
     );
+}
+
+#[test]
+fn hot_replacement_is_not_ready_and_maintenance_rejects_without_mutation() {
+    let (registries, mut state, pick) = worn_pick_with_player();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let option = player_equipment_maintenance_options(&registries, &state)
+        .unwrap()
+        .into_iter()
+        .find(|option| option.equipment() == pick)
+        .unwrap();
+    let hot = Temperature::from_millikelvin(400_000);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        option.replacement(),
+        option.required_replacement_mass(),
+        hot,
+    )
+    .unwrap();
+    let before = state.clone();
+    assert!(
+        !player_equipment_maintenance_options(&registries, &state)
+            .unwrap()
+            .into_iter()
+            .find(|candidate| candidate.equipment() == pick)
+            .unwrap()
+            .replacement_ready()
+    );
+    assert!(matches!(
+        validate_start_player_equipment_maintenance(&registries, &state, pick),
+        Err(PlayerEquipmentMaintenanceStartError::Resolution(
+            EquipmentMaintenanceResolutionError::ReplacementMaterialTooHot {
+                commodity,
+                temperature,
+                maximum,
+            }
+        )) if commodity == option.replacement()
+            && temperature == hot && maximum == Temperature::from_millikelvin(353_150)
+    ));
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn maintenance_uses_newer_cool_replacement_without_consuming_hot_material() {
+    let (registries, mut state, pick) = worn_pick_with_player();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let option = player_equipment_maintenance_options(&registries, &state)
+        .unwrap()
+        .into_iter()
+        .find(|option| option.equipment() == pick)
+        .unwrap();
+    let hot_lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        option.replacement(),
+        option.required_replacement_mass(),
+        Temperature::from_millikelvin(400_000),
+    )
+    .unwrap();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        option.replacement(),
+        option.required_replacement_mass(),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    assert!(
+        player_equipment_maintenance_options(&registries, &state)
+            .unwrap()
+            .into_iter()
+            .find(|candidate| candidate.equipment() == pick)
+            .unwrap()
+            .replacement_ready()
+    );
+    let started = validate_start_player_equipment_maintenance(&registries, &state, pick)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(started.equipment(), pick);
+    assert_eq!(started.material_mass(), option.required_replacement_mass());
+    assert_eq!(
+        state.inventory().get_lot(hot_lot).unwrap().mass(),
+        option.required_replacement_mass()
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }

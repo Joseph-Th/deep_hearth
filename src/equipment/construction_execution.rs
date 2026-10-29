@@ -6,20 +6,66 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
 use crate::inventory::{
-    StockpileId, StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedMaterialEgress,
-    ValidatedStockpileStructuralLoad, apply_material_egress, validate_consumption_selection,
+    ConsumptionSelection, ConsumptionSelectionError, InventoryState, StockpileId,
+    StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedMaterialEgress,
+    ValidatedStockpileStructuralLoad, apply_material_egress,
     validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
     validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
 use crate::maintenance::Condition;
-use crate::material::CommodityKey;
+use crate::material::{CommodityKey, MaterialInputSpec};
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
 use super::EquipmentDefinitionId;
+use super::material_selection::{
+    EquipmentMaterialSelectionError, select_hand_safe_equipment_materials,
+};
 use super::state::{EquipmentId, EquipmentRecord};
+
+fn map_assembly_selection_error(error: ConsumptionSelectionError) -> EquipmentAssemblyError {
+    match error {
+        ConsumptionSelectionError::UnknownStockpile { stockpile } => {
+            EquipmentAssemblyError::UnknownSource { stockpile }
+        }
+        ConsumptionSelectionError::InsufficientMass {
+            stockpile,
+            commodity,
+            available,
+            requested,
+        } => EquipmentAssemblyError::InsufficientMaterial {
+            stockpile,
+            commodity,
+            available,
+            required: requested,
+        },
+        ConsumptionSelectionError::MassOverflow { stockpile } => {
+            EquipmentAssemblyError::SourceMassOverflow { stockpile }
+        }
+    }
+}
+
+/// Material readiness and canonical assembly admission resolve the same physical selection.
+pub(super) fn validate_assembly_material_selection(
+    inventory: &InventoryState,
+    source: StockpileId,
+    inputs: &[MaterialInputSpec],
+) -> Result<ConsumptionSelection, EquipmentAssemblyError> {
+    select_hand_safe_equipment_materials(inventory, source, inputs).map_err(|error| match error {
+        EquipmentMaterialSelectionError::Selection(error) => map_assembly_selection_error(error),
+        EquipmentMaterialSelectionError::TooHot {
+            commodity,
+            temperature,
+            maximum,
+        } => EquipmentAssemblyError::AssemblyMaterialTooHot {
+            commodity,
+            temperature,
+            maximum,
+        },
+    })
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentAssemblyError {
@@ -313,39 +359,8 @@ pub fn validate_assemble_equipment(
         .assembly_profile()
         .ok_or(EquipmentAssemblyError::NoAssemblyProfile { definition })?;
     validate_player_stockpile_access(state, source).map_err(EquipmentAssemblyError::Access)?;
-    let selection = validate_consumption_selection(state.inventory(), source, assembly.inputs())
-        .map_err(|error| match error {
-            crate::inventory::ConsumptionSelectionError::UnknownStockpile { stockpile } => {
-                EquipmentAssemblyError::UnknownSource { stockpile }
-            }
-            crate::inventory::ConsumptionSelectionError::InsufficientMass {
-                stockpile,
-                commodity,
-                available,
-                requested,
-            } => EquipmentAssemblyError::InsufficientMaterial {
-                stockpile,
-                commodity,
-                available,
-                required: requested,
-            },
-            crate::inventory::ConsumptionSelectionError::MassOverflow { stockpile } => {
-                EquipmentAssemblyError::SourceMassOverflow { stockpile }
-            }
-        })?;
-    // Ordinary handling and assembly cannot safely use a kiln-hot solid.
-    // The exact selected thermal cohorts, not merely the commodity label,
-    // decide whether a body has completed its required cooling.
-    let safe_temperature = Temperature::from_millikelvin(353_150);
-    for trace in selection.consumed_inputs() {
-        if trace.profile().temperature() > safe_temperature {
-            return Err(EquipmentAssemblyError::AssemblyMaterialTooHot {
-                commodity: trace.profile().commodity(),
-                temperature: trace.profile().temperature(),
-                maximum: safe_temperature,
-            });
-        }
-    }
+    let selection =
+        validate_assembly_material_selection(state.inventory(), source, assembly.inputs())?;
     let embodied_material = selection.consumed_inputs().to_vec();
     let egress =
         validate_material_egress_from_selection(state.inventory(), selection).map_err(|error| {

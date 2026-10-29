@@ -31,7 +31,9 @@ pub(crate) use gathering::{
     apply_surface_gathering_cancellation, apply_surface_gathering_tick,
     decide_surface_gathering_cancellation, decide_surface_gathering_tick,
 };
-pub(crate) use ground_stockpile_raid::scavenge_unenclosed_ground_stockpile_material;
+pub(crate) use ground_stockpile_raid::{
+    ScavengedGroundStockpileRequest, scavenge_unenclosed_ground_stockpile_material,
+};
 pub use material_drop::{
     PlayerMaterialDropCommitError, PlayerMaterialDropError, PlayerMaterialDropOutcome,
     ValidatedPlayerMaterialDrop, validate_drop_player_material,
