@@ -120,7 +120,6 @@ pub(crate) fn first_player_structure_collision(
     state: &AppState,
     body: PlayerBodyState,
 ) -> Option<VoxelCoord> {
-    state.world().generation_profile()?;
     let locomotion = registries.survival().physiology().locomotion();
     first_player_body_collision_where(body, locomotion, |voxel| {
         structure_blocks_player_cell(state, voxel)
@@ -128,7 +127,7 @@ pub(crate) fn first_player_structure_collision(
 }
 
 fn structure_blocks_player_cell(state: &AppState, voxel: VoxelCoord) -> bool {
-    state.world().generation_profile().is_some() && state.structures().blocks_full_cell(voxel)
+    state.world().has_generated_terrain_at(voxel) && state.structures().blocks_full_cell(voxel)
 }
 
 pub(crate) fn first_player_body_collision_in_chunk(
@@ -151,10 +150,11 @@ pub(crate) fn first_player_body_overlap_with_bounds(
     state: &AppState,
     bounds: VoxelBounds,
 ) -> Option<VoxelCoord> {
-    state.world().generation_profile()?;
     let body = state.logistics().player()?.body();
     let locomotion = registries.survival().physiology().locomotion();
-    first_player_body_collision_where(body, locomotion, |voxel| bounds.has_voxel(voxel))
+    first_player_body_collision_where(body, locomotion, |voxel| {
+        state.world().has_generated_terrain_at(voxel) && bounds.has_voxel(voxel)
+    })
 }
 
 pub(crate) fn player_body_occupies_voxel(

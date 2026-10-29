@@ -198,6 +198,112 @@ fn generated_opening() -> (crate::Registries, AppState, VoxelCoord) {
 }
 
 #[test]
+fn distant_terrain_generation_does_not_stop_an_ungenerated_opening_patrol() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::core::state::validate_loaded_state;
+    use crate::logistics::add_traversable_edge_for_test;
+    use crate::world::{ChunkCoord, validate_generate_chunk};
+
+    let registries = build_registries();
+    let mut opening = AppState::new();
+    let den = VoxelCoord::new(0, 0, 0);
+    let junction = VoxelCoord::new(1, 0, 0);
+    let tip = VoxelCoord::new(2, 0, 0);
+    for (from, to) in [(den, junction), (junction, tip)] {
+        add_traversable_edge_for_test(&mut opening, from, to);
+    }
+    opening
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+
+    let mut remotely_generated = opening.clone();
+    validate_generate_chunk(
+        &registries,
+        &remotely_generated,
+        WorldGenerationSeed::new(41),
+        ChunkCoord::new(20, 20),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut remotely_generated)
+    .unwrap();
+    assert!(remotely_generated.world().generation_profile().is_some());
+    assert!(
+        remotely_generated
+            .world()
+            .get_chunk(ChunkCoord::containing(junction))
+            .is_none()
+    );
+    assert!(super::patrol::scout_can_enter(
+        &registries,
+        &remotely_generated,
+        junction,
+        None,
+    ));
+    assert!(super::visibility::scout_visible_from(
+        &registries,
+        &remotely_generated,
+        den,
+        junction,
+    ));
+
+    for _ in 0..180 {
+        let _ = advance_tick(&registries, &mut opening).unwrap();
+        let _ = advance_tick(&registries, &mut remotely_generated).unwrap();
+    }
+    assert_eq!(colony(&opening).scout_position(), junction);
+    assert_eq!(colony(&remotely_generated), colony(&opening));
+    assert_eq!(
+        validate_loaded_state(&registries, &remotely_generated),
+        Ok(())
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &remotely_generated)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, remotely_generated);
+}
+
+#[test]
+fn distant_chunk_cannot_impose_vertical_limits_on_ungenerated_patrol_cells() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::logistics::add_traversable_edge_for_test;
+    use crate::world::{ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, validate_generate_chunk};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let den = VoxelCoord::new(0, WORLD_MAX_Y_EXCLUSIVE + 1, 0);
+    let junction = VoxelCoord::new(1, WORLD_MAX_Y_EXCLUSIVE + 1, 0);
+    let tip = VoxelCoord::new(2, WORLD_MAX_Y_EXCLUSIVE + 1, 0);
+    for (from, to) in [(den, junction), (junction, tip)] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    assert_eq!(validate_loaded_kobolds(&registries, &state), Ok(()));
+
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(41),
+        ChunkCoord::new(20, 20),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(validate_loaded_kobolds(&registries, &state), Ok(()));
+    assert!(super::patrol::scout_can_enter(
+        &registries,
+        &state,
+        junction,
+        None,
+    ));
+}
+
+#[test]
 fn terrain_generation_must_not_bury_an_existing_opening_resident() {
     use crate::content::BLOCK_STATE_STONE;
     use crate::core::state::{StateValidationError, validate_loaded_state};

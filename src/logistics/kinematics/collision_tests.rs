@@ -8,6 +8,50 @@ use crate::player::validate_admit_player;
 use crate::spatial::{HorizontalVelocity, VerticalVelocity, WorldPoint};
 
 #[test]
+fn distant_terrain_does_not_activate_continuous_body_collision_in_the_opening() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::spatial::VoxelBounds;
+    use crate::world::{ChunkCoord, WorldGenerationSeed, validate_generate_chunk};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let foot = VoxelCoord::new(0, 100, 0);
+    validate_admit_player(&registries, &state, foot)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let body_bounds = VoxelBounds::new(foot, VoxelCoord::new(1, 102, 1)).unwrap();
+    let overlap =
+        |state: &AppState| first_player_body_overlap_with_bounds(&registries, state, body_bounds);
+    assert_eq!(overlap(&state), None);
+
+    let seed = WorldGenerationSeed::new(41);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(20, 20),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(overlap(&state), None);
+
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::containing(foot),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(overlap(&state), Some(foot));
+}
+
+#[test]
 fn body_collision_and_actor_occupancy_agree_across_voxel_faces_and_stances() {
     let registries = build_registries();
     let mut state = AppState::new();

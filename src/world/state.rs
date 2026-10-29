@@ -786,6 +786,14 @@ impl WorldState {
             .map(|index| &self.chunks[index])
     }
 
+    /// Whether terrain has actually been generated for this horizontal
+    /// location. The persisted generation profile identifies the world; it
+    /// does not grant physical terrain authority to distant missing chunks.
+    #[must_use]
+    pub(crate) fn has_generated_terrain_at(&self, position: VoxelCoord) -> bool {
+        self.get_chunk(ChunkCoord::containing(position)).is_some()
+    }
+
     /// Returns a block state only when the containing chunk is generated and the coordinate lies
     /// within the supported vertical world range.
     #[must_use]

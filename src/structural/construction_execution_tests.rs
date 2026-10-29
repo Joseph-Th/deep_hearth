@@ -33,6 +33,56 @@ use crate::world::{
     validate_generate_chunk,
 };
 
+#[test]
+fn construction_player_collision_dependency_is_local_to_generated_columns() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let foot = VoxelCoord::new(0, 100, 0);
+    let element = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        StructuralElementGeometry::new(
+            VoxelBounds::new(foot, VoxelCoord::new(1, 101, 1)).unwrap(),
+            Length::from_micrometers(1_000_000),
+            Area::from_square_millimeters(1_000_000),
+        )
+        .unwrap(),
+        true,
+    )
+    .unwrap();
+    let dependency = |state: &AppState| {
+        let member = state.structures().get_element(element).unwrap();
+        assert!(member.geometry().covers_horizontal_footprint());
+        expected_player_overlap_revision(state, member)
+    };
+    assert_eq!(dependency(&state), None);
+    let seed = WorldGenerationSeed::new(41);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(20, 20),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(dependency(&state), None);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::containing(foot),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(dependency(&state), Some(state.logistics().revision()));
+}
+
 fn wood_length_for_mass(mass: Mass) -> Length {
     assert!(!mass.is_zero(), "test member mass must be nonzero");
     let numerator = (u128::from(mass.milligrams()) - 1) * 1_000_000;

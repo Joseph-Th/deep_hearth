@@ -14,14 +14,14 @@ use super::{
 
 /// An opening resident's body cannot coexist with full-cell constructed
 /// matter in either world mode. Terrain and vertical-world limits apply only
-/// after generation; ambient equipment, energy/fluid stores and unenclosed
-/// stockpiles remain shareable locality rather than full-cube collision.
+/// in the resident's generated column, not when an unrelated distant chunk
+/// establishes the world's generation profile. Ambient equipment, energy/fluid
+/// stores and unenclosed stockpiles remain shareable locality.
 fn validate_opening_resident_infrastructure(
     registries: &Registries,
     state: &AppState,
     colony: &KoboldColony,
 ) -> Result<(), &'static str> {
-    let generated = state.world().generation_profile().is_some();
     for resident in [colony.scout_position(), colony.watch_position()] {
         let head_y = resident
             .y()
@@ -31,6 +31,7 @@ fn validate_opening_resident_infrastructure(
             resident,
             VoxelCoord::new(resident.x(), head_y, resident.z()),
         ] {
+            let generated = state.world().has_generated_terrain_at(cell);
             if generated
                 && !(crate::world::WORLD_MIN_Y..crate::world::WORLD_MAX_Y_EXCLUSIVE)
                     .contains(&cell.y())
@@ -38,10 +39,6 @@ fn validate_opening_resident_infrastructure(
                 return Err("opening kobold body extends outside the generated vertical world");
             }
             if generated
-                && state
-                    .world()
-                    .get_chunk(crate::world::ChunkCoord::containing(cell))
-                    .is_some()
                 && state.world().block_at(cell).is_none_or(|block| {
                     registries
                         .world()

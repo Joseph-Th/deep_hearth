@@ -124,6 +124,16 @@ no generated-world player body has active control-rate physics; otherwise it fai
 through `advance_control_tick`. No batching surface may skip authoritative effects. The concrete stepping
 contract lives in [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md#temporal-stepping-contract).
 
+### Local terrain authority
+
+A persisted world generation profile establishes seed and material identity, not physical occupancy
+in every world column. `WorldState::has_generated_terrain_at` identifies whether the containing
+horizontal chunk exists. Interactions in an authored, ungenerated opening continue to use its
+local graph and built structures even when distant terrain is streamed. Generated blocks always
+provide physical collision or opacity; a sight, sound, or light path with a generated endpoint
+must treat intervening missing terrain as unknown, not free air. A remote generated chunk must
+not change local patrol, lighting, or fluid-transfer feasibility on an untouched opening graph.
+
 ## Abstraction and dependency direction
 
 Build upward through a stable tower:

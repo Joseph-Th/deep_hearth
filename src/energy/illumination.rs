@@ -6,6 +6,7 @@ use crate::core::arithmetic::checked_mul_div_ceil;
 use crate::core::state::AppState;
 use crate::registry::Registries;
 use crate::spatial::{CubeFace, VoxelCoord};
+use crate::world::ChunkCoord;
 
 use super::EnergyStoreId;
 use super::definitions::MAX_LOCAL_LIGHT_LEVEL;
@@ -141,8 +142,10 @@ pub fn project_local_light_sources(
 ///
 /// Burning sources dim with remaining finite energy relative to their authored primary fuel
 /// charge, so smaller alternative fuel and approaching burnout have observable consequences.
-/// Source levels fall by one per face-adjacent generated non-opaque voxel. Opaque blocks and missing
-/// world truth stop propagation, as do materialized full-footprint structural walls.
+/// Source levels fall by one per face-adjacent non-opaque voxel. Opaque blocks and missing
+/// terrain on a locally generated route stop propagation; ungenerated opening space
+/// remains traversable until terrain is actually generated there. Materialized
+/// full-footprint structural walls block both kinds of routes.
 /// Overlapping sources use the strongest current contribution; equal
 /// contributions retain the lowest stable store ID because logistics iterates locations in
 /// store-ID order.
@@ -210,11 +213,14 @@ fn propagated_light_level(
         return 0;
     }
 
-    // The authored graph has no generated terrain. Preserve constant-time
-    // Manhattan falloff when no materialized structural obstacle intersects
-    // any shortest route. Otherwise take the same bounded detour search used
-    // by generated terrain, treating missing terrain as air but not built walls.
-    if state.world().generation_profile().is_none()
+    // Distant generated chunks cannot extinguish a local opening light.
+    // Keep the constant-time falloff only within one ungenerated column,
+    // where no materialized structure obstructs a shortest route.
+    let locally_generated = [source.position(), target]
+        .into_iter()
+        .any(|position| state.world().has_generated_terrain_at(position));
+    if !locally_generated
+        && ChunkCoord::containing(source.position()) == ChunkCoord::containing(target)
         && !state
             .structures()
             .has_full_cell_member_in_voxel_box(source.position(), target)
@@ -242,7 +248,9 @@ fn propagated_light_level(
             if u128::from(next_level) <= manhattan_distance(adjacent, target) {
                 continue;
             }
-            if !voxel_transmits_light(registries, state, adjacent) || !visited.insert(adjacent) {
+            if !voxel_transmits_light_on_route(registries, state, adjacent, locally_generated)
+                || !visited.insert(adjacent)
+            {
                 continue;
             }
             if adjacent == target {
@@ -255,22 +263,30 @@ fn propagated_light_level(
 }
 
 fn voxel_transmits_light(registries: &Registries, state: &AppState, position: VoxelCoord) -> bool {
+    voxel_transmits_light_on_route(registries, state, position, false)
+}
+
+/// Missing terrain is open only on a purely ungenerated route. If either
+/// endpoint is generated, unknown intervening cells remain opaque.
+fn voxel_transmits_light_on_route(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    locally_generated: bool,
+) -> bool {
     if state.structures().blocks_full_cell(position)
         || state.world().tree_trunk_at(position).is_some()
     {
         return false;
     }
-    if state.world().generation_profile().is_none() {
-        return true;
+    match state.world().block_at(position) {
+        Some(block_state) => !registries
+            .world()
+            .block_for_state(block_state)
+            .unwrap_or_else(|| panic!("runtime invariant broken: world block state disappeared"))
+            .is_opaque(),
+        None => !locally_generated && !state.world().has_generated_terrain_at(position),
     }
-    let Some(block_state) = state.world().block_at(position) else {
-        return false;
-    };
-    !registries
-        .world()
-        .block_for_state(block_state)
-        .unwrap_or_else(|| panic!("runtime invariant broken: world block state disappeared"))
-        .is_opaque()
 }
 
 fn manhattan_distance(a: VoxelCoord, b: VoxelCoord) -> u128 {

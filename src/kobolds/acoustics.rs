@@ -1,7 +1,8 @@
 //! Bounded local percussion through actual open voxels, independently of sight.
 //!
 //! A sound may follow a bent air corridor but not cut across solid rock, built panels, or an
-//! unknown/unloaded chunk. Without generated terrain, the opening uses a local
+//! unknown/unloaded chunk along a generated route. In ungenerated opening space,
+//! even when distant chunks exist, the opening uses a local
 //! Manhattan bound when unobstructed, or a bounded air detour around real built
 //! walls. This is not a world-wide noise map or signal network; rig transmission
 //! has separate physical rules.
@@ -11,7 +12,7 @@ use std::collections::{BTreeSet, VecDeque};
 use crate::core::state::AppState;
 use crate::registry::Registries;
 use crate::spatial::{CubeFace, VoxelCoord};
-use crate::world::BlockCollisionShape;
+use crate::world::{BlockCollisionShape, ChunkCoord};
 
 use super::junkworks::{KoboldJunkRig, KoboldJunkRigKind};
 use super::visibility::within_manhattan_reach;
@@ -40,8 +41,9 @@ fn neighbors(voxel: VoxelCoord) -> impl Iterator<Item = VoxelCoord> {
 }
 
 /// Sound travels along actual face-connected, empty voxels; a short bend is
-/// audible even when the ordinary two-cell visual ray is blocked. No unloaded
-/// or opaque voxel is treated as free air. Every search is capped at six steps
+/// audible even when the ordinary two-cell visual ray is blocked. Opaque
+/// terrain always obstructs; missing terrain fails closed on generated local
+/// routes and follows the authored opening graph elsewhere. Search is capped at six steps
 /// and cannot discover a remote region or leak a blocked source location.
 pub(super) fn can_hear_junk_rig(
     registries: &Registries,
@@ -67,21 +69,25 @@ fn audible_path(
     // still block sound, and may lengthen its physical path beyond the
     // authored hearing radius. Use the indexed structural broadphase before
     // deciding whether a bounded air-corridor search is necessary.
-    let generated = state.world().generation_profile().is_some();
+    let generated_at_endpoint = [source, listener]
+        .into_iter()
+        .any(|position| state.world().has_generated_terrain_at(position));
     let passable = |voxel| {
         !state.structures().blocks_full_cell(voxel)
             && state.world().tree_trunk_at(voxel).is_none()
-            && (!generated
-                || state
+            && match state.world().block_at(voxel) {
+                Some(id) => registries
                     .world()
-                    .block_at(voxel)
-                    .and_then(|id| registries.world().block_for_state(id))
-                    .is_some_and(|block| block.collision() == BlockCollisionShape::Empty))
+                    .block_for_state(id)
+                    .is_some_and(|block| block.collision() == BlockCollisionShape::Empty),
+                None => !generated_at_endpoint,
+            }
     };
     if !passable(source) || !passable(listener) {
         return false;
     }
-    if !generated
+    if !generated_at_endpoint
+        && ChunkCoord::containing(source) == ChunkCoord::containing(listener)
         && !state
             .structures()
             .has_full_cell_member_in_voxel_box(source, listener)

@@ -31,6 +31,22 @@ pub(crate) use requirement::resolve_required_mass;
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use requirement::resolve_structural_material_requirement;
 
+/// Player movement invalidates full-footprint materialization only when
+/// generated terrain overlaps the member. A generated column elsewhere
+/// cannot activate continuous collision in an opening graph.
+fn expected_player_overlap_revision(
+    state: &AppState,
+    record: &StructuralElementRecord,
+) -> Option<u64> {
+    (record.geometry().covers_horizontal_footprint()
+        && state
+            .world()
+            .chunks_intersecting_horizontal_bounds(record.bounds())
+            .next()
+            .is_some())
+    .then(|| state.logistics().revision())
+}
+
 /// Consumed proof that exact inventory matter can become one member's embodied matter atomically.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
@@ -297,9 +313,7 @@ pub(crate) fn validate_structural_construction_for_planned_member(
         element,
         expected_world_revision: state.world().revision(),
         expected_surface_revision: state.surface().revision(),
-        expected_logistics_revision: (record.geometry().covers_horizontal_footprint()
-            && state.world().generation_profile().is_some())
-        .then(|| state.logistics().revision()),
+        expected_logistics_revision: expected_player_overlap_revision(state, record),
         expected_structure_revision,
         next_structure_revision,
         material: egress.consumed_inputs().to_vec(),
@@ -536,9 +550,7 @@ pub(crate) fn validate_structural_construction(
         element,
         expected_world_revision: state.world().revision(),
         expected_surface_revision: state.surface().revision(),
-        expected_logistics_revision: (record.geometry().covers_horizontal_footprint()
-            && state.world().generation_profile().is_some())
-        .then(|| state.logistics().revision()),
+        expected_logistics_revision: expected_player_overlap_revision(state, record),
         expected_structure_revision,
         next_structure_revision,
         material: egress.consumed_inputs().to_vec(),

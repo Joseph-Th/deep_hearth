@@ -141,6 +141,26 @@ fn ungenerated_opening_light_reaches_nearby_cells_and_replays() {
     assert_eq!(at(&state, 7).level(), 0);
     assert_eq!(at(&state, 1).strongest_source(), Some(fire));
 
+    // Generated terrain only has physical authority in its own columns.
+    // Streaming a remote column cannot put out a nearby finite campfire.
+    let mut remote = state.clone();
+    validate_generate_chunk(
+        &registries,
+        &remote,
+        WorldGenerationSeed::new(41),
+        ChunkCoord::new(20, 20),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut remote)
+    .unwrap();
+    assert!(remote.world().generation_profile().is_some());
+    assert!(remote.world().block_at(source).is_none());
+    assert_eq!(project_local_light_sources(&registries, &remote).len(), 1);
+    for x in 0..=7 {
+        assert_eq!(at(&remote, x), at(&state, x));
+    }
+
     let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
     let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
         .unwrap()

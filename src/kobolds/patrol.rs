@@ -49,13 +49,12 @@ pub(super) fn scout_can_enter(
     let Some(head_y) = position.y().checked_add(1) else {
         return false;
     };
-    // The authored opening graph has no generated terrain collision, but
-    // constructed enclosures and embodied full-cell members remain physical
-    // in either world mode. Continuous player-body clearance is meaningful
-    // only once generated terrain supports the body geometry; the authored
-    // graph instead uses its existing same-node player occupancy check.
-    let generated = state.world().generation_profile().is_some();
-    (!generated
+    // A generation profile is world-wide, but collision authority is local to
+    // generated chunks. Generating a distant column must not make an existing
+    // opening-graph route cell impassable. Built enclosures and structures are
+    // physical in both modes; the graph checks same-node player occupancy.
+    let generated_here = state.world().has_generated_terrain_at(position);
+    (!generated_here
         || state
             .world()
             .has_standing_clearance(registries.world(), position))
@@ -66,7 +65,7 @@ pub(super) fn scout_can_enter(
         .into_iter()
         .all(|cell| {
             !super::temple_caste_occupies_voxel(registries, state, cell)
-                && (!generated
+                && (!generated_here
                     || !crate::logistics::player_body_occupies_voxel(registries, state, cell))
                 // A physical enclosure obstructs passage. Co-located loose
                 // equipment and energy/fluid stores are locality markers,

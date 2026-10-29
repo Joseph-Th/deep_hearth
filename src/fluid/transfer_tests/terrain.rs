@@ -170,7 +170,7 @@ fn known_generated_stone_blocks_gravity_delivery_without_consuming_water() {
 }
 
 #[test]
-fn generated_world_must_know_the_downhill_destination_and_commit_rechecks_world_revision() {
+fn distant_terrain_change_stales_gravity_commit_without_blocking_ungenerated_local_pour() {
     let mut fixture = fixture_at(None, VoxelCoord::new(0, -1, 0));
     let token = validate_gravity_feed_fluid_to_lower_store(
         &fixture.registries,
@@ -198,17 +198,54 @@ fn generated_world_must_know_the_downhill_destination_and_commit_rechecks_world_
         Err(FluidTransferCommitError::StaleWorldRevision { expected, actual }),
     );
     assert_eq!(fixture.state, before);
-    assert_eq!(
-        validate_gravity_feed_fluid_to_lower_store(
-            &fixture.registries,
-            &fixture.state,
-            fixture.source,
-            fixture.destination,
-            Volume::from_microliters(1),
-        )
-        .err(),
-        Some(FluidTransferError::UnknownGravityTerrain {
-            destination_position: VoxelCoord::new(0, -1, 0),
-        }),
+    assert!(
+        fixture
+            .state
+            .world()
+            .get_chunk(ChunkCoord::containing(VoxelCoord::new(0, -1, 0)))
+            .is_none()
     );
+    let before_fluid = calculate_fluid_volume_accounting(&fixture.state).unwrap();
+    let transfer = validate_gravity_feed_fluid_to_lower_store(
+        &fixture.registries,
+        &fixture.state,
+        fixture.source,
+        fixture.destination,
+        Volume::from_microliters(1),
+    )
+    .expect("distant generation cannot block a local ungenerated gravity pour");
+    let _ = transfer.commit(&mut fixture.state).unwrap();
+    assert_eq!(
+        fixture
+            .state
+            .fluid()
+            .get_store(fixture.source)
+            .unwrap()
+            .stored_volume(),
+        Volume::from_microliters(999_999),
+    );
+    assert_eq!(
+        fixture
+            .state
+            .fluid()
+            .get_store(fixture.destination)
+            .unwrap()
+            .stored_volume(),
+        Volume::from_microliters(1),
+    );
+    assert_eq!(
+        calculate_fluid_volume_accounting(&fixture.state).unwrap(),
+        before_fluid
+    );
+    assert_eq!(
+        validate_loaded_state(&fixture.registries, &fixture.state),
+        Ok(())
+    );
+    let saved =
+        serde_json::to_vec(&SaveEnvelope::new(&fixture.registries, &fixture.state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&fixture.registries)
+        .unwrap();
+    assert_eq!(loaded, fixture.state);
 }

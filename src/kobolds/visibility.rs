@@ -18,9 +18,10 @@ pub(super) fn within_manhattan_reach(from: VoxelCoord, to: VoxelCoord, reach: u6
 
 /// Close-range scout sightings use authoritative terrain and built-member occlusion, not distance alone.
 /// At two voxels, all intermediate axis steps must be transparent; a diagonal
-/// corner is concealed by a blocking wall on either side. Missing generated
-/// terrain fails closed. Pre-generation authored graphs have no terrain opacity,
-/// but constructed full-footprint members still block a local sightline.
+/// corner is concealed by a blocking wall on either side. Missing terrain
+/// fails closed when either endpoint has generated terrain authority; purely
+/// ungenerated authored graphs have no terrain opacity. Constructed full-cell
+/// members block either kind of local sightline.
 pub(super) fn scout_visible_from(
     registries: &Registries,
     state: &AppState,
@@ -30,16 +31,19 @@ pub(super) fn scout_visible_from(
     if !within_manhattan_reach(scout, observer, 2) {
         return false;
     }
-    let generated = state.world().generation_profile().is_some();
+    let generated_at_endpoint = [scout, observer]
+        .into_iter()
+        .any(|position| state.world().has_generated_terrain_at(position));
     let transparent = |voxel| {
         !state.structures().blocks_full_cell(voxel)
             && state.world().tree_trunk_at(voxel).is_none()
-            && (!generated
-                || state
+            && match state.world().block_at(voxel) {
+                Some(id) => registries
                     .world()
-                    .block_at(voxel)
-                    .and_then(|id| registries.world().block_for_state(id))
-                    .is_some_and(|block| !block.is_opaque()))
+                    .block_for_state(id)
+                    .is_some_and(|block| !block.is_opaque()),
+                None => !generated_at_endpoint,
+            }
     };
     if !transparent(scout) || !transparent(observer) {
         return false;

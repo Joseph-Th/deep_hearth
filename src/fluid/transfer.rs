@@ -356,7 +356,7 @@ fn validate_transfer_geometry(
                         destination_position,
                     });
                 }
-                None if state.world().generation_profile().is_some() => {
+                None if state.world().has_generated_terrain_at(destination_position) => {
                     return Err(FluidTransferError::UnknownGravityTerrain {
                         destination_position,
                     });

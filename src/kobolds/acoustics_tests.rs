@@ -43,6 +43,60 @@ fn solid_generated_chunk() -> (Registries, AppState) {
 }
 
 #[test]
+fn distant_generated_chunk_does_not_mute_ungenerated_local_percussion() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let source = VoxelCoord::new(0, 0, 0);
+    let listener = VoxelCoord::new(3, 0, 0);
+    let sound = |state: &AppState| {
+        audible_path(
+            &registries,
+            state,
+            source,
+            listener,
+            KoboldJunkRigKind::StoneClatter,
+        )
+    };
+    assert!(sound(&state));
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(41),
+        ChunkCoord::new(20, 20),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert!(state.world().block_at(source).is_none());
+    assert!(state.world().block_at(listener).is_none());
+    assert!(sound(&state));
+}
+
+#[test]
+fn generated_to_unknown_chunk_boundary_remains_opaque_to_sight_and_sound() {
+    let (registries, state) = solid_generated_chunk();
+    let known_air = VoxelCoord::new(15, 100, 8);
+    let unknown = VoxelCoord::new(16, 100, 8);
+    assert_eq!(state.world().block_at(known_air), Some(BlockStateId::AIR));
+    assert_eq!(state.world().block_at(unknown), None);
+    assert!(
+        !crate::kobolds::visibility::scout_visible_from(&registries, &state, known_air, unknown,),
+        "local generation cannot make an unloaded sightline transparent"
+    );
+    assert!(
+        !audible_path(
+            &registries,
+            &state,
+            known_air,
+            unknown,
+            KoboldJunkRigKind::StoneClatter,
+        ),
+        "generated-to-unknown boundary cannot transmit local sound"
+    );
+}
+
+#[test]
 fn generated_tree_trunk_occludes_local_sight_and_short_acoustic_paths() {
     let (registries, state) = solid_generated_chunk();
     let tree = state
