@@ -100,6 +100,9 @@ fn attempt_direct_surface_gathering(
     state: &mut AppState,
     option: PlayerSurfaceGatheringOption,
 ) -> SecondaryActionOutcome {
+    if let Some(blocker) = option.hand_handling_blocker() {
+        return SecondaryActionOutcome::SurfaceGatheringRejected(blocker);
+    }
     if !state.control_tick().is_simulation_boundary() {
         return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
     }
@@ -199,6 +202,11 @@ pub(super) fn attempt_explicit_surface_gathering(
                 remaining: option.source_mass(),
             },
         );
+    }
+    // A source's thermal blocker is visible now. Do not persist a doomed
+    // one-shot request solely to reject it at the next slow boundary.
+    if let Some(blocker) = option.hand_handling_blocker() {
+        return SecondaryActionOutcome::SurfaceGatheringRejected(blocker);
     }
     if !state.control_tick().is_simulation_boundary() {
         return SecondaryActionOutcome::DeferredUntilSimulationBoundary;

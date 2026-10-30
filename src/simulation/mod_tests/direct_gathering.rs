@@ -10,6 +10,85 @@ use crate::surface::{
 };
 
 #[test]
+fn hot_natural_gathering_is_reported_on_the_input_frame_without_buffering() {
+    use crate::content::{FORM_CHIP, MATERIAL_STONE};
+    use crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    use crate::surface::player_surface_gathering_options;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let temperature = Temperature::from_millikelvin(423_150);
+    let mass = Mass::from_milligrams(50_000);
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Opportunity,
+        position,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        mass,
+        temperature,
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let prepared = validate_create_surface_resources(&registries, &state, [spec]).unwrap();
+    let resource = prepared.first_resource_id();
+    prepared.commit(&mut state).unwrap();
+    validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let options = player_surface_gathering_options(&registries, &state).unwrap();
+    assert_eq!(options.len(), 1);
+    assert_eq!(options[0].resource(), resource);
+    assert_eq!(options[0].temperature(), temperature);
+    let before = calculate_matter_accounting(&state).unwrap().total();
+
+    let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
+    let mut explicit = state.clone();
+    let result = advance_control_tick_with_direct_input(
+        &registries,
+        &mut explicit,
+        PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::gather_surface(
+            resource, mass, direction,
+        )),
+    )
+    .unwrap();
+    let expected =
+        SecondaryActionOutcome::SurfaceGatheringRejected(SurfaceGatheringError::ResourceTooHot {
+            resource,
+            temperature,
+            maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+        });
+    assert_eq!(result.secondary_action(), Some(&expected));
+    assert!(explicit.logistics().pending_secondary_use().is_none());
+    assert!(explicit.player_work().active().is_none());
+
+    let result = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(direction)),
+    )
+    .unwrap();
+    assert_eq!(result.secondary_action(), Some(&expected));
+    assert!(state.logistics().pending_secondary_use().is_none());
+    assert!(state.player_work().active().is_none());
+    assert_eq!(state, explicit);
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let serialized = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&serialized)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap(),
+        state,
+    );
+}
+
+#[test]
 fn explicit_direct_gathering_resolves_ambiguous_food_and_replays_a_retargeted_press() {
     let registries = build_registries();
     let mut state = AppState::new();

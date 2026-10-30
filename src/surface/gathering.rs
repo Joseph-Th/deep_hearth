@@ -46,6 +46,7 @@ pub struct PlayerSurfaceGatheringOption {
     expected_surface_revision: u64,
     resource: SurfaceResourceId,
     source_mass: Mass,
+    temperature: Temperature,
     definition: SurfaceGatheringDefinition,
 }
 
@@ -98,6 +99,19 @@ impl PlayerSurfaceFoodValue {
 }
 
 impl PlayerSurfaceGatheringOption {
+    /// Current physical temperature of the observed local source.
+    #[must_use]
+    pub const fn temperature(self) -> Temperature {
+        self.temperature
+    }
+
+    /// An immediately knowable blocker for unprotected hand gathering.
+    /// The authoritative work admission checks the same rule again.
+    #[must_use]
+    pub fn hand_handling_blocker(self) -> Option<SurfaceGatheringError> {
+        hand_gathering_temperature_blocker(self.resource, self.temperature)
+    }
+
     /// Compares edible value using only the current local source, authored food definition,
     /// and source's physical aging history. A stale option cannot silently describe old
     /// resource custody; inedible gathering options return `Ok(None)`.
@@ -268,6 +282,19 @@ pub enum SurfaceGatheringError {
     CompletionTickOverflow,
     FoodAgeOverflow,
     PlayerWork(PlayerWorkStartError),
+}
+
+fn hand_gathering_temperature_blocker(
+    resource: SurfaceResourceId,
+    temperature: Temperature,
+) -> Option<SurfaceGatheringError> {
+    (temperature > MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE).then_some(
+        SurfaceGatheringError::ResourceTooHot {
+            resource,
+            temperature,
+            maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+        },
+    )
 }
 
 impl Display for SurfaceGatheringError {
@@ -444,6 +471,7 @@ pub fn player_surface_gathering_options(
                 expected_surface_revision,
                 resource: resource.id(),
                 source_mass: resource.remaining_mass(),
+                temperature: resource.temperature(),
                 definition,
             });
         }
@@ -683,12 +711,9 @@ pub fn validate_start_surface_gathering(
     // Natural opportunities and loose drops use the same bare-hand gathering
     // method. Neither deliberate work nor an authored direct-use gesture may
     // bypass the temperature gate on control-rate ground pickup.
-    if resource.temperature() > MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE {
-        return Err(SurfaceGatheringError::ResourceTooHot {
-            resource: resource.id(),
-            temperature: resource.temperature(),
-            maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
-        });
+    if let Some(blocker) = hand_gathering_temperature_blocker(resource.id(), resource.temperature())
+    {
+        return Err(blocker);
     }
     validate_player_stockpile_access(state, request.destination)
         .map_err(SurfaceGatheringError::DestinationAccess)?;
