@@ -68,6 +68,7 @@ impl<'selection> ManualComminutionRequest<'selection> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ManualComminutionResolutionError {
     UnknownProcess { process: ProcessId },
+    StockpileAccess(PlayerStockpileAccessError),
     Stack(MaterialStackProjectionError),
     Input(ProcessInputError),
     Equipment(ManualOreEquipmentError),
@@ -84,6 +85,12 @@ impl Display for ManualComminutionResolutionError {
                 "process {} has no authored manual comminution semantics",
                 process.value()
             ),
+            Self::StockpileAccess(error) => {
+                write!(
+                    formatter,
+                    "manual comminution stockpile access failed: {error}"
+                )
+            }
             Self::Stack(error) => {
                 write!(
                     formatter,
@@ -106,6 +113,7 @@ impl Display for ManualComminutionResolutionError {
 impl Error for ManualComminutionResolutionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::StockpileAccess(error) => Some(error),
             Self::Stack(error) => Some(error),
             Self::Input(error) => Some(error),
             Self::Equipment(error) => Some(error),
@@ -218,6 +226,10 @@ pub fn resolve_manual_comminution_from_stack(
     stack: &MaterialStackProjection,
     mass: Mass,
 ) -> Result<ResolvedManualComminution, ManualComminutionResolutionError> {
+    // This actor-facing stack is not proof of physical access. Capability-level
+    // resolution remains independent of player logistics.
+    validate_player_stockpile_access(state, stack.stockpile())
+        .map_err(ManualComminutionResolutionError::StockpileAccess)?;
     let selections = stack
         .selections_for_mass(state, stack.stockpile(), mass)
         .map_err(ManualComminutionResolutionError::Stack)?;

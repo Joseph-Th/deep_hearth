@@ -221,6 +221,17 @@ pub fn validate_pickup_from_ground(
     selections: &[MaterialLotSelection],
 ) -> Result<ValidatedGroundMaterialTransfer, GroundMaterialTransferError> {
     let (player, player_action) = validate_ground_access(state, source)?;
+    validate_pickup_selection(registries, state, source, selections, player, player_action)
+}
+
+fn validate_pickup_selection(
+    registries: &Registries,
+    state: &AppState,
+    source: StockpileId,
+    selections: &[MaterialLotSelection],
+    player: PlayerLogisticsRecord,
+    player_action: PlayerActionGuard,
+) -> Result<ValidatedGroundMaterialTransfer, GroundMaterialTransferError> {
     let selection = validate_explicit_consumption_selection(state.inventory(), source, selections)
         .map_err(GroundMaterialTransferError::Selection)?;
     // This is a direct hand transfer into the player's pack. Ground storage
@@ -260,10 +271,20 @@ pub fn validate_pickup_stack_from_ground(
     stack: &MaterialStackProjection,
     mass: Mass,
 ) -> Result<ValidatedGroundMaterialTransfer, GroundMaterialTransferError> {
+    // A projected stack may be obsolete or intentionally opaque. Authorize the
+    // actual ground endpoint before revealing any source selection details.
+    let (player, player_action) = validate_ground_access(state, source)?;
     let selections = stack
         .selections_for_mass(state, source, mass)
         .map_err(GroundMaterialTransferError::Stack)?;
-    validate_pickup_from_ground(registries, state, source, &selections)
+    validate_pickup_selection(
+        registries,
+        state,
+        source,
+        &selections,
+        player,
+        player_action,
+    )
 }
 
 /// Validates exact stack drop from carried custody into a ground stockpile at the player's voxel.
@@ -274,6 +295,24 @@ pub fn validate_drop_to_ground(
     selections: &[MaterialLotSelection],
 ) -> Result<ValidatedGroundMaterialTransfer, GroundMaterialTransferError> {
     let (player, player_action) = validate_ground_access(state, destination)?;
+    validate_drop_selection(
+        registries,
+        state,
+        destination,
+        selections,
+        player,
+        player_action,
+    )
+}
+
+fn validate_drop_selection(
+    registries: &Registries,
+    state: &AppState,
+    destination: StockpileId,
+    selections: &[MaterialLotSelection],
+    player: PlayerLogisticsRecord,
+    player_action: PlayerActionGuard,
+) -> Result<ValidatedGroundMaterialTransfer, GroundMaterialTransferError> {
     let selection = validate_explicit_consumption_selection(
         state.inventory(),
         player.carried_stockpile(),
@@ -298,13 +337,18 @@ pub fn validate_drop_stack_to_ground(
     stack: &MaterialStackProjection,
     mass: Mass,
 ) -> Result<ValidatedGroundMaterialTransfer, GroundMaterialTransferError> {
-    let carried = state
-        .logistics()
-        .player()
-        .map(|player| player.carried_stockpile())
-        .ok_or(GroundMaterialTransferError::PlayerUninitialized)?;
+    // Locality, liveness and exclusive work precede inspecting even a stale
+    // carried stack. Exact-lot transfers already use the same access gate.
+    let (player, player_action) = validate_ground_access(state, destination)?;
     let selections = stack
-        .selections_for_mass(state, carried, mass)
+        .selections_for_mass(state, player.carried_stockpile(), mass)
         .map_err(GroundMaterialTransferError::Stack)?;
-    validate_drop_to_ground(registries, state, destination, &selections)
+    validate_drop_selection(
+        registries,
+        state,
+        destination,
+        &selections,
+        player,
+        player_action,
+    )
 }

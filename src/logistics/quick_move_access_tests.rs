@@ -187,3 +187,52 @@ fn quick_move_rejects_elapsed_stack_snapshot_even_without_inventory_mutation() {
         validate_quick_move_player_stack(&registries, &state, &refreshed[0], destination).is_ok()
     );
 }
+
+#[test]
+fn exact_stack_ground_transfers_reject_remote_access_before_stale_selection() {
+    use crate::logistics::{validate_drop_stack_to_ground, validate_pickup_stack_from_ground};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let remote_position = VoxelCoord::new(HERE.x() + 1, HERE.y(), HERE.z());
+    let remote = filled_ground_container(&registries, &mut state, remote_position);
+    let carried_stack = carried_wood_stack(&registries, &mut state);
+    let remote_stack = project_material_stacks(&registries, &state, remote)
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+
+    // A newer inventory revision makes both inventory projections obsolete,
+    // but cannot authorize a transfer from or to an inaccessible ground site.
+    let _unrelated = add_solid_stockpile_for_test(&mut state, CAPACITY).unwrap();
+    let before = state.clone();
+    let expected = GroundMaterialTransferError::GroundStockpileNotAtPlayer {
+        stockpile: remote,
+        ground: remote_position,
+        player: HERE,
+    };
+    assert_eq!(
+        validate_pickup_stack_from_ground(
+            &registries,
+            &state,
+            remote,
+            &remote_stack,
+            Mass::from_milligrams(1),
+        )
+        .err(),
+        Some(expected.clone()),
+    );
+    assert_eq!(
+        validate_drop_stack_to_ground(
+            &registries,
+            &state,
+            remote,
+            &carried_stack,
+            Mass::from_milligrams(1),
+        )
+        .err(),
+        Some(expected),
+    );
+    assert_eq!(state, before);
+}

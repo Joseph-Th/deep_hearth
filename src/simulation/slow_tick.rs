@@ -276,8 +276,7 @@ pub(super) fn advance_simulation_tick(
     // The slow-tick survival decision is already finalized. Install fatality
     // before residents assess a player's actual living threat: a death on this
     // very tick must not make a corpse deter or challenge a neighboring scout.
-    let survival =
-        apply_survival_tick(state, survival_plan).or_else(|| assess_survival(registries, state));
+    let _ = apply_survival_tick(state, survival_plan);
     let (kobold_scout, kobold_alarm_pulses) = apply_kobold_scout_tick(registries, state, next_tick);
     if player_dead_after_tick {
         // Raised weapons cannot survive a fatal survival transition or grant a charged respawn hit.
@@ -288,6 +287,10 @@ pub(super) fn advance_simulation_tick(
         let _ = crate::logistics::take_player_pending_secondary_use(state);
     }
     apply_clock_advance(state, next_tick);
+
+    // Residents can inflict nonlethal contact injury after basal survival settles.
+    // Report the final authoritative vitality, not the earlier physiology plan.
+    let survival = assess_survival(registries, state);
 
     debug_assert_runtime_invariants(registries, state, world_revision_before);
     Ok(TickOutcome {

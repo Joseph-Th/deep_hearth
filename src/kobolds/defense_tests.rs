@@ -46,6 +46,56 @@ fn to_tick(
     blows
 }
 
+#[test]
+fn scout_contact_tick_reports_survival_after_the_committed_injury() {
+    let (registries, mut state, _handle, head) = prepared_worksite(true);
+    to_tick(&registries, &mut state, 210);
+    validate_admit_player(&registries, &state, APPROACH)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    let mut confirmed_contact = false;
+    while state.tick().value() < 215 {
+        let outcome = advance_control_tick(&registries, &mut state).unwrap();
+        assert_eq!(
+            outcome,
+            advance_control_tick(&registries, &mut replay).unwrap()
+        );
+        let Some(slow) = outcome.simulation() else {
+            continue;
+        };
+        let reported = slow.survival().unwrap();
+        assert_eq!(
+            reported,
+            crate::survival::assess_survival(&registries, &state).unwrap()
+        );
+        if slow
+            .kobold_scout()
+            .and_then(|scout| scout.defensive_contact())
+            == Some((head, 12_000))
+        {
+            confirmed_contact = true;
+            assert_eq!(
+                reported.vitality(),
+                state.survival().player().unwrap().vitality()
+            );
+            assert_eq!(reported.vitality().parts_per_million(), 988_000);
+        }
+    }
+    assert!(
+        confirmed_contact,
+        "fixture must produce a real worksite counterstroke"
+    );
+    assert_eq!(state, replay);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
 fn drop_part(
     registries: &Registries,
     state: &mut AppState,

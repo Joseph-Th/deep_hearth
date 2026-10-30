@@ -11,8 +11,11 @@ use crate::inventory::{
     MaterialStackProjectionError, add_solid_stockpile_for_test, deposit_lot_for_test,
     project_material_stacks,
 };
+use crate::logistics::{PlayerStockpileAccessError, validate_place_ground_stockpile};
 use crate::material::CommodityKey;
+use crate::player::validate_admit_player;
 use crate::production::{ProcessDefinition, ProductionRegistry};
+use crate::spatial::VoxelCoord;
 
 use super::{
     ConstituentRecoveryProfile, ConstituentSeparationProcessDefinition,
@@ -22,6 +25,67 @@ use super::{
     project_manual_ore_duration, resolve_manual_comminution_from_stack,
     resolve_manual_constituent_separation_from_stack,
 };
+
+#[test]
+fn actor_selected_manual_ore_stacks_reject_remote_custody_before_stale_projection() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(300_000)).unwrap();
+    let ore = CommodityKey::new(MATERIAL_COPPER, FORM_ORE);
+    let mass = Mass::from_milligrams(100_000);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        ore,
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let here = VoxelCoord::new(0, 0, 0);
+    let remote = VoxelCoord::new(1, 0, 0);
+    validate_place_ground_stockpile(&state, source, remote)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_admit_player(&registries, &state, here)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let stack = project_material_stacks(&registries, &state, source)
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+    let _other = add_solid_stockpile_for_test(&mut state, mass).unwrap();
+    let before = state.clone();
+    let access = PlayerStockpileAccessError::RemoteKnownStockpile {
+        stockpile: source,
+        stockpile_position: remote,
+        player_position: here,
+    };
+    assert!(matches!(
+        resolve_manual_comminution_from_stack(
+            &registries,
+            &state,
+            PROCESS_HAND_BREAK_ORE,
+            &stack,
+            mass,
+        ),
+        Err(ManualComminutionResolutionError::StockpileAccess(error)) if error == access
+    ));
+    assert!(matches!(
+        resolve_manual_constituent_separation_from_stack(
+            &registries,
+            &state,
+            PROCESS_HAND_SORT_NATIVE_COPPER,
+            &stack,
+            mass,
+        ),
+        Err(ManualConstituentSeparationResolutionError::StockpileAccess(error)) if error == access
+    ));
+    assert_eq!(state, before);
+}
 
 #[test]
 fn player_selected_manual_ore_stacks_enforce_exact_amounts_and_revision_freshness() {
