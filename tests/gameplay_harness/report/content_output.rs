@@ -2,23 +2,26 @@
 
 use deep_hearth::capability::CapabilityValue;
 use deep_hearth::energy::EnergyCarrier;
-use deep_hearth::registry::{ProcessEnergyRole, ProcessEquipmentRole, Registries};
+use deep_hearth::registry::{
+    ProcessEnergyRole, ProcessEquipmentRole, ProcessExecutionFamily, Registries,
+};
 
-use super::super::catalog::{ProcessResolverKind, process_catalog_entries};
+use super::super::catalog::process_catalog_entries;
 
-fn process_resolver_label(resolver: ProcessResolverKind) -> &'static str {
-    match resolver {
-        ProcessResolverKind::ManualCraft => "manual-craft",
-        ProcessResolverKind::PoweredCraft => "powered-craft",
-        ProcessResolverKind::ManualComminution => "manual-comminution",
-        ProcessResolverKind::ManualSeparation => "manual-separation",
-        ProcessResolverKind::Comminution => "comminution",
-        ProcessResolverKind::Screening => "screening",
-        ProcessResolverKind::ConstituentSeparation => "constituent-separation",
-        ProcessResolverKind::Precipitation => "precipitation",
-        ProcessResolverKind::SensibleHeating => "sensible-heating",
-        ProcessResolverKind::Melting => "melting",
-        ProcessResolverKind::Casting => "casting",
+fn process_execution_family_label(family: ProcessExecutionFamily) -> &'static str {
+    match family {
+        ProcessExecutionFamily::ManualCraft => "manual-craft",
+        ProcessExecutionFamily::PoweredCraft => "powered-craft",
+        ProcessExecutionFamily::ManualComminution => "manual-comminution",
+        ProcessExecutionFamily::ManualSeparation => "manual-separation",
+        ProcessExecutionFamily::Comminution => "comminution",
+        ProcessExecutionFamily::Screening => "screening",
+        ProcessExecutionFamily::ConstituentSeparation => "constituent-separation",
+        ProcessExecutionFamily::Precipitation => "precipitation",
+        ProcessExecutionFamily::SensibleHeating => "sensible-heating",
+        ProcessExecutionFamily::SensibleCooling => "sensible-cooling",
+        ProcessExecutionFamily::Melting => "melting",
+        ProcessExecutionFamily::Casting => "casting",
     }
 }
 
@@ -71,10 +74,10 @@ pub(crate) fn print_content_summary(registries: &Registries, include_catalog: bo
         .iter()
         .filter(|entry| {
             matches!(
-                entry.resolver,
-                ProcessResolverKind::ManualCraft
-                    | ProcessResolverKind::ManualComminution
-                    | ProcessResolverKind::ManualSeparation
+                entry.execution_family,
+                ProcessExecutionFamily::ManualCraft
+                    | ProcessExecutionFamily::ManualComminution
+                    | ProcessExecutionFamily::ManualSeparation
             )
         })
         .count();
@@ -347,10 +350,10 @@ pub(crate) fn print_content_summary(registries: &Registries, include_catalog: bo
     .into_iter()
     .map(|entry| {
         format!(
-            "{}:{}:resolver={}:equipment={}:capability-providers={}/{}authored-acquisition:energy={}:compatible-stores={}/{}authored-assembly",
+            "{}:{}:family={}:equipment={}:capability-providers={}/{}authored-acquisition:energy={}:compatible-stores={}/{}authored-assembly",
             entry.process.value(),
             entry.name,
-            process_resolver_label(entry.resolver),
+            process_execution_family_label(entry.execution_family),
             process_equipment_role_label(entry.equipment_role),
             entry.nominal_provider_count,
             entry.authored_acquisition_provider_count,

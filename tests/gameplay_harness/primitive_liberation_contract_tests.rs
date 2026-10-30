@@ -11,8 +11,9 @@ use deep_hearth::content::{
     PROCESS_SHAPE_TIMBER_RIDDLE_PANEL, build_registries,
 };
 use deep_hearth::material::CommodityKey;
+use deep_hearth::registry::ProcessExecutionFamily;
 
-use super::catalog::{ProcessResolverKind, process_catalog_entries};
+use super::catalog::process_catalog_entries;
 
 #[test]
 fn primitive_liberation_content_closes_the_pre_smelting_processing_gap() {
@@ -165,10 +166,10 @@ fn primitive_liberation_content_closes_the_pre_smelting_processing_gap() {
         );
         assert!(entry.compatible_energy_store_count > 0);
         assert!(!matches!(
-            entry.resolver,
-            ProcessResolverKind::ManualCraft
-                | ProcessResolverKind::ManualComminution
-                | ProcessResolverKind::ManualSeparation
+            entry.execution_family,
+            ProcessExecutionFamily::ManualCraft
+                | ProcessExecutionFamily::ManualComminution
+                | ProcessExecutionFamily::ManualSeparation
         ));
     }
 }
