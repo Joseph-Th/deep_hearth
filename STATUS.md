@@ -16,7 +16,7 @@ Progression:
 | Materials and inventory | Exact lots, finite storage/reservations, conservation, preservation, classified residues and waste-only spoil bays. |
 | Prospecting and mining | Opening hard-copper seam requires acquired survey evidence and a reinforced pick. Ore is finite and must be hauled; reserves stay private. |
 | Crafting and equipment | Flint/copper tools, kiln, cooling bed, fired ceramic casting mold, maintenance and upgrades; finite waste storage. |
-| Power | Hand crank, treadle, flywheels, electrical buffers. A built timber roller couples opposed mechanical stores at 50 W and 80% efficiency. No multi-cell shafts or electric networks. |
+| Power | Hand crank, treadle, flywheels and buffers. Straight built timber shafts couple opposed mechanical stores at up to 50 W, losing 20% per roller. No gearboxes or electric networks. |
 | Processing | Ore dressing and local powered crusher choices from visible exact-lot feed, machine, charge and output bins; timed unattended execution. Casting, PbS+Fe smelting, kiln firing and finite cooling. No general reduction or passive cooling. |
 | Opening wilderness acquisition | Scouts forage, warn and steal drops; machine activity attracts raids on exposed stock. Presence, light and field boxes deter theft; loot is recoverable. Player clubs have nonlethal contact, wear and exertion. Enemy strikes require stationary fitted tools (owner scenario only). |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
@@ -31,7 +31,7 @@ Missing ordinary edges:
 | Generated world + body + targeting | Inventory/crafting UI, placement, residency, richer contact and remote discovery. |
 | Structural physics | Broader panels/joints, cascade demolition, and terrain support. |
 | Player equipment service/recovery | Maintenance-tool requirements and service-site transport beyond exact-local carried stock. |
-| Finite energy stores | Shaft runs, branching, gearing, electrical distribution and conversion beyond the single timber roller. |
+| Finite energy stores | Branching, gears, electrical distribution and conversion beyond straight timber shaft runs. |
 | Finite fluid stores | Horizontal/remote transport, pumping, chemical mixing and pressure networks. |
 | Industrial workshop/ore/foundry execution | Raw acquisition and player placement of powered workshop parts and located ore bins; multi-stage autonomous ore processing. |
 | Checked coordinates + compact chunk ownership + geological evidence | Terrain access/collision, regional geology-to-chunk composition, and clue-location discovery. |
@@ -50,7 +50,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Crafting | Timed exact-lot processing, including iron head finishing with recoverable chips, equipment admission and conserved outputs. |
 | Logistics | 20 Hz body collision, carrying/load exertion, falling injury, equipment and inventory access, nine-slot hotbar, buffered actions. |
 | Loose surface matter | Finite gathering and drops, empty-hand local gathering, capacity-limited pickup. Deep residue obstructs ground-storage footing. |
-| Energy and fluids | Finite energy and losses, autonomous one-hop shaft transfer, campfire heat, drinking, and local/downhill fluid transfer. |
+| Energy and fluids | Finite energy and losses, multi-cell straight timber shafts, campfire heat, drinking and local/downhill fluid transfer. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; timed posts, framing, cover and grounded timber roller; timed primary-break recovery. |
 | Block world | Eight ores, temple rooms, excavation and targeting. Lazy generated trees yield conserved logs from timed, wearing stone/copper adze work. Juvenile relocation is capability-only; no saplings, leaves or residency. |

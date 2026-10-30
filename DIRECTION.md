@@ -44,7 +44,16 @@ crushing, walks away, returns to a recharged drive, and runs the remaining 35 g 
 second bay. Equipment wear, mass, grade, particle size and save/replay survive; the
 crushing rate is unchanged. The test still seeds raw source stone/logs and a reachable
 mineral face. **Natural material discovery, source hauling, transport infrastructure,
-wide-area shafts and a renderer** remain gaps, not proven ordinary-play completion.
+shaft branches/gearing and a renderer** remain gaps, not proven ordinary-play completion.
+
+Short straight timber shaft runs now connect opposed mechanical stores across multiple
+cells when every span is an active, supported, sound and material-backed roller.
+Each 195 g roller consumes ordinary constructed timber and dissipates 20% of
+work that reaches its stage, so three sections deliver 51.2% of intake.
+A missing or dismantled middle section disconnects the line on its completion
+tick; no virtual connection remains. Crossings cannot spend any section or
+accumulator twice in a tick. This is not branching, rotary gearing or electrical
+transmission, and does not eliminate the raw-material/geology and renderer gaps.
 
 Combat's connected integration sequence is defined in [Combat and Kobold Cooperation](COMBAT_DESIGN.md):
 first real nonlethal contact, then material-backed melee and defense, physical injury, ranged

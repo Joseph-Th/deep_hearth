@@ -780,7 +780,7 @@ generated chunk truth + persisted player body + gravity -> 20 Hz vertical sweep/
 inventory traces -> equipment @ player voxel -> optional structural support
 exact-local equipment observation -> player tool/machine selection -> canonical owner action
 inventory traces -> finite energy store @ player voxel
-carried wooden handle -> grounded timed coupling roller -> opposed located mechanical stores -> bounded shaft work + friction sink
+carried wooden handles -> timed grounded construction of each 195 g timber roller -> ordered contiguous straight shaft run of active/supported/undamaged rollers -> opposed located mechanical stores -> one finite energy transfer per endpoint/roller per tick (50 W bottleneck, 80% efficiency per segment) + explicit friction sink; removal of an interior roller interrupts transmission before same-tick settlement
 carried raw logs/stone -> timed personal shaping (crusher body/jaw/drive handles/pick) + conserved chips -> assembled local tools -> directed excavation of a grade-bearing mineral block -> carried exact ore lot -> player-allocated finite ground bay -> same-voxel stack drop
 player-local stockpile stacks + assembled equipment + charged mechanical store + destination headroom -> bounded comminution choices (20 Hz previews defer admission to the next slow boundary) -> validated exact-lot production start -> durable unattended job -> conserved grade and particle-size product in selected output bin
 finite fluid store @ world voxel -> exact-local observation -> survival-filtered drinking / structurally supported vessel

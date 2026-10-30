@@ -1,9 +1,10 @@
-//! Material-built, one-cell timber rollers between finite mechanical accumulators.
+//! Material-built straight timber line shafts between finite mechanical accumulators.
 //!
-//! The completed structural member is the physical connection. No free global
-//! bus, inventory teleportation, or unpersisted cable topology exists.
+//! Every active, supported roller is physical transmission. Runs of contiguous
+//! roller cells may connect opposed mechanical stores with one friction stage
+//! per roller. No free global bus or invisible persistent cable topology exists.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::content::{
     BASIC_TIMBER_DRIVE_COUPLING_CROSS_SECTION, BASIC_TIMBER_DRIVE_COUPLING_LENGTH, MATERIAL_WOOD,
@@ -15,7 +16,7 @@ use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
-use crate::structural::{StructuralElementId, StructuralLifecycle};
+use crate::structural::{StructuralElementId, StructuralElementRecord, StructuralLifecycle};
 
 use super::integration::PowerRemainder;
 use super::passive_dissipation::PassiveEnergyDissipationPlan;
@@ -32,6 +33,7 @@ const FRACTION_SCALE: u128 = 1_000_000;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MechanicalTransmissionReceipt {
     coupling: StructuralElementId,
+    segments: u32,
     source: EnergyStoreId,
     destination: EnergyStoreId,
     drawn: Energy,
@@ -42,6 +44,11 @@ impl MechanicalTransmissionReceipt {
     #[must_use]
     pub const fn coupling(self) -> StructuralElementId {
         self.coupling
+    }
+    /// Number of material-built rollers that transmitted this work.
+    #[must_use]
+    pub const fn segments(self) -> u32 {
+        self.segments
     }
     #[must_use]
     pub const fn source(self) -> EnergyStoreId {
@@ -94,6 +101,7 @@ fn plan_pair(
     state: &AppState,
     passive: &PassiveEnergyDissipationPlan,
     coupling: StructuralElementId,
+    segments: u32,
     left: EnergyStoreId,
     right: EnergyStoreId,
 ) -> Option<MechanicalTransmissionReceipt> {
@@ -175,13 +183,22 @@ fn plan_pair(
         .min(equalizing_ceiling)
         .min(source_stored.nanojoules())
         .min(headroom.nanojoules());
-    let delivered =
-        scale_u128_fraction_floor(intake, WOODEN_TRANSMISSION_EFFICIENCY_PPM, 1_000_000);
+    // Each distinct physically embodied roller pays its own wood-bearing
+    // friction. A longer cheap timber shaft carries progressively less work.
+    let mut delivered = intake;
+    for _ in 0..segments {
+        delivered =
+            scale_u128_fraction_floor(delivered, WOODEN_TRANSMISSION_EFFICIENCY_PPM, 1_000_000);
+        if delivered == 0 {
+            return None;
+        }
+    }
     if delivered == 0 {
         return None;
     }
     Some(MechanicalTransmissionReceipt {
         coupling,
+        segments,
         source,
         destination,
         drawn: Energy::from_nanojoules(intake),
@@ -189,82 +206,136 @@ fn plan_pair(
     })
 }
 
+/// The rollers must remain complete, grounded, material-backed and sound.
+fn is_usable_roller(
+    member: &StructuralElementRecord,
+    dismantled_this_tick: Option<StructuralElementId>,
+) -> bool {
+    member.profile() == STRUCTURAL_PROFILE_TIMBER_DRIVE_COUPLING
+        && dismantled_this_tick != Some(member.id())
+        && member.material() == MATERIAL_WOOD
+        && member.is_grounded()
+        && member.length() == BASIC_TIMBER_DRIVE_COUPLING_LENGTH
+        && member.cross_section() == BASIC_TIMBER_DRIVE_COUPLING_CROSS_SECTION
+        && member.bounds().voxel_count() == Some(1)
+        && member.lifecycle() == StructuralLifecycle::Active
+        && !member.is_cracked()
+        && !member.embodied_material().is_empty()
+}
+
+/// A straight shaft can advance through a new cell only when that cell is
+/// represented by one intact ground-supported timber roller.
+fn shaft_neighbor(position: VoxelCoord, dx: i64, dz: i64, forward: bool) -> Option<VoxelCoord> {
+    let (x, z) = if forward {
+        (position.x().checked_add(dx)?, position.z().checked_add(dz)?)
+    } else {
+        (position.x().checked_sub(dx)?, position.z().checked_sub(dz)?)
+    };
+    Some(VoxelCoord::new(x, position.y(), z))
+}
+
+/// Returns exactly one maximal straight roller run and the external endpoint
+/// voxels. Interior starts are excluded, so each segment is scanned at most
+/// twice across horizontal axes and topology cost scales with built matter.
+fn discover_shaft_run(
+    rollers: &BTreeMap<VoxelCoord, StructuralElementId>,
+    first: VoxelCoord,
+    dx: i64,
+    dz: i64,
+) -> Option<(Vec<StructuralElementId>, VoxelCoord, VoxelCoord)> {
+    let low = shaft_neighbor(first, dx, dz, false)?;
+    if rollers.contains_key(&low) {
+        return None;
+    }
+    let mut path = vec![*rollers.get(&first)?];
+    let mut current = first;
+    loop {
+        let next = shaft_neighbor(current, dx, dz, true)?;
+        match rollers.get(&next) {
+            Some(id) => {
+                path.push(*id);
+                current = next;
+            }
+            None => return Some((path, low, next)),
+        }
+    }
+}
+
+/// Binds one transfer to one physical run. A roller cannot simultaneously
+/// serve two powered crosses, and a store cannot participate in two transfers
+/// in a tick. Stable endpoint identity determines one eligible pair.
 fn plan_coupling_axis(
     registries: &Registries,
     state: &AppState,
     passive: &PassiveEnergyDissipationPlan,
-    coupling: StructuralElementId,
-    middle: VoxelCoord,
+    rollers: &BTreeMap<VoxelCoord, StructuralElementId>,
+    first: VoxelCoord,
     dx: i64,
     dz: i64,
-    used: &mut BTreeSet<EnergyStoreId>,
+    used_stores: &mut BTreeSet<EnergyStoreId>,
+    used_rollers: &mut BTreeSet<StructuralElementId>,
     plan: &mut MechanicalTransmissionPlan,
 ) {
-    let (Some(low_x), Some(low_z), Some(high_x), Some(high_z)) = (
-        middle.x().checked_sub(dx),
-        middle.z().checked_sub(dz),
-        middle.x().checked_add(dx),
-        middle.z().checked_add(dz),
-    ) else {
+    let Some((path, low, high)) = discover_shaft_run(rollers, first, dx, dz) else {
         return;
     };
-    let low = VoxelCoord::new(low_x, middle.y(), low_z);
-    let high = VoxelCoord::new(high_x, middle.y(), high_z);
+    if path.iter().any(|id| used_rollers.contains(id)) {
+        return;
+    }
+    let Ok(segments) = u32::try_from(path.len()) else {
+        return;
+    };
     for left in state.logistics().energy_stores_at(low) {
-        if used.contains(&left) {
+        if used_stores.contains(&left) {
             continue;
         }
         for right in state.logistics().energy_stores_at(high) {
-            if used.contains(&right) {
+            if used_stores.contains(&right) {
                 continue;
             }
-            if let Some(transfer) = plan_pair(registries, state, passive, coupling, left, right) {
-                used.insert(left);
-                used.insert(right);
+            if let Some(transfer) =
+                plan_pair(registries, state, passive, path[0], segments, left, right)
+            {
+                used_stores.insert(left);
+                used_stores.insert(right);
+                used_rollers.extend(path);
                 plan.transfers.push(transfer);
-                break;
+                return;
             }
         }
     }
 }
 
-/// An active, embodied coupling at the middle cell connects two mechanical
-/// stores on opposed horizontal sides. A shaft can serve either X or Z;
-/// each endpoint takes at most one transfer per tick, so chains advance in
-/// successive ticks rather than creating free instantaneous infinite buses.
+/// Active embodied rollers form exact straight physical shaft runs. Only
+/// opposed endpoint stores receive work. There is no T-junction splitter or
+/// virtual bus: each store and each roller settles at most one flow per tick.
 pub(crate) fn decide_mechanical_transmission(
     registries: &Registries,
     state: &AppState,
     passive: &PassiveEnergyDissipationPlan,
     dismantled_this_tick: Option<StructuralElementId>,
 ) -> MechanicalTransmissionPlan {
+    let rollers = state
+        .structures()
+        .elements()
+        .filter(|member| is_usable_roller(member, dismantled_this_tick))
+        .map(|member| (member.bounds().min(), member.id()))
+        .collect::<BTreeMap<_, _>>();
     let mut plan = MechanicalTransmissionPlan::default();
-    let mut used = BTreeSet::new();
-    for member in state.structures().elements() {
-        if member.profile() != STRUCTURAL_PROFILE_TIMBER_DRIVE_COUPLING
-            || dismantled_this_tick == Some(member.id())
-            || member.material() != MATERIAL_WOOD
-            || !member.is_grounded()
-            || member.length() != BASIC_TIMBER_DRIVE_COUPLING_LENGTH
-            || member.cross_section() != BASIC_TIMBER_DRIVE_COUPLING_CROSS_SECTION
-            || member.bounds().voxel_count() != Some(1)
-            || member.lifecycle() != StructuralLifecycle::Active
-            || member.is_cracked()
-            || member.embodied_material().is_empty()
-        {
-            continue;
-        }
-        let middle = member.bounds().min();
+    let mut used_stores = BTreeSet::new();
+    let mut used_rollers = BTreeSet::new();
+    for position in rollers.keys().copied() {
         for (dx, dz) in [(1_i64, 0_i64), (0, 1)] {
             plan_coupling_axis(
                 registries,
                 state,
                 passive,
-                member.id(),
-                middle,
+                &rollers,
+                position,
                 dx,
                 dz,
-                &mut used,
+                &mut used_stores,
+                &mut used_rollers,
                 &mut plan,
             );
         }
@@ -296,3 +367,7 @@ pub(crate) fn apply_mechanical_transmission(
     energy.apply_revision(next_revision);
     plan.transfers
 }
+
+#[cfg(test)]
+#[path = "mechanical_transmission_tests.rs"]
+mod tests;

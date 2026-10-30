@@ -4,6 +4,8 @@
 mod processing;
 #[path = "mechanical_worksite_real.rs"]
 mod real;
+#[path = "mechanical_worksite_shaft.rs"]
+mod shaft;
 
 use super::*;
 use crate::content::{
@@ -97,6 +99,20 @@ fn test_worksite(
     VoxelCoord,
     Option<EquipmentId>,
 ) {
+    test_worksite_with_distance(real_flywheels, 2)
+}
+
+fn test_worksite_with_distance(
+    real_flywheels: bool,
+    distance: i64,
+) -> (
+    Registries,
+    AppState,
+    EnergyStoreId,
+    EnergyStoreId,
+    VoxelCoord,
+    Option<EquipmentId>,
+) {
     let registries = build_registries();
     let mut state = AppState::new();
     validate_generate_chunk(
@@ -115,9 +131,9 @@ fn test_worksite(
         .unwrap();
     let player_y = surface_y + 1;
     let source_position = VoxelCoord::new(0, player_y, 2);
-    let dest_position = VoxelCoord::new(2, player_y, 2);
+    let dest_position = VoxelCoord::new(distance, player_y, 2);
     let roller_position = VoxelCoord::new(1, player_y, 2);
-    for x in 0..=2 {
+    for x in 0..=distance {
         set_generated_block_for_test(
             registries.world(),
             &mut state,
