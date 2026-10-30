@@ -672,17 +672,8 @@ fn build_generated_chunk(
     profile: WorldGenerationProfile,
     coord: ChunkCoord,
 ) -> Result<WorldChunk, ChunkGenerationError> {
-    let min_x = coord
-        .world_min_x()
-        .ok_or(ChunkGenerationError::ChunkCoordinateOverflow { chunk: coord })?;
-    let min_z = coord
-        .world_min_z()
-        .ok_or(ChunkGenerationError::ChunkCoordinateOverflow { chunk: coord })?;
-    min_x
-        .checked_add((CHUNK_SIDE - 1) as i64)
-        .ok_or(ChunkGenerationError::ChunkCoordinateOverflow { chunk: coord })?;
-    min_z
-        .checked_add((CHUNK_SIDE - 1) as i64)
+    let (min_x, min_z) = coord
+        .bounded_world_origin()
         .ok_or(ChunkGenerationError::ChunkCoordinateOverflow { chunk: coord })?;
     let solid_mass = registry
         .represented_mass_for_state(profile.solid_state())

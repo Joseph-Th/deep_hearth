@@ -37,6 +37,9 @@ pub enum WorldValidationError {
         previous: ChunkCoord,
         current: ChunkCoord,
     },
+    ChunkCoordinateOverflow {
+        chunk: ChunkCoord,
+    },
     SectionsNotStrictlyOrdered {
         chunk: ChunkCoord,
         previous_y: i64,
@@ -171,6 +174,12 @@ impl Display for WorldValidationError {
                 previous.z(),
                 current.x(),
                 current.z()
+            ),
+            Self::ChunkCoordinateOverflow { chunk } => write!(
+                formatter,
+                "world chunk ({},{}) extends beyond representable voxel coordinates",
+                chunk.x(),
+                chunk.z()
             ),
             Self::SectionsNotStrictlyOrdered {
                 chunk,
@@ -502,6 +511,11 @@ fn validate_chunk(
     registry: &WorldRegistry,
     chunk: &WorldChunk,
 ) -> Result<(), WorldValidationError> {
+    if chunk.coord().bounded_world_origin().is_none() {
+        return Err(WorldValidationError::ChunkCoordinateOverflow {
+            chunk: chunk.coord(),
+        });
+    }
     let minimum_section = WORLD_MIN_Y.div_euclid(super::SECTION_SIDE as i64);
     let maximum_section_exclusive = WORLD_MAX_Y_EXCLUSIVE.div_euclid(super::SECTION_SIDE as i64);
     let mut previous_section = None;

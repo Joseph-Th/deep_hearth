@@ -66,6 +66,16 @@ impl ChunkCoord {
     pub fn world_min_z(self) -> Option<i64> {
         self.z.checked_mul(CHUNK_SIDE_I64)
     }
+
+    /// Origin of a chunk whose entire 16-by-16 footprint fits physical voxel coordinates.
+    /// Normal generation and trusted-load admission must accept the same coordinate range.
+    pub(crate) fn bounded_world_origin(self) -> Option<(i64, i64)> {
+        let min_x = self.world_min_x()?;
+        let min_z = self.world_min_z()?;
+        min_x.checked_add(CHUNK_SIDE_I64 - 1)?;
+        min_z.checked_add(CHUNK_SIDE_I64 - 1)?;
+        Some((min_x, min_z))
+    }
 }
 
 #[cfg(test)]
