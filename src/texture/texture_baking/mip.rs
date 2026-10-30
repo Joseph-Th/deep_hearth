@@ -41,10 +41,12 @@ impl IndexedMipLevel {
 
 pub(super) fn build_mip_levels(
     layers: Vec<&[PackedTexel; TEXTURE_TEXEL_COUNT]>,
+    cutout_opacity: Vec<Option<[u8; 256]>>,
 ) -> Vec<IndexedMipLevel> {
+    assert_eq!(layers.len(), cutout_opacity.len());
     let layer_count = layers.len();
     let mut current = Vec::with_capacity(layer_count.saturating_mul(TEXTURE_TEXEL_COUNT));
-    for layer in layers {
+    for &layer in &layers {
         current.extend_from_slice(layer);
     }
 
@@ -63,8 +65,134 @@ pub(super) fn build_mip_levels(
         }
         downsample_layers_in_place(&mut current, side, layer_count);
         side /= 2;
+        for (layer_index, opacity) in cutout_opacity.iter().enumerate() {
+            if let Some(opacity) = opacity {
+                preserve_cutout_coverage(
+                    &mut current,
+                    side,
+                    layer_index,
+                    layers[layer_index],
+                    opacity,
+                );
+            }
+        }
     }
     mip_levels
+}
+
+/// A repeated majority vote changes a sparse wire mesh into a solid sheet:
+/// at each reduction the few surviving opaque cells win ever more 2x2 votes.
+/// Use the *original* alpha mask instead, retaining the nearest representable
+/// overall cutout coverage at each level. The most covered footprints win;
+/// a stable spatial tie break distributes equally covered fine details.
+fn preserve_cutout_coverage(
+    target: &mut [PackedTexel],
+    side: usize,
+    layer_index: usize,
+    original: &[PackedTexel; TEXTURE_TEXEL_COUNT],
+    opaque_by_texel: &[u8; 256],
+) {
+    let footprint_side = TEXTURE_SIDE / side;
+    let stride = side * side;
+    let base_opaque = original
+        .iter()
+        .filter(|texel| opaque_by_texel[usize::from(texel.raw_value())] != 0)
+        .count();
+    let wanted = (base_opaque * stride + TEXTURE_TEXEL_COUNT / 2) / TEXTURE_TEXEL_COUNT;
+    let mut pixels = Vec::with_capacity(stride);
+    for index in 0..stride {
+        let x = (index % side) * footprint_side;
+        let y = (index / side) * footprint_side;
+        let mut opaque = 0_usize;
+        for dy in 0..footprint_side {
+            for dx in 0..footprint_side {
+                let texel = original[(y + dy) * TEXTURE_SIDE + x + dx];
+                opaque += usize::from(opaque_by_texel[usize::from(texel.raw_value())]);
+            }
+        }
+        // Tie-breaking uses a fixed, non-periodic coordinate mix rather than
+        // palette ID or source iteration order, which could align with a grid.
+        let mut tie = (index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        tie ^= tie >> 30;
+        tie = tie.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        tie ^= tie >> 27;
+        pixels.push((index, opaque, tie));
+    }
+    pixels.sort_unstable_by_key(|(index, opaque, tie)| (std::cmp::Reverse(*opaque), *tie, *index));
+    let offset = layer_index * stride;
+    for (rank, (index, _, _)) in pixels.into_iter().enumerate() {
+        let x = (index % side) * footprint_side;
+        let y = (index / side) * footprint_side;
+        target[offset + index] = representative_cutout_texel(
+            original,
+            opaque_by_texel,
+            x,
+            y,
+            footprint_side,
+            rank < wanted,
+        );
+    }
+    debug_assert!(wanted <= stride);
+}
+
+/// Choose an actual palette slot with the selected physical opacity; shade
+/// averages only the eligible source samples, never transparent samples.
+fn representative_cutout_texel(
+    original: &[PackedTexel; TEXTURE_TEXEL_COUNT],
+    opaque_by_texel: &[u8; 256],
+    x: usize,
+    y: usize,
+    footprint_side: usize,
+    opaque: bool,
+) -> PackedTexel {
+    let mut counts = [0_u16; 16];
+    let mut shades = [0_u32; 16];
+    for dy in 0..footprint_side {
+        for dx in 0..footprint_side {
+            let texel = original[(y + dy) * TEXTURE_SIDE + x + dx];
+            if (opaque_by_texel[usize::from(texel.raw_value())] != 0) == opaque {
+                let slot = usize::from(texel.palette_slot().value());
+                counts[slot] += 1;
+                shades[slot] += u32::from(texel.shade().value());
+            }
+        }
+    }
+    let slot = (0..16)
+        .max_by_key(|&slot| (counts[slot], std::cmp::Reverse(slot)))
+        .unwrap_or_else(|| unreachable!("a palette always has local slots"));
+    let count = u32::from(counts[slot]);
+    assert!(
+        count != 0,
+        "coverage selection requires a represented alpha"
+    );
+    let rounded_shade = (shades[slot] + count / 2) / count;
+    // A ramp may itself switch from transparent to opaque between adjacent
+    // shades. Averaging opaque samples can produce a transparent shade (or
+    // vice versa), so select an actual source shade nearest the mean instead.
+    let mut chosen_shade: Option<u32> = None;
+    for dy in 0..footprint_side {
+        for dx in 0..footprint_side {
+            let sample = original[(y + dy) * TEXTURE_SIDE + x + dx];
+            if usize::from(sample.palette_slot().value()) == slot
+                && (opaque_by_texel[usize::from(sample.raw_value())] != 0) == opaque
+            {
+                let shade = u32::from(sample.shade().value());
+                if chosen_shade.is_none_or(|current| {
+                    (shade.abs_diff(rounded_shade), shade)
+                        < (current.abs_diff(rounded_shade), current)
+                }) {
+                    chosen_shade = Some(shade);
+                }
+            }
+        }
+    }
+    PackedTexel::new(
+        PaletteSlot::new(slot as u8),
+        ShadeIndex::new(
+            u8::try_from(chosen_shade.expect("selected slot has eligible source shades"))
+                .expect("source shade is four bits"),
+        ),
+    )
 }
 
 fn downsample_layers_in_place(

@@ -128,13 +128,14 @@ impl TextureRegistry {
         let layout::BakedTextureLayout {
             descriptors_by_texture,
             patterns,
+            cutout_opacity,
             palette_rows,
         } = layout::bake_texture_layout(self);
         let pattern_layer_count = u16::try_from(patterns.len())
             .unwrap_or_else(|_| panic!("baked texture layer count exceeds lookup limit"));
         let palette_row_count = u16::try_from(palette_rows.len())
             .unwrap_or_else(|_| panic!("baked palette row count exceeds lookup limit"));
-        let mip_levels = mip::build_mip_levels(patterns);
+        let mip_levels = mip::build_mip_levels(patterns, cutout_opacity);
         let palette_color_bytes = layout::bake_palette_color_bytes(self);
 
         let blocks_by_id = appearance::bake_block_appearances(self, &descriptors_by_texture);

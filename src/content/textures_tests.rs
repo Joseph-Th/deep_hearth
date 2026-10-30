@@ -148,6 +148,39 @@ fn built_in_bake_is_deterministic_compact_and_deduplicates_panel_geometry() {
 }
 
 #[test]
+fn screen_mesh_cutout_mips_retain_openings_and_steel_at_a_distance() {
+    let baked = build_texture_registry().bake_texture_array();
+    let texture = TEXTURE_SCREEN_MESH;
+    let base = baked.mip_levels()[0].side();
+    let opaque_at = |mip: usize| {
+        let side = baked.mip_levels()[mip].side();
+        let mut opaque = 0_usize;
+        for y in 0..side {
+            for x in 0..side {
+                if baked.sample(texture, mip, x, y).unwrap().alpha() == u8::MAX {
+                    opaque += 1;
+                }
+            }
+        }
+        (opaque, usize::from(side) * usize::from(side))
+    };
+    assert_eq!(base, 32);
+    let (base_opaque, base_pixels) = opaque_at(0);
+    assert!(base_opaque > 0 && base_opaque < base_pixels);
+    for mip in 1..=4 {
+        let (opaque, pixels) = opaque_at(mip);
+        assert!(
+            opaque > 0 && opaque < pixels,
+            "cutout mesh mip {mip} became either fully opaque or completely invisible"
+        );
+        assert!(
+            (opaque * base_pixels).abs_diff(base_opaque * pixels) <= base_pixels,
+            "cutout mesh mip {mip} lost its approximate projected wire coverage"
+        );
+    }
+}
+
+#[test]
 fn service_bay_material_textures_are_distinct_from_generic_blocks() {
     let atlas = build_texture_registry().bake_texture_array();
     for (artifact, ordinary) in [

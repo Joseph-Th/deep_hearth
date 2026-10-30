@@ -1496,7 +1496,12 @@ scene graphs, renderer objects, and frame scheduling remain adapter/orchestratio
 authority.
 
 Texture and shader definitions are immutable registry content. Texture baking is deterministic and
-renderer-neutral. WGSL libraries/programs have typed identities, deterministic assembly, validated
+renderer-neutral. Opaque and blended indexed patterns share baked layers when their texel patterns
+match. Cutout textures additionally bind their resolved alpha masks to layer identity; each
+reduced mip preserves the nearest representable overall opaque-pixel coverage from the original
+tile, with deterministic spatial ties and a shade selected from source samples of the same
+opacity. Sparse meshes therefore keep their openings rather than turning into solid distant
+surfaces. WGSL libraries/programs have typed identities, deterministic assembly, validated
 dependencies, explicit entry points/pipeline requirements, and bounded work. Graphics-resource creation
 and frame scheduling belong to adapters. [`assets/shaders/README.md`](assets/shaders/README.md) owns the
 concrete shader binding contract.

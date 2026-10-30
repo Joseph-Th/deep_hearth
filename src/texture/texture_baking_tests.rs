@@ -96,6 +96,112 @@ fn bake_deduplicates_patterns_and_palette_rows_independently() {
 }
 
 #[test]
+fn cutout_pattern_deduplication_distinguishes_alpha_palettes() {
+    let transparent = PaletteRampDefinition::new(
+        RAMP_B,
+        "transparent",
+        [ColorRgba8::new(0, 0, 0, 0); PALETTE_RAMP_COLOR_COUNT],
+    );
+    let first = TextureId::new(1);
+    let second = TextureId::new(2);
+    let registry = TextureRegistry::new(
+        [ramp(RAMP_A, 80), transparent],
+        [
+            TextureDefinition::new(
+                first,
+                "steel at even pixels",
+                TexturePalette::new(vec![RAMP_A, RAMP_B]),
+                TextureAlphaMode::Cutout,
+                pattern(),
+            ),
+            TextureDefinition::new(
+                second,
+                "steel at odd pixels",
+                TexturePalette::new(vec![RAMP_B, RAMP_A]),
+                TextureAlphaMode::Cutout,
+                pattern(),
+            ),
+        ],
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+    );
+    let baked = registry.bake_texture_array();
+    assert_ne!(
+        baked.get_descriptor(first).unwrap().layer(),
+        baked.get_descriptor(second).unwrap().layer(),
+        "one indexed pattern needs separate mips when its palette changes its alpha mask"
+    );
+    for texture in [first, second] {
+        for mip in 0..=4 {
+            let side = baked.mip_levels()[mip].side();
+            let mut opaque = 0;
+            for y in 0..side {
+                for x in 0..side {
+                    opaque +=
+                        usize::from(baked.sample(texture, mip, x, y).unwrap().alpha() == u8::MAX);
+                }
+            }
+            assert_eq!(
+                opaque,
+                usize::from(side) * usize::from(side) / 2,
+                "cutout coverage changed at mip {mip}"
+            );
+        }
+    }
+}
+
+#[test]
+fn cutout_representative_shades_cannot_cross_an_alpha_boundary() {
+    let mut colors = [ColorRgba8::new(0, 0, 0, 0); PALETTE_RAMP_COLOR_COUNT];
+    colors[0] = ColorRgba8::opaque(20, 30, 40);
+    colors[2] = ColorRgba8::opaque(40, 50, 60);
+    let texture = TextureId::new(1);
+    let texels = std::array::from_fn(|index| {
+        let shade = match ((index / TEXTURE_SIDE) % 2, (index % TEXTURE_SIDE) % 2) {
+            (0, 0) => 0,
+            (0, 1) => 2,
+            _ => 1,
+        };
+        PackedTexel::new(PaletteSlot::new(0), ShadeIndex::new(shade))
+    });
+    let registry = TextureRegistry::new(
+        [PaletteRampDefinition::new(
+            RAMP_A,
+            "alternating alpha",
+            colors,
+        )],
+        [TextureDefinition::new(
+            texture,
+            "shade-dependent alpha",
+            TexturePalette::new(vec![RAMP_A]),
+            TextureAlphaMode::Cutout,
+            texels,
+        )],
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+    );
+    let baked = registry.bake_texture_array();
+    for mip in 1..=4 {
+        let side = baked.mip_levels()[mip].side();
+        let mut opaque = 0;
+        for y in 0..side {
+            for x in 0..side {
+                opaque += usize::from(baked.sample(texture, mip, x, y).unwrap().alpha() == u8::MAX);
+            }
+        }
+        assert_eq!(
+            opaque,
+            usize::from(side) * usize::from(side) / 2,
+            "averaging opaque shades across a transparent intermediate shade loses coverage"
+        );
+    }
+}
+
+#[test]
 fn mip_resolution_prefers_majority_slot_and_rounds_its_shades() {
     let mip = resolve_mip_texel([
         PackedTexel::new(PaletteSlot::new(1), ShadeIndex::new(2)),

@@ -12,14 +12,20 @@ use super::{BakedTextureDescriptor, TextureLayer, TexturePaletteRow};
 pub(super) struct BakedTextureLayout<'registry> {
     pub(super) descriptors_by_texture: Vec<Option<BakedTextureDescriptor>>,
     pub(super) patterns: Vec<&'registry [PackedTexel; TEXTURE_TEXEL_COUNT]>,
+    pub(super) cutout_opacity: Vec<Option<[u8; 256]>>,
     pub(super) palette_rows: Vec<[u16; TEXTURE_PALETTE_SLOT_COUNT]>,
 }
 
 pub(super) fn bake_texture_layout(registry: &TextureRegistry) -> BakedTextureLayout<'_> {
     let texture_count = registry.textures_in_id_order().len();
     let mut patterns = Vec::<&[PackedTexel; TEXTURE_TEXEL_COUNT]>::new();
-    let mut pattern_layers =
-        HashMap::<&[PackedTexel; TEXTURE_TEXEL_COUNT], TextureLayer>::with_capacity(texture_count);
+    let mut cutout_opacity = Vec::new();
+    // Cutout coverage depends on palette alpha, not just on the raw pattern:
+    // two palettes sharing indices may disagree about which texels are holes.
+    let mut pattern_layers = HashMap::<
+        (&[PackedTexel; TEXTURE_TEXEL_COUNT], Option<[u8; 256]>),
+        TextureLayer,
+    >::with_capacity(texture_count);
     let mut palette_rows = Vec::<[u16; TEXTURE_PALETTE_SLOT_COUNT]>::new();
     let mut palette_row_ids =
         HashMap::<[u16; TEXTURE_PALETTE_SLOT_COUNT], TexturePaletteRow>::with_capacity(
@@ -35,7 +41,19 @@ pub(super) fn bake_texture_layout(registry: &TextureRegistry) -> BakedTextureLay
 
     for definition in registry.textures_in_id_order() {
         let pattern = definition.texels();
-        let layer = match pattern_layers.get(pattern) {
+        let opacity =
+            (definition.alpha_mode() == crate::texture::TextureAlphaMode::Cutout).then(|| {
+                std::array::from_fn(|raw| {
+                    let texel = PackedTexel::from_raw(raw as u8);
+                    definition
+                        .palette()
+                        .get_ramp(texel.palette_slot())
+                        .and_then(|id| registry.get_ramp(id))
+                        .is_some_and(|ramp| ramp.color(texel.shade()).alpha() == u8::MAX)
+                        .into()
+                })
+            });
+        let layer = match pattern_layers.get(&(pattern, opacity)) {
             Some(layer) => *layer,
             None => {
                 let layer =
@@ -43,7 +61,8 @@ pub(super) fn bake_texture_layout(registry: &TextureRegistry) -> BakedTextureLay
                         panic!("baked texture layer count exceeds lookup limit")
                     }));
                 patterns.push(pattern);
-                pattern_layers.insert(pattern, layer);
+                cutout_opacity.push(opacity);
+                pattern_layers.insert((pattern, opacity), layer);
                 layer
             }
         };
@@ -76,6 +95,7 @@ pub(super) fn bake_texture_layout(registry: &TextureRegistry) -> BakedTextureLay
     BakedTextureLayout {
         descriptors_by_texture,
         patterns,
+        cutout_opacity,
         palette_rows,
     }
 }
