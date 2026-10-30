@@ -35,12 +35,13 @@ remote power source at bounded throughput and frictional loss. The connection is
 member with actual material, support, construction time and recovery, not a free virtual bus.
 The connected generated-world worksite now demonstrates an actual production investment:
 from raw stone and logs the player hand-shapes a crusher body, jaw, wooden drive handles
-and a pick in 320 slow crafting ticks, preserving exact stone/wood chips. The player charges
-the flywheel after fabrication to avoid bearing losses, walks to the site with those parts,
-assembles the crusher/pick, excavates 100 g of 80%-grade galena from a represented mineral
-voxel, allocates three finite stockpile bays, and deposits the mined ore. A material-built
-roller transfers work into the remote machine. The player starts 65 g of unattended
-crushing, walks away, returns to a recharged drive, and runs the remaining 35 g into a
+and a pick in 360 slow crafting ticks, preserving exact stone/wood chips. The player supplies
+500 J of finite hand-cranked work only after fabrication to avoid bearing losses, walks to
+the remote site with the parts, assembles the crusher/pick, excavates 100 g of 80%-grade
+galena from a represented mineral voxel, allocates finite stockpile bays, and deposits the
+mined ore. Three material-built rollers transmit shaft work across four cells with cumulative
+friction. The player starts 65 g of unattended crushing, walks away, returns to the
+recharged machine, and runs the remaining 35 g into a
 second bay. Equipment wear, mass, grade, particle size and save/replay survive; the
 crushing rate is unchanged. The test still seeds raw source stone/logs and a reachable
 mineral face. **Natural material discovery, source hauling, transport infrastructure,

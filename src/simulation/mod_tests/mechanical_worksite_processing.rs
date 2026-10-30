@@ -50,7 +50,8 @@ fn craft_player_workshop_part(
 
 #[test]
 fn player_runs_unattended_crusher_at_the_far_end_of_a_material_built_power_link() {
-    let (registries, mut state, source, destination, middle, crank) = test_worksite(true);
+    let (registries, mut state, source, destination, middle, crank) =
+        test_worksite_with_distance(true, 4);
     let crank = crank.unwrap();
     let start_tick = state.tick();
     let carried = state.logistics().player().unwrap().carried_stockpile();
@@ -64,7 +65,7 @@ fn player_runs_unattended_crusher_at_the_far_end_of_a_material_built_power_link(
         ),
         (
             CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
-            Mass::from_milligrams(5_000_000),
+            Mass::from_milligrams(6_000_000),
         ),
     ] {
         deposit_lot_for_test(
@@ -100,7 +101,7 @@ fn player_runs_unattended_crusher_at_the_far_end_of_a_material_built_power_link(
         1,
     );
     craft_player_workshop_part(&registries, &mut state, PROCESS_KNAP_STONE_TOOL, 1);
-    craft_player_workshop_part(&registries, &mut state, PROCESS_SHAPE_WOOD_HANDLE, 5);
+    craft_player_workshop_part(&registries, &mut state, PROCESS_SHAPE_WOOD_HANDLE, 6);
     assert_eq!(
         calculate_matter_accounting(&state).unwrap().total(),
         before_shaping
@@ -114,7 +115,7 @@ fn player_runs_unattended_crusher_at_the_far_end_of_a_material_built_power_link(
             CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_JAW_FACE),
             Mass::from_milligrams(400_000),
         ),
-        (handle, Mass::from_milligrams(1_000_000)),
+        (handle, Mass::from_milligrams(1_200_000)),
         (
             CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
             Mass::from_milligrams(800_000),
@@ -125,7 +126,7 @@ fn player_runs_unattended_crusher_at_the_far_end_of_a_material_built_power_link(
         ),
         (
             CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
-            Mass::from_milligrams(4_000_000),
+            Mass::from_milligrams(4_800_000),
         ),
     ] {
         assert_eq!(
@@ -137,8 +138,9 @@ fn player_runs_unattended_crusher_at_the_far_end_of_a_material_built_power_link(
             mass
         );
     }
-    // Charge the player-assembled local stone flywheel only AFTER 320 ticks
-    // of material preparation: earlier charging would lose work to windage.
+    // The three-roller shaft dissipates 48.8% of transmitted work, so the
+    // two batches require more up-front crank work than a one-roller drive.
+    // Charge only AFTER 360 ticks of fabrication to avoid flywheel windage.
     // The remote drive remains empty until an actual shaft is constructed.
     validate_start_manual_power(
         &registries,
@@ -147,7 +149,7 @@ fn player_runs_unattended_crusher_at_the_far_end_of_a_material_built_power_link(
             MANUAL_POWER_HAND_CRANK,
             crank,
             source,
-            Energy::from_nanojoules(400_000_000_000),
+            Energy::from_nanojoules(500_000_000_000),
         ),
     )
     .unwrap()
@@ -172,8 +174,8 @@ fn player_runs_unattended_crusher_at_the_far_end_of_a_material_built_power_link(
 
     let player_y = middle.y();
     // Establish a real walkable line to the far worksite before building the
-    // roller; later its completed collision body will obstruct this shortcut.
-    for x in 0..=4 {
+    // rollers; later their completed collision bodies obstruct this shortcut.
+    for x in 0..=6 {
         set_generated_block_for_test(
             registries.world(),
             &mut state,
@@ -190,17 +192,17 @@ fn player_runs_unattended_crusher_at_the_far_end_of_a_material_built_power_link(
         }
     }
     let forward = PlayerControlInput::new(HorizontalControlInput::new(1_000_000, 0).unwrap());
-    for _ in 0..70 {
-        if state.logistics().player().unwrap().position().x() >= 2 {
+    for _ in 0..210 {
+        if state.logistics().player().unwrap().position().x() >= 4 {
             break;
         }
         let _ = advance_control_tick_with_input(&registries, &mut state, forward).unwrap();
     }
-    assert_eq!(state.logistics().player().unwrap().position().x(), 2);
+    assert_eq!(state.logistics().player().unwrap().position().x(), 4);
     for _ in 0..20 {
         let _ = advance_control_tick(&registries, &mut state).unwrap();
     }
-    assert_eq!(state.logistics().player().unwrap().position().x(), 2);
+    assert_eq!(state.logistics().player().unwrap().position().x(), 4);
 
     // Prepared parts came from actual hand-fabrication jobs at the source.
     // The crusher consumes 400 g of handles; the stone pick another 200 g,
@@ -212,7 +214,7 @@ fn player_runs_unattended_crusher_at_the_far_end_of_a_material_built_power_link(
             .unwrap();
     assert_eq!(
         state.logistics().stationary_equipment_position(crusher),
-        Some(VoxelCoord::new(2, player_y, 2)),
+        Some(VoxelCoord::new(4, player_y, 2)),
     );
     let pick = validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, carried)
         .unwrap()
@@ -220,12 +222,12 @@ fn player_runs_unattended_crusher_at_the_far_end_of_a_material_built_power_link(
         .unwrap();
     assert_eq!(
         state.logistics().stationary_equipment_position(pick),
-        Some(VoxelCoord::new(2, player_y, 2))
+        Some(VoxelCoord::new(4, player_y, 2))
     );
 
     // An exposed grade-bearing mineral cell is authoritative world matter.
     // The ordinary hand-pick path mines exactly 100 g into carried custody.
-    let target = VoxelCoord::new(2, player_y, 3);
+    let target = VoxelCoord::new(4, player_y, 3);
     set_generated_block_for_test(
         registries.world(),
         &mut state,
@@ -338,55 +340,37 @@ fn player_runs_unattended_crusher_at_the_far_end_of_a_material_built_power_link(
         Mass::from_milligrams(100_000)
     );
 
-    // Physical construction is admitted only on a settled slow boundary.
-    while !state.control_tick().is_simulation_boundary() {
-        let _ = advance_control_tick(&registries, &mut state).unwrap();
-    }
-    // Physically embody a 195 g wooden coupling between the two power
-    // stores. It is not a button that teleports the source's whole charge.
-    let stack = project_material_stacks(&registries, &state, carried)
-        .unwrap()
-        .into_iter()
-        .find(|stack| stack.commodity() == handle)
-        .unwrap();
-    let bounds = VoxelBounds::new(
-        middle,
-        VoxelCoord::new(middle.x() + 1, middle.y() + 1, middle.z() + 1),
-    )
-    .unwrap();
-    let geometry = StructuralElementGeometry::new(
-        bounds,
-        Length::from_micrometers(1_000_000),
-        Area::from_square_millimeters(300),
-    )
-    .unwrap();
+    // Three 195 g rollers are independently embodied from the remaining
+    // wooden handle stock. No single-cell virtual link can reach this crusher.
     let before = calculate_matter_accounting(&state).unwrap().total();
-    let build = validate_start_player_grounded_structural_construction_from_stack(
-        &registries,
-        &state,
-        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
-        GroundedStructuralElementPlan::new(
-            STRUCTURAL_PROFILE_TIMBER_DRIVE_COUPLING,
-            MATERIAL_WOOD,
-            geometry,
-        ),
-        &stack,
-    )
-    .unwrap()
-    .commit(&mut state)
-    .unwrap();
-    while state.tick() < build.completes_at() {
-        for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK {
-            let _ = advance_control_tick(&registries, &mut state).unwrap();
-        }
+    let mut rollers = Vec::new();
+    for x in 1..=3 {
+        rollers.push(super::shaft::build_roller_at(
+            &registries,
+            &mut state,
+            VoxelCoord::new(x, middle.y(), middle.z()),
+        ));
     }
+    assert_eq!(rollers.len(), 3);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(handle),
+        Mass::from_milligrams(15_000),
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);
     let mut received = false;
     for _ in 0..12 {
         for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK {
             let tick = advance_control_tick(&registries, &mut state).unwrap();
             if let Some(slow) = tick.simulation()
                 && slow.mechanical_transmissions().iter().any(|transfer| {
-                    transfer.source() == source && transfer.destination() == destination
+                    transfer.source() == source
+                        && transfer.destination() == destination
+                        && transfer.segments() == 3
+                        && transfer.coupling() == rollers[0]
                 })
             {
                 received = true;
@@ -459,12 +443,12 @@ fn player_runs_unattended_crusher_at_the_far_end_of_a_material_built_power_link(
     // Inputs and energy are reserved once. Leave the stocked machine in place
     // and walk another real cell; neither feed nor product follows the player.
     for _ in 0..70 {
-        if state.logistics().player().unwrap().position().x() >= 3 {
+        if state.logistics().player().unwrap().position().x() >= 5 {
             break;
         }
         let _ = advance_control_tick_with_input(&registries, &mut state, forward).unwrap();
     }
-    assert_eq!(state.logistics().player().unwrap().position().x(), 3);
+    assert_eq!(state.logistics().player().unwrap().position().x(), 5);
     // Authoritative save during live off-site crushing must replay the same
     // job completion, energy history, ore particle state, and inventory owner.
     let paused = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
@@ -500,12 +484,12 @@ fn player_runs_unattended_crusher_at_the_far_end_of_a_material_built_power_link(
     // the first process releases it. No new work is generated for free.
     let back = PlayerControlInput::new(HorizontalControlInput::new(-1_000_000, 0).unwrap());
     for _ in 0..70 {
-        if state.logistics().player().unwrap().position().x() <= 2 {
+        if state.logistics().player().unwrap().position().x() <= 4 {
             break;
         }
         let _ = advance_control_tick_with_input(&registries, &mut state, back).unwrap();
     }
-    assert_eq!(state.logistics().player().unwrap().position().x(), 2);
+    assert_eq!(state.logistics().player().unwrap().position().x(), 4);
     for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK * 3 {
         let _ = advance_control_tick(&registries, &mut state).unwrap();
     }

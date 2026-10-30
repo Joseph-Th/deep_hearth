@@ -2,7 +2,7 @@
 
 use super::*;
 
-fn build_roller_at(
+pub(super) fn build_roller_at(
     registries: &Registries,
     state: &mut AppState,
     cell: VoxelCoord,
