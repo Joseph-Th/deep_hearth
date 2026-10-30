@@ -16,8 +16,8 @@ Progression:
 | Materials and inventory | Exact lots, finite storage/reservations, conservation, preservation, classified residues and waste-only spoil bays. |
 | Prospecting and mining | Opening hard-copper seam requires acquired survey evidence and a reinforced pick. Ore is finite and must be hauled; reserves stay private. |
 | Crafting and equipment | Flint/copper tools, kiln, cooling bed, fired ceramic casting mold, maintenance and upgrades; finite waste storage. |
-| Power | Hand crank, treadle, finite flywheels, electrical buffers. A built 195 g timber roller transfers up to 50 W between opposed mechanical stores at 80% efficiency, obeying occupancy and endpoint limits. No multi-voxel routing or electric networks. |
-| Processing | Ore dressing, casting, PbS+Fe smelting; fueled ceramic firing, finite-sink cooling, safe-temperature assembly and food storage. No general reduction or passive cooling. |
+| Power | Hand crank, treadle, flywheels, electrical buffers. A built timber roller couples opposed mechanical stores at 50 W and 80% efficiency. No multi-cell shafts or electric networks. |
+| Processing | Ore dressing and local powered crusher choices from visible exact-lot feed, machine, charge and output bins; timed unattended execution. Casting, PbS+Fe smelting, kiln firing and finite cooling. No general reduction or passive cooling. |
 | Opening wilderness acquisition | Scouts forage, warn and steal drops; machine activity attracts raids on exposed stock. Presence, light and field boxes deter theft; loot is recoverable. Player clubs have nonlethal contact, wear and exertion. Enemy strikes require stationary fitted tools (owner scenario only). |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 
@@ -33,7 +33,7 @@ Missing ordinary edges:
 | Player equipment service/recovery | Maintenance-tool requirements and service-site transport beyond exact-local carried stock. |
 | Finite energy stores | Shaft runs, branching, gearing, electrical distribution and conversion beyond the single timber roller. |
 | Finite fluid stores | Horizontal/remote transport, pumping, chemical mixing and pressure networks. |
-| Industrial workshop/ore/foundry execution | Ordinary industrial infrastructure acquisition/construction. |
+| Industrial workshop/ore/foundry execution | Raw acquisition and player placement of powered workshop parts and located ore bins; multi-stage autonomous ore processing. |
 | Checked coordinates + compact chunk ownership + geological evidence | Terrain access/collision, regional geology-to-chunk composition, and clue-location discovery. |
 
 [`DIRECTION.md`](DIRECTION.md) owns which boundary should be closed next.
@@ -46,7 +46,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | --- | --- |
 | Core | Persisted 20 Hz `ControlTick` + exact 72:1 `SimulationTick`; slow-step only when no control-rate consequence can occur. |
 | Persistence | Current-schema trusted load with deterministic derived-index rebuild and whole-state validation; byte storage is adapter-owned. |
-| Production | Timed conserved work, routed outputs, metal remelting/casting and iron upkeep. PbS+Fe produces molten lead and FeS matte; lead recasts. Gas reactions are reference-only. |
+| Production | Timed conserved work, routed outputs, actor-local powered comminution batch choices with capacity-limited outputs and stale-cohort rejection, metal remelting/casting and iron upkeep. PbS+Fe yields lead and FeS matte. |
 | Crafting | Timed exact-lot processing, including iron head finishing with recoverable chips, equipment admission and conserved outputs. |
 | Logistics | 20 Hz body collision, carrying/load exertion, falling injury, equipment and inventory access, nine-slot hotbar, buffered actions. |
 | Loose surface matter | Finite gathering and drops, empty-hand local gathering, capacity-limited pickup. Deep residue obstructs ground-storage footing. |

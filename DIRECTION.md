@@ -33,11 +33,16 @@ The first physically built power coupling now connects opposed mechanical accumu
 an ordinary ground-set timber roller, converting a hand-charged local flywheel into a finite
 remote power source at bounded throughput and frictional loss. The connection is a structural
 member with actual material, support, construction time and recovery, not a free virtual bus.
-**Next close the production payoff:** make one ordinary crusher and its ore/waste custody
-acquirable and operable on the far side of that drive while the player mines, hauls or builds.
-Only then extend the roller into longer shaft geometry, gearing, material-based performance,
-and true electrical/fluid distribution. A network without productive downstream work is
-still incomplete gameplay, however correct its transfer arithmetic.
+The connected generated-world worksite now proves two successive ore-crushing batches at
+a player-assembled crusher on the far side of a built roller. The actor observes exact local
+feed, finite stored work and destination headroom, authorizes durable unattended crushing,
+walks away, then returns to run the remainder into another bay. Conservation, grade,
+particle size, equipment wear and save/replay survive. The prepared crusher parts and ore
+are still seeded at their proper custody boundaries in this scenario, not gathered and
+fabricated by that same character. **Close those acquisition and placement gaps** before
+claiming full ordinary industrial progression or building longer/geared/electrical networks.
+The crusher is an investment because it delegates slow actual material work, not because
+its processing time was reduced.
 
 Combat's connected integration sequence is defined in [Combat and Kobold Cooperation](COMBAT_DESIGN.md):
 first real nonlethal contact, then material-backed melee and defense, physical injury, ranged

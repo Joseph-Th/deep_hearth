@@ -5,6 +5,7 @@ mod definitions;
 mod manual_physics;
 mod order;
 mod planning;
+mod player_comminution;
 mod powered_physics;
 mod precipitation_execution;
 mod registry;
@@ -20,6 +21,10 @@ pub use order::{
 pub use planning::{
     PoweredOreMassConstraint, PoweredOreMassEnvelope, PoweredOreMassEnvelopeError,
     PoweredOreReplenishmentConstraint, assess_powered_ore_mass_envelope,
+};
+pub use player_comminution::{
+    PlayerComminutionOption, PlayerComminutionOptionError,
+    player_local_powered_comminution_options, validate_start_player_comminution_option,
 };
 pub use powered_physics::{PoweredOreBottleneck, PoweredOreJobValidationError};
 pub(crate) use precipitation_execution::validate_loaded_precipitation_job;

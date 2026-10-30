@@ -781,6 +781,7 @@ inventory traces -> equipment @ player voxel -> optional structural support
 exact-local equipment observation -> player tool/machine selection -> canonical owner action
 inventory traces -> finite energy store @ player voxel
 carried wooden handle -> grounded timed coupling roller -> opposed located mechanical stores -> bounded shaft work + friction sink
+player-local stockpile stacks + assembled equipment + charged mechanical store + destination headroom -> bounded comminution choices (20 Hz previews defer admission to the next slow boundary) -> validated exact-lot production start -> durable unattended job -> conserved grade and particle-size product in selected output bin
 finite fluid store @ world voxel -> exact-local observation -> survival-filtered drinking / structurally supported vessel
 embodiment -> authored maintenance, disassembly, dismantling, or salvage -> inventory traces
 finite energy store -> reserved/consumed process energy -> modeled work/heat or explicit loss sink

@@ -1,5 +1,7 @@
 //! Material-built workshop power path through ordinary pointed construction.
 
+#[path = "mechanical_worksite_processing.rs"]
+mod processing;
 #[path = "mechanical_worksite_real.rs"]
 mod real;
 
