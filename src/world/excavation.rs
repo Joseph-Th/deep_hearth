@@ -86,6 +86,9 @@ pub enum BlockExcavationError {
     StandingTreeRequiresFloor {
         target: VoxelCoord,
     },
+    OpeningResidentRequiresFloor {
+        target: VoxelCoord,
+    },
     GroundedStructureRequiresFloor {
         target: VoxelCoord,
         element: StructuralElementId,
@@ -161,6 +164,13 @@ impl Display for BlockExcavationError {
                 target.y(),
                 target.z()
             ),
+            Self::OpeningResidentRequiresFloor { target } => write!(
+                formatter,
+                "cannot remove block at ({},{},{}): an opening resident still stands above it",
+                target.x(),
+                target.y(),
+                target.z()
+            ),
             Self::GroundedStructureRequiresFloor { target, element } => write!(
                 formatter,
                 "cannot remove block at ({},{},{}): grounded member {} bears on it; dismantle the member first",
@@ -220,6 +230,7 @@ impl Error for BlockExcavationError {
             | Self::MassExceedsCell { .. }
             | Self::StorageEnclosureRequiresFloor { .. }
             | Self::StandingTreeRequiresFloor { .. }
+            | Self::OpeningResidentRequiresFloor { .. }
             | Self::GroundedStructureRequiresFloor { .. }
             | Self::UnknownMethod { .. }
             | Self::EquipmentMounted { .. }
@@ -263,6 +274,9 @@ pub enum BlockExcavationCommitError {
     StorageEnclosureRequiresFloor {
         target: VoxelCoord,
         stockpile: StockpileId,
+    },
+    OpeningResidentRequiresFloor {
+        target: VoxelCoord,
     },
     GroundedStructureRequiresFloor {
         target: VoxelCoord,
@@ -310,6 +324,13 @@ impl Display for BlockExcavationCommitError {
                 target.z(),
                 stockpile.value()
             ),
+            Self::OpeningResidentRequiresFloor { target } => write!(
+                formatter,
+                "block excavation cannot remove floor ({},{},{}): an opening resident stands above it",
+                target.x(),
+                target.y(),
+                target.z()
+            ),
             Self::GroundedStructureRequiresFloor { target, element } => write!(
                 formatter,
                 "block excavation cannot remove floor ({},{},{}): grounded member {} bears on it",
@@ -343,10 +364,22 @@ impl Error for BlockExcavationCommitError {
             | Self::StaleSurfaceIdentity { .. }
             | Self::TargetChanged
             | Self::StorageEnclosureRequiresFloor { .. }
+            | Self::OpeningResidentRequiresFloor { .. }
             | Self::GroundedStructureRequiresFloor { .. }
             | Self::EquipmentChanged => None,
         }
     }
+}
+
+/// One authoritative work reservation can remove a solid world cell entirely.
+/// Residents inspect this read-only fact before moving onto future footing,
+/// while trusted-load validation rejects forged overlapping custody.
+pub(crate) fn full_block_excavation_reserved_at(state: &AppState, floor: VoxelCoord) -> bool {
+    matches!(
+        state.player_work().active(),
+        Some(PlayerWork::BlockExcavation { work })
+            if work.target() == floor && work.excavated_mass() == work.source_mass_before()
+    )
 }
 
 #[must_use]
@@ -452,6 +485,13 @@ impl ValidatedPlayerBlockExcavationStart {
             });
         }
         if self.work.excavated_mass() == self.work.source_mass_before()
+            && crate::kobolds::opening_kobold_stands_on(state, self.work.target())
+        {
+            return Err(BlockExcavationCommitError::OpeningResidentRequiresFloor {
+                target: self.work.target(),
+            });
+        }
+        if self.work.excavated_mass() == self.work.source_mass_before()
             && let Some(element) = grounded_structure_resting_on(state, self.work.target())
         {
             return Err(BlockExcavationCommitError::GroundedStructureRequiresFloor {
@@ -534,6 +574,13 @@ fn validate_start_player_block_excavation_targeted(
         return Err(BlockExcavationError::StorageEnclosureRequiresFloor {
             target: target.voxel(),
             stockpile,
+        });
+    }
+    if request.mass == source_mass
+        && crate::kobolds::opening_kobold_stands_on(state, target.voxel())
+    {
+        return Err(BlockExcavationError::OpeningResidentRequiresFloor {
+            target: target.voxel(),
         });
     }
     if request.mass == source_mass

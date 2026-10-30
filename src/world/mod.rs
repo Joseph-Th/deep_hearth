@@ -19,7 +19,7 @@ pub(crate) use excavation::{
     BlockExcavationCancellationPlan, BlockExcavationTickError, apply_block_excavation_cancellation,
     apply_block_excavation_tick, decide_block_excavation_cancellation,
     decide_block_excavation_completion, decide_block_excavation_tick,
-    validate_start_player_block_excavation_active,
+    full_block_excavation_reserved_at, validate_start_player_block_excavation_active,
 };
 pub use excavation::{
     BlockExcavationCommitError, BlockExcavationError, BlockExcavationOutcome,

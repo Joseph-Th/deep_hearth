@@ -310,6 +310,27 @@ fn woodland_stage_growth_crosses_thresholds_continuously_and_slows_with_maturity
 }
 
 #[test]
+fn woodland_stage_transition_preserves_fractional_tick_growth_in_the_next_stage() {
+    let sapling = TreeRecord::new(VoxelCoord::new(1, 2, 3), Mass::from_milligrams(8_000_000));
+    // Juvenile: 2 kg / 4 kg per year = half a year.
+    // Sapling: 140 kg / 18 kg per year = 7 + 7/9 years.
+    // The pole phase therefore starts one third of a tick into its
+    // boundary tick, leaving two thirds at 40 kg/year, or 3 whole mg.
+    let juvenile_ticks = BIOLOGICAL_YEAR_TICKS / 2;
+    let sapling_ticks_rounded_up = (140_u64 * BIOLOGICAL_YEAR_TICKS).div_ceil(18);
+    let transition = juvenile_ticks + sapling_ticks_rounded_up;
+    assert_eq!(
+        sapling.wood_at(SimulationTick::new(transition)),
+        Mass::from_milligrams(150_000_003),
+        "stage transition must not erase a fractional tick of photosynthetic mass"
+    );
+    assert_eq!(
+        sapling.wood_at(SimulationTick::new(transition - 1)),
+        Mass::from_milligrams(149_999_999),
+    );
+}
+
+#[test]
 fn generated_tree_is_solid_and_felling_moves_exact_wood_without_creating_matter() {
     let (registries, mut state, root) = standing_tree_fixture();
     assert!(state.world().tree_trunk_at(root).is_some());

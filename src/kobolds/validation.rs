@@ -23,6 +23,14 @@ fn validate_opening_resident_infrastructure(
     colony: &KoboldColony,
 ) -> Result<(), &'static str> {
     for resident in [colony.scout_position(), colony.watch_position()] {
+        if resident.y().checked_sub(1).is_some_and(|floor_y| {
+            crate::world::full_block_excavation_reserved_at(
+                state,
+                VoxelCoord::new(resident.x(), floor_y, resident.z()),
+            )
+        }) {
+            return Err("opening kobold occupies an active excavation's reserved floor");
+        }
         let head_y = resident
             .y()
             .checked_add(1)

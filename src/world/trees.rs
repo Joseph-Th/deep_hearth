@@ -23,6 +23,20 @@ const GROWTH_STAGES: [(u64, u64); 4] = [
     (600_000_000, 40_000_000),
     (MAX_WOOD_MASS_MG, 22_000_000),
 ];
+/// Common multiple of all four annual growth rates. One scaled time unit is a
+/// fractional simulation tick, so each phase transition can be represented
+/// exactly without rounding a fraction of a tick away.
+const GROWTH_TIME_UNITS_PER_TICK: u128 = 3_960_000_000;
+const _: () = {
+    let mut index = 0;
+    while index < GROWTH_STAGES.len() {
+        assert!(
+            GROWTH_TIME_UNITS_PER_TICK % GROWTH_STAGES[index].1 as u128 == 0,
+            "every growth stage must divide the exact time scale"
+        );
+        index += 1;
+    }
+};
 
 /// One rooted, living temperate broadleaf. Standing wood is owned by the world until felled.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -149,7 +163,8 @@ impl TreeRecord {
     /// Age is resolved analytically in constant time; no per-tree scheduled updates.
     #[must_use]
     pub fn wood_at(self, now: SimulationTick) -> Mass {
-        let mut remaining_ticks = u128::from(now.value().saturating_sub(self.sprouted_at.value()));
+        let mut remaining_time = u128::from(now.value().saturating_sub(self.sprouted_at.value()))
+            * GROWTH_TIME_UNITS_PER_TICK;
         let mut mass = u128::from(self.initial_wood.milligrams());
         for (ceiling, annual_growth) in GROWTH_STAGES {
             let ceiling = u128::from(ceiling);
@@ -158,16 +173,19 @@ impl TreeRecord {
             }
             let annual_growth = u128::from(annual_growth);
             let required = ceiling - mass;
-            // Crossing stage boundaries must not discard fractional ticks.
-            // The stage duration is the first integer tick with the required mass.
-            let ticks_to_ceiling =
-                (required * u128::from(BIOLOGICAL_YEAR_TICKS)).div_ceil(annual_growth);
-            if remaining_ticks < ticks_to_ceiling {
-                mass += annual_growth * remaining_ticks / u128::from(BIOLOGICAL_YEAR_TICKS);
+            // This scale is divisible by every authored stage's annual rate:
+            // the elapsed time to each exact biomass threshold is integral
+            // in scaled ticks, even when it falls between simulation ticks.
+            let time_to_ceiling = required
+                * u128::from(BIOLOGICAL_YEAR_TICKS)
+                * (GROWTH_TIME_UNITS_PER_TICK / annual_growth);
+            if remaining_time < time_to_ceiling {
+                mass += annual_growth * remaining_time
+                    / (u128::from(BIOLOGICAL_YEAR_TICKS) * GROWTH_TIME_UNITS_PER_TICK);
                 break;
             }
             mass = ceiling;
-            remaining_ticks -= ticks_to_ceiling;
+            remaining_time -= time_to_ceiling;
         }
         Mass::from_milligrams(mass.min(u128::from(MAX_WOOD_MASS_MG)) as u64)
     }

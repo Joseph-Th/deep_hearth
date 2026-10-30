@@ -780,6 +780,19 @@ pub(crate) fn opening_kobold_positions(state: &AppState) -> Option<[VoxelCoord; 
     Some([colony.scout_position(), colony.watch_position()])
 }
 
+/// A live resident's generated-world footing cannot be removed while the
+/// resident occupies the cell immediately above it.
+pub(crate) fn opening_kobold_stands_on(state: &AppState, floor: VoxelCoord) -> bool {
+    let Some(standing_y) = floor.y().checked_add(1) else {
+        return false;
+    };
+    opening_kobold_positions(state).is_some_and(|residents| {
+        residents.into_iter().any(|resident| {
+            resident.x() == floor.x() && resident.y() == standing_y && resident.z() == floor.z()
+        })
+    })
+}
+
 pub(crate) fn opening_kobold_occupies_voxel(state: &AppState, voxel: VoxelCoord) -> bool {
     let Some(residents) = opening_kobold_positions(state) else {
         return false;

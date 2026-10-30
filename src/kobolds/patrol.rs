@@ -62,10 +62,21 @@ pub(super) fn scout_can_enter(
     // opening-graph route cell impassable. Built enclosures and structures are
     // physical in both modes; the graph checks same-node player occupancy.
     let generated_here = state.world().has_generated_terrain_at(position);
+    // An active player excavation has reserved removal of this floor. An
+    // opening resident must not step onto it before the due block-world tick.
+    // Partial excavation retains collision and does not forbid passage.
+    let floor_under_excavation = generated_here
+        && position.y().checked_sub(1).is_some_and(|floor_y| {
+            crate::world::full_block_excavation_reserved_at(
+                state,
+                VoxelCoord::new(position.x(), floor_y, position.z()),
+            )
+        });
     (!generated_here
         || state
             .world()
             .has_standing_clearance(registries.world(), position))
+        && !floor_under_excavation
         && [
             position,
             VoxelCoord::new(position.x(), head_y, position.z()),

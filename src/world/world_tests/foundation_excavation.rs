@@ -206,6 +206,51 @@ fn grounded_member_protects_last_floor_mass_but_not_partial_excavation() {
 }
 
 #[test]
+fn opening_resident_footing_invalidates_an_earlier_full_excavation_plan() {
+    let (registries, mut state, pick, target) = almost_excavated_foundation();
+    let den = VoxelCoord::new(target.x(), target.y() + 1, target.z());
+    let junction = VoxelCoord::new(den.x() + 1, den.y(), den.z());
+    let tip = VoxelCoord::new(junction.x() + 1, den.y(), den.z());
+    for resident in [junction, tip] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(resident.x(), target.y(), resident.z()),
+            BLOCK_STATE_STONE,
+        );
+    }
+    for (from, to) in [(den, junction), (junction, tip)] {
+        crate::logistics::add_traversable_edge_for_test(&mut state, from, to);
+    }
+    let pending = validate_start_player_block_excavation(&registries, &state, dig_request(pick, 2))
+        .expect("unoccupied block is initially eligible for complete excavation");
+    // A resident enters after the authorization but before commit. Kobold
+    // positions carry no separate revision, so commit must check the actual
+    // floor occupancy, not assume the older world revision proves clearance.
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        pending.commit(&mut state),
+        Err(BlockExcavationCommitError::OpeningResidentRequiresFloor { target })
+    );
+    assert_eq!(
+        state, before,
+        "stale excavation must leave all custody unchanged"
+    );
+    assert_eq!(
+        validate_start_player_block_excavation(&registries, &state, dig_request(pick, 2)).err(),
+        Some(BlockExcavationError::OpeningResidentRequiresFloor { target })
+    );
+    assert!(
+        validate_start_player_block_excavation(&registries, &state, dig_request(pick, 1)).is_ok(),
+        "removing one milligram must not remove the resident's supporting voxel"
+    );
+}
+
+#[test]
 fn grounding_added_after_excavation_validation_invalidates_the_commit() {
     let (registries, mut state, pick, target) = almost_excavated_foundation();
     let validated =

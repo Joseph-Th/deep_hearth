@@ -2357,6 +2357,51 @@ fn terrain_generation_rejects_player_body_overlap_without_world_mutation() {
 }
 
 #[test]
+fn block_excavation_cannot_remove_a_residents_floor_but_may_reduce_its_mass() {
+    let (registries, mut state, pick, target) = generated_excavation_fixture();
+    let den = VoxelCoord::new(target.x(), target.y() + 1, target.z());
+    let junction = VoxelCoord::new(den.x() + 1, den.y(), den.z());
+    let tip = VoxelCoord::new(junction.x() + 1, den.y(), den.z());
+    for cell in [junction, tip] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(cell.x(), target.y(), cell.z()),
+            BLOCK_STATE_STONE,
+        );
+    }
+    for (from, to) in [(den, junction), (junction, tip)] {
+        crate::logistics::add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let mass = state
+        .world()
+        .represented_mass_at(registries.world(), target)
+        .unwrap();
+    let before = state.clone();
+    let request = |batch| {
+        BlockExcavationRequest::new(positive_x_view(), MINING_METHOD_HAND_PICK, pick, batch)
+    };
+    assert_eq!(
+        validate_start_player_block_excavation(&registries, &state, request(mass)).err(),
+        Some(BlockExcavationError::OpeningResidentRequiresFloor { target })
+    );
+    assert_eq!(state, before);
+    assert!(
+        validate_start_player_block_excavation(
+            &registries,
+            &state,
+            request(Mass::from_milligrams(200_000)),
+        )
+        .is_ok(),
+        "partial stone excavation must remain possible without removing the resident's support"
+    );
+}
+
+#[test]
 fn terrain_generation_rejects_burying_existing_exposed_surface_matter() {
     let registries = build_registries();
     let mut state = AppState::new();

@@ -139,8 +139,10 @@ Inert structural plans do not occupy a trunk cell. The same physical-material cl
 applies to sapling relocation and trusted-load validation.
 Standing wood grows as a four-stage lazy elapsed-time projection: 4 kg/year for juveniles,
 18 kg/year for saplings, 40 kg/year for pole trees and 22 kg/year approaching maturity,
-up to 1,600 kg dry wood. Stage boundaries are computed in integer time without per-tick
-updates, scheduled random checks or leaf-block churn. A biological year is 365 physical days.
+up to 1,600 kg dry wood. Stage boundaries retain exact sub-tick time in a common integer
+clock, so crossing a stage never drops part of that tick's growth. Growth is
+computed without per-tick updates, scheduled random checks or leaf-block churn.
+A biological year is 365 physical days.
 The present model represents only one temperate growth profile; species, light, soil, rainfall,
 actual foliage geometry, reproduction and planted saplings are not yet simulated. A bounded
 `validate_transplant_juvenile` capability relocates an existing natural sapling below 10 kg
@@ -184,6 +186,14 @@ The diagnostic matter `total()` is net of this verified external input while `wo
 `surface()` report their full physical masses. Felling does not add instant wood to player
 inventory, and the bounded opening's original fallen-timber gathering
 remains a separate, unchanged source.
+
+Generated terrain cannot materialize through an existing opening resident's body.
+Controlled graph-proxy residents may predate generated ground, while ordinary patrol
+movement requires actual floor clearance once their terrain is generated.
+Full block excavation cannot remove a floor beneath either resident, including when
+the occupant changes after excavation validation; the scout and watchman also avoid
+a floor already reserved for complete removal. Partial cuts retain collision and
+remain admissible.
 
 | Surface | Definitions / immutable input | Authoritative read / observation | Plan / resolve | Mutate / continue |
 | --- | --- | --- | --- | --- |
