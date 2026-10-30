@@ -1,6 +1,7 @@
 //! Material-backed construction of preservation enclosures around existing stockpiles.
 
 use crate::core::state::AppState;
+use crate::core::time::ControlTick;
 use crate::logistics::{
     ValidatedGroundStockpileAllocation, validate_allocate_player_ground_stockpile_at,
     validate_player_stockpile_access,
@@ -35,6 +36,7 @@ pub use errors::{
 #[must_use]
 pub struct ValidatedStorageEnclosureConstruction {
     player_action: PlayerActionGuard,
+    expected_control_tick: ControlTick,
     target: StockpileId,
     expected_inventory_revision: u64,
     expected_logistics_revision: u64,
@@ -54,6 +56,7 @@ pub struct ValidatedStorageEnclosureConstruction {
 /// ambient stockpile.
 #[must_use]
 pub struct ValidatedPlayerStoragePlacement {
+    expected_control_tick: ControlTick,
     expected_surface_revision: u64,
     expected_world_revision: u64,
     allocation: ValidatedGroundStockpileAllocation,
@@ -95,6 +98,12 @@ impl ValidatedPlayerStoragePlacement {
             return Err(PlayerStoragePlacementCommitError::WorldRevisionChanged {
                 expected: self.expected_world_revision,
                 actual: state.world().revision(),
+            });
+        }
+        if state.control_tick() != self.expected_control_tick {
+            return Err(PlayerStoragePlacementCommitError::StaleControlTick {
+                expected: self.expected_control_tick,
+                actual: state.control_tick(),
             });
         }
         let target = self
@@ -150,6 +159,14 @@ pub(crate) fn validate_place_player_storage_at(
     if enclosure_position_is_solid(registries, state, position) {
         return Err(PlayerStoragePlacementError::GeneratedSolidTerrain { position });
     }
+    // Ordinary pointed placement already excludes residents. The owner-level
+    // placement capability must enforce the same physical clearance so that
+    // direct callers cannot construct persistent matter around a living actor.
+    if crate::kobolds::opening_kobold_occupies_voxel(state, position)
+        || crate::kobolds::temple_caste_occupies_voxel(registries, state, position)
+    {
+        return Err(PlayerStoragePlacementError::ResidentOccupiesSite { position });
+    }
     let residue_depth = exposed_residue_compact_depth_um(registries, state, position);
     if residue_depth >= OBSTRUCTING_RESIDUE_COMPACT_DEPTH_UM {
         return Err(PlayerStoragePlacementError::LooseResidueFooting {
@@ -193,6 +210,7 @@ pub(crate) fn validate_place_player_storage_at(
         .checked_add(3)
         .unwrap_or_else(|| unreachable!("placement headroom includes all inventory mutations"));
     Ok(ValidatedPlayerStoragePlacement {
+        expected_control_tick: state.control_tick(),
         expected_surface_revision: state.surface().revision(),
         expected_world_revision: state.world().revision(),
         allocation,
@@ -259,6 +277,15 @@ impl ValidatedStorageEnclosureConstruction {
             return Err(StorageEnclosureCommitError::StaleWorldRevision {
                 expected: self.expected_world_revision,
                 actual: actual_world_revision,
+            });
+        }
+        // Resident position is not an inventory/logistics revision. Every
+        // normal scout or temple step advances the control clock, so a delayed
+        // construction token must never materialize a box at an old location.
+        if state.control_tick() != self.expected_control_tick {
+            return Err(StorageEnclosureCommitError::StaleControlTick {
+                expected: self.expected_control_tick,
+                actual: state.control_tick(),
             });
         }
         let target = state.inventory().get_stockpile(self.target).ok_or(
@@ -344,6 +371,12 @@ pub fn validate_build_storage_enclosure(
     let required_profile = StockpileStorageProfile::unbounded_solid_only();
     validate_enclosure_target(definition_record, target_record, target, required_profile)?;
     validate_world_location(registries, state, target, source)?;
+    if let Some(position) = state.logistics().stationary_stockpile_position(target)
+        && (crate::kobolds::opening_kobold_occupies_voxel(state, position)
+            || crate::kobolds::temple_caste_occupies_voxel(registries, state, position))
+    {
+        return Err(StorageEnclosureConstructionError::ResidentOccupiesSite { position });
+    }
     let selection = select_enclosure_material(state, definition_record, source)?;
     let next_profile = definition_record.storage_profile();
     validate_enclosure_contents(
@@ -370,6 +403,7 @@ pub fn validate_build_storage_enclosure(
         });
     Ok(ValidatedStorageEnclosureConstruction {
         player_action,
+        expected_control_tick: state.control_tick(),
         target,
         expected_inventory_revision,
         expected_logistics_revision: state.logistics().revision(),

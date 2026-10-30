@@ -823,15 +823,17 @@ fn pointed_storage_cannot_materialize_inside_an_opening_scout_and_watchman() {
 fn trusted_load_rejects_finished_enclosure_inside_an_opening_scout() {
     let (registries, mut state, route) = occupied_temple();
     let tip = route[2];
-    opening_colony_in_temple_hall(&mut state, route);
     carry_field_box_material(&registries, &mut state);
-    // The stockpile allocation owner does not authorize placement geometry;
-    // corrupted persisted custody can otherwise embed a box in the scout.
+    // Authorize the ordinary box before the opening resident is introduced.
+    // It must be impossible to construct this overlap in ordinary play; the
+    // injected resident models a corrupted loaded state instead.
     let _ =
         validate_place_player_storage_at(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX, tip)
             .unwrap()
             .commit(&mut state)
             .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    opening_colony_in_temple_hall(&mut state, route);
     assert!(
         validate_loaded_state(&registries, &state).is_err(),
         "trusted admission must reject a built enclosure occupying an opening resident"
@@ -890,29 +892,45 @@ fn trusted_load_rejects_full_footprint_panel_inside_opening_scout() {
 fn trusted_load_rejects_stationary_enclosure_overlapping_a_temple_warden() {
     let (registries, mut state, route) = occupied_temple();
     carry_field_box_material(&registries, &mut state);
-    // The inventory allocation primitive deliberately delegates world-space
-    // authorization to its caller. Simulate tampered persisted custody by
-    // skipping that caller's placement check.
-    let _ = validate_place_player_storage_at(
+    let before = state.clone();
+    assert_eq!(
+        validate_place_player_storage_at(
+            &registries,
+            &state,
+            STORAGE_ROUGH_TIMBER_FIELD_BOX,
+            route[0],
+        )
+        .err(),
+        Some(
+            crate::inventory::PlayerStoragePlacementError::ResidentOccupiesSite {
+                position: route[0],
+            }
+        ),
+        "ordinary construction must reject a living temple warden before allocating material",
+    );
+    assert_eq!(state, before);
+    // Construct valid physical matter first, then tamper only with its
+    // persisted logistics location. Runtime construction now rejects the
+    // warden's occupied cell instead of producing an invalid live state.
+    let stockpile = validate_place_player_storage_at(
         &registries,
         &state,
         STORAGE_ROUGH_TIMBER_FIELD_BOX,
-        route[0],
+        route[2],
     )
     .unwrap()
     .commit(&mut state)
     .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     assert!(crate::kobolds::temple_caste_occupies_voxel(
         &registries,
         &state,
         route[0]
     ));
-    assert!(
-        validate_loaded_state(&registries, &state).is_err(),
-        "trusted validation must reject infrastructure embedded in a resident"
-    );
-    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
-    let admitted = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    encoded["state"]["systems"]["logistics"]["stockpile_locations"]
+        [stockpile.value().to_string()] = serde_json::to_value(route[0]).unwrap();
+    let admitted = serde_json::from_value::<LoadedSaveEnvelope>(encoded)
         .unwrap()
         .into_state(&registries);
     assert!(admitted.is_err());

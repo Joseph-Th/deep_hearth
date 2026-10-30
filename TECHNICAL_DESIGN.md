@@ -123,6 +123,10 @@ structural footprint checks use the existing horizontal index and exact intersec
 including for broad geometry.
 At a simultaneous voxel-face crossing, physical tree trunks take occlusion priority over
 otherwise selectable adjacent air targets, as do solid blocks and embodied full-cell panels.
+Material-backed storage enclosure construction checks live opening and temple resident occupancy
+at both direct placement and in-place assembly; neither operation may embody a container around
+a resident. Validated enclosure construction is bound to its control tick as well as the relevant
+owner revisions, so a later resident movement cannot make an old placement token safe to commit.
 
 Standard stone-terrain chunks may also generate one deterministic, seed-positioned living tree
 record when its supporting ground and two-cell trunk are free. The world owner persists these

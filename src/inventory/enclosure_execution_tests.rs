@@ -52,6 +52,170 @@ const TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 const CHEST_MASS: Mass = Mass::from_milligrams(2_400_000);
 
 #[test]
+fn enclosure_tokens_reject_intervening_control_time_before_spending_construction_matter() {
+    use crate::core::time::ControlTick;
+    use crate::player::validate_admit_player;
+    use crate::simulation::advance_control_tick;
+
+    let registries = build_registries();
+    let definition = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap();
+    let commodity = definition.assembly_profile().inputs()[0].commodity();
+    let mass = definition.assembly_profile().input_mass();
+
+    let mut headless = AppState::new();
+    let target =
+        add_solid_stockpile_for_test(&mut headless, definition.maximum_stockpile_capacity())
+            .unwrap();
+    let source = add_solid_stockpile_for_test(&mut headless, mass).unwrap();
+    deposit_lot_for_test(
+        &registries,
+        &mut headless,
+        source,
+        commodity,
+        mass,
+        TEMPERATURE,
+    )
+    .unwrap();
+    let prepared = validate_build_storage_enclosure(
+        &registries,
+        &headless,
+        STORAGE_ROUGH_TIMBER_FIELD_BOX,
+        target,
+        source,
+    )
+    .unwrap();
+    let _ = advance_control_tick(&registries, &mut headless).unwrap();
+    let unchanged = headless.clone();
+    assert_eq!(
+        prepared.commit(&mut headless),
+        Err(StorageEnclosureCommitError::StaleControlTick {
+            expected: ControlTick::new(0),
+            actual: ControlTick::new(1),
+        })
+    );
+    assert_eq!(headless, unchanged);
+
+    let mut player = AppState::new();
+    validate_admit_player(&registries, &player, VoxelCoord::new(0, 0, 0))
+        .unwrap()
+        .commit(&mut player)
+        .unwrap();
+    let carried = player.logistics().player().unwrap().carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut player,
+        carried,
+        commodity,
+        mass,
+        TEMPERATURE,
+    )
+    .unwrap();
+    let prepared =
+        validate_place_player_storage(&registries, &player, STORAGE_ROUGH_TIMBER_FIELD_BOX)
+            .unwrap();
+    let _ = advance_control_tick(&registries, &mut player).unwrap();
+    let unchanged = player.clone();
+    assert_eq!(
+        prepared.commit(&mut player),
+        Err(PlayerStoragePlacementCommitError::StaleControlTick {
+            expected: ControlTick::new(0),
+            actual: ControlTick::new(1),
+        })
+    );
+    assert_eq!(player, unchanged);
+    assert_eq!(validate_loaded_state(&registries, &player), Ok(()));
+}
+
+#[test]
+fn enclosure_owner_rejects_constructing_persistent_matter_inside_a_living_kobold() {
+    use crate::logistics::add_traversable_edge_for_test;
+    use crate::player::validate_admit_player;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let den = VoxelCoord::new(-1, 0, 0);
+    let junction = VoxelCoord::new(0, 0, 0);
+    let tip = VoxelCoord::new(1, 0, 0);
+    for (from, to) in [(den, junction), (junction, tip)] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    let definition = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap();
+    let target =
+        add_solid_stockpile_for_test(&mut state, definition.maximum_stockpile_capacity()).unwrap();
+    let source =
+        add_solid_stockpile_for_test(&mut state, definition.assembly_profile().input_mass())
+            .unwrap();
+    for stockpile in [target, source] {
+        validate_place_ground_stockpile(&state, stockpile, den)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    }
+    let commodity = definition.assembly_profile().inputs()[0].commodity();
+    let mass = definition.assembly_profile().input_mass();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        commodity,
+        mass,
+        TEMPERATURE,
+    )
+    .unwrap();
+    let before = state.clone();
+    assert_eq!(
+        validate_build_storage_enclosure(
+            &registries,
+            &state,
+            STORAGE_ROUGH_TIMBER_FIELD_BOX,
+            target,
+            source
+        )
+        .err(),
+        Some(StorageEnclosureConstructionError::ResidentOccupiesSite { position: den }),
+        "in-place assembly must not create a box around the scout or den watchman",
+    );
+    assert_eq!(
+        state, before,
+        "rejected construction must preserve every owner"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    validate_admit_player(&registries, &state, tip)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        mass,
+        TEMPERATURE,
+    )
+    .unwrap();
+    let before = state.clone();
+    assert_eq!(
+        validate_place_player_storage_at(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX, den)
+            .err(),
+        Some(PlayerStoragePlacementError::ResidentOccupiesSite { position: den }),
+        "owner-level direct placement must also exclude occupied actor cells",
+    );
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn player_storage_placement_rejects_hot_construction_body_before_allocating_target() {
     let registries = build_registries();
     let mut state = AppState::new();

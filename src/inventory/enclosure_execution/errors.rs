@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Mass, Temperature};
+use crate::core::time::ControlTick;
 use crate::inventory::{
     MaterialLotId, StockpileId, StockpileStorageError, StockpileStorageProfile,
     StockpileStructuralLoadError, StorageDefinitionId,
@@ -55,6 +56,9 @@ pub enum StorageEnclosureConstructionError {
         source_position: VoxelCoord,
     },
     GeneratedSolidTerrain {
+        position: VoxelCoord,
+    },
+    ResidentOccupiesSite {
         position: VoxelCoord,
     },
     UnsupportedFloor {
@@ -109,6 +113,9 @@ pub enum PlayerStoragePlacementError {
     GeneratedSolidTerrain {
         position: VoxelCoord,
     },
+    ResidentOccupiesSite {
+        position: VoxelCoord,
+    },
     LooseResidueFooting {
         position: VoxelCoord,
         compact_depth_um: u128,
@@ -130,6 +137,13 @@ impl Display for PlayerStoragePlacementError {
             Self::GeneratedSolidTerrain { position } => write!(
                 formatter,
                 "storage placement at ({},{},{}) intersects solid terrain",
+                position.x(),
+                position.y(),
+                position.z()
+            ),
+            Self::ResidentOccupiesSite { position } => write!(
+                formatter,
+                "storage placement at ({},{},{}) intersects an opening or temple resident",
                 position.x(),
                 position.y(),
                 position.z()
@@ -156,7 +170,9 @@ impl Error for PlayerStoragePlacementError {
             Self::PlayerBusy => None,
             Self::Allocation(error) => Some(error),
             Self::Construction(error) => Some(error),
-            Self::LooseResidueFooting { .. } | Self::GeneratedSolidTerrain { .. } => None,
+            Self::LooseResidueFooting { .. }
+            | Self::GeneratedSolidTerrain { .. }
+            | Self::ResidentOccupiesSite { .. } => None,
         }
     }
 }
@@ -166,8 +182,18 @@ impl Error for PlayerStoragePlacementError {
 pub enum PlayerStoragePlacementCommitError {
     PlayerBecameBusy,
     Allocation(GroundStockpileAllocationCommitError),
-    SurfaceRevisionChanged { expected: u64, actual: u64 },
-    WorldRevisionChanged { expected: u64, actual: u64 },
+    SurfaceRevisionChanged {
+        expected: u64,
+        actual: u64,
+    },
+    WorldRevisionChanged {
+        expected: u64,
+        actual: u64,
+    },
+    StaleControlTick {
+        expected: ControlTick,
+        actual: ControlTick,
+    },
 }
 
 impl Display for PlayerStoragePlacementCommitError {
@@ -187,6 +213,12 @@ impl Display for PlayerStoragePlacementCommitError {
                 formatter,
                 "storage placement world revision changed from {expected} to {actual} before placement",
             ),
+            Self::StaleControlTick { expected, actual } => write!(
+                formatter,
+                "storage placement control time changed from {} to {} before commit",
+                expected.value(),
+                actual.value()
+            ),
         }
     }
 }
@@ -194,7 +226,9 @@ impl Display for PlayerStoragePlacementCommitError {
 impl Error for PlayerStoragePlacementCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::PlayerBecameBusy | Self::WorldRevisionChanged { .. } => None,
+            Self::PlayerBecameBusy
+            | Self::WorldRevisionChanged { .. }
+            | Self::StaleControlTick { .. } => None,
             Self::Allocation(error) => Some(error),
             Self::SurfaceRevisionChanged { .. } => None,
         }
@@ -297,6 +331,13 @@ impl Display for StorageEnclosureConstructionError {
                 position.y(),
                 position.z()
             ),
+            Self::ResidentOccupiesSite { position } => write!(
+                formatter,
+                "storage enclosure at ({},{},{}) intersects an opening or temple resident",
+                position.x(),
+                position.y(),
+                position.z()
+            ),
             Self::UnsupportedFloor { position } => write!(
                 formatter,
                 "storage enclosure at ({},{},{}) has no solid generated-world floor",
@@ -385,6 +426,7 @@ impl Error for StorageEnclosureConstructionError {
             | Self::LocatedTargetSourceUnlocated { .. }
             | Self::LocatedTargetSourceRemote { .. }
             | Self::GeneratedSolidTerrain { .. }
+            | Self::ResidentOccupiesSite { .. }
             | Self::UnsupportedFloor { .. }
             | Self::TargetBusyStorageDismantling { .. }
             | Self::TargetCapacityTooLarge { .. }
@@ -402,13 +444,35 @@ impl Error for StorageEnclosureConstructionError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StorageEnclosureCommitError {
     PlayerBecameBusy,
-    StaleSurvivalRevision { expected: u64, actual: u64 },
-    StaleInventoryRevision { expected: u64, actual: u64 },
-    StaleLogisticsRevision { expected: u64, actual: u64 },
-    StaleWorldRevision { expected: u64, actual: u64 },
-    UnknownTarget { stockpile: StockpileId },
-    TargetProfileChanged { stockpile: StockpileId },
-    TargetEnclosureChanged { stockpile: StockpileId },
+    StaleSurvivalRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleInventoryRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleWorldRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleControlTick {
+        expected: ControlTick,
+        actual: ControlTick,
+    },
+    UnknownTarget {
+        stockpile: StockpileId,
+    },
+    TargetProfileChanged {
+        stockpile: StockpileId,
+    },
+    TargetEnclosureChanged {
+        stockpile: StockpileId,
+    },
     Structure(StructuralCommitError),
 }
 
@@ -432,6 +496,12 @@ impl Display for StorageEnclosureCommitError {
             Self::StaleWorldRevision { expected, actual } => write!(
                 formatter,
                 "storage construction expected world revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleControlTick { expected, actual } => write!(
+                formatter,
+                "storage construction control time changed from {} to {} before commit",
+                expected.value(),
+                actual.value()
             ),
             Self::UnknownTarget { stockpile } => write!(
                 formatter,
@@ -465,6 +535,7 @@ impl Error for StorageEnclosureCommitError {
             | Self::StaleInventoryRevision { .. }
             | Self::StaleLogisticsRevision { .. }
             | Self::StaleWorldRevision { .. }
+            | Self::StaleControlTick { .. }
             | Self::UnknownTarget { .. }
             | Self::TargetProfileChanged { .. }
             | Self::TargetEnclosureChanged { .. } => None,
