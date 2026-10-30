@@ -31,6 +31,7 @@ use crate::material::CommodityKey;
 use crate::mining::{MiningMethodId, MiningPhysicsError, resolve_mining_physics};
 use crate::registry::Registries;
 use crate::spatial::{ViewDirection, VoxelCoord};
+use crate::structural::StructuralElementId;
 
 use super::{BlockStateId, PlayerBlockTarget, PlayerBlockTargetError, raycast_player_block};
 
@@ -84,6 +85,10 @@ pub enum BlockExcavationError {
     },
     StandingTreeRequiresFloor {
         target: VoxelCoord,
+    },
+    GroundedStructureRequiresFloor {
+        target: VoxelCoord,
+        element: StructuralElementId,
     },
     UnknownMethod {
         method: MiningMethodId,
@@ -156,6 +161,14 @@ impl Display for BlockExcavationError {
                 target.y(),
                 target.z()
             ),
+            Self::GroundedStructureRequiresFloor { target, element } => write!(
+                formatter,
+                "cannot remove block at ({},{},{}): grounded member {} bears on it; dismantle the member first",
+                target.x(),
+                target.y(),
+                target.z(),
+                element.value()
+            ),
             Self::UnknownMethod { method } => {
                 write!(formatter, "unknown mining method {}", method.value())
             }
@@ -207,6 +220,7 @@ impl Error for BlockExcavationError {
             | Self::MassExceedsCell { .. }
             | Self::StorageEnclosureRequiresFloor { .. }
             | Self::StandingTreeRequiresFloor { .. }
+            | Self::GroundedStructureRequiresFloor { .. }
             | Self::UnknownMethod { .. }
             | Self::EquipmentMounted { .. }
             | Self::EquipmentRevisionExhausted
@@ -250,6 +264,10 @@ pub enum BlockExcavationCommitError {
         target: VoxelCoord,
         stockpile: StockpileId,
     },
+    GroundedStructureRequiresFloor {
+        target: VoxelCoord,
+        element: StructuralElementId,
+    },
     EquipmentChanged,
     PlayerWork(PlayerWorkCommitError),
 }
@@ -292,6 +310,14 @@ impl Display for BlockExcavationCommitError {
                 target.z(),
                 stockpile.value()
             ),
+            Self::GroundedStructureRequiresFloor { target, element } => write!(
+                formatter,
+                "block excavation cannot remove floor ({},{},{}): grounded member {} bears on it",
+                target.x(),
+                target.y(),
+                target.z(),
+                element.value()
+            ),
             Self::EquipmentChanged => {
                 formatter.write_str("block excavation equipment changed before start")
             }
@@ -317,6 +343,7 @@ impl Error for BlockExcavationCommitError {
             | Self::StaleSurfaceIdentity { .. }
             | Self::TargetChanged
             | Self::StorageEnclosureRequiresFloor { .. }
+            | Self::GroundedStructureRequiresFloor { .. }
             | Self::EquipmentChanged => None,
         }
     }
@@ -424,6 +451,14 @@ impl ValidatedPlayerBlockExcavationStart {
                 stockpile,
             });
         }
+        if self.work.excavated_mass() == self.work.source_mass_before()
+            && let Some(element) = grounded_structure_resting_on(state, self.work.target())
+        {
+            return Err(BlockExcavationCommitError::GroundedStructureRequiresFloor {
+                target: self.work.target(),
+                element,
+            });
+        }
         let Some(equipment) = state.equipment().get_equipment(self.work.equipment()) else {
             return Err(BlockExcavationCommitError::EquipmentChanged);
         };
@@ -499,6 +534,14 @@ fn validate_start_player_block_excavation_targeted(
         return Err(BlockExcavationError::StorageEnclosureRequiresFloor {
             target: target.voxel(),
             stockpile,
+        });
+    }
+    if request.mass == source_mass
+        && let Some(element) = grounded_structure_resting_on(state, target.voxel())
+    {
+        return Err(BlockExcavationError::GroundedStructureRequiresFloor {
+            target: target.voxel(),
+            element,
         });
     }
     if request.mass == source_mass
@@ -645,4 +688,24 @@ fn storage_enclosure_resting_on(state: &AppState, floor: VoxelCoord) -> Option<S
             .get_stockpile(id)
             .is_some_and(|stockpile| stockpile.enclosure().is_some())
     })
+}
+
+/// Ground anchors remain attached to their actual supporting terrain until
+/// dismantled. An empty blueprint does not own physical matter and cannot
+/// reserve a permanent veto over earthworks.
+fn grounded_structure_resting_on(
+    state: &AppState,
+    floor: VoxelCoord,
+) -> Option<StructuralElementId> {
+    let above = VoxelCoord::new(floor.x(), floor.y().checked_add(1)?, floor.z());
+    state
+        .structures()
+        .elements_covering(above)
+        .filter(|member| {
+            member.is_grounded()
+                && !member.embodied_material().is_empty()
+                && member.bounds().min().y() == above.y()
+        })
+        .map(|member| member.id())
+        .min()
 }

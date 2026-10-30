@@ -38,6 +38,8 @@ mod batch_admission;
 mod chunk_coordinates;
 #[path = "world_tests/excavation_selection.rs"]
 mod excavation_selection;
+#[path = "world_tests/foundation_excavation.rs"]
+mod foundation_excavation;
 #[path = "world_tests/graded_ore.rs"]
 mod graded_ore;
 
