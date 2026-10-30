@@ -5,6 +5,7 @@ use crate::core::state::AppState;
 use crate::inventory::validate_stockpile_storage;
 use crate::labor::SurfaceGatheringWork;
 use crate::logistics::validate_player_stockpile_access;
+use crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
 use crate::registry::Registries;
 use crate::surface::SurfaceResourceLifecycle;
 
@@ -48,6 +49,12 @@ pub(super) fn validate_surface_gathering_work(
                 actual: resource.commodity(),
             },
         );
+    }
+    // An active hand-gathering job could only have been admitted while the
+    // exact source was safe to handle. The source's persisted physical profile
+    // must still satisfy that admission rule on trusted reload.
+    if resource.temperature() > MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE {
+        return Err(PlayerWorkValidationError::SurfaceGatheringSourceTooHot);
     }
     if resource.lifecycle() != SurfaceResourceLifecycle::Available {
         return Err(PlayerWorkValidationError::SurfaceGatheringResourceDepleted);

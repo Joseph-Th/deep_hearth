@@ -37,6 +37,7 @@ impl Error for PlayerWorkValidationError {
             | Self::SurfaceGatheringResourceMissing
             | Self::SurfaceGatheringResourceDepleted
             | Self::SurfaceGatheringSourceMassMismatch
+            | Self::SurfaceGatheringSourceTooHot
             | Self::SurfaceGatheringMassInvalid
             | Self::SurfaceGatheringPlayerNotLocated
             | Self::SurfaceGatheringPlayerRemote

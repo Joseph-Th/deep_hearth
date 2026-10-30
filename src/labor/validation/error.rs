@@ -31,6 +31,7 @@ pub enum PlayerWorkValidationError {
     SurfaceGatheringResourceMissing,
     SurfaceGatheringResourceDepleted,
     SurfaceGatheringSourceMassMismatch,
+    SurfaceGatheringSourceTooHot,
     SurfaceGatheringMassInvalid,
     SurfaceGatheringPlayerNotLocated,
     SurfaceGatheringPlayerRemote,

@@ -77,11 +77,20 @@ fn available_pickup_destination(state: &AppState) -> Option<(StockpileId, VoxelC
     (!capacity.is_zero()).then_some((destination, player.position(), capacity))
 }
 
-fn pickup_eligible_at(resource: &SurfaceResourceRecord, at: ControlTick) -> bool {
+fn pickup_eligible_at(state: &AppState, resource: &SurfaceResourceRecord, at: ControlTick) -> bool {
     // Automatic pickup is bare-handed. A hot parcel must remain on the ground
     // rather than entering a pack just because the actor walks through it.
-    // The same eligibility gate controls neutral fast-forward and actual pickup.
-    resource.temperature() <= MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE
+    // An active hand-gathering job also owns its exact source mass until it
+    // completes. Do not preempt that future withdrawal with automatic pickup;
+    // unrelated local drops may still be collected.
+    // Both exclusions control neutral fast-forward and actual pickup.
+    let reserved_for_gathering = matches!(
+        state.player_work().active(),
+        Some(crate::labor::PlayerWork::SurfaceGathering { work })
+            if work.resource() == resource.id()
+    );
+    !reserved_for_gathering
+        && resource.temperature() <= MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE
         && resource
             .automatic_pickup_delay_started_at()
             .is_none_or(|started| {
@@ -108,6 +117,18 @@ pub(crate) fn automatic_surface_pickup_requires_control_stepping(
     else {
         return false;
     };
+    // This drop is reserved while hand gathering is active, but its unclaimed
+    // remainder becomes eligible again on the completion boundary. Neutral
+    // fast-forward must not skip that control-rate pickup; conservatively step
+    // until the job releases its source.
+    if let Some(crate::labor::PlayerWork::SurfaceGathering { work }) = state.player_work().active()
+        && let Some(resource) = state.surface().get(work.resource())
+        && resource.kind() == SurfaceResourceKind::Drop
+        && resource.remaining_mass() > work.gathered_mass()
+        && resource.temperature() <= MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE
+    {
+        return true;
+    }
     let remaining = CONTROL_TICKS_PER_SIMULATION_TICK
         - state.control_tick().value() % CONTROL_TICKS_PER_SIMULATION_TICK;
     let Some(next_boundary) = state.control_tick().checked_add_steps(remaining) else {
@@ -118,7 +139,7 @@ pub(crate) fn automatic_surface_pickup_requires_control_stepping(
         .available_resources_at(Some(position))
         .filter(|resource| {
             resource.kind() == SurfaceResourceKind::Drop
-                && pickup_eligible_at(resource, next_boundary)
+                && pickup_eligible_at(state, resource, next_boundary)
         });
     // With one available identity after reserving all future obligations,
     // any currently available local drop can be picked up on a control step.
@@ -190,7 +211,7 @@ pub(crate) fn decide_automatic_surface_drop_pickup(
         if resource.kind() != SurfaceResourceKind::Drop {
             continue;
         }
-        if !pickup_eligible_at(resource, state.control_tick()) {
+        if !pickup_eligible_at(state, resource, state.control_tick()) {
             continue;
         }
         let Some(ingress) = validate_pickup_ingress(

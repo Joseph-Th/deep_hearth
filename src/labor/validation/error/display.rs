@@ -36,6 +36,9 @@ impl Display for PlayerWorkValidationError {
             Self::SurfaceGatheringSourceMassMismatch => formatter.write_str(
                 "surface gathering work disagrees with the remaining world-resource mass",
             ),
+            Self::SurfaceGatheringSourceTooHot => formatter.write_str(
+                "active hand-gathering work references material above the safe handling temperature",
+            ),
             Self::SurfaceGatheringMassInvalid => formatter
                 .write_str("surface gathering mass exceeds the current authored hand-gather batch"),
             Self::SurfaceGatheringPlayerNotLocated => formatter

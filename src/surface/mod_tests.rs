@@ -1195,6 +1195,180 @@ fn deliberate_hand_gathering_cannot_bypass_hot_surface_drop_pickup() {
 }
 
 #[test]
+fn trusted_load_rejects_active_hand_gathering_from_a_hot_surface_source() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let mass = Mass::from_milligrams(50_000);
+    let resource = insert_surface_resource_for_test(
+        &registries,
+        &mut state,
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Opportunity,
+            position,
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            mass,
+            TEMPERATURE,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let carried = admit_player(&registries, &mut state, position);
+    validate_start_player_surface_gathering(
+        &registries,
+        &state,
+        SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
+        resource,
+        mass,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let valid = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded: LoadedSaveEnvelope = serde_json::from_value(valid.clone()).unwrap();
+    let mut replay = loaded.into_state(&registries).unwrap();
+    assert_eq!(state, replay);
+    // Legitimate saved work survives and finishes with conserved custody.
+    while state.player_work().active().is_some() {
+        let step = advance_tick(&registries, &mut state).unwrap();
+        assert_eq!(step, advance_tick(&registries, &mut replay).unwrap());
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .stored_mass(),
+        mass,
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+
+    let mut forged = valid;
+    let key = resource.value().to_string();
+    let temperature = &mut forged["state"]["systems"]["surface"]["resources"][key.as_str()]["material"]
+        ["profile"]["temperature"];
+    assert_eq!(*temperature, serde_json::json!(TEMPERATURE.millikelvin()));
+    *temperature = serde_json::json!(423_150);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(forged).unwrap();
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::SurfaceGatheringSourceTooHot,
+        ))),
+        "persisted active hand-gathering work must not resume after its source has been made too hot",
+    );
+}
+
+#[test]
+fn control_pickup_skips_the_drop_reserved_by_an_active_hand_gathering_job() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let target_mass = Mass::from_milligrams(100_000);
+    let other_mass = Mass::from_milligrams(20_000);
+    let mut drops = Vec::new();
+    for mass in [target_mass, other_mass] {
+        drops.push(
+            insert_surface_resource_for_test(
+                &registries,
+                &mut state,
+                SurfaceResourceSpec::new(
+                    SurfaceResourceKind::Drop,
+                    position,
+                    commodity,
+                    mass,
+                    TEMPERATURE,
+                    MaterialComposition::pure(MATERIAL_STONE),
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        );
+    }
+    let carried = admit_player(&registries, &mut state, position);
+    let gathered_mass = Mass::from_milligrams(50_000);
+    validate_start_player_surface_gathering(
+        &registries,
+        &state,
+        SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
+        drops[0],
+        gathered_mass,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let pickup = advance_control_tick(&registries, &mut state).unwrap();
+    assert_eq!(
+        pickup.surface_drop_pickup().map(|item| item.resource()),
+        Some(drops[1]),
+        "automatic pickup may collect an unrelated parcel but cannot steal active work's source",
+    );
+    assert_eq!(
+        state.surface().get(drops[0]).unwrap().remaining_mass(),
+        target_mass
+    );
+    assert_eq!(
+        state.surface().get(drops[1]).unwrap().remaining_mass(),
+        Mass::ZERO
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    // The remaining loose mass will become eligible on the due slow boundary,
+    // after the work has claimed its reservation. Fast-forwarding that boundary
+    // must not silently skip the immediate automatic pickup.
+    let before = state.clone();
+    let current = state.control_tick();
+    assert_eq!(
+        advance_tick(&registries, &mut state),
+        Err(crate::simulation::TickError::ControlSteppingRequired { current }),
+    );
+    assert_eq!(state, before);
+    let mut picked_remaining = false;
+    while state.player_work().active().is_some() {
+        let next = advance_control_tick(&registries, &mut state).unwrap();
+        let restored = advance_control_tick(&registries, &mut replay).unwrap();
+        assert_eq!(next, restored);
+        picked_remaining |= next
+            .surface_drop_pickup()
+            .is_some_and(|drop| drop.resource() == drops[0]);
+        assert_eq!(state, replay);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+    assert!(
+        picked_remaining,
+        "the remaining drop must be collected after reserved work finishes"
+    );
+    assert_eq!(
+        state.surface().get(drops[0]).unwrap().remaining_mass(),
+        Mass::ZERO,
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .stored_mass(),
+        target_mass.checked_add(other_mass).unwrap(),
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+}
+
+#[test]
 fn exposed_residue_footing_counts_distinct_densities_without_treating_nature_as_disposal() {
     let registries = build_registries();
     let mut state = AppState::new();
