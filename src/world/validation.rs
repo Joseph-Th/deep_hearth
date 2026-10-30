@@ -556,6 +556,21 @@ fn validate_section_mass(
     chunk: ChunkCoord,
     section: &WorldSection,
 ) -> Result<(), WorldValidationError> {
+    // A one-state section with no partial excavation represents 4,096 identical
+    // cells. Avoid thousands of redundant palette and registry lookups per load.
+    if let Some(state) = section.uniform_state_without_mass_overrides() {
+        let per_cell = registry
+            .represented_mass_for_state(state)
+            .unwrap_or_else(|| unreachable!("validated block state has a block definition"));
+        let total = u128::from(per_cell.milligrams()) * super::SECTION_CELL_COUNT as u128;
+        let expected = u64::try_from(total)
+            .map(Mass::from_milligrams)
+            .map_err(|_| WorldValidationError::SectionMassOverflow {
+                chunk,
+                section_y: section.y(),
+            })?;
+        return validate_section_mass_total(chunk, section, expected);
+    }
     let mut expected = Mass::ZERO;
     for cell in 0..super::SECTION_CELL_COUNT {
         let state = section
@@ -593,6 +608,14 @@ fn validate_section_mass(
                 section_y: section.y(),
             })?;
     }
+    validate_section_mass_total(chunk, section, expected)
+}
+
+fn validate_section_mass_total(
+    chunk: ChunkCoord,
+    section: &WorldSection,
+    expected: Mass,
+) -> Result<(), WorldValidationError> {
     if expected != section.represented_mass() {
         return Err(WorldValidationError::SectionMassMismatch {
             chunk,

@@ -192,6 +192,16 @@ impl WorldSection {
             .copied()
     }
 
+    /// A canonical homogeneous section with no exceptional partial-cell mass can be
+    /// accounted as one repeated state instead of decoding all of its cells.
+    pub(crate) fn uniform_state_without_mass_overrides(&self) -> Option<BlockStateId> {
+        if self.palette.len() == 1 && self.mass_overrides.is_empty() {
+            self.palette.first().copied()
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn set_mass_override_at_index(
         &mut self,
         index: usize,
@@ -369,31 +379,41 @@ impl WorldSection {
                 actual: self.words.len(),
             });
         }
-        let mut counted_non_air = 0_u16;
-        let mut used_palette_indexes = BTreeSet::new();
-        for index in 0..SECTION_CELL_COUNT {
-            let palette_index = if self.palette.len() == 1 {
+        // Homogeneous sections need no per-cell decode. They dominate ordinary terrain,
+        // and their canonical empty words already prove all 4,096 indices are zero.
+        let mut used_palette_indexes = Vec::new();
+        let counted_non_air = if self.palette.len() == 1 {
+            if self.palette[0] == BlockStateId::AIR {
                 0
             } else {
-                read_packed_index(&self.words, bits, index).unwrap_or_else(|| {
-                    unreachable!("validated word count covers every section cell")
-                })
-            };
-            let Some(state) = self.palette.get(palette_index) else {
-                return Err(WorldValidationError::SectionPaletteIndexOutOfRange {
-                    section_y: self.y,
-                    cell: index,
-                    palette_index,
-                    palette_len: self.palette.len(),
-                });
-            };
-            used_palette_indexes.insert(palette_index);
-            if *state != BlockStateId::AIR {
-                counted_non_air = counted_non_air
-                    .checked_add(1)
-                    .unwrap_or_else(|| unreachable!("section has at most 4096 non-air cells"));
+                SECTION_CELL_COUNT as u16
             }
-        }
+        } else {
+            // Multi-state sections require index membership, not a per-cell tree lookup.
+            used_palette_indexes = vec![false; self.palette.len()];
+            let mut counted = 0_u16;
+            for index in 0..SECTION_CELL_COUNT {
+                let palette_index =
+                    read_packed_index(&self.words, bits, index).unwrap_or_else(|| {
+                        unreachable!("validated word count covers every section cell")
+                    });
+                let Some(state) = self.palette.get(palette_index) else {
+                    return Err(WorldValidationError::SectionPaletteIndexOutOfRange {
+                        section_y: self.y,
+                        cell: index,
+                        palette_index,
+                        palette_len: self.palette.len(),
+                    });
+                };
+                used_palette_indexes[palette_index] = true;
+                if *state != BlockStateId::AIR {
+                    counted = counted
+                        .checked_add(1)
+                        .unwrap_or_else(|| unreachable!("section has at most 4096 non-air cells"));
+                }
+            }
+            counted
+        };
         if counted_non_air != self.non_air_count {
             return Err(WorldValidationError::SectionNonAirCountMismatch {
                 section_y: self.y,
@@ -401,10 +421,7 @@ impl WorldSection {
                 actual: counted_non_air,
             });
         }
-        if used_palette_indexes.len() != self.palette.len() {
-            let unused_index = (0..self.palette.len())
-                .find(|index| !used_palette_indexes.contains(index))
-                .unwrap_or_else(|| unreachable!("palette usage proved an unused entry"));
+        if let Some(unused_index) = used_palette_indexes.iter().position(|used| !*used) {
             return Err(WorldValidationError::UnusedSectionPaletteState {
                 section_y: self.y,
                 state: self.palette[unused_index],
