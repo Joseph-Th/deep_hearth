@@ -4,8 +4,10 @@ use std::collections::BTreeSet;
 
 use crate::content::{
     BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS,
-    BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, FORM_BOARD, FORM_LOG, MATERIAL_WOOD,
-    STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    BASIC_TIMBER_DRIVE_COUPLING_CROSS_SECTION, BASIC_TIMBER_DRIVE_COUPLING_LENGTH,
+    BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, FORM_BOARD, FORM_HANDLE, FORM_LOG,
+    MATERIAL_WOOD, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    STRUCTURAL_PROFILE_TIMBER_DRIVE_COUPLING,
 };
 use crate::core::state::AppState;
 use crate::inventory::{StorageDefinitionId, validate_place_player_storage_at};
@@ -349,7 +351,8 @@ pub(super) fn attempt_selected_timber_placement(
     commodity: CommodityKey,
     direction: ViewDirection,
 ) -> Option<SecondaryActionOutcome> {
-    if commodity != CommodityKey::new(MATERIAL_WOOD, FORM_LOG) {
+    let is_roller = commodity == CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE);
+    if !is_roller && commodity != CommodityKey::new(MATERIAL_WOOD, FORM_LOG) {
         return None;
     }
     if !state.control_tick().is_simulation_boundary() {
@@ -360,7 +363,10 @@ pub(super) fn attempt_selected_timber_placement(
         Err(outcome) => return Some(outcome),
     };
     let stack = &stack;
-    if let Some(outcome) = attempt_supported_timber_placement(registries, state, stack, direction) {
+    if !is_roller
+        && let Some(outcome) =
+            attempt_supported_timber_placement(registries, state, stack, direction)
+    {
         return Some(outcome);
     }
     let (face, position) = match resolve_direct_placement_target(registries, state, direction) {
@@ -375,12 +381,24 @@ pub(super) fn attempt_selected_timber_placement(
     };
     let geometry = StructuralElementGeometry::new(
         bounds,
-        BASIC_TIMBER_POST_LENGTH,
-        BASIC_TIMBER_POST_CROSS_SECTION,
+        if is_roller {
+            BASIC_TIMBER_DRIVE_COUPLING_LENGTH
+        } else {
+            BASIC_TIMBER_POST_LENGTH
+        },
+        if is_roller {
+            BASIC_TIMBER_DRIVE_COUPLING_CROSS_SECTION
+        } else {
+            BASIC_TIMBER_POST_CROSS_SECTION
+        },
     )
     .unwrap_or_else(|error| panic!("built-in timber-post geometry is invalid: {error}"));
     let plan = GroundedStructuralElementPlan::new(
-        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        if is_roller {
+            STRUCTURAL_PROFILE_TIMBER_DRIVE_COUPLING
+        } else {
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION
+        },
         MATERIAL_WOOD,
         geometry,
     );

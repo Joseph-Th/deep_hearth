@@ -4,6 +4,7 @@ use crate::combat::{PrimitiveAttackError, PrimitiveAttackOutcome, PrimitivePrepa
 use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, ControlTick, SimulationTick};
 use crate::energy::{
     CombustionError, EnergyStoreAssemblyError, EnergyStoreDefinitionId, EnergyStoreId,
+    MechanicalTransmissionReceipt,
 };
 use crate::equipment::{EquipmentId, EquipmentMaintenanceOutcome};
 use crate::geology::FieldProspectingOutcome;
@@ -361,6 +362,7 @@ pub struct TickOutcome {
     pub(super) block_excavation: Option<BlockExcavationOutcome>,
     pub(super) tree_felling: Option<TreeFellingOutcome>,
     pub(super) manual_power: Option<ManualPowerOutcome>,
+    pub(super) mechanical_transmissions: Vec<MechanicalTransmissionReceipt>,
     pub(super) equipment_maintenance: Option<EquipmentMaintenanceOutcome>,
     pub(super) storage_enclosure_dismantling: Option<StorageEnclosureDismantlingOutcome>,
     pub(super) structural_construction: Option<StructuralElementId>,
@@ -418,6 +420,12 @@ impl TickOutcome {
     #[must_use]
     pub const fn manual_power(&self) -> Option<ManualPowerOutcome> {
         self.manual_power
+    }
+
+    /// Exact mechanical work transmitted and lost through built timber couplings.
+    #[must_use]
+    pub fn mechanical_transmissions(&self) -> &[MechanicalTransmissionReceipt] {
+        &self.mechanical_transmissions
     }
 
     /// Returns equipment condition recovery completed by direct maintenance this tick.
@@ -484,6 +492,7 @@ impl TickOutcome {
             block_excavation,
             tree_felling,
             manual_power,
+            mechanical_transmissions,
             equipment_maintenance,
             storage_enclosure_dismantling,
             structural_construction,
@@ -501,6 +510,7 @@ impl TickOutcome {
             block_excavation.is_some(),
             tree_felling.is_some(),
             manual_power.is_some(),
+            !mechanical_transmissions.is_empty(),
             equipment_maintenance.is_some(),
             storage_enclosure_dismantling.is_some(),
             structural_construction.is_some(),

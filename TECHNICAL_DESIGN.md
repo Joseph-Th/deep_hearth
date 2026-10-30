@@ -780,6 +780,7 @@ generated chunk truth + persisted player body + gravity -> 20 Hz vertical sweep/
 inventory traces -> equipment @ player voxel -> optional structural support
 exact-local equipment observation -> player tool/machine selection -> canonical owner action
 inventory traces -> finite energy store @ player voxel
+carried wooden handle -> grounded timed coupling roller -> opposed located mechanical stores -> bounded shaft work + friction sink
 finite fluid store @ world voxel -> exact-local observation -> survival-filtered drinking / structurally supported vessel
 embodiment -> authored maintenance, disassembly, dismantling, or salvage -> inventory traces
 finite energy store -> reserved/consumed process energy -> modeled work/heat or explicit loss sink

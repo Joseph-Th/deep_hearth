@@ -11,7 +11,10 @@ use super::{TickError, TickOutcome, map_block_excavation_tick_error};
 
 use crate::core::state::{AppState, apply_clock_advance, debug_assert_runtime_invariants};
 use crate::core::time::SimulationTick;
-use crate::energy::{apply_passive_energy_dissipation, decide_passive_energy_dissipation};
+use crate::energy::{
+    apply_mechanical_transmission, apply_passive_energy_dissipation,
+    decide_mechanical_transmission, decide_passive_energy_dissipation,
+};
 use crate::equipment::{apply_equipment_maintenance_tick, decide_equipment_maintenance_tick};
 use crate::geology::{apply_field_prospecting_tick, decide_field_prospecting_tick};
 use crate::inventory::apply_storage_enclosure_dismantling_tick;
@@ -108,6 +111,15 @@ pub(super) fn advance_simulation_tick(
     )?;
     let passive_energy_plan = decide_passive_energy_dissipation(registries, state);
     let passive_energy_revision_steps = passive_energy_plan.energy_revision_steps();
+    let transmission_plan = decide_mechanical_transmission(
+        registries,
+        state,
+        &passive_energy_plan,
+        structural_dismantling_plan
+            .as_ref()
+            .map(|plan| plan.element()),
+    );
+    let transmission_revision_steps = transmission_plan.energy_revision_steps();
     // Production releases and manual-power completion already own future energy revisions through
     // durable resident state. Passive loss is an incidental same-tick mutation, so it must fit in
     // addition to those obligations rather than consuming capacity promised to them.
@@ -124,6 +136,7 @@ pub(super) fn advance_simulation_tick(
                 .as_ref()
                 .map_or(0, |plan| plan.energy_revision_steps()),
             passive_energy_revision_steps,
+            transmission_revision_steps,
         ],
         TickError::EnergyRevisionExhausted,
     )?;
@@ -265,6 +278,7 @@ pub(super) fn advance_simulation_tick(
     let manual_power = apply_manual_power_tick(state, manual_power_plan);
     let equipment_maintenance = apply_equipment_maintenance_tick(state, equipment_maintenance_plan);
     apply_passive_energy_dissipation(state, passive_energy_plan);
+    let mechanical_transmissions = apply_mechanical_transmission(state, transmission_plan);
     let field_prospecting = apply_field_prospecting_tick(state, field_prospecting_plan);
     let storage_enclosure_dismantling =
         apply_storage_enclosure_dismantling_tick(state, storage_enclosure_dismantling_plan);
@@ -302,6 +316,7 @@ pub(super) fn advance_simulation_tick(
         block_excavation,
         tree_felling,
         manual_power,
+        mechanical_transmissions,
         equipment_maintenance,
         storage_enclosure_dismantling,
         structural_construction,

@@ -232,6 +232,21 @@ impl EnergyState {
         }
     }
 
+    /// Settles one physically coupled shaft transfer; the difference is dissipated
+    /// into bearing and shaft friction rather than a fictional energy store.
+    pub(super) fn transfer_mechanical_energy(
+        &mut self,
+        source: EnergyStoreId,
+        destination: EnergyStoreId,
+        drawn: Energy,
+        delivered: Energy,
+    ) {
+        assert_ne!(source, destination);
+        assert!(!delivered.is_zero() && delivered <= drawn);
+        self.subtract_stored_energy(source, drawn);
+        self.add_stored_energy(destination, delivered);
+    }
+
     pub(super) fn assert_upgrade_available(
         &self,
         mutation: &EnergyStoreUpgradeMutation,

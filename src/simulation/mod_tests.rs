@@ -36,6 +36,8 @@ use crate::world::{
 
 #[path = "mod_tests/direct_gathering.rs"]
 mod direct_gathering;
+#[path = "mod_tests/mechanical_worksite.rs"]
+mod mechanical_worksite;
 #[path = "mod_tests/overhead_cover.rs"]
 mod overhead_cover;
 #[path = "mod_tests/slow_boundary_support.rs"]

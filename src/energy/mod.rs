@@ -10,6 +10,7 @@ mod disassembly_execution;
 mod fixture_execution;
 mod illumination;
 mod integration;
+mod mechanical_transmission;
 mod passive_dissipation;
 mod player_upgrade;
 mod state;
@@ -46,6 +47,10 @@ pub use integration::{
     PowerDurationError, PowerIntegration, PowerIntegrationError, PowerRemainder,
     calculate_mass_specific_energy, calculate_mass_specific_energy_capacity,
     calculate_power_duration_ceiling, integrate_power,
+};
+pub use mechanical_transmission::MechanicalTransmissionReceipt;
+pub(crate) use mechanical_transmission::{
+    apply_mechanical_transmission, decide_mechanical_transmission,
 };
 pub use passive_dissipation::{
     PassiveDissipationHorizonError, passive_dissipation_ticks_until_empty,

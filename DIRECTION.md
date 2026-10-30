@@ -29,6 +29,16 @@ Prefer a smaller connected graph over a larger disconnected catalog. A feature t
 no new owner interaction, decision surface, or recovery path has low priority unless it is required to close a
 specific vertical slice.
 
+The first physically built power coupling now connects opposed mechanical accumulators through
+an ordinary ground-set timber roller, converting a hand-charged local flywheel into a finite
+remote power source at bounded throughput and frictional loss. The connection is a structural
+member with actual material, support, construction time and recovery, not a free virtual bus.
+**Next close the production payoff:** make one ordinary crusher and its ore/waste custody
+acquirable and operable on the far side of that drive while the player mines, hauls or builds.
+Only then extend the roller into longer shaft geometry, gearing, material-based performance,
+and true electrical/fluid distribution. A network without productive downstream work is
+still incomplete gameplay, however correct its transfer arithmetic.
+
 Combat's connected integration sequence is defined in [Combat and Kobold Cooperation](COMBAT_DESIGN.md):
 first real nonlethal contact, then material-backed melee and defense, physical injury, ranged
 ammunition and supply, and only then voluntary allied roles and industrial formations.

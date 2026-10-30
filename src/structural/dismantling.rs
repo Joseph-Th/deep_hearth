@@ -345,6 +345,12 @@ pub(crate) struct StructuralDismantlingTickPlan {
     next_structure_revision: u64,
 }
 
+impl StructuralDismantlingTickPlan {
+    pub(crate) const fn element(&self) -> StructuralElementId {
+        self.work.element()
+    }
+}
+
 #[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StructuralDismantlingOutcome {
