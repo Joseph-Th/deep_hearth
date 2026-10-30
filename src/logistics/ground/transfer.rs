@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::Mass;
+use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
 use crate::inventory::{
     ExplicitConsumptionSelectionError, MaterialLotSelection, MaterialRelocationCommitError,
@@ -11,6 +11,7 @@ use crate::inventory::{
     ValidatedMaterialRelocation, validate_explicit_consumption_selection,
     validate_material_relocation_from_selection,
 };
+use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE};
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -23,6 +24,11 @@ pub enum GroundMaterialTransferError {
     PlayerUninitialized,
     PlayerDead,
     PlayerBusy,
+    MaterialTooHot {
+        commodity: CommodityKey,
+        temperature: Temperature,
+        maximum: Temperature,
+    },
     GroundStockpileNotLocated {
         stockpile: StockpileId,
     },
@@ -46,6 +52,18 @@ impl Display for GroundMaterialTransferError {
             Self::PlayerBusy => {
                 formatter.write_str("player cannot transfer ground material while work is active")
             }
+            Self::MaterialTooHot {
+                commodity,
+                temperature,
+                maximum,
+            } => write!(
+                formatter,
+                "cannot pick up material {} form {} at {} mK by hand; maximum is {} mK",
+                commodity.material().value(),
+                commodity.form().value(),
+                temperature.millikelvin(),
+                maximum.millikelvin(),
+            ),
             Self::GroundStockpileNotLocated { stockpile } => write!(
                 formatter,
                 "stockpile {} has no logistics-owned ground location",
@@ -86,6 +104,7 @@ impl Error for GroundMaterialTransferError {
             Self::PlayerUninitialized
             | Self::PlayerDead
             | Self::PlayerBusy
+            | Self::MaterialTooHot { .. }
             | Self::GroundStockpileNotLocated { .. }
             | Self::GroundStockpileNotAtPlayer { .. } => None,
         }
@@ -204,6 +223,21 @@ pub fn validate_pickup_from_ground(
     let (player, player_action) = validate_ground_access(state, source)?;
     let selection = validate_explicit_consumption_selection(state.inventory(), source, selections)
         .map_err(GroundMaterialTransferError::Selection)?;
+    // This is a direct hand transfer into the player's pack. Ground storage
+    // may legitimately hold hot matter, but neither exact lot selections nor
+    // stack/quick-move UI gestures may bypass the unprotected handling limit.
+    // The reverse movement remains legal so already-carried matter can be set down.
+    if let Some(trace) = selection
+        .consumed_inputs()
+        .iter()
+        .find(|trace| trace.profile().temperature() > MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE)
+    {
+        return Err(GroundMaterialTransferError::MaterialTooHot {
+            commodity: trace.profile().commodity(),
+            temperature: trace.profile().temperature(),
+            maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+        });
+    }
     let relocation = validate_material_relocation_from_selection(
         registries,
         state,

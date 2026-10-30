@@ -13,7 +13,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
-use crate::core::quantity::{Energy, Mass};
+use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::inventory::{
@@ -27,7 +27,7 @@ use crate::labor::{
     validate_player_work_start,
 };
 use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
-use crate::material::CommodityKey;
+use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE};
 use crate::registry::Registries;
 use crate::survival::{
     FoodCategory, FoodFreshness, FoodFreshnessError, SurvivalExertion, freshness_from_history,
@@ -240,6 +240,11 @@ pub enum SurfaceGatheringError {
         requested: Mass,
         remaining: Mass,
     },
+    ResourceTooHot {
+        resource: SurfaceResourceId,
+        temperature: Temperature,
+        maximum: Temperature,
+    },
     DestinationAccess(PlayerStockpileAccessError),
     DestinationMissing {
         stockpile: StockpileId,
@@ -315,6 +320,17 @@ impl Display for SurfaceGatheringError {
                 requested.milligrams(),
                 remaining.milligrams()
             ),
+            Self::ResourceTooHot {
+                resource,
+                temperature,
+                maximum,
+            } => write!(
+                formatter,
+                "surface resource {} is {} mK and exceeds the {} mK unprotected hand-gathering limit",
+                resource.value(),
+                temperature.millikelvin(),
+                maximum.millikelvin(),
+            ),
             Self::DestinationAccess(error) => write!(
                 formatter,
                 "surface gathering destination is inaccessible: {error}"
@@ -387,6 +403,7 @@ impl Error for SurfaceGatheringError {
             | Self::ZeroMass
             | Self::BatchTooLarge { .. }
             | Self::InsufficientResource { .. }
+            | Self::ResourceTooHot { .. }
             | Self::DestinationMissing { .. }
             | Self::DestinationMounted { .. }
             | Self::DestinationMassOverflow { .. }
@@ -661,6 +678,16 @@ pub fn validate_start_surface_gathering(
         return Err(SurfaceGatheringError::InsufficientResource {
             requested: request.mass,
             remaining: resource.remaining_mass(),
+        });
+    }
+    // Natural opportunities and loose drops use the same bare-hand gathering
+    // method. Neither deliberate work nor an authored direct-use gesture may
+    // bypass the temperature gate on control-rate ground pickup.
+    if resource.temperature() > MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE {
+        return Err(SurfaceGatheringError::ResourceTooHot {
+            resource: resource.id(),
+            temperature: resource.temperature(),
+            maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
         });
     }
     validate_player_stockpile_access(state, request.destination)

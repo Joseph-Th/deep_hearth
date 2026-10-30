@@ -1143,6 +1143,58 @@ fn automatic_pickup_leaves_unsafe_hot_matter_and_collects_a_later_cool_drop() {
 }
 
 #[test]
+fn deliberate_hand_gathering_cannot_bypass_hot_surface_drop_pickup() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let mass = Mass::from_milligrams(50_000);
+    let mut drops = Vec::new();
+    for temperature in [Temperature::from_millikelvin(423_150), TEMPERATURE] {
+        let spec = SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            commodity,
+            mass,
+            temperature,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap();
+        drops.push(insert_surface_resource_for_test(&registries, &mut state, spec).unwrap());
+    }
+    let _ = admit_player(&registries, &mut state, position);
+    let baseline = state.clone();
+    assert_eq!(
+        validate_start_player_surface_gathering(
+            &registries,
+            &state,
+            SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
+            drops[0],
+            mass,
+        )
+        .err(),
+        Some(SurfaceGatheringError::ResourceTooHot {
+            resource: drops[0],
+            temperature: Temperature::from_millikelvin(423_150),
+            maximum: crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+        }),
+        "manual hand gathering must reject the same unsafe hot drop"
+    );
+    assert!(
+        validate_start_player_surface_gathering(
+            &registries,
+            &state,
+            SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
+            drops[1],
+            mass,
+        )
+        .is_ok(),
+        "the neighboring safe parcel must remain gatherable"
+    );
+    assert_eq!(state, baseline);
+}
+
+#[test]
 fn exposed_residue_footing_counts_distinct_densities_without_treating_nature_as_disposal() {
     let registries = build_registries();
     let mut state = AppState::new();
