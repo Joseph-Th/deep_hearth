@@ -1,5 +1,6 @@
 //! Juvenile relocation uses one persistent biological identity and no new biomass.
 
+use super::felling::validate_fell_tree;
 use super::*;
 use crate::content::{BLOCK_STATE_STONE, build_registries};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};

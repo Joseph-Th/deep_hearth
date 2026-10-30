@@ -169,8 +169,8 @@ its exact current wood mass to a finite loose-log parcel after checking world, l
 survival and surface revisions and the player's continuous position. Surface placement
 validates the output against the world after that specific tree is removed, without
 admitting loose matter into any other standing trunk. An ordinary held break
-cannot complete harvesting instantly. The lower-level `validate_fell_tree` remains a
-capability operation for controlled world-custody callers. A persistent world assimilation
+cannot complete harvesting instantly. The lower-level `validate_fell_tree` is crate-internal
+world-custody admission, not an alternative public player action. A persistent world assimilation
 ledger accounts for wood accumulated from the environment, including wood already felled.
 Each harvested tree leaves a compact, root-indexed and timestamped provenance receipt,
 including its original seed site when transplanted. Relocations append a strictly

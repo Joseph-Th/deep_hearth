@@ -11,7 +11,9 @@ use crate::core::state::{
     AppState, StateValidationError, apply_clock_advance, validate_loaded_state,
 };
 use crate::core::time::SimulationTick;
-use crate::geology::{GeneratedDepositSpec, GeologicalDepositId, insert_generated_deposit};
+use crate::geology::{
+    GeneratedDepositSpec, GeologicalDepositId, validate_generate_geological_deposit,
+};
 use crate::material::{CommodityKey, CompositionComponent, MaterialComposition, MaterialId};
 use crate::registry::Registries;
 use crate::spatial::{VoxelBounds, VoxelCoord};
@@ -33,7 +35,7 @@ fn insert_copper_deposit(
     app: &mut AppState,
     mass: Mass,
 ) -> GeologicalDepositId {
-    insert_generated_deposit(
+    validate_generate_geological_deposit(
         registries,
         app,
         GeneratedDepositSpec::new(
@@ -47,6 +49,7 @@ fn insert_copper_deposit(
         .unwrap_or_else(|error| panic!("knowledge deposit fixture failed: {error}")),
     )
     .unwrap_or_else(|error| panic!("knowledge deposit insertion failed: {error}"))
+    .apply(app)
 }
 
 fn detailed_resource_resolution(registries: &Registries) -> Mass {
@@ -363,9 +366,9 @@ fn loaded_validation_rejects_ambiguous_multi_material_hardness() {
 fn loaded_state_rejects_hardness_band_that_excludes_live_matching_deposit() {
     let registries = build_registries();
     let mut app = AppState::new();
-    let deposit = insert_generated_deposit(
+    let deposit = validate_generate_geological_deposit(
         &registries,
-        &mut app,
+        &app,
         GeneratedDepositSpec::new(
             bounds(),
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
@@ -376,7 +379,8 @@ fn loaded_state_rejects_hardness_band_that_excludes_live_matching_deposit() {
         )
         .unwrap_or_else(|error| panic!("knowledge/live-geology deposit fixture failed: {error}")),
     )
-    .unwrap_or_else(|error| panic!("knowledge/live-geology deposit insertion failed: {error}"));
+    .unwrap_or_else(|error| panic!("knowledge/live-geology deposit insertion failed: {error}"))
+    .apply(&mut app);
     let (knowledge, observation) = knowledge_with_hardness(
         GeologicalEvidenceKind::ExcavationSample,
         vec![estimate(MATERIAL_COPPER, 975_000, 1_000_000)],
@@ -476,9 +480,9 @@ fn loaded_state_rejects_hardness_that_ignored_body_available_at_acquisition() {
     let registries = build_registries();
     let mut app = AppState::new();
     let _matching = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(1_000_000));
-    let conflicting = insert_generated_deposit(
+    let conflicting = validate_generate_geological_deposit(
         &registries,
-        &mut app,
+        &app,
         GeneratedDepositSpec::new(
             physical_bounds(),
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
@@ -489,7 +493,8 @@ fn loaded_state_rejects_hardness_that_ignored_body_available_at_acquisition() {
         )
         .unwrap_or_else(|error| panic!("historical conflicting hardness fixture failed: {error}")),
     )
-    .unwrap_or_else(|error| panic!("historical conflicting hardness insertion failed: {error}"));
+    .unwrap_or_else(|error| panic!("historical conflicting hardness insertion failed: {error}"))
+    .apply(&mut app);
     let (knowledge, observation) = knowledge_with_hardness(
         GeologicalEvidenceKind::ExcavationSample,
         vec![estimate(MATERIAL_COPPER, 975_000, 1_000_000)],
@@ -534,9 +539,9 @@ fn loaded_state_rejects_abundance_that_ignored_body_available_at_acquisition() {
         CompositionComponent::new(MATERIAL_SLAG, 500_000),
     ])
     .unwrap_or_else(|error| panic!("historical conflicting abundance composition failed: {error}"));
-    let conflicting = insert_generated_deposit(
+    let conflicting = validate_generate_geological_deposit(
         &registries,
-        &mut app,
+        &app,
         GeneratedDepositSpec::new(
             physical_bounds(),
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
@@ -547,7 +552,8 @@ fn loaded_state_rejects_abundance_that_ignored_body_available_at_acquisition() {
         )
         .unwrap_or_else(|error| panic!("historical conflicting abundance fixture failed: {error}")),
     )
-    .unwrap_or_else(|error| panic!("historical conflicting abundance insertion failed: {error}"));
+    .unwrap_or_else(|error| panic!("historical conflicting abundance insertion failed: {error}"))
+    .apply(&mut app);
     let (knowledge, observation) = knowledge_with_hardness(
         GeologicalEvidenceKind::ExcavationSample,
         vec![estimate(MATERIAL_COPPER, 975_000, 1_000_000)],
@@ -600,9 +606,9 @@ fn loaded_state_rejects_representationally_clipped_hardness_precision() {
     )
     .unwrap_or_else(|error| panic!("clipped hardness fixture failed: {error}"));
     let mut app = AppState::new();
-    let _ = insert_generated_deposit(
+    let _ = validate_generate_geological_deposit(
         &registries,
-        &mut app,
+        &app,
         GeneratedDepositSpec::new(
             physical_bounds(),
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
@@ -613,7 +619,8 @@ fn loaded_state_rejects_representationally_clipped_hardness_precision() {
         )
         .unwrap_or_else(|error| panic!("ceiling hardness deposit fixture failed: {error}")),
     )
-    .unwrap_or_else(|error| panic!("ceiling hardness deposit insertion failed: {error}"));
+    .unwrap_or_else(|error| panic!("ceiling hardness deposit insertion failed: {error}"))
+    .apply(&mut app);
     let (mut knowledge, observation) = knowledge_with_hardness(
         GeologicalEvidenceKind::ExcavationSample,
         vec![estimate(MATERIAL_COPPER, 975_000, 1_000_000)],
@@ -640,9 +647,9 @@ fn loaded_state_rejects_representationally_clipped_hardness_precision() {
 fn loaded_state_rejects_resource_mass_without_exact_historical_body() {
     let registries = build_registries();
     let mut app = AppState::new();
-    let _ = insert_generated_deposit(
+    let _ = validate_generate_geological_deposit(
         &registries,
-        &mut app,
+        &app,
         GeneratedDepositSpec::new(
             bounds(),
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
@@ -653,7 +660,8 @@ fn loaded_state_rejects_resource_mass_without_exact_historical_body() {
         )
         .unwrap_or_else(|error| panic!("nonlocalized resource deposit fixture failed: {error}")),
     )
-    .unwrap_or_else(|error| panic!("nonlocalized resource deposit insertion failed: {error}"));
+    .unwrap_or_else(|error| panic!("nonlocalized resource deposit insertion failed: {error}"))
+    .apply(&mut app);
     let resource_mass = ResourceMassEstimate::new(
         Mass::from_milligrams(4_000_000),
         Mass::from_milligrams(5_000_000),

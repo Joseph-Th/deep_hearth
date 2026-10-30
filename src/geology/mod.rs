@@ -13,8 +13,6 @@ mod state;
 pub use generation_execution::InsertGeneratedDepositError as GeologicalDepositGenerationError;
 #[cfg(test)]
 pub(crate) use generation_execution::InsertGeneratedDepositError;
-#[cfg(any(test, feature = "test-gameplay"))]
-pub(crate) use generation_execution::insert_generated_deposit;
 pub(crate) use generation_execution::{
     GenerateGeologicalDepositCommitError, ValidatedGeologicalDepositGeneration,
     validate_generate_geological_deposit,

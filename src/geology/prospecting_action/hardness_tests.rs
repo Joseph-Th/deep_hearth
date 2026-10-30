@@ -3,7 +3,7 @@
 use crate::content::build_registries;
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::AppState;
-use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
+use crate::geology::{GeneratedDepositSpec, validate_generate_geological_deposit};
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 
@@ -22,9 +22,9 @@ fn representational_ceiling_retains_full_authored_hardness_resolution() {
     let registries = build_registries();
     let mut state = AppState::new();
     let actual = Pressure::from_pascals(u64::MAX - 100);
-    insert_generated_deposit(
+    validate_generate_geological_deposit(
         &registries,
-        &mut state,
+        &state,
         GeneratedDepositSpec::new(
             bounds(),
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
@@ -35,7 +35,8 @@ fn representational_ceiling_retains_full_authored_hardness_resolution() {
         )
         .unwrap_or_else(|error| panic!("ceiling hardness deposit spec failed: {error}")),
     )
-    .unwrap_or_else(|error| panic!("ceiling hardness deposit insertion failed: {error}"));
+    .unwrap_or_else(|error| panic!("ceiling hardness deposit insertion failed: {error}"))
+    .apply(&mut state);
 
     let estimate =
         resolve_region_excavation_hardness(&state, bounds(), MATERIAL_COPPER, resolution)
@@ -51,9 +52,9 @@ fn representational_ceiling_retains_full_authored_hardness_resolution() {
 fn observed_hardness(hardness_pa: u64) -> crate::geology::ExcavationHardnessEstimate {
     let registries = build_registries();
     let mut state = AppState::new();
-    insert_generated_deposit(
+    validate_generate_geological_deposit(
         &registries,
-        &mut state,
+        &state,
         GeneratedDepositSpec::new(
             bounds(),
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
@@ -64,7 +65,8 @@ fn observed_hardness(hardness_pa: u64) -> crate::geology::ExcavationHardnessEsti
         )
         .unwrap_or_else(|error| panic!("hardness test deposit spec failed: {error}")),
     )
-    .unwrap_or_else(|error| panic!("hardness test deposit insertion failed: {error}"));
+    .unwrap_or_else(|error| panic!("hardness test deposit insertion failed: {error}"))
+    .apply(&mut state);
     resolve_region_excavation_hardness(
         &state,
         bounds(),

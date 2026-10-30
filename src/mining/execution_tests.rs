@@ -985,7 +985,8 @@ fn insert_known_deposit(
             .and_then(|bucket| bucket.checked_mul(resolution_pa))
             .unwrap_or(u64::MAX)
     };
-    let deposit = crate::geology::insert_generated_deposit(registries, state, spec)?;
+    let deposit =
+        crate::geology::validate_generate_geological_deposit(registries, state, spec)?.apply(state);
     let evidence = ProspectingResolution::new_for_fixture(
         localized,
         GeologicalEvidenceKind::ExcavationSample,
@@ -1020,7 +1021,8 @@ fn insert_surface_known_deposit(
         .copied()
         .unwrap_or_else(|| panic!("authored field-inspection definition disappeared"));
     let uncertainty = inspection.abundance_uncertainty_ppm();
-    let deposit = crate::geology::insert_generated_deposit(registries, state, spec)?;
+    let deposit =
+        crate::geology::validate_generate_geological_deposit(registries, state, spec)?.apply(state);
     let estimate = MaterialAbundanceEstimate::new(
         material,
         abundance.saturating_sub(uncertainty),

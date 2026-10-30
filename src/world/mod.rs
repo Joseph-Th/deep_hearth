@@ -28,8 +28,7 @@ pub use excavation::{
 };
 pub use felling::{
     TreeFellingCommitError, TreeFellingError, TreeFellingOutcome, TreeFellingStartError,
-    ValidatedTreeFelling, ValidatedTreeFellingStart, validate_fell_tree,
-    validate_start_player_tree_felling,
+    ValidatedTreeFellingStart, validate_start_player_tree_felling,
 };
 pub(crate) use felling::{
     apply_tree_felling_wear, decide_tree_felling_wear, tree_felling_condition_after,

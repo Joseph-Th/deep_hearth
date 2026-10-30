@@ -1,5 +1,6 @@
 //! Tree trunks and built structural members cannot share physical space.
 
+use super::felling::validate_fell_tree;
 use super::*;
 use crate::content::{
     BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, BLOCK_STATE_STONE, FORM_LOG,

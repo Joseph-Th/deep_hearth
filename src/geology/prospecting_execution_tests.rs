@@ -12,7 +12,7 @@ use crate::core::time::SimulationTick;
 use crate::geology::{
     ExcavationHardnessEstimate, GeneratedDepositSpec, GeologicalEvidenceConsistency,
     MaterialAbundanceEstimate, ResourceMassEstimate, assess_geological_knowledge,
-    build_geological_knowledge_map, insert_generated_deposit,
+    build_geological_knowledge_map, validate_generate_geological_deposit,
 };
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
@@ -157,9 +157,9 @@ fn authored_resource_mass_recency_round_trips() {
             .and_then(|mass| mass.checked_sub(resolution_mg / 10))
             .unwrap_or_else(|| panic!("resource-mass history initial mass overflowed")),
     );
-    let deposit = insert_generated_deposit(
+    let deposit = validate_generate_geological_deposit(
         &registries,
-        &mut state,
+        &state,
         GeneratedDepositSpec::new(
             region,
             CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
@@ -170,7 +170,8 @@ fn authored_resource_mass_recency_round_trips() {
         )
         .unwrap_or_else(|error| panic!("resource-mass history deposit fixture failed: {error}")),
     )
-    .unwrap_or_else(|error| panic!("resource-mass history deposit insertion failed: {error}"));
+    .unwrap_or_else(|error| panic!("resource-mass history deposit insertion failed: {error}"))
+    .apply(&mut state);
     let older_resource = ResourceMassEstimate::new(
         resolution,
         Mass::from_milligrams(

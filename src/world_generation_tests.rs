@@ -11,7 +11,7 @@ use crate::core::quantity::{Mass, Pressure, Temperature, Volume};
 use crate::core::state::{AppState, StateValidationError, apply_clock_advance};
 use crate::core::time::{ControlTick, SimulationTick};
 use crate::fluid::add_fluid_store_with_contents_for_fixture;
-use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
+use crate::geology::{GeneratedDepositSpec, validate_generate_geological_deposit};
 use crate::inventory::{
     add_solid_stockpile_for_test, deposit_lot_for_test, validate_build_storage_enclosure,
     validate_place_player_storage_at,
@@ -1205,7 +1205,9 @@ fn wilderness_geological_creation_is_pristine_and_atomic_against_intervening_geo
         MaterialComposition::pure(MATERIAL_COPPER),
     )
     .unwrap();
-    insert_generated_deposit(&registries, &mut state, spec).unwrap();
+    validate_generate_geological_deposit(&registries, &state, spec)
+        .unwrap()
+        .apply(&mut state);
     let before = state.clone();
     assert_eq!(
         planned.commit(&mut state),

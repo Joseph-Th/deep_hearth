@@ -78,8 +78,9 @@ fn resolved_mining_target_is_invalidated_by_new_local_ambiguity() {
     )
     .unwrap_or_else(|error| panic!("ambiguous-target initial resolution failed: {error}"));
 
-    crate::geology::insert_generated_deposit(&registries, &mut state, deposit_spec())
-        .unwrap_or_else(|error| panic!("ambiguous-target second deposit failed: {error}"));
+    crate::geology::validate_generate_geological_deposit(&registries, &state, deposit_spec())
+        .unwrap_or_else(|error| panic!("ambiguous-target second deposit failed: {error}"))
+        .apply(&mut state);
     let before = state.clone();
 
     assert_eq!(
@@ -354,8 +355,9 @@ fn validated_mining_start_survives_unrelated_remote_geology_change() {
         MaterialComposition::pure(MATERIAL_STONE),
     )
     .unwrap_or_else(|error| panic!("stale-target geology deposit spec failed: {error}"));
-    crate::geology::insert_generated_deposit(&registries, &mut state, remote)
-        .unwrap_or_else(|error| panic!("stale-target geology mutation failed: {error}"));
+    crate::geology::validate_generate_geological_deposit(&registries, &state, remote)
+        .unwrap_or_else(|error| panic!("stale-target geology mutation failed: {error}"))
+        .apply(&mut state);
 
     start.commit(&mut state).unwrap_or_else(|error| {
         panic!("remote geology should not stale validated mining: {error}")

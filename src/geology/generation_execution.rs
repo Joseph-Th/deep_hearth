@@ -222,17 +222,6 @@ pub(crate) fn validate_generate_geological_deposit(
     })
 }
 
-/// Legacy fixture entry point shares exactly the production generation owner.
-#[cfg(any(test, feature = "test-gameplay"))]
-pub(crate) fn insert_generated_deposit(
-    registries: &Registries,
-    state: &mut AppState,
-    spec: GeneratedDepositSpec,
-) -> Result<GeologicalDepositId, InsertGeneratedDepositError> {
-    let plan = validate_generate_geological_deposit(registries, state, spec)?;
-    Ok(plan.apply(state))
-}
-
 #[cfg(test)]
 #[path = "generation_execution_tests.rs"]
 mod tests;

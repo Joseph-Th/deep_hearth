@@ -1,5 +1,6 @@
 //! Woodland generation, calendar growth, atomic felling, and trusted replay.
 
+use super::felling::validate_fell_tree;
 use super::*;
 use crate::content::{BLOCK_STATE_STONE, FORM_LOG, MATERIAL_WOOD, build_registries};
 use crate::core::quantity::Mass;

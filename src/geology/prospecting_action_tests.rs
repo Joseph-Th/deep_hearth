@@ -14,7 +14,7 @@ use crate::core::time::TickSpan;
 use crate::equipment::{EquipmentId, validate_assemble_equipment};
 use crate::geology::{
     ExcavationHardnessEstimate, GeneratedDepositSpec, GeologicalEvidenceKind,
-    GeologicalObservationId, insert_generated_deposit,
+    GeologicalObservationId, validate_generate_geological_deposit,
 };
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{PlayerWork, PlayerWorkValidationError, ProspectingMethodId, ProspectingWork};
@@ -641,8 +641,9 @@ fn insert_copper(registries: &Registries, state: &mut AppState, region: VoxelBou
         MaterialComposition::pure(MATERIAL_COPPER),
     )
     .unwrap_or_else(|error| panic!("field prospecting deposit fixture failed: {error}"));
-    insert_generated_deposit(registries, state, spec)
-        .unwrap_or_else(|error| panic!("field prospecting deposit insertion failed: {error}"));
+    validate_generate_geological_deposit(registries, state, spec)
+        .unwrap_or_else(|error| panic!("field prospecting deposit insertion failed: {error}"))
+        .apply(state);
 }
 
 #[test]
@@ -736,8 +737,9 @@ fn insert_low_grade_copper(registries: &Registries, state: &mut AppState, region
         composition,
     )
     .unwrap_or_else(|error| panic!("low-grade prospecting deposit fixture failed: {error}"));
-    insert_generated_deposit(registries, state, spec)
-        .unwrap_or_else(|error| panic!("low-grade prospecting deposit insertion failed: {error}"));
+    validate_generate_geological_deposit(registries, state, spec)
+        .unwrap_or_else(|error| panic!("low-grade prospecting deposit insertion failed: {error}"))
+        .apply(state);
 }
 
 fn start_prospecting(

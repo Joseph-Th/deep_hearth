@@ -11,7 +11,7 @@ use crate::equipment::{
     EquipmentDefinitionId, EquipmentId, add_equipment, validate_assemble_equipment,
 };
 use crate::fluid::{FluidDefinitionId, FluidStoreId, add_fluid_store_with_contents_for_fixture};
-use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
+use crate::geology::{GeneratedDepositSpec, validate_generate_geological_deposit};
 use crate::inventory::{
     MaterialLotId, MaterialLotSelection, StockpileId, StockpileStorageProfile, add_stockpile,
     deposit_composed_lot_for_fixture, deposit_lot_for_fixture,
@@ -446,8 +446,9 @@ pub fn seed_geological_deposit(
         composition,
     )
     .unwrap_or_else(|error| panic!("gameplay bootstrap geological specification failed: {error}"));
-    let _deposit = insert_generated_deposit(registries, state, spec)
-        .unwrap_or_else(|error| panic!("gameplay bootstrap geological deposit failed: {error}"));
+    let _deposit = validate_generate_geological_deposit(registries, state, spec)
+        .unwrap_or_else(|error| panic!("gameplay bootstrap geological deposit failed: {error}"))
+        .apply(state);
 }
 
 pub fn seed_lot(

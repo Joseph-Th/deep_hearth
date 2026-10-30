@@ -80,7 +80,7 @@ impl TreeFellingOutcome {
 }
 
 #[must_use]
-pub struct ValidatedTreeFelling {
+pub(crate) struct ValidatedTreeFelling {
     expected_world_revision: u64,
     next_world_revision: u64,
     expected_logistics_revision: u64,
@@ -94,7 +94,7 @@ pub struct ValidatedTreeFelling {
 
 impl ValidatedTreeFelling {
     /// Precheck all owners before the first mutation. No partial felling or matter duplication.
-    pub fn commit(
+    pub(crate) fn commit(
         self,
         state: &mut AppState,
     ) -> Result<TreeFellingOutcome, TreeFellingCommitError> {
@@ -401,8 +401,9 @@ pub fn validate_start_player_tree_felling(
 
 /// Turn embodied standing timber into one recoverable, physically conserved log pile.
 ///
-/// This lower-level custody boundary is also used by the timed chopping completion.
-pub fn validate_fell_tree(
+/// This lower-level custody boundary is internal to the timed chopping owner;
+/// controlled unit fixtures may also exercise it without a work schedule.
+pub(crate) fn validate_fell_tree(
     registries: &Registries,
     state: &AppState,
     root: VoxelCoord,

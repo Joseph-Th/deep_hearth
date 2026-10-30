@@ -7,8 +7,8 @@ use crate::core::state::{AppState, apply_clock_advance};
 use crate::core::time::SimulationTick;
 use crate::geology::{
     ExcavationHardnessEstimate, GeneratedDepositSpec, GeologicalEvidenceKind,
-    MaterialAbundanceEstimate, ProspectingResolution, insert_generated_deposit,
-    record_prospecting_for_test,
+    MaterialAbundanceEstimate, ProspectingResolution, record_prospecting_for_test,
+    validate_generate_geological_deposit,
 };
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::registry::Registries;
@@ -33,8 +33,9 @@ fn insert_copper_deposit(
         MaterialComposition::pure(MATERIAL_COPPER),
     )
     .unwrap_or_else(|error| panic!("mining target deposit fixture failed: {error}"));
-    insert_generated_deposit(registries, state, spec)
+    validate_generate_geological_deposit(registries, state, spec)
         .unwrap_or_else(|error| panic!("mining target deposit insertion failed: {error}"))
+        .apply(state)
 }
 
 fn record_copper_evidence(

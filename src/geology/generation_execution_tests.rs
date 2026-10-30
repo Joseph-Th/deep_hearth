@@ -32,8 +32,9 @@ fn clay_rich_earth_is_an_ordinary_finite_geological_resource() {
     )
     .unwrap_or_else(|error| panic!("clay-earth geological specification failed: {error}"));
 
-    let deposit = insert_generated_deposit(&registries, &mut state, spec)
-        .unwrap_or_else(|error| panic!("clay-earth geological insertion failed: {error}"));
+    let deposit = validate_generate_geological_deposit(&registries, &state, spec)
+        .unwrap_or_else(|error| panic!("clay-earth geological insertion failed: {error}"))
+        .apply(&mut state);
     let record = state
         .geology()
         .get_deposit(deposit)
@@ -49,7 +50,7 @@ fn clay_rich_earth_is_an_ordinary_finite_geological_resource() {
 #[test]
 fn generated_geological_owner_rejects_unauthored_material_form_pair_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new();
+    let state = AppState::new();
     let commodity = CommodityKey::new(MATERIAL_STONE, FORM_LOG);
     let spec = GeneratedDepositSpec::new(
         bounds(0),
@@ -62,17 +63,17 @@ fn generated_geological_owner_rejects_unauthored_material_form_pair_without_muta
     .unwrap_or_else(|error| panic!("unauthored geology specification fixture failed: {error}"));
     let before = state.clone();
 
-    assert_eq!(
-        insert_generated_deposit(&registries, &mut state, spec),
-        Err(InsertGeneratedDepositError::UnsupportedCommodity { commodity })
-    );
+    assert!(matches!(
+        validate_generate_geological_deposit(&registries, &state, spec),
+        Err(InsertGeneratedDepositError::UnsupportedCommodity { commodity: found }) if found == commodity
+    ));
     assert_eq!(state, before);
 }
 
 #[test]
 fn generated_geological_owner_rejects_liquid_material_form_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new();
+    let state = AppState::new();
     let spec = GeneratedDepositSpec::new(
         bounds(0),
         CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
@@ -84,20 +85,20 @@ fn generated_geological_owner_rejects_liquid_material_form_without_mutation() {
     .unwrap_or_else(|error| panic!("liquid geology specification fixture failed: {error}"));
     let before = state.clone();
 
-    assert_eq!(
-        insert_generated_deposit(&registries, &mut state, spec),
+    assert!(matches!(
+        validate_generate_geological_deposit(&registries, &state, spec),
         Err(InsertGeneratedDepositError::UnsupportedPhase {
             form: FORM_MOLTEN,
             phase: MaterialPhase::Liquid,
         })
-    );
+    ));
     assert_eq!(state, before);
 }
 
 #[test]
 fn generated_geological_owner_rejects_processed_particulate_form_without_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new();
+    let state = AppState::new();
     let spec = GeneratedDepositSpec::new(
         bounds(0),
         CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
@@ -109,17 +110,17 @@ fn generated_geological_owner_rejects_processed_particulate_form_without_mutatio
     .unwrap_or_else(|error| panic!("particulate geology specification fixture failed: {error}"));
     let before = state.clone();
 
-    assert_eq!(
-        insert_generated_deposit(&registries, &mut state, spec),
+    assert!(matches!(
+        validate_generate_geological_deposit(&registries, &state, spec),
         Err(InsertGeneratedDepositError::UnsupportedParticulateForm { form: FORM_CRUSHED })
-    );
+    ));
     assert_eq!(state, before);
 }
 
 #[test]
 fn generated_deposit_insertion_resolves_all_material_references_before_mutation() {
     let registries = build_registries();
-    let mut state = AppState::new();
+    let state = AppState::new();
     let unknown = MaterialId::new(999_999);
     let unknown_host = GeneratedDepositSpec::new(
         bounds(0),
@@ -131,10 +132,10 @@ fn generated_deposit_insertion_resolves_all_material_references_before_mutation(
     )
     .unwrap_or_else(|error| panic!("unknown-host deposit specification failed locally: {error}"));
     let before = state.clone();
-    assert_eq!(
-        insert_generated_deposit(&registries, &mut state, unknown_host),
-        Err(InsertGeneratedDepositError::UnknownMaterial { material: unknown })
-    );
+    assert!(matches!(
+        validate_generate_geological_deposit(&registries, &state, unknown_host),
+        Err(InsertGeneratedDepositError::UnknownMaterial { material }) if material == unknown
+    ));
     assert_eq!(state, before);
 
     let mixed = MaterialComposition::new(vec![
@@ -153,9 +154,9 @@ fn generated_deposit_insertion_resolves_all_material_references_before_mutation(
     .unwrap_or_else(|error| {
         panic!("unknown-constituent deposit specification failed locally: {error}")
     });
-    assert_eq!(
-        insert_generated_deposit(&registries, &mut state, unknown_constituent),
-        Err(InsertGeneratedDepositError::UnknownCompositionMaterial { material: unknown })
-    );
+    assert!(matches!(
+        validate_generate_geological_deposit(&registries, &state, unknown_constituent),
+        Err(InsertGeneratedDepositError::UnknownCompositionMaterial { material }) if material == unknown
+    ));
     assert_eq!(state, before);
 }

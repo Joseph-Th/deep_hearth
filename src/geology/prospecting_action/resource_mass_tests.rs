@@ -4,7 +4,7 @@ use crate::content::{FORM_LUMP, FORM_ORE, MATERIAL_COPPER, MATERIAL_STONE, build
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
-use crate::geology::{GeneratedDepositSpec, insert_generated_deposit};
+use crate::geology::{GeneratedDepositSpec, validate_generate_geological_deposit};
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 
@@ -29,8 +29,9 @@ fn insert_copper(state: &mut AppState, bounds: VoxelBounds, mass: Mass) {
         MaterialComposition::pure(MATERIAL_COPPER),
     )
     .unwrap_or_else(|error| panic!("resource-mass deposit fixture failed: {error}"));
-    insert_generated_deposit(&registries, state, spec)
-        .unwrap_or_else(|error| panic!("resource-mass deposit insertion failed: {error}"));
+    validate_generate_geological_deposit(&registries, state, spec)
+        .unwrap_or_else(|error| panic!("resource-mass deposit insertion failed: {error}"))
+        .apply(state);
 }
 
 fn insert_stone(state: &mut AppState, bounds: VoxelBounds, mass: Mass) {
@@ -44,8 +45,9 @@ fn insert_stone(state: &mut AppState, bounds: VoxelBounds, mass: Mass) {
         MaterialComposition::pure(MATERIAL_STONE),
     )
     .unwrap_or_else(|error| panic!("resource-mass stone deposit fixture failed: {error}"));
-    insert_generated_deposit(&registries, state, spec)
-        .unwrap_or_else(|error| panic!("resource-mass stone deposit insertion failed: {error}"));
+    validate_generate_geological_deposit(&registries, state, spec)
+        .unwrap_or_else(|error| panic!("resource-mass stone deposit insertion failed: {error}"))
+        .apply(state);
 }
 
 #[test]
@@ -82,8 +84,9 @@ fn resource_mass_resolution_tracks_owner_depletion_and_disappears_at_zero() {
         MaterialComposition::pure(MATERIAL_COPPER),
     )
     .unwrap_or_else(|error| panic!("depletion resource-mass fixture failed: {error}"));
-    let deposit = insert_generated_deposit(&registries, &mut state, spec)
-        .unwrap_or_else(|error| panic!("depletion resource-mass insertion failed: {error}"));
+    let deposit = validate_generate_geological_deposit(&registries, &state, spec)
+        .unwrap_or_else(|error| panic!("depletion resource-mass insertion failed: {error}"))
+        .apply(&mut state);
     let resolution = Mass::from_milligrams(1_000_000);
 
     assert_eq!(
@@ -261,8 +264,9 @@ fn partial_or_ambiguous_body_localization_does_not_claim_resource_mass() {
         MaterialComposition::pure(MATERIAL_COPPER),
     )
     .unwrap_or_else(|error| panic!("wide resource-mass deposit fixture failed: {error}"));
-    insert_generated_deposit(&registries, &mut state, spec)
-        .unwrap_or_else(|error| panic!("wide resource-mass insertion failed: {error}"));
+    validate_generate_geological_deposit(&registries, &state, spec)
+        .unwrap_or_else(|error| panic!("wide resource-mass insertion failed: {error}"))
+        .apply(&mut state);
     assert_eq!(
         resolve_region_resource_mass(
             &state,
