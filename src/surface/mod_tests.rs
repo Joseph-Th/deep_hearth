@@ -1069,6 +1069,80 @@ fn automatic_pickup_skips_unallocatable_drop_and_merges_a_later_parcel() {
 }
 
 #[test]
+fn automatic_pickup_leaves_unsafe_hot_matter_and_collects_a_later_cool_drop() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let mass = Mass::from_milligrams(50_000);
+    let mut drops = Vec::new();
+    for temperature in [Temperature::from_millikelvin(423_150), TEMPERATURE] {
+        let spec = SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            commodity,
+            mass,
+            temperature,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap();
+        drops.push(insert_surface_resource_for_test(&registries, &mut state, spec).unwrap());
+    }
+    let carried = admit_player(&registries, &mut state, position);
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let event = advance_control_tick(&registries, &mut state).unwrap();
+    assert_eq!(
+        event,
+        advance_control_tick(&registries, &mut replay).unwrap()
+    );
+    assert_eq!(state, replay);
+    assert_eq!(
+        event.surface_drop_pickup().map(|pickup| pickup.resource()),
+        Some(drops[1]),
+        "automatic pickup must not grasp the hotter first parcel",
+    );
+    assert_eq!(
+        state.surface().get(drops[0]).unwrap().remaining_mass(),
+        mass,
+        "unsafe hot material remains recoverable in physical ground custody",
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(commodity),
+        mass,
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    // The only remaining parcel is too hot to pick up: a neutral slow tick
+    // must not be rejected just to poll that unchanged ground custody at 20 Hz.
+    assert_eq!(
+        advance_tick(&registries, &mut state).unwrap(),
+        advance_tick(&registries, &mut replay).unwrap(),
+    );
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(drops[0]).unwrap().remaining_mass(),
+        mass
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn exposed_residue_footing_counts_distinct_densities_without_treating_nature_as_disposal() {
     let registries = build_registries();
     let mut state = AppState::new();

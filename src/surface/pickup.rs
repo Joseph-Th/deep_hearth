@@ -7,6 +7,7 @@ use crate::inventory::{
     MaterialIngressEntry, MaterialIngressError, MaterialLotId, StockpileId,
     ValidatedMaterialIngress, apply_material_ingress, validate_material_ingress,
 };
+use crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::survival::Vitality;
@@ -77,16 +78,22 @@ fn available_pickup_destination(state: &AppState) -> Option<(StockpileId, VoxelC
 }
 
 fn pickup_eligible_at(resource: &SurfaceResourceRecord, at: ControlTick) -> bool {
-    resource
-        .automatic_pickup_delay_started_at()
-        .is_none_or(|started| {
-            started
-                .checked_add_steps(PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS)
-                .unwrap_or_else(|| {
-                    panic!("runtime invariant broken: surface pickup delay exceeds control clock")
-                })
-                <= at
-        })
+    // Automatic pickup is bare-handed. A hot parcel must remain on the ground
+    // rather than entering a pack just because the actor walks through it.
+    // The same eligibility gate controls neutral fast-forward and actual pickup.
+    resource.temperature() <= MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE
+        && resource
+            .automatic_pickup_delay_started_at()
+            .is_none_or(|started| {
+                started
+                    .checked_add_steps(PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "runtime invariant broken: surface pickup delay exceeds control clock"
+                        )
+                    })
+                    <= at
+            })
 }
 
 /// A full pack, dead player, unallocatable parcel, or drop whose pickup delay
