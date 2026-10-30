@@ -60,7 +60,7 @@ fn preferred_hungry_forage(
     let maximum_mass = colony.forage_batch().min(den_space);
     let local_forage =
         best_local_forage(registries, state, from, at, maximum_mass).map(|(mass, _)| mass);
-    let local_drop = local_portable_source(
+    let local_portable = local_portable_source(
         registries,
         state,
         from,
@@ -71,7 +71,31 @@ fn preferred_hungry_forage(
     )
     .and_then(|id| state.surface().get(id))
     .map(|resource| resource.remaining_mass());
-    let nearby = local_forage.into_iter().chain(local_drop).max()?;
+    // A large loose food pile is still usable: the return edge splits a
+    // bounded portion into a real carried parcel. Compare that transferable
+    // portion, not just whole portable drops, before spending an extra edge
+    // looking for wild forage.
+    let local_split = local_split_source(
+        registries,
+        state,
+        from,
+        den_space,
+        at,
+        true,
+        colony.mobilized_at.is_some(),
+    )
+    .and_then(|id| state.surface().get(id))
+    .map(|resource| {
+        resource
+            .remaining_mass()
+            .min(colony.salvage_batch())
+            .min(den_space)
+    });
+    let nearby = local_forage
+        .into_iter()
+        .chain(local_portable)
+        .chain(local_split)
+        .max()?;
     let shortage = SCOUT_MEAL_MASS
         .checked_sub(colony.partial_meal)
         .expect("trusted resident's partial meal is below one serving");
@@ -254,16 +278,45 @@ fn continue_to_planned_far_raid(
     } = context;
     let needs_striker =
         colony.mobilized_at.is_some() && den_or_relay_needs_striker(state, colony.route[0]);
-    let target_drop = local_portable_source(
-        registries,
-        state,
-        goal,
-        capacity,
-        at,
-        false,
-        colony.mobilized_at.is_some(),
-    )
-    .and_then(|id| state.surface().get(id));
+    // Match the return-edge custody order: edible parcels first when hungry,
+    // otherwise any eligible salvage, and whole parcels before actual splits.
+    // A planned bulk destination stays meaningful at its recoverable yield.
+    let target_drop = [true, false]
+        .into_iter()
+        .filter(|food_only| !*food_only || colony.hungry)
+        .find_map(|food_only| {
+            local_portable_source(
+                registries,
+                state,
+                goal,
+                capacity,
+                at,
+                food_only,
+                colony.mobilized_at.is_some(),
+            )
+            .or_else(|| {
+                local_split_source(
+                    registries,
+                    state,
+                    goal,
+                    capacity,
+                    at,
+                    food_only,
+                    colony.mobilized_at.is_some(),
+                )
+            })
+        })
+        .and_then(|id| state.surface().get(id))
+        .map(|drop| {
+            let transferable = if is_portable_drop(drop) && drop.remaining_mass() <= capacity {
+                drop.remaining_mass()
+            } else {
+                drop.remaining_mass()
+                    .min(colony.salvage_batch())
+                    .min(capacity)
+            };
+            (drop, transferable)
+        });
     let target_forage = (colony.hungry && forage_ready)
         .then(|| {
             best_local_forage(
@@ -282,17 +335,16 @@ fn continue_to_planned_far_raid(
     // Never let that newer inert parcel conceal the edible patch the scout
     // actually planned to reach. A complete drop remains cheaper than foraging.
     let (target_food, target_precision, target_mass) = match (target_drop, target_forage) {
-        (Some(drop), Some((forage_mass, _)))
+        (Some((drop, transferable)), Some((forage_mass, _)))
             if drop.commodity().form() != crate::content::FORM_FOOD
-                || (drop.remaining_mass() < meal_shortage
-                    && forage_mass > drop.remaining_mass()) =>
+                || (transferable < meal_shortage && forage_mass > transferable) =>
         {
             (true, false, forage_mass)
         }
-        (Some(drop), _) => (
+        (Some((drop, transferable)), _) => (
             drop.commodity().form() == crate::content::FORM_FOOD,
             colony.mobilized_at.is_some() && matches_salvage_goal(drop, needs_striker),
-            drop.remaining_mass(),
+            transferable,
         ),
         (None, Some((mass, _))) => (true, false, mass),
         (None, None) => return false,
