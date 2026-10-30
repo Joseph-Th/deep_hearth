@@ -96,7 +96,62 @@ fn finite_sink_headroom_bounds_delivery_after_physical_roller_losses() {
 }
 
 #[test]
-fn near_full_mechanical_store_accepts_exact_delivery_without_overflow_or_free_work() {
+fn exact_charge_comparison_handles_fractional_ppm_and_full_width_capacity() {
+    assert_eq!(
+        compare_charge(
+            999_999_999_999,
+            1_000_000_000_000,
+            1_000_000_000_000,
+            1_000_000_000_000
+        ),
+        Ordering::Less
+    );
+    assert_eq!(
+        compare_charge(
+            1_000_000_000_000,
+            1_000_000_000_000,
+            999_999_999_999,
+            1_000_000_000_000
+        ),
+        Ordering::Greater
+    );
+    assert_eq!(compare_charge(2, 4, 3, 6), Ordering::Equal);
+    assert_eq!(
+        compare_charge(u128::MAX, u128::MAX, u128::MAX - 1, u128::MAX),
+        Ordering::Greater
+    );
+    assert_eq!(
+        compare_charge(u128::MAX - 1, u128::MAX, u128::MAX, u128::MAX),
+        Ordering::Less
+    );
+}
+
+#[test]
+fn friction_aware_equalization_never_reverses_a_real_charge_gradient() {
+    assert_eq!(equalizing_shaft_draw(100, 1, 100, 100, 99, 100), None);
+    assert_eq!(
+        equalizing_shaft_draw(100, 1, 100, 100, 97, 100),
+        Some((2, 1))
+    );
+    assert_eq!(
+        equalizing_shaft_draw(100, 1, 100, 100, 92, 100),
+        Some((4, 3))
+    );
+    // Unequal capacities must compare fractional charge, not absolute stored work.
+    assert_eq!(equalizing_shaft_draw(100, 1, 100, 100, 198, 200), None);
+    assert_eq!(
+        equalizing_shaft_draw(100, 1, 100, 100, 194, 200),
+        Some((2, 1))
+    );
+    // The full-width bound and comparison must also work where cross products overflow.
+    assert_eq!(
+        equalizing_shaft_draw(100, 1, u128::MAX, u128::MAX, u128::MAX - 1, u128::MAX),
+        None
+    );
+}
+
+#[test]
+fn near_full_mechanical_store_equalizes_without_reversing_or_creating_work() {
     use crate::content::make_test_registries_with_energy_store;
     use crate::core::quantity::Power;
     use crate::energy::{
@@ -122,7 +177,7 @@ fn near_full_mechanical_store_accepts_exact_delivery_without_overflow_or_free_wo
         &registries,
         &mut state,
         definition,
-        Energy::from_nanojoules(capacity.nanojoules() - 1),
+        Energy::from_nanojoules(capacity.nanojoules() - 3),
     )
     .unwrap();
     let passive =
@@ -136,7 +191,7 @@ fn near_full_mechanical_store_accepts_exact_delivery_without_overflow_or_free_wo
         source,
         destination,
     )
-    .expect("one nanojoule of free capacity can receive a post-friction delivery");
+    .expect("a three-nanojoule charge gap can equalize with one-nanojoule delivery");
     assert_eq!(transfer.drawn(), Energy::from_nanojoules(2));
     assert_eq!(transfer.delivered(), Energy::from_nanojoules(1));
     assert_eq!(transfer.lost(), Energy::from_nanojoules(1));
@@ -155,10 +210,70 @@ fn near_full_mechanical_store_accepts_exact_delivery_without_overflow_or_free_wo
     );
     assert_eq!(
         state.energy().get_store(destination).unwrap().stored(),
-        capacity
+        Energy::from_nanojoules(capacity.nanojoules() - 2)
+    );
+    let subsequent = plan_pair(
+        &registries,
+        &state,
+        &crate::energy::passive_dissipation::decide_passive_energy_dissipation(&registries, &state),
+        StructuralElementId::new(1),
+        1,
+        source,
+        destination,
+    );
+    assert!(
+        subsequent.is_none(),
+        "equalized shafts must not ping-pong and burn work"
     );
     assert_eq!(
         crate::core::state::validate_loaded_state(&registries, &state),
         Ok(())
+    );
+}
+
+#[test]
+fn one_nanojoule_charge_difference_does_not_start_a_lossy_oscillation() {
+    use crate::content::make_test_registries_with_energy_store;
+    use crate::core::quantity::Power;
+    use crate::energy::{
+        EnergyStoreDefinition, EnergyStoreDefinitionId, add_energy_store_with_initial_for_fixture,
+    };
+
+    let definition = EnergyStoreDefinitionId::new(990_679);
+    let capacity = Energy::from_nanojoules(1_000_000_000_000);
+    let registries =
+        make_test_registries_with_energy_store(EnergyStoreDefinition::new_with_transfer_limits(
+            definition,
+            "high capacity shaft store",
+            EnergyCarrier::Mechanical,
+            capacity,
+            Power::from_microwatts(1_000),
+            Power::from_microwatts(1_000),
+        ));
+    let mut state = AppState::new();
+    let source =
+        add_energy_store_with_initial_for_fixture(&registries, &mut state, definition, capacity)
+            .unwrap();
+    let destination = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        definition,
+        Energy::from_nanojoules(capacity.nanojoules() - 1),
+    )
+    .unwrap();
+    let passive =
+        crate::energy::passive_dissipation::decide_passive_energy_dissipation(&registries, &state);
+    assert!(
+        plan_pair(
+            &registries,
+            &state,
+            &passive,
+            StructuralElementId::new(1),
+            1,
+            source,
+            destination,
+        )
+        .is_none(),
+        "a shaft cannot spend two nanojoules to move one and reverse a one-nanojoule gradient"
     );
 }

@@ -4,6 +4,7 @@
 //! roller cells may connect opposed mechanical stores with one friction stage
 //! per roller. No free global bus or invisible persistent cable topology exists.
 
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::content::{
@@ -26,7 +27,6 @@ use super::{EnergyCarrier, EnergyStoreId, energy_store_occupancy, integrate_powe
 const WOODEN_TRANSMISSION_EFFICIENCY_PPM: u32 = 800_000;
 /// Wooden coupling is a low-power beginning, not a steel factory shaft.
 const WOODEN_TRANSMISSION_POWER: Power = Power::from_microwatts(50_000_000);
-const FRACTION_SCALE: u128 = 1_000_000;
 
 /// Visible transfer and loss at the shaft on one physical tick.
 #[must_use]
@@ -85,15 +85,15 @@ impl MechanicalTransmissionPlan {
     }
 }
 
-fn charge_ppm(available: Energy, capacity: Energy) -> u128 {
-    checked_mul_div_with_remainder(
-        available.nanojoules(),
-        FRACTION_SCALE,
-        capacity.nanojoules(),
-        0,
-    )
-    .expect("finite store has a nonzero capacity and bounded charge")
-    .0
+/// Compare exact fractions without forming a potentially overflowing cross product.
+/// Charge is stored energy divided by the store's authored capacity.
+fn compare_charge(left: u128, left_capacity: u128, right: u128, right_capacity: u128) -> Ordering {
+    let (whole, remainder) = checked_mul_div_with_remainder(left, right_capacity, left_capacity, 0)
+        .expect("validated stores have nonzero capacity and bounded charge");
+    match whole.cmp(&right) {
+        Ordering::Equal if remainder != 0 => Ordering::Greater,
+        ordering => ordering,
+    }
 }
 
 fn delivered_after_rollers(mut drawn: u128, segments: u32) -> u128 {
@@ -141,6 +141,53 @@ fn bounded_shaft_transfer(
     Some((sufficient, headroom))
 }
 
+/// The source may not end less charged than the destination. Roller friction
+/// makes delivered work a stepwise function of intake, so a nominal percentage
+/// difference is not a safe equalization bound. Binary search the largest
+/// representable draw that respects the exact post-transfer charge ordering.
+fn equalizing_shaft_draw(
+    maximum_draw: u128,
+    segments: u32,
+    source_stored: u128,
+    source_capacity: u128,
+    destination_stored: u128,
+    destination_capacity: u128,
+) -> Option<(u128, u128)> {
+    let preserves_order = |draw: u128| {
+        let Some(source_after) = source_stored.checked_sub(draw) else {
+            return false;
+        };
+        let Some(destination_after) =
+            destination_stored.checked_add(delivered_after_rollers(draw, segments))
+        else {
+            return false;
+        };
+        destination_after <= destination_capacity
+            && compare_charge(
+                source_after,
+                source_capacity,
+                destination_after,
+                destination_capacity,
+            ) != Ordering::Less
+    };
+    let draw = if preserves_order(maximum_draw) {
+        maximum_draw
+    } else {
+        let (mut permissible, mut excessive) = (0_u128, maximum_draw);
+        while excessive - permissible > 1 {
+            let middle = permissible + (excessive - permissible) / 2;
+            if preserves_order(middle) {
+                permissible = middle;
+            } else {
+                excessive = middle;
+            }
+        }
+        permissible
+    };
+    let delivered = delivered_after_rollers(draw, segments);
+    (delivered != 0).then_some((draw, delivered))
+}
+
 fn plan_pair(
     registries: &Registries,
     state: &AppState,
@@ -170,29 +217,17 @@ fn plan_pair(
     let b_remaining = b
         .stored()
         .checked_sub(passive.dissipated_for_store(right))?;
-    let fill_a = charge_ppm(a_remaining, da.capacity());
-    let fill_b = charge_ppm(b_remaining, db.capacity());
-    let (source, destination, source_def, dest_def, source_stored, dest_stored, excess_ppm) =
-        if fill_a > fill_b {
-            (
-                left,
-                right,
-                da,
-                db,
-                a_remaining,
-                b_remaining,
-                fill_a - fill_b,
-            )
-        } else if fill_b > fill_a {
-            (
-                right,
-                left,
-                db,
-                da,
-                b_remaining,
-                a_remaining,
-                fill_b - fill_a,
-            )
+    let charge_order = compare_charge(
+        a_remaining.nanojoules(),
+        da.capacity().nanojoules(),
+        b_remaining.nanojoules(),
+        db.capacity().nanojoules(),
+    );
+    let (source, destination, source_def, dest_def, source_stored, dest_stored) =
+        if charge_order == Ordering::Greater {
+            (left, right, da, db, a_remaining, b_remaining)
+        } else if charge_order == Ordering::Less {
+            (right, left, db, da, b_remaining, a_remaining)
         } else {
             return None;
         };
@@ -214,23 +249,20 @@ fn plan_pair(
     )
     .ok()?
     .energy();
-    // A conservative normalized equalization bound prevents power ping-pong.
-    let equalizing_ceiling = checked_mul_div_with_remainder(
-        source_def.capacity().min(dest_def.capacity()).nanojoules(),
-        excess_ppm,
-        FRACTION_SCALE * 2,
-        0,
-    )?
-    .0;
     let headroom = dest_def.capacity().checked_sub(dest_stored)?;
-    let maximum_draw = per_tick
-        .nanojoules()
-        .min(equalizing_ceiling)
-        .min(source_stored.nanojoules());
+    let maximum_draw = per_tick.nanojoules().min(source_stored.nanojoules());
     // Each embodied roller loses real work. Headroom bounds the resulting
     // delivery, not the larger draw before friction.
-    let (intake, delivered) =
+    let (capacity_limited_draw, _) =
         bounded_shaft_transfer(maximum_draw, headroom.nanojoules(), segments)?;
+    let (intake, delivered) = equalizing_shaft_draw(
+        capacity_limited_draw,
+        segments,
+        source_stored.nanojoules(),
+        source_def.capacity().nanojoules(),
+        dest_stored.nanojoules(),
+        dest_def.capacity().nanojoules(),
+    )?;
     Some(MechanicalTransmissionReceipt {
         coupling,
         segments,

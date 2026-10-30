@@ -77,7 +77,7 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 | Advanced geology/mining | Mixed-grade world ore, regional generation, voxel ore topology, laboratory/geophysical surveys, mechanized mining, drainage, ground control and tailings transport. |
 | Thermal/chemical industry | Environmental heat, vaporization, general combustion/emissions, alloy phases, reduction/smelting, alloying, forging, machining and recycling. Campfire is not an atmospheric model. |
 | Maintenance/structures | Maintenance tools, broader panels/shapes, cascade salvage, bending/shear/torsion/buckling, and terrain support. |
-| Power networks | Multi-cell shafts/belts, gearing, electrical distribution/protection, steam and spatial integration beyond one-roller transfer. |
+| Power networks | Shaft branches, belts, gearing, electrical distribution/protection, steam and transmission beyond straight contiguous timber roller runs. |
 | Hydrology | General fluid transport, surface/ground water, channels, pumps, irrigation, wastewater, sanitation, chemical blending/contamination, and pressure-dependent behavior. |
 | Ecology and society | Tree planting, agriculture, lethal combat, mobile armed pursuit, temple physiology, relics, recruitment, settlements, trade, migration, breached enclosures and extended raids. |
 | Industrial acquisition | Ordinary acquisition for industrial machinery, industrial energy systems, and supporting infrastructure. |

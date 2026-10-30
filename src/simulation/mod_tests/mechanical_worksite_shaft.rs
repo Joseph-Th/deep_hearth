@@ -130,8 +130,10 @@ fn three_segment_timber_shaft_transmits_with_cumulative_friction_and_disconnects
     assert_eq!(transfer.destination(), destination);
     assert_eq!(
         transfer.delivered().nanojoules(),
-        transfer.drawn().nanojoules() * 512 / 1_000,
-        "three 80% stages must lose 48.8% of shaft input",
+        (0..transfer.segments()).fold(transfer.drawn().nanojoules(), |work, _| {
+            crate::core::arithmetic::scale_u128_fraction_floor(work, 4, 5)
+        }),
+        "each physical roller loses 20% of incoming work with exact stage-wise rounding",
     );
     assert_eq!(
         source_before.checked_sub(state.energy().get_store(source).unwrap().stored()),
@@ -205,13 +207,25 @@ fn built_roller_fills_nearly_full_drive_with_friction_adjusted_custody_and_repla
         .get_store(ENERGY_MECHANICAL_LARGE_DRIVE)
         .unwrap()
         .capacity();
+    // The small drive loses a larger share of its capacity than the large
+    // destination gains. Leave precisely enough headroom to transmit a
+    // two-nanojoule draw with one-nanojoule delivery without reversing the
+    // normalized charge gradient.
+    let near_full_gap = crate::core::arithmetic::checked_mul_div_ceil(
+        destination_capacity.nanojoules(),
+        2,
+        source_capacity.nanojoules(),
+    )
+    .unwrap()
+    .checked_add(1)
+    .unwrap();
     let (registries, mut state, source, destination, roller_cell, _) =
         test_worksite_with_initial_energy(
             false,
             2,
             Some((
                 source_capacity,
-                Energy::from_nanojoules(destination_capacity.nanojoules() - 1),
+                Energy::from_nanojoules(destination_capacity.nanojoules() - near_full_gap),
             )),
         );
     let carried = state.logistics().player().unwrap().carried_stockpile();
@@ -233,7 +247,7 @@ fn built_roller_fills_nearly_full_drive_with_friction_adjusted_custody_and_repla
     );
     assert_eq!(
         state.energy().get_store(destination).unwrap().stored(),
-        Energy::from_nanojoules(destination_capacity.nanojoules() - 1)
+        Energy::from_nanojoules(destination_capacity.nanojoules() - near_full_gap)
     );
     let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
     let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot)
@@ -264,7 +278,7 @@ fn built_roller_fills_nearly_full_drive_with_friction_adjusted_custody_and_repla
     );
     assert_eq!(
         state.energy().get_store(destination).unwrap().stored(),
-        destination_capacity
+        Energy::from_nanojoules(destination_capacity.nanojoules() - near_full_gap + 1)
     );
     assert_eq!(state, replay);
     assert_eq!(
