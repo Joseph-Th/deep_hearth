@@ -33,16 +33,18 @@ The first physically built power coupling now connects opposed mechanical accumu
 an ordinary ground-set timber roller, converting a hand-charged local flywheel into a finite
 remote power source at bounded throughput and frictional loss. The connection is a structural
 member with actual material, support, construction time and recovery, not a free virtual bus.
-The connected generated-world worksite now proves two successive ore-crushing batches at
-a player-assembled crusher on the far side of a built roller. The actor observes exact local
-feed, finite stored work and destination headroom, authorizes durable unattended crushing,
-walks away, then returns to run the remainder into another bay. Conservation, grade,
-particle size, equipment wear and save/replay survive. The prepared crusher parts and ore
-are still seeded at their proper custody boundaries in this scenario, not gathered and
-fabricated by that same character. **Close those acquisition and placement gaps** before
-claiming full ordinary industrial progression or building longer/geared/electrical networks.
-The crusher is an investment because it delegates slow actual material work, not because
-its processing time was reduced.
+The connected generated-world worksite now demonstrates an actual production investment:
+from raw stone and logs the player hand-shapes a crusher body, jaw, wooden drive handles
+and a pick in 320 slow crafting ticks, preserving exact stone/wood chips. The player charges
+the flywheel after fabrication to avoid bearing losses, walks to the site with those parts,
+assembles the crusher/pick, excavates 100 g of 80%-grade galena from a represented mineral
+voxel, allocates three finite stockpile bays, and deposits the mined ore. A material-built
+roller transfers work into the remote machine. The player starts 65 g of unattended
+crushing, walks away, returns to a recharged drive, and runs the remaining 35 g into a
+second bay. Equipment wear, mass, grade, particle size and save/replay survive; the
+crushing rate is unchanged. The test still seeds raw source stone/logs and a reachable
+mineral face. **Natural material discovery, source hauling, transport infrastructure,
+wide-area shafts and a renderer** remain gaps, not proven ordinary-play completion.
 
 Combat's connected integration sequence is defined in [Combat and Kobold Cooperation](COMBAT_DESIGN.md):
 first real nonlethal contact, then material-backed melee and defense, physical injury, ranged

@@ -2,28 +2,144 @@
 
 use super::*;
 use crate::content::{
-    EQUIPMENT_STONE_CRUSHER, FORM_CRUSHED, FORM_CRUSHER_BLOCK, FORM_CRUSHER_JAW_FACE, FORM_ORE,
-    MATERIAL_COPPER, MATERIAL_SLAG, MATERIAL_STONE, PROCESS_CRUSH_ORE,
+    BLOCK_STATE_GRADED_GALENA_ORE, EQUIPMENT_STONE_CRUSHER, EQUIPMENT_STONE_PICK, FORM_CHIP,
+    FORM_CRUSHED, FORM_CRUSHER_BLOCK, FORM_CRUSHER_JAW_FACE, FORM_LOG, FORM_LUMP, FORM_ORE,
+    FORM_TOOL, MATERIAL_GALENA, MATERIAL_STONE, MINING_METHOD_HAND_PICK, PROCESS_CRUSH_ORE,
+    PROCESS_KNAP_STONE_CRUSHER_JAW_FACE, PROCESS_KNAP_STONE_TOOL,
+    PROCESS_SHAPE_STONE_CRUSHER_BLOCK, PROCESS_SHAPE_WOOD_HANDLE,
 };
 use crate::core::quantity::Mass;
-use crate::inventory::add_solid_stockpile_for_test;
+use crate::crafting::{player_manual_craft_options, validate_start_player_manual_craft};
 use crate::logistics::{
-    HorizontalControlInput, PlayerControlInput, validate_place_ground_stockpile,
+    HorizontalControlInput, PlayerControlInput, validate_allocate_player_ground_stockpile,
+    validate_drop_stack_to_ground,
 };
-use crate::material::{CompositionComponent, MaterialComposition};
 use crate::ore_processing::{
     PlayerComminutionOptionError, player_local_powered_comminution_options,
     validate_start_player_comminution_option,
 };
+use crate::world::{
+    BlockExcavationOutputReceipt, BlockExcavationRequest, validate_start_player_block_excavation,
+};
+use std::num::NonZeroU64;
+
+fn craft_player_workshop_part(
+    registries: &Registries,
+    state: &mut AppState,
+    process: crate::production::ProcessId,
+    batches: u64,
+) {
+    while !state.control_tick().is_simulation_boundary() {
+        let _ = advance_control_tick(registries, state).unwrap();
+    }
+    let catalog = player_manual_craft_options(registries, state).unwrap();
+    assert!(catalog.iter().any(|option| option.process() == process));
+    let count = NonZeroU64::new(batches).expect("fabrication batch must be nonzero");
+    let job = validate_start_player_manual_craft(registries, state, process, count, None)
+        .expect("raw stock should support player hand fabrication")
+        .commit(state)
+        .unwrap();
+    let complete = state.production().get_job(job).unwrap().completes_at();
+    while state.tick() < complete {
+        for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK {
+            let _ = advance_control_tick(registries, state).unwrap();
+        }
+    }
+    assert!(state.player_work().active().is_none());
+}
 
 #[test]
 fn player_runs_unattended_crusher_at_the_far_end_of_a_material_built_power_link() {
     let (registries, mut state, source, destination, middle, crank) = test_worksite(true);
     let crank = crank.unwrap();
     let start_tick = state.tick();
-
-    // Charge the player-assembled local stone flywheel by doing physical
-    // manual work. The remote drive remains empty until a shaft exists.
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let handle = CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE);
+    // Only raw stone and logs enter the player's carried custody. Every
+    // tool, crusher part, and chip comes from normal hand crafting.
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(3_000_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            Mass::from_milligrams(5_000_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+    }
+    let ore = CommodityKey::new(MATERIAL_GALENA, FORM_ORE);
+    let grade = registries
+        .world()
+        .block_for_state(BLOCK_STATE_GRADED_GALENA_ORE)
+        .unwrap()
+        .excavation()
+        .unwrap()
+        .composition()
+        .clone();
+    let before_shaping = calculate_matter_accounting(&state).unwrap().total();
+    craft_player_workshop_part(
+        &registries,
+        &mut state,
+        PROCESS_SHAPE_STONE_CRUSHER_BLOCK,
+        1,
+    );
+    craft_player_workshop_part(
+        &registries,
+        &mut state,
+        PROCESS_KNAP_STONE_CRUSHER_JAW_FACE,
+        1,
+    );
+    craft_player_workshop_part(&registries, &mut state, PROCESS_KNAP_STONE_TOOL, 1);
+    craft_player_workshop_part(&registries, &mut state, PROCESS_SHAPE_WOOD_HANDLE, 5);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        before_shaping
+    );
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_BLOCK),
+            Mass::from_milligrams(1_200_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_JAW_FACE),
+            Mass::from_milligrams(400_000),
+        ),
+        (handle, Mass::from_milligrams(1_000_000)),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(600_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
+            Mass::from_milligrams(4_000_000),
+        ),
+    ] {
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(carried)
+                .unwrap()
+                .get_mass(commodity),
+            mass
+        );
+    }
+    // Charge the player-assembled local stone flywheel only AFTER 320 ticks
+    // of material preparation: earlier charging would lose work to windage.
+    // The remote drive remains empty until an actual shaft is constructed.
     validate_start_manual_power(
         &registries,
         &state,
@@ -86,32 +202,9 @@ fn player_runs_unattended_crusher_at_the_far_end_of_a_material_built_power_link(
     }
     assert_eq!(state.logistics().player().unwrap().position().x(), 2);
 
-    let carried = state.logistics().player().unwrap().carried_stockpile();
-    let handle = CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE);
-    let assembly_inputs = [
-        (
-            CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_BLOCK),
-            Mass::from_milligrams(1_200_000),
-        ),
-        (
-            CommodityKey::new(MATERIAL_STONE, FORM_CRUSHER_JAW_FACE),
-            Mass::from_milligrams(400_000),
-        ),
-        (handle, Mass::from_milligrams(600_000)),
-    ];
-    for (commodity, mass) in assembly_inputs {
-        deposit_lot_for_test(
-            &registries,
-            &mut state,
-            carried,
-            commodity,
-            mass,
-            Temperature::from_millikelvin(293_150),
-        )
-        .unwrap();
-    }
-    // Real 2 kg crusher assembly withdraws precise prepared parts from
-    // carried custody and locates the durable machine at the player's voxel.
+    // Prepared parts came from actual hand-fabrication jobs at the source.
+    // The crusher consumes 400 g of handles; the stone pick another 200 g,
+    // leaving an entire roller blank and spare handle stock.
     let crusher =
         validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_CRUSHER, carried)
             .unwrap()
@@ -121,35 +214,129 @@ fn player_runs_unattended_crusher_at_the_far_end_of_a_material_built_power_link(
         state.logistics().stationary_equipment_position(crusher),
         Some(VoxelCoord::new(2, player_y, 2)),
     );
+    let pick = validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        state.logistics().stationary_equipment_position(pick),
+        Some(VoxelCoord::new(2, player_y, 2))
+    );
 
-    // Supply one graded feed and two finite destinations. The first output
-    // bay only accepts 65 g, so a 100 g ore charge needs two real batches.
-    let feed = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(150_000)).unwrap();
-    let out = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(65_000)).unwrap();
-    let second_out =
-        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(150_000)).unwrap();
-    let grade = MaterialComposition::new(vec![
-        CompositionComponent::new(MATERIAL_COPPER, 400_000),
-        CompositionComponent::new(MATERIAL_SLAG, 600_000),
-    ])
-    .unwrap();
-    let ore = CommodityKey::new(MATERIAL_COPPER, FORM_ORE);
-    crate::inventory::deposit_composed_lot_for_test(
-        &registries,
+    // An exposed grade-bearing mineral cell is authoritative world matter.
+    // The ordinary hand-pick path mines exactly 100 g into carried custody.
+    let target = VoxelCoord::new(2, player_y, 3);
+    set_generated_block_for_test(
+        registries.world(),
         &mut state,
-        feed,
-        ore,
-        Mass::from_milligrams(100_000),
-        Temperature::from_millikelvin(293_150),
-        grade.clone(),
+        target,
+        BLOCK_STATE_GRADED_GALENA_ORE,
+    );
+    while !state.control_tick().is_simulation_boundary() {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    let direction = ViewDirection::new(0, -800_000, 600_000).unwrap();
+    let source_mass_before = state
+        .world()
+        .represented_mass_at(registries.world(), target)
+        .unwrap();
+    let mining_matter_before = calculate_matter_accounting(&state).unwrap().total();
+    let pick_condition_before = state.equipment().get_equipment(pick).unwrap().condition();
+    let mining = validate_start_player_block_excavation(
+        &registries,
+        &state,
+        BlockExcavationRequest::new(
+            direction,
+            MINING_METHOD_HAND_PICK,
+            pick,
+            Mass::from_milligrams(100_000),
+        ),
     )
+    .expect("physical exposed galena should admit hand-pick extraction")
+    .commit(&mut state)
     .unwrap();
-    for stockpile in [feed, out, second_out] {
-        validate_place_ground_stockpile(&state, stockpile, VoxelCoord::new(2, player_y, 2))
+    let mut mined = None;
+    while state.control_tick() < mining.completes_at() {
+        let step = advance_control_tick(&registries, &mut state).unwrap();
+        if let Some(receipt) = step.block_excavation() {
+            mined = Some(receipt);
+        }
+    }
+    let BlockExcavationOutputReceipt::Carried { lot: ore_lot } = mined
+        .expect("grade-bearing seam must produce an actual material lot")
+        .output()
+    else {
+        panic!("a 100 g ore batch must fit carried capacity")
+    };
+    assert_eq!(
+        state.inventory().get_lot(ore_lot).unwrap().composition(),
+        &grade
+    );
+    assert_eq!(
+        state.inventory().get_lot(ore_lot).unwrap().mass(),
+        Mass::from_milligrams(100_000)
+    );
+    assert_eq!(
+        state
+            .world()
+            .represented_mass_at(registries.world(), target),
+        source_mass_before.checked_sub(Mass::from_milligrams(100_000))
+    );
+    assert!(state.equipment().get_equipment(pick).unwrap().condition() < pick_condition_before);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        mining_matter_before
+    );
+    // The still-solid cell represents the remaining deposit, not a magically
+    // empty voxel after the player removes only 100 g.
+    assert_eq!(
+        state.world().block_at(target),
+        Some(BLOCK_STATE_GRADED_GALENA_ORE)
+    );
+
+    // The three finite ground bays are ordinarily allocated by the player.
+    // Mined ore is deposited as one exact grade-preserving stack.
+    let feed = validate_allocate_player_ground_stockpile(&state, Mass::from_milligrams(150_000))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let out = validate_allocate_player_ground_stockpile(&state, Mass::from_milligrams(65_000))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let second_out =
+        validate_allocate_player_ground_stockpile(&state, Mass::from_milligrams(150_000))
             .unwrap()
             .commit(&mut state)
             .unwrap();
-    }
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap()
+        .into_iter()
+        .find(|stack| stack.commodity() == ore)
+        .unwrap();
+    assert_eq!(stack.composition(), &grade);
+    validate_drop_stack_to_ground(
+        &registries,
+        &state,
+        feed,
+        &stack,
+        Mass::from_milligrams(100_000),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(ore),
+        Mass::ZERO
+    );
+    assert_eq!(
+        state.inventory().get_stockpile(feed).unwrap().get_mass(ore),
+        Mass::from_milligrams(100_000)
+    );
 
     // Physical construction is admitted only on a settled slow boundary.
     while !state.control_tick().is_simulation_boundary() {
@@ -296,7 +483,7 @@ fn player_runs_unattended_crusher_at_the_far_end_of_a_material_built_power_link(
     );
     let product = state.inventory().get_stockpile(out).unwrap();
     assert_eq!(
-        product.get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED)),
+        product.get_mass(CommodityKey::new(MATERIAL_GALENA, FORM_CRUSHED)),
         Mass::from_milligrams(65_000),
     );
     assert_eq!(
@@ -387,7 +574,7 @@ fn player_runs_unattended_crusher_at_the_far_end_of_a_material_built_power_link(
             .inventory()
             .get_stockpile(second_out)
             .unwrap()
-            .get_mass(CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED)),
+            .get_mass(CommodityKey::new(MATERIAL_GALENA, FORM_CRUSHED)),
         Mass::from_milligrams(35_000),
     );
     assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);
