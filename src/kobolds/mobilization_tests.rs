@@ -63,6 +63,143 @@ fn scenario(
     (registries, state, route)
 }
 
+#[test]
+fn relay_striker_that_already_fits_the_den_does_not_evict_inert_cargo() {
+    use crate::content::{FORM_HANDLE, MATERIAL_WOOD};
+
+    let (registries, mut state, route) =
+        scenario(EnergyCarrier::Mechanical, Some(route_machinery()));
+    advance_to(&registries, &mut state, 579);
+    let source = |position, material, form, mass| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            CommodityKey::new(material, form),
+            Mass::from_milligrams(mass),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(material),
+        )
+        .unwrap()
+    };
+    let plan = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            source(route[0], MATERIAL_COPPER, FORM_ELECTRICAL_WINDING, 120_000),
+            source(route[0], MATERIAL_WOOD, FORM_HANDLE, 50_000),
+            source(route[0], MATERIAL_STONE, FORM_CHIP, 205_000),
+            source(route[1], MATERIAL_COPPER, FORM_ELECTRICAL_WINDING, 120_000),
+            source(route[3], MATERIAL_WOOD, FORM_HANDLE, 50_000),
+        ],
+    )
+    .unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut state).unwrap();
+    assert!(
+        crate::kobolds::junkworks::current_den_rig(
+            &state,
+            state.kobold_state().colony.as_ref().unwrap()
+        )
+        .is_some()
+    );
+    assert!(crate::kobolds::junkworks::den_or_relay_needs_striker(
+        &state, route[0]
+    ));
+    assert_eq!(
+        crate::kobolds::scavenging::den_cache_space(&state, route[0]),
+        Mass::from_milligrams(125_000)
+    );
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    assert_eq!(
+        advance_tick(&registries, &mut state).unwrap(),
+        advance_tick(&registries, &mut replay).unwrap()
+    );
+    assert_eq!(
+        state.surface().get(ids[2]).unwrap().position(),
+        route[0],
+        "den already has enough free space for the relay's missing striker"
+    );
+    assert_eq!(state.surface().get(ids[4]).unwrap().position(), route[3]);
+    assert_eq!(state, replay);
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn hot_precision_drop_does_not_mask_a_reachable_oversized_salvage_source() {
+    let (registries, mut state, route) =
+        scenario(EnergyCarrier::Mechanical, Some(route_machinery()));
+    advance_to(&registries, &mut state, 579);
+    let source = |position, material, form, mass, temperature| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            CommodityKey::new(material, form),
+            Mass::from_milligrams(mass),
+            Temperature::from_millikelvin(temperature),
+            MaterialComposition::pure(material),
+        )
+        .unwrap()
+    };
+    let plan = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            source(route[0], MATERIAL_STONE, FORM_CHIP, 375_000, 293_150),
+            source(
+                route[3],
+                MATERIAL_COPPER,
+                FORM_ELECTRICAL_WINDING,
+                700_000,
+                293_150,
+            ),
+            source(
+                route[3],
+                MATERIAL_COPPER,
+                FORM_ELECTRICAL_WINDING,
+                120_000,
+                400_000,
+            ),
+        ],
+    )
+    .unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut state).unwrap();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    assert_eq!(
+        advance_tick(&registries, &mut state).unwrap(),
+        advance_tick(&registries, &mut replay).unwrap()
+    );
+    assert_eq!(
+        state.surface().get(ids[0]).unwrap().position(),
+        route[1],
+        "an uncarryable hot parcel cannot make an oversized cool source appear to fit the den"
+    );
+    assert_eq!(state.surface().get(ids[2]).unwrap().position(), route[3]);
+    advance_to(&registries, &mut state, 605);
+    advance_to(&registries, &mut replay, 605);
+    assert_eq!(state, replay);
+    assert_eq!(state.surface().get(ids[2]).unwrap().position(), route[3]);
+    assert_eq!(
+        state.surface().get(ids[2]).unwrap().remaining_mass(),
+        Mass::from_milligrams(120_000)
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
 fn put_resource(
     registries: &Registries,
     state: &mut AppState,

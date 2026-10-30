@@ -13,11 +13,11 @@ use crate::surface::{
 use crate::survival::FoodFreshness;
 
 use super::{food_condition, scout_wants_food_opportunity};
-use crate::kobolds::junkworks::{current_den_rig, den_needs_striker};
+use crate::kobolds::junkworks::{current_den_rig, den_or_relay_needs_striker};
 use crate::kobolds::patrol::{scout_can_enter, scout_sees_guarded_cell};
 use crate::kobolds::scavenging::{
     ScavengeRoute, den_cache_space, is_contestable_drop, is_portable_drop, is_servant_era_salvage,
-    matches_salvage_goal, reachable_inherited_salvage,
+    matches_salvage_goal, reachable_inherited_salvage, scout_wants_loose_drop,
 };
 use crate::kobolds::{
     DEN_LOOSE_CACHE_LIMIT, SCOUT_BULK_SPLIT_BATCH, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL,
@@ -186,7 +186,7 @@ pub(super) fn clear_inert_cache_for_industry(
         colony.route,
         state.logistics().player().map(|record| record.position()),
     );
-    let needs_striker = den_needs_striker(state, den);
+    let needs_striker = den_or_relay_needs_striker(state, den);
     let protected_striker = current_den_rig(state, colony).map(|rig| rig.striker());
     if !den_exit_is_safe(registries, state, den, junction) {
         return None;
@@ -202,6 +202,7 @@ pub(super) fn clear_inert_cache_for_industry(
                     .available_resources_at(Some(far.unwrap_or(first)))
                     .any(|item| {
                         matches_salvage_goal(item, needs_striker)
+                            && scout_wants_loose_drop(registries, state, item, at)
                             && is_portable_drop(item)
                             && item.remaining_mass() <= free
                     })
@@ -249,6 +250,7 @@ pub(super) fn clear_inert_cache_for_industry(
                 .available_resources_at(Some(target))
                 .any(|candidate| {
                     matches_salvage_goal(candidate, needs_striker)
+                        && scout_wants_loose_drop(registries, state, candidate, at)
                         && is_portable_drop(candidate)
                         && candidate.remaining_mass() <= capacity
                 });
