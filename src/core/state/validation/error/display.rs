@@ -471,6 +471,13 @@ impl Display for StateValidationError {
             Self::FutureMaterialLotIdDemandOverflow => formatter.write_str(
                 "already-admitted future material-lot identity demand exceeds the representable u64 range",
             ),
+            Self::FutureWorldRevisionCapacityExhausted { revision, required } => write!(
+                formatter,
+                "world revision {revision} cannot reserve {required} already-admitted future revisions"
+            ),
+            Self::FutureWorldRevisionDemandOverflow => formatter.write_str(
+                "already-admitted future world revision demand exceeds the representable u64 range",
+            ),
             Self::FutureLogisticsRevisionCapacityExhausted { revision, required } => write!(
                 formatter,
                 "logistics revision {revision} cannot reserve {required} already-admitted future revisions"

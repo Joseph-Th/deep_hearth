@@ -290,6 +290,11 @@ pub enum StateValidationError {
         required: u64,
     },
     FutureMaterialLotIdDemandOverflow,
+    FutureWorldRevisionCapacityExhausted {
+        revision: u64,
+        required: u64,
+    },
+    FutureWorldRevisionDemandOverflow,
     FutureLogisticsRevisionCapacityExhausted {
         revision: u64,
         required: u64,

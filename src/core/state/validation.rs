@@ -216,6 +216,16 @@ fn validate_tree_integrations(
 }
 
 fn validate_shared_future_capacity(state: &AppState) -> Result<(), StateValidationError> {
+    let world_required = state
+        .checked_future_world_revision_demand()
+        .ok_or(StateValidationError::FutureWorldRevisionDemandOverflow)?;
+    let world_revision = state.world().revision();
+    if world_revision.checked_add(world_required).is_none() {
+        return Err(StateValidationError::FutureWorldRevisionCapacityExhausted {
+            revision: world_revision,
+            required: world_required,
+        });
+    }
     let logistics_required = state
         .checked_future_logistics_revision_demand()
         .ok_or(StateValidationError::FutureLogisticsRevisionDemandOverflow)?;

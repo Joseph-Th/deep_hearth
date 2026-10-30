@@ -47,6 +47,8 @@ mod graded_hematite;
 mod palette;
 #[path = "world_tests/progression.rs"]
 mod progression;
+#[path = "world_tests/revision_headroom.rs"]
+mod revision_headroom;
 #[path = "world_tests/targeting_structures.rs"]
 mod targeting_structures;
 
