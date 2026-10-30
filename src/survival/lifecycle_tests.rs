@@ -6,7 +6,7 @@ use crate::core::quantity::{Energy, Volume};
 use crate::core::time::SimulationTick;
 use crate::player::validate_admit_player;
 use crate::spatial::VoxelCoord;
-use crate::survival::{FoodCategory, SurvivalExertion, assess_survival};
+use crate::survival::{FoodCategory, SurvivalExertion, ThermalExposure, assess_survival};
 
 fn next_tick(state: &AppState) -> SimulationTick {
     SimulationTick::new(
@@ -109,6 +109,92 @@ fn exhausting_exact_reserves_does_not_apply_deficit_damage_until_the_next_tick()
         deficit_after.vitality().parts_per_million(),
         vitality.parts_per_million().saturating_sub(expected_loss)
     );
+}
+
+#[test]
+fn cold_player_needs_net_warming_to_stop_cold_injury() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state).unwrap();
+    let physiology = registries.survival().physiology();
+    let thermal = physiology.thermal_comfort();
+    // A 1.44 kJ local-heat sample offsets the authored open-air loss exactly.
+    let balanced_heat = Energy::from_nanojoules(1_440_000_000_000);
+    assert_eq!(thermal.local_heat_gain_ppm(balanced_heat), 1_000);
+    assert_eq!(
+        thermal.exposure_loss_ppm_per_tick(ThermalExposure::Open),
+        1_000
+    );
+    let initial_vitality = Vitality::from_parts_per_million_unchecked(500_000);
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            physiology.maximum_metabolic_energy(),
+            physiology.maximum_hydration(),
+            initial_vitality,
+            NutritionReserves::FULL,
+            0,
+            0,
+        ),
+    );
+
+    let tick_with_heat = |state: &mut AppState, heat| {
+        let plan = decide_survival_tick_with_local_heat(
+            &registries,
+            state,
+            SurvivalExertion::REST,
+            next_tick(state),
+            heat,
+            ThermalExposure::Open,
+            0,
+        )
+        .unwrap();
+        apply_survival_tick(state, plan).unwrap()
+    };
+    let mut unheated = state.clone();
+    let mut balanced = state.clone();
+    let mut warming = state;
+    let cold = tick_with_heat(&mut unheated, Energy::ZERO);
+    let sustained_cold = tick_with_heat(&mut balanced, balanced_heat);
+    let heated = tick_with_heat(&mut warming, thermal.local_heat_for_maximum_gain());
+
+    assert_eq!(cold.thermal_comfort_ppm(), 0);
+    assert_eq!(sustained_cold.thermal_comfort_ppm(), 0);
+    assert_eq!(
+        sustained_cold.vitality().parts_per_million(),
+        initial_vitality.parts_per_million() - thermal.cold_vitality_loss_ppm_per_tick(),
+        "thermal balance at zero comfort is still sustained cold exposure"
+    );
+    assert_eq!(sustained_cold.vitality(), cold.vitality());
+    assert!(heated.thermal_comfort_ppm() > 0);
+    assert!(heated.vitality() > sustained_cold.vitality());
+
+    // The tick that first spends exactly the last warmth reserve still has
+    // the same exact-cover grace as energy and hydration. Continued cold on
+    // the following tick must incur injury, even with balanced local heat.
+    let mut just_warm = warming;
+    let revision = just_warm.survival().revision();
+    let record = *just_warm.survival().player().unwrap();
+    just_warm.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            record.metabolic_energy(),
+            record.hydration(),
+            initial_vitality,
+            record.nutrition(),
+            record.vitality_recovery_remainder(),
+            1_000,
+        ),
+    );
+    let exact_cover = tick_with_heat(&mut just_warm, Energy::ZERO);
+    assert_eq!(exact_cover.thermal_comfort_ppm(), 0);
+    assert_eq!(exact_cover.vitality(), initial_vitality);
+    let following = tick_with_heat(&mut just_warm, balanced_heat);
+    assert_eq!(following.thermal_comfort_ppm(), 0);
+    assert_eq!(following.vitality(), sustained_cold.vitality());
 }
 
 #[test]

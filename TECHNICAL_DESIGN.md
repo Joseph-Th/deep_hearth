@@ -278,6 +278,13 @@ synchronized indexes.
 
 Cross-owner operations coordinate owner APIs; they do not mutate another owner's private storage directly.
 
+The survival owner's thermal comfort is a finite short-horizon reserve. Open-air or
+overhead-covered exposure spends comfort on each slow tick, and local dissipated heat
+can restore it. Exactly spending the last reserve has one tick of deficit grace;
+once the player is already at zero comfort, merely balancing ongoing exposure
+does not prevent cold vitality loss. Net warming must restore positive comfort
+to stop that injury.
+
 Kobold junkworks use existing surface custody rather than minting an equipment instance: after a
 physical industrial sighting has reached the den, co-located precision-copper salvage plus
 stone-chip, shaped-timber, or recovered iron-scrap striker forms an improvised mechanical
