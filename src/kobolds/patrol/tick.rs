@@ -87,7 +87,7 @@ pub(crate) fn apply_kobold_scout_tick(
                 consumed_food: None,
                 discarded_food: None,
                 cleared_cache: None,
-                heard_junk_alarm: false,
+                heard_junk_alarm,
                 defensive_contact: Some(contact),
             }),
             alarm_pulses,

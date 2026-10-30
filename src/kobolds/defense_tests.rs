@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::content::{
-    ENERGY_ELECTRICAL_BUFFER, FORM_HANDLE, FORM_INGOT, FORM_SCRAP, MATERIAL_IRON, MATERIAL_WOOD,
-    build_registries,
+    ENERGY_ELECTRICAL_BUFFER, FORM_HANDLE, FORM_INGOT, FORM_REINFORCEMENT, FORM_SCRAP,
+    MATERIAL_COPPER, MATERIAL_IRON, MATERIAL_WOOD, build_registries,
 };
 use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::state::validate_loaded_state;
@@ -294,6 +294,81 @@ fn informed_scout_defends_real_fitted_iron_tool_with_finite_blunt_injury_and_wea
     assert_eq!(
         calculate_matter_accounting(&state).unwrap().total(),
         conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn audible_den_alarm_is_reported_even_when_the_fitted_scout_defends_its_worksite() {
+    let (registries, mut state, _handle, head) = prepared_worksite(true);
+    to_tick(&registries, &mut state, 210);
+    // The actual paired copper salvage and iron striker produce a den chime;
+    // its eight-step beat at tick 220 must not disappear behind a simultaneous
+    // worksite counterstroke.
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT),
+            Mass::from_milligrams(20_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_IRON, FORM_SCRAP),
+            Mass::from_milligrams(25_000),
+        ),
+    ] {
+        let spec = SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            DEN,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(commodity.material()),
+        )
+        .unwrap();
+        validate_create_surface_resources(&registries, &state, [spec])
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    }
+    validate_admit_player(&registries, &state, APPROACH)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let serialized = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&serialized)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, replay);
+    let original_matter = calculate_matter_accounting(&state).unwrap().total();
+    let mut alarm_contact = None;
+    while state.tick().value() < 220 {
+        let frame = advance_control_tick(&registries, &mut state).unwrap();
+        assert_eq!(
+            frame,
+            advance_control_tick(&registries, &mut replay).unwrap(),
+            "observable alarm and real abrasion must replay identically after load",
+        );
+        if let Some(tick) = frame.simulation()
+            && tick.tick() == SimulationTick::new(220)
+        {
+            let scout = tick.kobold_scout().expect("fitted scout must defend");
+            alarm_contact = Some((scout, tick.kobold_alarm_pulses().to_vec()));
+        }
+    }
+    let (contact, pulses) = alarm_contact.expect("tick 220 contact must be visible");
+    assert_eq!(contact.defensive_contact(), Some((head, 12_000)));
+    assert!(
+        !pulses.is_empty(),
+        "the real den alarm must produce an audible pulse"
+    );
+    assert!(
+        contact.heard_junk_alarm(),
+        "simultaneous defense must not erase a heard alarm"
+    );
+    assert_eq!(state, replay);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        original_matter
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }

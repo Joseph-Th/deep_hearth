@@ -392,7 +392,10 @@ fitting cannot cause contact. A staggered, contact-shaken or wary scout and
 bright local illumination prevent the counterstroke. The attack occupies the
 normal five-simulation-tick patrol work slot and emits one locally visible
 `KoboldScoutEvent::defensive_contact` naming its exact metal head and vitality
-loss. Iron shoe, iron scrap tooth and copper fulcrum cause respectively 12,000,
+loss. When the same step also relays a physical den warning, its scout event
+retains `heard_junk_alarm` and the separate audible alarm pulses rather than
+silencing that signal behind the defensive action. Iron shoe, iron scrap tooth
+and copper fulcrum cause respectively 12,000,
 10,000 and 8,000 ppm of bounded blunt player vitality loss. Each blow uses
 the surface owner's two-revision abrasion transaction to shed the same 2, 4 or
 5 g of recoverable head material as a split; absent physical wear or exhausted
