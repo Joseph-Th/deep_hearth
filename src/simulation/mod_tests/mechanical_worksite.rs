@@ -113,6 +113,21 @@ fn test_worksite_with_distance(
     VoxelCoord,
     Option<EquipmentId>,
 ) {
+    test_worksite_with_initial_energy(real_flywheels, distance, None)
+}
+
+fn test_worksite_with_initial_energy(
+    real_flywheels: bool,
+    distance: i64,
+    initial_energy: Option<(Energy, Energy)>,
+) -> (
+    Registries,
+    AppState,
+    EnergyStoreId,
+    EnergyStoreId,
+    VoxelCoord,
+    Option<EquipmentId>,
+) {
     let registries = build_registries();
     let mut state = AppState::new();
     validate_generate_chunk(
@@ -156,19 +171,21 @@ fn test_worksite_with_distance(
             Some(assemble_crank(&registries, &mut state)),
         )
     } else {
+        let (source_stored, destination_stored) =
+            initial_energy.unwrap_or((Energy::from_nanojoules(100_000_000_000), Energy::ZERO));
         (
             add_energy_store_with_initial_for_fixture(
                 &registries,
                 &mut state,
                 ENERGY_MECHANICAL_SMALL_DRIVE,
-                Energy::from_nanojoules(100_000_000_000),
+                source_stored,
             )
             .unwrap(),
             add_energy_store_with_initial_for_fixture(
                 &registries,
                 &mut state,
                 ENERGY_MECHANICAL_LARGE_DRIVE,
-                Energy::ZERO,
+                destination_stored,
             )
             .unwrap(),
             None,

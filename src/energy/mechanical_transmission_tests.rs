@@ -78,3 +78,87 @@ fn runs_resolve_on_both_axes_and_do_not_overflow_world_coordinate_limits() {
         .is_none()
     );
 }
+
+#[test]
+fn finite_sink_headroom_bounds_delivery_after_physical_roller_losses() {
+    assert_eq!(bounded_shaft_transfer(500, 1, 1), Some((2, 1)));
+    assert_eq!(bounded_shaft_transfer(500, 1, 3), Some((4, 1)));
+    assert_eq!(bounded_shaft_transfer(500, 2, 1), Some((3, 2)));
+    assert_eq!(bounded_shaft_transfer(200, 200, 1), Some((200, 160)));
+    assert_eq!(bounded_shaft_transfer(2, 100, 3), None);
+    assert_eq!(bounded_shaft_transfer(500, 0, 1), None);
+    assert_eq!(bounded_shaft_transfer(0, 100, 1), None);
+    assert_eq!(
+        bounded_shaft_transfer(u128::MAX, 1, 1),
+        Some((2, 1)),
+        "full-width energy arithmetic must not overflow when the sink is nearly full"
+    );
+}
+
+#[test]
+fn near_full_mechanical_store_accepts_exact_delivery_without_overflow_or_free_work() {
+    use crate::content::make_test_registries_with_energy_store;
+    use crate::core::quantity::Power;
+    use crate::energy::{
+        EnergyStoreDefinition, EnergyStoreDefinitionId, add_energy_store_with_initial_for_fixture,
+    };
+
+    let definition = EnergyStoreDefinitionId::new(990_678);
+    let capacity = Energy::from_nanojoules(1_000_000_000);
+    let registries =
+        make_test_registries_with_energy_store(EnergyStoreDefinition::new_with_transfer_limits(
+            definition,
+            "small precision shaft store",
+            EnergyCarrier::Mechanical,
+            capacity,
+            Power::from_microwatts(1_000),
+            Power::from_microwatts(1_000),
+        ));
+    let mut state = AppState::new();
+    let source =
+        add_energy_store_with_initial_for_fixture(&registries, &mut state, definition, capacity)
+            .unwrap();
+    let destination = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        definition,
+        Energy::from_nanojoules(capacity.nanojoules() - 1),
+    )
+    .unwrap();
+    let passive =
+        crate::energy::passive_dissipation::decide_passive_energy_dissipation(&registries, &state);
+    let transfer = plan_pair(
+        &registries,
+        &state,
+        &passive,
+        StructuralElementId::new(1),
+        1,
+        source,
+        destination,
+    )
+    .expect("one nanojoule of free capacity can receive a post-friction delivery");
+    assert_eq!(transfer.drawn(), Energy::from_nanojoules(2));
+    assert_eq!(transfer.delivered(), Energy::from_nanojoules(1));
+    assert_eq!(transfer.lost(), Energy::from_nanojoules(1));
+    let before_revision = state.energy().revision();
+    let applied = apply_mechanical_transmission(
+        &mut state,
+        MechanicalTransmissionPlan {
+            transfers: vec![transfer],
+        },
+    );
+    assert_eq!(applied, vec![transfer]);
+    assert_eq!(state.energy().revision(), before_revision + 1);
+    assert_eq!(
+        state.energy().get_store(source).unwrap().stored(),
+        Energy::from_nanojoules(capacity.nanojoules() - 2)
+    );
+    assert_eq!(
+        state.energy().get_store(destination).unwrap().stored(),
+        capacity
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}

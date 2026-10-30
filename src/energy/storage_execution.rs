@@ -26,8 +26,5 @@ pub(crate) use supply::{
 };
 
 #[cfg(test)]
-use sink::project_energy_sink_stored_at_release;
-
-#[cfg(test)]
 #[path = "storage_execution_tests.rs"]
 mod tests;

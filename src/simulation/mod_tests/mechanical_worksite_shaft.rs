@@ -191,3 +191,88 @@ fn three_segment_timber_shaft_transmits_with_cumulative_friction_and_disconnects
         Ok(())
     );
 }
+
+#[test]
+fn built_roller_fills_nearly_full_drive_with_friction_adjusted_custody_and_replay() {
+    let authored = build_registries();
+    let source_capacity = authored
+        .energy()
+        .get_store(ENERGY_MECHANICAL_SMALL_DRIVE)
+        .unwrap()
+        .capacity();
+    let destination_capacity = authored
+        .energy()
+        .get_store(ENERGY_MECHANICAL_LARGE_DRIVE)
+        .unwrap()
+        .capacity();
+    let (registries, mut state, source, destination, roller_cell, _) =
+        test_worksite_with_initial_energy(
+            false,
+            2,
+            Some((
+                source_capacity,
+                Energy::from_nanojoules(destination_capacity.nanojoules() - 1),
+            )),
+        );
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+        Mass::from_milligrams(200_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let before_matter = calculate_matter_accounting(&state).unwrap().total();
+    let roller = build_roller_at(&registries, &mut state, roller_cell);
+    assert!(state.structures().get_element(roller).is_some());
+    assert_eq!(
+        state.energy().get_store(source).unwrap().stored(),
+        source_capacity
+    );
+    assert_eq!(
+        state.energy().get_store(destination).unwrap().stored(),
+        Energy::from_nanojoules(destination_capacity.nanojoules() - 1)
+    );
+    let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    let mut settled = None;
+    for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let original = advance_control_tick(&registries, &mut state).unwrap();
+        let restored = advance_control_tick(&registries, &mut replay).unwrap();
+        assert_eq!(original, restored);
+        if let Some(tick) = original.simulation() {
+            assert_eq!(tick.mechanical_transmissions().len(), 1);
+            settled = tick.mechanical_transmissions().first().copied();
+        }
+    }
+    let transfer = settled.expect("completed shaft should deliver into exact remaining headroom");
+    assert_eq!(transfer.coupling(), roller);
+    assert_eq!(transfer.source(), source);
+    assert_eq!(transfer.destination(), destination);
+    assert_eq!(transfer.drawn(), Energy::from_nanojoules(2));
+    assert_eq!(transfer.delivered(), Energy::from_nanojoules(1));
+    assert_eq!(transfer.lost(), Energy::from_nanojoules(1));
+    assert_eq!(
+        state.energy().get_store(source).unwrap().stored(),
+        Energy::from_nanojoules(source_capacity.nanojoules() - 2)
+    );
+    assert_eq!(
+        state.energy().get_store(destination).unwrap().stored(),
+        destination_capacity
+    );
+    assert_eq!(state, replay);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        before_matter
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}

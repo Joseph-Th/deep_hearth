@@ -96,6 +96,51 @@ fn charge_ppm(available: Energy, capacity: Energy) -> u128 {
     .0
 }
 
+fn delivered_after_rollers(mut drawn: u128, segments: u32) -> u128 {
+    for _ in 0..segments {
+        drawn = scale_u128_fraction_floor(drawn, WOODEN_TRANSMISSION_EFFICIENCY_PPM, 1_000_000);
+        if drawn == 0 {
+            break;
+        }
+    }
+    drawn
+}
+
+/// Return an exact nonzero draw and delivery bounded by the sink's physical capacity.
+/// Usually the source/power/equalization ceiling already fits. Only when friction-adjusted
+/// delivery exceeds sink headroom do we search for the smallest draw that fills it,
+/// avoiding both overflow and unnecessary work lost to fractional rounding.
+fn bounded_shaft_transfer(
+    maximum_draw: u128,
+    headroom: u128,
+    segments: u32,
+) -> Option<(u128, u128)> {
+    if maximum_draw == 0 || headroom == 0 {
+        return None;
+    }
+    let maximum_delivery = delivered_after_rollers(maximum_draw, segments);
+    if maximum_delivery == 0 {
+        return None;
+    }
+    if maximum_delivery <= headroom {
+        return Some((maximum_draw, maximum_delivery));
+    }
+    // Efficiency is below unity at every roller. An extra unit of input can raise
+    // output by at most one unit, so all positive deliveries up to the maximum
+    // are reachable. This search cannot overflow even at the full u128 width.
+    let (mut insufficient, mut sufficient) = (0_u128, maximum_draw);
+    while sufficient - insufficient > 1 {
+        let middle = insufficient + (sufficient - insufficient) / 2;
+        if delivered_after_rollers(middle, segments) >= headroom {
+            sufficient = middle;
+        } else {
+            insufficient = middle;
+        }
+    }
+    debug_assert_eq!(delivered_after_rollers(sufficient, segments), headroom);
+    Some((sufficient, headroom))
+}
+
 fn plan_pair(
     registries: &Registries,
     state: &AppState,
@@ -178,24 +223,14 @@ fn plan_pair(
     )?
     .0;
     let headroom = dest_def.capacity().checked_sub(dest_stored)?;
-    let intake = per_tick
+    let maximum_draw = per_tick
         .nanojoules()
         .min(equalizing_ceiling)
-        .min(source_stored.nanojoules())
-        .min(headroom.nanojoules());
-    // Each distinct physically embodied roller pays its own wood-bearing
-    // friction. A longer cheap timber shaft carries progressively less work.
-    let mut delivered = intake;
-    for _ in 0..segments {
-        delivered =
-            scale_u128_fraction_floor(delivered, WOODEN_TRANSMISSION_EFFICIENCY_PPM, 1_000_000);
-        if delivered == 0 {
-            return None;
-        }
-    }
-    if delivered == 0 {
-        return None;
-    }
+        .min(source_stored.nanojoules());
+    // Each embodied roller loses real work. Headroom bounds the resulting
+    // delivery, not the larger draw before friction.
+    let (intake, delivered) =
+        bounded_shaft_transfer(maximum_draw, headroom.nanojoules(), segments)?;
     Some(MechanicalTransmissionReceipt {
         coupling,
         segments,

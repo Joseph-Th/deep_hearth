@@ -16,8 +16,6 @@ mod completion;
 mod errors;
 mod reservation;
 
-#[cfg(test)]
-pub(crate) use capacity::project_energy_sink_stored_at_release;
 pub(crate) use capacity::{
     EnergySinkCapacityError, available_energy_sink_capacity_at_release,
     project_energy_sink_stored_after_elapsed, validate_energy_sink_capacity_at_release,

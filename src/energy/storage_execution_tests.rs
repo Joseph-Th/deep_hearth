@@ -176,23 +176,13 @@ fn deferred_sink_capacity_counts_only_passive_ticks_before_completion_ingress() 
         .unwrap_or_else(|error| panic!("dissipative sink access failed: {error}"));
 
     assert_eq!(
-        project_energy_sink_stored_at_release(
-            &registries,
-            STORE_DEFINITION,
-            Energy::from_nanojoules(2_000),
-            TickSpan::new(1),
-        ),
-        Energy::from_nanojoules(2_000),
+        access.available_capacity_at_release(&registries, TickSpan::new(1)),
+        Energy::from_nanojoules(8_000),
         "a one-tick job releases before that tick's passive loss"
     );
     assert_eq!(
-        project_energy_sink_stored_at_release(
-            &registries,
-            STORE_DEFINITION,
-            Energy::from_nanojoules(2_000),
-            TickSpan::new(2),
-        ),
-        Energy::from_nanojoules(1_100),
+        access.available_capacity_at_release(&registries, TickSpan::new(2)),
+        Energy::from_nanojoules(8_900),
         "a two-tick job has exactly one guaranteed passive-loss tick before ingress"
     );
     assert_eq!(
