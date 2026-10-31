@@ -27,6 +27,7 @@ larger ledgers, longer waits, and more forced survival tasks do not automaticall
 | Same actor's thermal/infrastructure choice | The reactive branch reached chilly conditions after **7.3 minutes of passive time** (70% of elapsed time to warning) and then made its fire. A forecast-driven branch gathered real stone and fuel, lit the fire earlier, and carried out a 19-tick reconnaissance journey while it burned. At the matched endpoint the prepared branch had **958,650 ppm** comfort versus **801,150 ppm** after late intervention; it retained **986 versus 1,108 ticks** of fuel runway. No food theft occurred in this branch before the warning. | Regional ambient cooling now brings on an actual decision sooner. Early fire is primarily a warmth-and-freedom investment in this replay, not evidence of preventing a nonexistent theft; the separate raid/illumination episodes establish the deterrence mechanism. |
 | Unattended camp reconnaissance | The same proactive player walked spawn → forage → water → copper/clay outcrop and back using normal continuous-body control. A 10-tick hand inspection acquired positive local copper evidence, a timed collection secured **20 g of finite native copper**, and strict save/load preserved both knowledge and custody. The trip occupied 19 simulation ticks; the proactive branch still waited **4.7 minutes** after returning, against 7.3 minutes in the reactive branch. The fire-only comparison retained the same source custody, but no theft was due in either version. | The player is beginning to **be a field engineer** rather than a fire tender: investing in sheltering infrastructure creates freedom to learn and return with useful physical stock. Yet discovering one resource is not a lasting technological improvement; the game needs subsequent independently motivated projects and better opportunity discovery. |
 | Long-stay camp | Timber, stone, tools, supports and a finished cover create a material, spatial shelter. The authored baseline unheated exposure changes from 1,000 to 300 ppm/tick; generated terrain scales both rates with current local wind and temperature, retaining the roof's smaller loss. Unfinished construction grants no cover. | A physical project gives a tangible advantage and creates a genuine fuel-versus-construction alternative. This is close to the desired fantasy. |
+| Generated wilderness scent (separate owner-level witness) | A seeded food patch became a sweet or nutty cue beyond the two-cell sight radius when the actor stood downwind. No source coordinates or reserve quantities were revealed. An actual stone enclosure prevented the signal, a changing front shifted it without moving food, harvested mass weakened it, and depletion or ambient spoilage ended it. Real seed-generated wilderness patches passed the same read, including trusted save/load. | Wind now connects physical environment to a reason to investigate unseen terrain rather than just draining warmth. These tests establish source-grounded perception, **not yet a player-controlled discovery-to-harvest journey in the maintained wilderness replay**. |
 | Scavenger encounter | A scout may relocate unattended food, can be driven away by presence and local firelight, and leaves actionable route evidence. Stolen matter stays recoverable. | World inhabitants become interesting through custody and risk, not just damage. Most such encounters are currently sampled separately from the maintained opening. |
 | Fieldwork | A 33 kg ore demand met a localized 0..5 kg estimate; first recovered ore arrived only after about 17 minutes of setup/search/work. Six further searches cost another 324 ticks and still left 15.88 kg unmet. A matched assay reduced uncertainty at a real attention cost. | Exploration, uncertainty, adaptation and sunk-cost decisions exist. A nominal order cannot turn a small local seam into an adequate supply. Make this limitation evident before large tool investment, without leaking hidden neighboring geology. |
 | Generated exact-local expedition | Surveyed barren and productive sites, walked 12 edges, mined sixty batches, hauled twice under a 25 kg personal capacity, returned 30 kg, conserved matter. | Persistent locality and loading produce decisions which the spatial-proxy versions cannot establish alone. |
@@ -56,7 +57,8 @@ a mining tool is preparation expense that may not be justified by the found depo
 
 **Not yet convincing:** despite now performing a paid reconnaissance and retaining physical
 metal and acquired geology, the maintained starting actor has little to explore outside the
-known bounded opening. **70%** of the elapsed time to its first cold warning is passive in
+known bounded opening. Generated-wilderness scent offers a real clue but the maintained actor
+has not yet followed it through ordinary traversed terrain into a useful new investment. **70%** of the elapsed time to its first cold warning is passive in
 the reactive branch; even the forward-planning branch still has **4.7 minutes of idle exposure**
 after its actual 19-tick reconnaissance. A six-edge opening and abundant local food offer too
 little unscripted discovery to sustain a field-engineer identity.
@@ -83,8 +85,11 @@ The wilderness harness consumes those ordinary player-facing projections, execut
 self-chosen forward-provisioning action, and prints its active and passive time separately.
 A completed roof changes the actual warmth forecast; observed weather changes both open and
 covered estimates and reports its change horizon. Unknown terrain does not invent cover.
-These decisions improve player planning and the honesty of automated evaluation. They do
-not solve world exploration.
+Wind direction also carries bounded, freshness- and depletion-dependent forage scents through
+known, open, face-connected terrain. It gives an ambiguous cue outside visible range without
+revealing a hidden patch's exact position. Wind changes can remove the cue even when the patch
+remains. These read-only observations improve the potential for self-directed exploration; the
+maintained six-edge opening still does not prove that experience across a real expedition.
 
 The current maintained report now includes a fourth physical journey phase rather than
 silently dropping the productive reconnaissance from its concise account. The evidence

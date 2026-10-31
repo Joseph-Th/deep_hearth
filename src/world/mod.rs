@@ -3,6 +3,7 @@
 mod definitions;
 mod excavation;
 mod felling;
+mod forage_scent;
 mod generation;
 mod local_visibility;
 mod state;
@@ -36,6 +37,9 @@ pub(crate) use felling::{
     apply_tree_felling_wear, decide_tree_felling_wear, tree_felling_condition_after,
     tree_felling_duration, tree_felling_exertion, validate_due_player_tree_felling,
 };
+pub use forage_scent::{
+    ForageScent, ForageScentIntensity, ForageScentKind, assess_player_forage_scents,
+};
 pub(crate) use generation::WorldGenerationProfile;
 pub(crate) use generation::first_buried_stationary_enclosure_in_world;
 pub(crate) use generation::first_embodied_structure_collision_in_world;
@@ -66,7 +70,7 @@ pub use trees::{BIOLOGICAL_YEAR_TICKS, TreeRecord};
 pub(crate) use trees::{FelledTreeRecord, TransplantedTreeRecord};
 pub use validation::{WorldValidationError, validate_loaded_world};
 pub(crate) use weather::assess_player_weather_at;
-pub use weather::{DayPhase, PlayerWeather, WindCondition, assess_player_weather};
+pub use weather::{DayPhase, PlayerWeather, WindCondition, WindDirection, assess_player_weather};
 
 #[cfg(test)]
 #[path = "world_tests.rs"]

@@ -28,6 +28,27 @@ pub enum WindCondition {
     Gusting,
 }
 
+/// Horizontal direction in which air moves, not the direction it originates from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindDirection {
+    East,
+    West,
+    North,
+    South,
+}
+
+impl WindDirection {
+    #[must_use]
+    pub(crate) const fn delta(self) -> (i64, i64) {
+        match self {
+            Self::East => (1, 0),
+            Self::West => (-1, 0),
+            Self::North => (0, -1),
+            Self::South => (0, 1),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DayPhase {
     Morning,
@@ -45,6 +66,7 @@ pub struct PlayerWeather {
     phase: DayPhase,
     ambient_temperature: Temperature,
     wind: WindCondition,
+    wind_direction: Option<WindDirection>,
     cooling_multiplier_ppm: u32,
     changes_in: TickSpan,
 }
@@ -65,6 +87,10 @@ impl PlayerWeather {
     #[must_use]
     pub const fn wind(self) -> WindCondition {
         self.wind
+    }
+    #[must_use]
+    pub const fn wind_direction(self) -> Option<WindDirection> {
+        self.wind_direction
     }
     #[must_use]
     pub const fn cooling_multiplier_ppm(self) -> u32 {
@@ -136,6 +162,16 @@ fn weather_at(
         2 | 3 => WindCondition::Breeze,
         _ => WindCondition::Gusting,
     };
+    let wind_direction = if wind == WindCondition::Calm {
+        None
+    } else {
+        Some(match (hash >> 8) & 3 {
+            0 => WindDirection::East,
+            1 => WindDirection::West,
+            2 => WindDirection::North,
+            _ => WindDirection::South,
+        })
+    };
     let celsius = base_celsius + ((hash >> 20) % 5) as i32 - 2;
     let wind_cooling = match wind {
         WindCondition::Calm => 0,
@@ -161,6 +197,7 @@ fn weather_at(
                 .expect("authored weather temperature is above absolute zero"),
         ),
         wind,
+        wind_direction,
         cooling_multiplier_ppm: u32::try_from(cooling)
             .expect("authored weather cooling bound fits u32"),
         changes_in: TickSpan::new(front_in.min(day_phase_end - day_tick)),

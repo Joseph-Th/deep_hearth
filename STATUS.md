@@ -53,7 +53,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Energy and fluids | Finite energy and losses, multi-cell straight timber shafts, campfire heat, drinking and local/downhill fluid transfer. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; timed posts, framing, cover and grounded timber roller; timed primary-break recovery. |
-| Block world | Seeded ore, finite forage, standing woodland, temple ruins and direct excavation. Regional wind and temperature alter generated-world thermal exposure; no seasonal regrowth or renderer. |
+| Block world | Seeded ore, forage, trees, temples and excavation. Weather affects warmth; windborne scent hints at nearby fresh finite food without revealing source coordinates. No ecology, regrowth or renderer. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation
