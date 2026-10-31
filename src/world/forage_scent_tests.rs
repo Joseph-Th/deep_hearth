@@ -314,6 +314,238 @@ fn a_new_wind_front_reorients_a_real_scent_without_moving_or_resetting_food() {
     );
 }
 
+/// Walk one *horizontal* face-adjacent cell using the authoritative body
+/// controller. No test fixture relocation occurs after the actual expedition
+/// starts, and neutral control settles the body's inertia and metabolic cost.
+fn walk_physical_for_scent(
+    registries: &Registries,
+    state: &mut AppState,
+    destination: VoxelCoord,
+) -> u64 {
+    use crate::logistics::{
+        CONTROL_INPUT_PARTS_PER_MILLION, HorizontalControlInput, PlayerControlInput,
+        project_player_adjacent_walk,
+    };
+    use crate::simulation::{advance_control_tick, advance_control_tick_with_input};
+    use crate::spatial::HorizontalVelocity;
+
+    let from = state.logistics().player().unwrap().position();
+    assert_eq!(from.y(), destination.y());
+    assert!(from.is_face_adjacent_to(destination));
+    let projected = project_player_adjacent_walk(registries, state, destination).unwrap();
+    let x = i32::try_from(destination.x() - from.x()).unwrap() * CONTROL_INPUT_PARTS_PER_MILLION;
+    let z = i32::try_from(destination.z() - from.z()).unwrap() * CONTROL_INPUT_PARTS_PER_MILLION;
+    let movement = PlayerControlInput::new(HorizontalControlInput::new(x, z).unwrap());
+    let mut controls = 0;
+    while state.logistics().player().unwrap().position() != destination {
+        assert!(controls < 80, "physical scent pursuit cannot stall");
+        let _ = advance_control_tick_with_input(registries, state, movement).unwrap();
+        controls += 1;
+    }
+    while state
+        .logistics()
+        .player()
+        .unwrap()
+        .body()
+        .horizontal_velocity()
+        != HorizontalVelocity::ZERO
+    {
+        assert!(controls < 100, "physical scent pursuit must brake safely");
+        let _ = advance_control_tick(registries, state).unwrap();
+        controls += 1;
+        assert_eq!(state.logistics().player().unwrap().position(), destination);
+    }
+    assert_eq!(controls, projected.control_ticks());
+    while !state.control_tick().is_simulation_boundary() {
+        let _ = advance_control_tick(registries, state).unwrap();
+        assert_eq!(state.logistics().player().unwrap().position(), destination);
+    }
+    controls
+}
+
+/// A generated forage patch becomes a player-controlled pursuit instead of
+/// an ID oracle: smell first, walk upwind, see the resource, approach, gather,
+/// and return real matter to carried custody. Only initial fixture placement
+/// may consult the hidden world; the actor's subsequent steps use its senses.
+#[test]
+fn generated_wilderness_scent_leads_to_real_physical_walk_sighting_and_timed_food() {
+    use crate::logistics::project_player_adjacent_walk;
+    use crate::world::validate_generate_player_neighborhood;
+    let registries = build_registries();
+    let mut candidate = None;
+    'seeds: for seed_value in 1..=25 {
+        let seed = WorldGenerationSeed::new(seed_value);
+        let mut world = AppState::new();
+        validate_generate_chunk(
+            &registries,
+            &world,
+            seed,
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(&mut world)
+        .unwrap();
+        let origin = VoxelCoord::new(
+            0,
+            super::super::generation::terrain_height(seed, 0, 0) + 1,
+            0,
+        );
+        validate_admit_player(&registries, &world, origin)
+            .unwrap()
+            .commit(&mut world)
+            .unwrap();
+        validate_generate_player_neighborhood(&registries, &world)
+            .unwrap()
+            .unwrap()
+            .commit(&mut world)
+            .unwrap();
+        let sources = world
+            .surface()
+            .resources()
+            .filter(|resource| resource.kind() == SurfaceResourceKind::Opportunity)
+            .map(|resource| {
+                (
+                    resource.id(),
+                    resource.position(),
+                    resource.commodity().material(),
+                )
+            })
+            .collect::<Vec<_>>();
+        for (resource_id, site, material) in sources {
+            let kind = if material == MATERIAL_BERRIES {
+                ForageScentKind::SweetFruit
+            } else {
+                ForageScentKind::WildNuts
+            };
+            for (dx, dz) in [(1_i64, 0_i64), (-1, 0), (0, 1), (0, -1)] {
+                let trail = (0..=3)
+                    .map(|step| {
+                        VoxelCoord::new(site.x() + dx * step, site.y(), site.z() + dz * step)
+                    })
+                    .collect::<Vec<_>>();
+                if !trail.iter().all(|&voxel| {
+                    world
+                        .world()
+                        .has_standing_clearance(registries.world(), voxel)
+                }) {
+                    continue;
+                }
+                let mut trial = world.clone();
+                crate::logistics::relocate_player_for_test(&mut trial, trail[3]);
+                for front in 0..12 {
+                    let mut current = trial.clone();
+                    apply_clock_advance(&mut current, SimulationTick::new(front * 200));
+                    if assess_player_weather(&registries, &current)
+                        .and_then(|weather| weather.wind_direction())
+                        .map(|wind| wind.delta())
+                        != Some((dx, dz))
+                        || !assess_player_forage_scents(&registries, &current)
+                            .iter()
+                            .any(|scent| scent.kind() == kind)
+                        || AdjacentSurfaceResource::visible_in_generated_world(
+                            &registries,
+                            &current,
+                        )
+                        .any(|visible| visible.resource() == resource_id)
+                    {
+                        continue;
+                    }
+                    if project_player_adjacent_walk(&registries, &current, trail[2]).is_err() {
+                        continue;
+                    }
+                    candidate = Some((current, resource_id, trail[3], kind));
+                    break 'seeds;
+                }
+            }
+        }
+    }
+    let (mut state, source, initial_position, kind) = candidate
+        .expect("bounded seed search has a safe, flat downwind path to real generated food");
+    let starting_mass = state.surface().get(source).unwrap().remaining_mass();
+    let accounting = calculate_matter_accounting(&state).unwrap().total();
+    let beginning = state.tick();
+    let weather = assess_player_weather(&registries, &state).unwrap();
+    let (wx, wz) = weather.wind_direction().unwrap().delta();
+    let first_step = VoxelCoord::new(
+        initial_position.x() - wx,
+        initial_position.y(),
+        initial_position.z() - wz,
+    );
+    assert!(
+        assess_player_forage_scents(&registries, &state)
+            .iter()
+            .any(|scent| scent.kind() == kind)
+    );
+    assert!(
+        AdjacentSurfaceResource::visible_in_generated_world(&registries, &state)
+            .all(|visible| visible.resource() != source)
+    );
+    let initial_metabolic_energy = state.survival().player().unwrap().metabolic_energy();
+    let control_ticks = walk_physical_for_scent(&registries, &mut state, first_step);
+    assert!(control_ticks > 0);
+    assert!(state.tick() > beginning);
+    assert!(state.survival().player().unwrap().metabolic_energy() < initial_metabolic_energy);
+    let seen = AdjacentSurfaceResource::visible_in_generated_world(&registries, &state)
+        .find(|visible| visible.resource() == source)
+        .expect("approaching upwind must reveal the real source inside sight reach");
+    assert_eq!(seen.resource(), source);
+
+    // Replay from the actual first sensory sighting, then approach and work.
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut restored = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+    let finish = |state: &mut AppState| {
+        let destination = seen.position();
+        while state.logistics().player().unwrap().position() != destination {
+            let current = state.logistics().player().unwrap().position();
+            let next = VoxelCoord::new(
+                current.x() + (destination.x() - current.x()).signum(),
+                current.y(),
+                current.z() + (destination.z() - current.z()).signum(),
+            );
+            walk_physical_for_scent(&registries, state, next);
+        }
+        let option = player_surface_gathering_options(&registries, state)
+            .unwrap()
+            .into_iter()
+            .find(|choice| choice.resource() == source)
+            .expect("physically reached fresh food must have an ordinary gather action");
+        let food = option.food_value(&registries, state).unwrap().unwrap();
+        assert!(food.dietary_energy().nanojoules() > 0);
+        let batch = Mass::from_milligrams(50_000);
+        validate_start_player_surface_gathering_option(&registries, state, option, batch)
+            .unwrap()
+            .commit(state)
+            .unwrap();
+        let mut worked = 0;
+        while state.player_work().active().is_some() {
+            assert!(worked < 300);
+            let _ = advance_tick(&registries, state).unwrap();
+            worked += 1;
+        }
+        assert!(worked > 0);
+        assert_eq!(
+            state.surface().get(source).unwrap().remaining_mass(),
+            starting_mass.checked_sub(batch).unwrap(),
+        );
+        assert_eq!(validate_loaded_state(&registries, state), Ok(()));
+    };
+    finish(&mut state);
+    finish(&mut restored);
+    assert_eq!(
+        state, restored,
+        "save/load must preserve the physical expedition and timed work"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        accounting
+    );
+}
+
 #[test]
 fn seeded_player_neighborhood_forage_is_detectable_beyond_eye_reach() {
     let registries = build_registries();

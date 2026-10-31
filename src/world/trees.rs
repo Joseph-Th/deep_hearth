@@ -190,8 +190,9 @@ impl TreeRecord {
         Mass::from_milligrams(mass.min(u128::from(MAX_WOOD_MASS_MG)) as u64)
     }
 
-    /// Physical trunk occupies two vertically adjacent cells; crown is visual only until
-    /// foliage/canopy physics exists. Root occupancy does not depend on calendar tick.
+    /// Physical trunk occupies two vertically adjacent cells. Crown now
+    /// attenuates direct daylight, but is not a collision or gas-volume body.
+    /// Root occupancy does not depend on calendar tick.
     #[must_use]
     pub fn occupies_trunk(self, voxel: VoxelCoord) -> bool {
         voxel.x() == self.root.x()

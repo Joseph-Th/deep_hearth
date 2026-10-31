@@ -1,6 +1,7 @@
 //! Woodland generation, calendar growth, atomic felling, and trusted replay.
 
 use super::felling::validate_fell_tree;
+use super::sky::assess_generated_skylight;
 use super::*;
 use crate::content::{BLOCK_STATE_STONE, FORM_LOG, MATERIAL_WOOD, build_registries};
 use crate::core::quantity::Mass;
@@ -205,6 +206,139 @@ fn generated_full_cell_collision_distinguishes_trunks_rock_air_and_unknown_space
         .unwrap();
     check(&state, false);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn mature_summer_canopy_conceals_food_at_dusk_until_real_tree_is_felled() {
+    use crate::content::{FORM_FOOD, MATERIAL_BERRIES};
+    use crate::core::quantity::Temperature;
+    use crate::core::state::apply_clock_advance;
+    use crate::material::{CommodityKey, MaterialComposition};
+    use crate::surface::{
+        AdjacentSurfaceResource, SurfaceResourceKind, SurfaceResourceSpec,
+        validate_create_surface_resources,
+    };
+
+    let (registries, mut state, root) = standing_tree_fixture();
+    let position = state.logistics().player().unwrap().position();
+    let calendar = registries.core().calendar();
+    let season_span = calendar.ticks_per_day()
+        * u64::from(calendar.days_per_month())
+        * u64::from(calendar.months_per_year() / 4);
+    let calendar_year = season_span * 4;
+    apply_clock_advance(
+        &mut state,
+        SimulationTick::new(calendar_year * 80 + season_span + calendar.ticks_per_day() / 2),
+    );
+    assert_eq!(
+        calendar.date_at(state.tick()).season(),
+        crate::core::time::Season::Summer
+    );
+    assert_eq!(
+        state
+            .world()
+            .tree_at(root)
+            .unwrap()
+            .canopy_radius_voxels(state.tick()),
+        3
+    );
+    assert_eq!(assess_generated_skylight(&registries, &state, position), 0);
+    let food = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Opportunity,
+        position,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(300_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_BERRIES),
+    )
+    .unwrap();
+    let creation = validate_create_surface_resources(&registries, &state, [food]).unwrap();
+    let food_id = creation.resource_ids().next().unwrap();
+    creation.commit(&mut state).unwrap();
+    let visible = |state: &AppState| {
+        AdjacentSurfaceResource::visible_in_generated_world(&registries, state)
+            .any(|resource| resource.resource() == food_id)
+    };
+    assert!(
+        !visible(&state),
+        "mature deciduous shade can hide real understory food at dusk"
+    );
+    let mass_before = calculate_matter_accounting(&state).unwrap().total();
+    let logs = validate_fell_tree(&registries, &state, root)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(!logs.wood().is_zero());
+    assert_eq!(assess_generated_skylight(&registries, &state, position), 6);
+    assert!(
+        visible(&state),
+        "actual removal of the canopy restores daylight and resource sight"
+    );
+    assert_eq!(
+        state.surface().get(food_id).unwrap().remaining_mass(),
+        Mass::from_milligrams(300_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        mass_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+    assert!(visible(&restored));
+}
+
+#[test]
+fn felling_a_growing_crown_restores_sunlight_with_exact_wood_custody() {
+    use crate::core::state::apply_clock_advance;
+
+    let (registries, mut state, root) = standing_tree_fixture();
+    let observer = state.logistics().player().unwrap().position();
+    let tree = *state.world().tree_at(root).unwrap();
+    let calendar = registries.core().calendar();
+    let season_span = calendar.ticks_per_day()
+        * u64::from(calendar.days_per_month())
+        * u64::from(calendar.months_per_year() / 4);
+    let calendar_year = season_span * 4;
+    apply_clock_advance(
+        &mut state,
+        SimulationTick::new(calendar_year * 4 + season_span),
+    );
+    assert_eq!(
+        calendar.date_at(state.tick()).season(),
+        crate::core::time::Season::Summer
+    );
+    assert!(tree.canopy_radius_voxels(state.tick()) > 0);
+    let before_light = assess_generated_skylight(&registries, &state, observer);
+    assert!(
+        before_light < 9,
+        "live tree crown should shade the adjacent player"
+    );
+    let total_before = calculate_matter_accounting(&state).unwrap().total();
+    let felling = validate_fell_tree(&registries, &state, root).unwrap();
+    let outcome = felling.commit(&mut state).unwrap();
+    assert_eq!(outcome.wood(), tree.wood_at(state.tick()));
+    assert_eq!(assess_generated_skylight(&registries, &state, observer), 9);
+    assert!(state.world().tree_at(root).is_none());
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        total_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+    assert_eq!(
+        assess_generated_skylight(&registries, &restored, observer),
+        9
+    );
 }
 
 #[test]

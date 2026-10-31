@@ -681,6 +681,27 @@ impl WorldState {
         self.trees.get(&root)
     }
 
+    /// Only tree roots in a bounded horizontal footprint can shade one sky
+    /// column. Index by x before filtering z; distant planted forests must
+    /// not make one player's local light query scan every tree in the world.
+    pub(crate) fn trees_near_horizontal(
+        &self,
+        position: VoxelCoord,
+        radius: i64,
+    ) -> impl Iterator<Item = &TreeRecord> {
+        let low = position.x().saturating_sub(radius);
+        let high = position.x().saturating_add(radius);
+        let low_z = position.z().saturating_sub(radius);
+        let high_z = position.z().saturating_add(radius);
+        self.trees
+            .range(
+                VoxelCoord::new(low, i64::MIN, i64::MIN)
+                    ..=VoxelCoord::new(high, i64::MAX, i64::MAX),
+            )
+            .map(|(_, tree)| tree)
+            .filter(move |tree| (low_z..=high_z).contains(&tree.root().z()))
+    }
+
     /// World-history receipts are for diagnostics and trusted-load checks, not discovery.
     pub(crate) fn felled_trees(&self) -> impl Iterator<Item = &FelledTreeRecord> {
         self.felled_trees.values()

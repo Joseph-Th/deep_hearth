@@ -180,6 +180,105 @@ fn night_hides_real_surface_food_from_player_sight_without_erasing_custody() {
         "daybreak should reveal the same persisted food"
     );
 }
+
+/// A real seed-rooted deciduous tree changes the understory as atmospheric
+/// carbon becomes wood. It casts no solid voxel, so the same food can still
+/// be seen, but the light read must track crown size and calendar season.
+#[test]
+fn seed_rooted_tree_growth_and_season_change_real_canopy_daylight() {
+    use crate::world::WorldGenerationProfile;
+    let registries = build_registries();
+    let calendar = registries.core().calendar();
+    let days_per_season =
+        u64::from(calendar.days_per_month()) * u64::from(calendar.months_per_year() / 4);
+    let season_ticks = calendar.ticks_per_day() * days_per_season;
+    let year_ticks = season_ticks * 4;
+    let mut observed = None;
+    for seed_value in 1..300 {
+        let seed = WorldGenerationSeed::new(seed_value);
+        let profile = WorldGenerationProfile::new(seed, BLOCK_STATE_STONE);
+        let Some(origin) =
+            super::super::trees::seeded_tree_identity(profile, ChunkCoord::new(0, 0))
+        else {
+            continue;
+        };
+        if origin.canopy_radius_voxels(SimulationTick::ZERO) != 0
+            || origin.canopy_radius_voxels(SimulationTick::new(year_ticks * 48 + season_ticks)) < 2
+        {
+            continue;
+        }
+        let root = origin.root();
+        let position = VoxelCoord::new(root.x() + 1, root.y(), root.z());
+        if super::super::generation::terrain_height(seed, position.x(), position.z())
+            >= position.y()
+        {
+            continue;
+        }
+        let mut state = AppState::new();
+        validate_generate_chunk(
+            &registries,
+            &state,
+            seed,
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+        if state.world().block_at(position) != Some(BlockStateId::AIR) {
+            continue;
+        }
+        observed = Some((state, root, position));
+        break;
+    }
+    let (mut state, root, position) = observed
+        .expect("a finite seed search provides a juvenile tree with a clear understory cell");
+    let tree = *state.world().tree_at(root).unwrap();
+    assert_eq!(tree.canopy_radius_voxels(SimulationTick::ZERO), 0);
+    apply_clock_advance(&mut state, SimulationTick::new(season_ticks));
+    assert_eq!(calendar.date_at(state.tick()).season(), Season::Summer);
+    let juvenile_summer = assess_generated_skylight(&registries, &state, position);
+    assert_eq!(juvenile_summer, 9);
+    let after_four_years = year_ticks * 4 + season_ticks;
+    apply_clock_advance(&mut state, SimulationTick::new(after_four_years));
+    assert_eq!(calendar.date_at(state.tick()).season(), Season::Summer);
+    let sapling_radius = tree.canopy_radius_voxels(state.tick());
+    assert!(sapling_radius >= 1);
+    let sapling_summer = assess_generated_skylight(&registries, &state, position);
+    assert!(sapling_summer < juvenile_summer);
+    assert_eq!(sapling_summer, 9 - sapling_radius * 2);
+
+    let after_forty_eight_years = year_ticks * 48 + season_ticks;
+    apply_clock_advance(&mut state, SimulationTick::new(after_forty_eight_years));
+    let grown_radius = tree.canopy_radius_voxels(state.tick());
+    assert!(
+        grown_radius >= 2,
+        "time alone enlarges the same rooted crown"
+    );
+    let grown_summer = assess_generated_skylight(&registries, &state, position);
+    assert_eq!(grown_summer, 9 - grown_radius * 2);
+    assert!(grown_summer < sapling_summer);
+
+    // With the same mature tree still rooted, leafless winter admits the
+    // full open-column light. Neither transition moves or creates wood lots.
+    let winter = year_ticks * 48 + season_ticks * 3;
+    apply_clock_advance(&mut state, SimulationTick::new(winter));
+    assert_eq!(calendar.date_at(state.tick()).season(), Season::Winter);
+    assert_eq!(assess_generated_skylight(&registries, &state, position), 9);
+    assert_eq!(state.world().tree_at(root).copied(), Some(tree));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+    assert_eq!(
+        assess_generated_skylight(&registries, &restored, position),
+        9
+    );
+}
+
 #[test]
 fn physical_roof_and_tree_trunk_block_daylight_but_not_adjacent_outdoors() {
     let registries = build_registries();

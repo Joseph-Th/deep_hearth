@@ -5,11 +5,52 @@
 //! through a roof, a stone ceiling or an unknown column.
 
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
+use crate::core::time::{Season, SimulationTick};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
 use super::{WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y};
+
+const MAX_CANOPY_RADIUS: i64 = 3;
+const CANOPY_VERTICAL_REACH_ABOVE_ROOT: i64 = 5;
+const CANOPY_VERTICAL_REACH_BELOW_ROOT: i64 = 1;
+
+/// A grown crown casts diffuse partial shade, not a solid-block shadow.
+/// Evergreen trunk opacity remains separate. A deciduous crown has little
+/// leaf area in winter, and spring/autumn attenuate less than summer.
+fn living_canopy_shade(registries: &Registries, state: &AppState, position: VoxelCoord) -> u8 {
+    let season = registries.core().calendar().date_at(state.tick()).season();
+    if season == Season::Winter {
+        return 0;
+    }
+    state
+        .world()
+        .trees_near_horizontal(position, MAX_CANOPY_RADIUS)
+        .filter_map(|tree| {
+            let root = tree.root();
+            let radius = tree.canopy_radius_voxels(state.tick());
+            let horizontal = root
+                .x()
+                .abs_diff(position.x())
+                .max(root.z().abs_diff(position.z()));
+            let vertical = i128::from(position.y()) - i128::from(root.y());
+            if horizontal > u64::from(radius)
+                || !(-i128::from(CANOPY_VERTICAL_REACH_BELOW_ROOT)
+                    ..=i128::from(CANOPY_VERTICAL_REACH_ABOVE_ROOT))
+                    .contains(&vertical)
+            {
+                return None;
+            }
+            let full = radius * 2;
+            Some(if season == Season::Summer {
+                full
+            } else {
+                full.div_ceil(2)
+            })
+        })
+        .max()
+        .unwrap_or(0)
+}
 
 /// Conservative direct daylight levels on the same 0..15 scale as local fire.
 /// There is no indirect bounce or weather-driven cloud cover yet.
@@ -69,7 +110,7 @@ pub fn assess_generated_skylight(
             return 0;
         }
     }
-    light
+    light.saturating_sub(living_canopy_shade(registries, state, position))
 }
 
 #[cfg(test)]
