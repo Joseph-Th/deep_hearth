@@ -61,6 +61,19 @@ pub(crate) fn spring_moisture_flux(
     }
 }
 
+/// Generated, sky-exposed air at an actually inhabited voxel. Indoor residents
+/// and unexplored regions have no asserted outdoor thermal exposure.
+pub(crate) fn exposed_air_at(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    at: SimulationTick,
+) -> Option<PlayerWeather> {
+    let seed = state.world().generation_profile()?.seed().value();
+    super::sky::has_open_sky(registries, state, position)
+        .then(|| weather_at(registries, seed, position, at))
+}
+
 /// Horizontal direction in which air moves, not the direction it originates from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WindDirection {

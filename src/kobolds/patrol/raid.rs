@@ -135,7 +135,9 @@ pub(super) fn scout_raid_interest(
         player_position,
         pressured,
     } = context;
+    let water_deprived = super::super::hydration::prolonged_water_deprivation(colony, at);
     let inherited_target = (colony.mobilized_at.is_some()
+        && !water_deprived
         && !pressured
         && colony.scout_step == 1
         && !colony.returning)
@@ -171,6 +173,7 @@ pub(super) fn scout_raid_interest(
     // A fed kobold bypasses nearer inert rock only while the part is still
     // visible, den-fitting, physically reachable, unguarded, and unlit.
     let missing_striker_at_tip = colony.mobilized_at.is_some()
+        && !water_deprived
         && colony.scout_step == 1
         && !colony.returning
         && !pressured
@@ -193,6 +196,7 @@ pub(super) fn scout_raid_interest(
     // turn home for inert junk at the junction. Visibility, carriage, den
     // capacity and deterrents are checked before treating this as a goal.
     let useful_iron_at_tip = colony.mobilized_at.is_some()
+        && !water_deprived
         && colony.scout_step == 1
         && !colony.returning
         && !pressured
@@ -211,6 +215,7 @@ pub(super) fn scout_raid_interest(
         && assess_local_illumination(registries, state, colony.route[2]).level()
             < SCOUT_DETERRENT_LIGHT_LEVEL;
     let missing_tool_at_tip = !pressured
+        && !water_deprived
         && colony.scout_step == 1
         && !colony.returning
         && reachable_needed_tool_at_tip(registries, state, colony, context);
@@ -296,6 +301,9 @@ fn continue_to_planned_far_raid(
             && assess_local_illumination(registries, state, goal).level()
                 < SCOUT_DETERRENT_LIGHT_LEVEL;
     }
+    if super::super::hydration::prolonged_water_deprivation(colony, context.at) && !colony.hungry {
+        return false;
+    }
     let ScoutPatrolContext {
         from,
         den_space: capacity,
@@ -312,6 +320,9 @@ fn continue_to_planned_far_raid(
     let target_drop = [true, false]
         .into_iter()
         .filter(|food_only| !*food_only || colony.hungry)
+        .filter(|food_only| {
+            !super::super::hydration::prolonged_water_deprivation(colony, at) || *food_only
+        })
         .find_map(|food_only| {
             local_portable_source(
                 registries,
@@ -477,6 +488,14 @@ pub(super) fn choose_outbound_detour(
             .flatten()
     };
     let inherited_salvage = || inherited_target;
+    if super::super::hydration::prolonged_water_deprivation(colony, at) {
+        // The scout may still carry a meal, or follow its real water lead,
+        // but stops making optional ore and equipment salvage expeditions.
+        return colony
+            .hungry
+            .then(|| loose_cache(true).or(preferred_forage).or_else(wild_food))
+            .flatten();
+    }
     if colony.hungry {
         // A visibly larger wild serving can justify one extra edge, but an
         // adequate portable ration is simpler to recover and avoids the

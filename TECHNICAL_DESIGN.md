@@ -263,10 +263,19 @@ an implemented sound mixer, wildlife chorus or general acoustic simulation.
 
 ### Opening-resident water need
 
-The opening scout now has an independently scheduled drinking need. Its first
-60 mL serving becomes due at slow tick 980, after the first meal deadline; each actual
-drink schedules the next need 800 slow ticks later (48 physical minutes).
-A missed serving stays overdue without awarding virtual hydration. The scout
+The opening scout has an independently scheduled drinking need. Its first
+60 mL serving becomes due at slow tick 980, after the first meal deadline.
+Each real drink schedules a new need from the locally experienced air: normally
+800 slow ticks (48 minutes); exposed air at/above 25 C reduces this to 400
+(24 minutes), gusting 20-25 C reduces it to 600 (36 minutes), and air
+below 5 C lengthens it to 1,200 (72 minutes). A missing generated column,
+roof, or cave retains the baseline, not an inferred remote weather forecast.
+A missed serving stays overdue without awarding virtual hydration. If another
+800 slow ticks pass without a real drink, the scout stops starting nonfood
+cargo raids, exposed-stockpile theft, remote metal salvage and new tool fitting;
+it can still seek water, collect food and deliver existing carried cargo. A
+successful physical ration clears that restriction, making water denial a
+recoverable alternative to combat. The scout
 uses the existing five-tick patrol clock and real local traversal graph to
 seek a source one or two edges from its junction. Sight, solid walls,
 guarding players, artificial light, resident occupancy, and standing
@@ -275,12 +284,13 @@ a sufficient, temperature-safe supply again *at the actual source* and takes
 one serving through canonical fluid egress. Its terminal water ledger is
 separate from material consumption and included in whole-world fluid volume
 accounting. Trusted load checks the water identity, exact portion multiples,
-schedule and locally recorded drinking tracks. A drained store remains empty;
+the most recent actual drink tick, its weather-conditioned interval, the
+resulting deadline and locally recorded drinking tracks. A drained store remains empty;
 the scout remains in need when no viable source exists. Drinking can leave a
 distinctive physical trail and short-lived splashing sound that respects
 open passage and player-local observation. There is no free water, teleporting
-container, drinking without physical presence, general enemy physiology or renewable
-hydrology.
+container, drinking without physical presence, general enemy physiology or
+rainfall-derived replenishment.
 
 If a caller needs a surface not shown here, determine whether the missing surface belongs to the canonical owner
 or whether the caller is crossing an ownership boundary it does not control.
@@ -308,7 +318,8 @@ or whether the caller is crossing an ownership boundary it does not control.
   woodland mass depends on habitat since schema 125. Schema 126 persists
   the opening scout drinking schedule and terminal water ledger. Schema 127
   adds finite per-spring shallow-catchment custody. Schema 128 adds perennial
-  forage root/fruit records. Earlier saves, including
+  forage root/fruit records. Schema 129 adds scout drink-visit
+  provenance and weather-conditioned demand. Earlier saves, including
   schema 124 worlds with the prior uniform initial-wood distribution, require
   an explicit migration before loading; no implicit compatibility fallback exists.
 - Untrusted save data enters through `LoadedSaveEnvelope::into_state`; the [Trusted load](#trusted-load)

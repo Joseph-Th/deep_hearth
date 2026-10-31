@@ -132,14 +132,33 @@ fn validate_consumed_fluids(
 fn validate_water_schedule(colony: &KoboldColony, state: &AppState) -> Result<(), &'static str> {
     let current = state.tick().value();
     let first_drink = FIRST_SCOUT_TICK + SCOUT_DRINK_INTERVAL_TICKS;
+    let ledger_present = !state.kobold_state().consumed_fluids.is_empty();
+    let valid_history = match (colony.last_drink_at, colony.last_drink_interval_ticks) {
+        (None, None) => !ledger_present && colony.next_drink_at.value() == first_drink,
+        (Some(last), Some(interval)) => {
+            ledger_present
+                && last.value() >= first_drink
+                && last.value() <= current
+                && (last.value() - FIRST_SCOUT_TICK).is_multiple_of(SCOUT_STEP_TICKS)
+                && [
+                    SCOUT_DRINK_INTERVAL_TICKS / 2,
+                    SCOUT_DRINK_INTERVAL_TICKS * 3 / 4,
+                    SCOUT_DRINK_INTERVAL_TICKS,
+                    SCOUT_DRINK_INTERVAL_TICKS * 3 / 2,
+                ]
+                .contains(&interval)
+                && last.checked_add_span(crate::core::time::TickSpan::new(interval))
+                    == Some(colony.next_drink_at)
+        }
+        _ => false,
+    };
     if colony.next_drink_at.value() < first_drink
         || !(colony.next_drink_at.value() - FIRST_SCOUT_TICK).is_multiple_of(SCOUT_STEP_TICKS)
         || (current < first_drink && colony.next_drink_at.value() != first_drink)
         || (current >= first_drink
-            && colony.next_drink_at.value() > current.saturating_add(SCOUT_DRINK_INTERVAL_TICKS))
-        || (colony.next_drink_at.value() > first_drink
-            && state.kobold_state().consumed_fluids.is_empty())
-        || (current < first_drink && !state.kobold_state().consumed_fluids.is_empty())
+            && colony.next_drink_at.value()
+                > current.saturating_add(SCOUT_DRINK_INTERVAL_TICKS * 3 / 2))
+        || !valid_history
     {
         return Err("kobold water need is not aligned with real scout visits");
     }

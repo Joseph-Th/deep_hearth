@@ -18,7 +18,7 @@ Progression:
 | Crafting and equipment | Flint/copper tools, kiln, cooling bed, fired ceramic casting mold, maintenance and upgrades; finite waste storage. |
 | Power | Hand crank, treadle, flywheels and buffers. Straight built timber shafts couple opposed mechanical stores at up to 50 W, losing 20% per roller. No gearboxes or electric networks. |
 | Processing | Ore dressing and local powered crusher choices from visible exact-lot feed, machine, charge and output bins; timed unattended execution. Casting, PbS+Fe smelting, kiln firing and finite cooling. No general reduction or passive cooling. |
-| Opening wilderness acquisition | Scouts forage, drink, steal and warn. Light, presence and boxes deter raids; stolen loot remains recoverable. Audible steps/splashes/hauling and running-triggered alarms. Clubs make nonlethal contact. Enemy strikes need fitted tools (owner scenario only). |
+| Opening wilderness acquisition | Scouts forage, drink, steal and warn; prolonged thirst curbs raids. Light and boxes deter theft; loot stays recoverable. Steps, splashes, hauling and running alarms are audible. Clubs cause nonlethal contact; enemy strikes need fitted tools (scenario only). |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 
 ## Current integration frontier

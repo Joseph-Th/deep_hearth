@@ -8,6 +8,7 @@ use crate::core::time::{SimulationTick, TickSpan};
 use crate::fluid::{FluidStoreId, validate_fluid_egress};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
+use crate::world::{WindCondition, exposed_air_at};
 
 use super::patrol::{scout_can_enter, scout_sees_guarded_cell};
 use super::visibility::scout_visible_from;
@@ -15,6 +16,39 @@ use super::{
     KoboldColony, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_DRINK_INTERVAL_TICKS, SCOUT_DRINK_VOLUME,
     SCOUT_SAFE_SCAVENGE_TEMPERATURE,
 };
+
+/// The scout's next physical water requirement responds to actual outdoor
+/// conditions at its last drink. Missing terrain authority and shelter
+/// retain the ordinary rate; heat and exposed gusts accelerate demand.
+pub(super) fn drink_interval_at(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    at: SimulationTick,
+) -> u64 {
+    let Some(outdoor) = exposed_air_at(registries, state, position, at) else {
+        return SCOUT_DRINK_INTERVAL_TICKS;
+    };
+    match outdoor.ambient_temperature().millikelvin() {
+        298_150.. => SCOUT_DRINK_INTERVAL_TICKS / 2,
+        293_150..=298_149 if outdoor.wind() == WindCondition::Gusting => {
+            SCOUT_DRINK_INTERVAL_TICKS * 3 / 4
+        }
+        0..=278_149 => SCOUT_DRINK_INTERVAL_TICKS * 3 / 2,
+        _ => SCOUT_DRINK_INTERVAL_TICKS,
+    }
+}
+
+/// Missing a real water visit by a second full baseline interval limits
+/// optional labor. The resident can still forage, finish carried cargo, and
+/// follow physically reachable water; an actual drink resolves deprivation.
+pub(super) fn prolonged_water_deprivation(colony: &KoboldColony, at: SimulationTick) -> bool {
+    at.value()
+        >= colony
+            .next_drink_at
+            .value()
+            .saturating_add(SCOUT_DRINK_INTERVAL_TICKS)
+}
 
 /// No distant fluid census. Only fluid whose real spatial index lies at
 /// this reached location can satisfy the resident.
@@ -93,7 +127,8 @@ pub(super) fn drink_on_scout_visit(
         return None;
     }
     let (store, _) = usable_water_at(state, from)?;
-    let next_due = at.checked_add_span(TickSpan::new(SCOUT_DRINK_INTERVAL_TICKS))?;
+    let interval = drink_interval_at(registries, state, from, at);
+    let next_due = at.checked_add_span(TickSpan::new(interval))?;
     let next_total = state
         .kobold_state()
         .consumed_fluids
@@ -106,7 +141,10 @@ pub(super) fn drink_on_scout_visit(
     state
         .kobold_state_mut()
         .apply_drink(FLUID_WATER, next_total);
-    state.kobold_state_mut().colony.as_mut()?.next_drink_at = next_due;
+    let colony = state.kobold_state_mut().colony.as_mut()?;
+    colony.next_drink_at = next_due;
+    colony.last_drink_at = Some(at);
+    colony.last_drink_interval_ticks = Some(interval);
     Some((store, SCOUT_DRINK_VOLUME))
 }
 

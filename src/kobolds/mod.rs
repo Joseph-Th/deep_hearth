@@ -73,7 +73,8 @@ const SCOUT_FORAGE_INTERVAL_TICKS: u64 = 100;
 /// humanoid. Food stays recoverable between visits and frees finite den space.
 const SCOUT_MEAL_INTERVAL_TICKS: u64 = 400;
 const SCOUT_MEAL_MASS: Mass = Mass::from_milligrams(20_000);
-/// A scout's 60 mL ration every 48 physical minutes is about 1.8 L/day.
+/// Baseline: 60 mL every 48 physical minutes, roughly 1.8 L/day. Hot
+/// exposed weather can double that demand without changing ration volume.
 /// Its first search occurs after the first den meal opportunity, so basic
 /// nourishment is not displaced by an earlier water expedition.
 const SCOUT_DRINK_INTERVAL_TICKS: u64 = 800;
@@ -349,6 +350,12 @@ struct KoboldColony {
     partial_meal: Mass,
     /// Remains overdue until the scout physically drinks.
     next_drink_at: SimulationTick,
+    /// The latest actual water visit establishes a checkable need deadline,
+    /// even when the local temperature changes after the scout departs.
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
+    last_drink_at: Option<SimulationTick>,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
+    last_drink_interval_ticks: Option<u64>,
     /// A scout's first direct sighting of engineered machinery, still unreported until home.
     #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     witnessed_machinery_at: Option<SimulationTick>,
@@ -621,6 +628,8 @@ impl KoboldState {
             hungry: false,
             partial_meal: Mass::ZERO,
             next_drink_at: SimulationTick::new(FIRST_SCOUT_TICK + SCOUT_DRINK_INTERVAL_TICKS),
+            last_drink_at: None,
+            last_drink_interval_ticks: None,
             witnessed_machinery_at: None,
             mobilized_at: None,
             watch_deployed_at: None,
