@@ -8,9 +8,10 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::quantity::{AggregateMass, Mass, Temperature};
+use crate::core::quantity::{AggregateMass, AggregateVolume, Mass, Temperature, Volume};
 use crate::core::state::AppState;
 use crate::core::time::{ControlTick, SimulationTick};
+use crate::fluid::{FluidDefinitionId, FluidStoreId};
 use crate::inventory::StockpileId;
 use crate::material::{CommodityKey, MaterialId};
 use crate::registry::Registries;
@@ -20,6 +21,7 @@ use crate::surface::{SurfaceResourceId, SurfaceResourceLifecycle};
 mod acoustics;
 mod defense;
 mod feeding;
+mod hydration;
 mod junkworks;
 mod mobilization;
 mod patrol;
@@ -71,6 +73,11 @@ const SCOUT_FORAGE_INTERVAL_TICKS: u64 = 100;
 /// humanoid. Food stays recoverable between visits and frees finite den space.
 const SCOUT_MEAL_INTERVAL_TICKS: u64 = 400;
 const SCOUT_MEAL_MASS: Mass = Mass::from_milligrams(20_000);
+/// A scout's 60 mL ration every 48 physical minutes is about 1.8 L/day.
+/// Its first search occurs after the first den meal opportunity, so basic
+/// nourishment is not displaced by an earlier water expedition.
+const SCOUT_DRINK_INTERVAL_TICKS: u64 = 800;
+const SCOUT_DRINK_VOLUME: Volume = Volume::from_microliters(60_000);
 /// A chased scout stays wary for 2.4 simulation minutes after the most recent threat.
 const SCOUT_WARY_INTERVAL_TICKS: u64 = 40;
 /// Stance is a transient fraction of secure footing, never tissue damage or virtual hit points.
@@ -198,6 +205,7 @@ pub struct KoboldScoutEvent {
     foraged_food: Option<(SurfaceResourceId, Mass)>,
     split_drop: Option<(SurfaceResourceId, Mass)>,
     consumed_food: Option<(SurfaceResourceId, Mass)>,
+    drank_water: Option<(FluidStoreId, Volume)>,
     discarded_food: Option<SurfaceResourceId>,
     cleared_cache: Option<SurfaceResourceId>,
     heard_junk_alarm: bool,
@@ -276,6 +284,12 @@ impl KoboldScoutEvent {
         self.consumed_food
     }
 
+    /// Fluid actually drunk from a source visible to the local observer.
+    #[must_use]
+    pub const fn drank_water(self) -> Option<(FluidStoreId, Volume)> {
+        self.drank_water
+    }
+
     /// Food unfit for consumption physically discarded onto the adjacent route.
     /// For bulky cargo, this names the moved split portion, not its source.
     #[must_use]
@@ -333,6 +347,8 @@ struct KoboldColony {
     /// Food actually eaten toward this outstanding 20 g ration. Required by
     /// persisted colony schema; missing values are rejected, never defaulted.
     partial_meal: Mass,
+    /// Remains overdue until the scout physically drinks.
+    next_drink_at: SimulationTick,
     /// A scout's first direct sighting of engineered machinery, still unreported until home.
     #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     witnessed_machinery_at: Option<SimulationTick>,
@@ -525,6 +541,8 @@ pub(crate) struct KoboldState {
     /// Terminal consumed-food custody retained by original material, not deleted matter.
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     consumed_matter: BTreeMap<MaterialId, AggregateMass>,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
+    consumed_fluids: BTreeMap<FluidDefinitionId, AggregateVolume>,
 }
 
 impl KoboldState {
@@ -535,6 +553,7 @@ impl KoboldState {
             temple_wardens: Vec::new(),
             temple_archivists: Vec::new(),
             consumed_matter: BTreeMap::new(),
+            consumed_fluids: BTreeMap::new(),
         }
     }
 
@@ -544,10 +563,23 @@ impl KoboldState {
             && self.temple_wardens.is_empty()
             && self.temple_archivists.is_empty()
             && self.consumed_matter.is_empty()
+            && self.consumed_fluids.is_empty()
     }
 
     pub(crate) fn consumed_matter(&self) -> impl Iterator<Item = (MaterialId, AggregateMass)> + '_ {
         self.consumed_matter.iter().map(|(id, mass)| (*id, *mass))
+    }
+
+    pub(crate) fn consumed_fluids(
+        &self,
+    ) -> impl Iterator<Item = (FluidDefinitionId, AggregateVolume)> + '_ {
+        self.consumed_fluids
+            .iter()
+            .map(|(id, volume)| (*id, *volume))
+    }
+
+    fn apply_drink(&mut self, fluid: FluidDefinitionId, total: AggregateVolume) {
+        self.consumed_fluids.insert(fluid, total);
     }
 
     fn temple_warden_step(&self, chunk: crate::world::ChunkCoord) -> u8 {
@@ -588,6 +620,7 @@ impl KoboldState {
             next_meal_at: SimulationTick::new(FIRST_SCOUT_TICK + SCOUT_MEAL_INTERVAL_TICKS),
             hungry: false,
             partial_meal: Mass::ZERO,
+            next_drink_at: SimulationTick::new(FIRST_SCOUT_TICK + SCOUT_DRINK_INTERVAL_TICKS),
             witnessed_machinery_at: None,
             mobilized_at: None,
             watch_deployed_at: None,

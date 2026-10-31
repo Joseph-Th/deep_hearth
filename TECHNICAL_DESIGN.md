@@ -261,6 +261,27 @@ source and event time; caves and physically roofed sources retain their
 unmuffled sheltered-air path. This is a renderer-neutral consequence, not
 an implemented sound mixer, wildlife chorus or general acoustic simulation.
 
+### Opening-resident water need
+
+The opening scout now has an independently scheduled drinking need. Its first
+60 mL serving becomes due at slow tick 980, after the first meal deadline; each actual
+drink schedules the next need 800 slow ticks later (48 physical minutes).
+A missed serving stays overdue without awarding virtual hydration. The scout
+uses the existing five-tick patrol clock and real local traversal graph to
+seek a source one or two edges from its junction. Sight, solid walls,
+guarding players, artificial light, resident occupancy, and standing
+clearance gate both the journey and its last physical step. The scout checks
+a sufficient, temperature-safe supply again *at the actual source* and takes
+one serving through canonical fluid egress. Its terminal water ledger is
+separate from material consumption and included in whole-world fluid volume
+accounting. Trusted load checks the water identity, exact portion multiples,
+schedule and locally recorded drinking tracks. A drained store remains empty;
+the scout remains in need when no viable source exists. Drinking can leave a
+distinctive physical trail and short-lived splashing sound that respects
+open passage and player-local observation. There is no free water, teleporting
+container, drinking without physical presence, general enemy physiology or renewable
+hydrology.
+
 If a caller needs a surface not shown here, determine whether the missing surface belongs to the canonical owner
 or whether the caller is crossing an ownership boundary it does not control.
 
@@ -284,7 +305,8 @@ or whether the caller is crossing an ownership boundary it does not control.
   phase applies are infallible and assertion-backed before the clock advances.
 - `CURRENT_SAVE_SCHEMA_VERSION` is the only accepted runtime payload shape; `RegistrySchemaVersion` identifies
   authored identity and physical-definition compatibility. Seed-verifiable initial
-  woodland mass now depends on habitat at schema 125. Earlier saves, including
+  woodland mass depends on habitat since schema 125. Schema 126 also persists
+  the opening scout drinking schedule and terminal water ledger. Earlier saves, including
   schema 124 worlds with the prior uniform initial-wood distribution, require
   an explicit migration before loading; no implicit compatibility fallback exists.
 - Untrusted save data enters through `LoadedSaveEnvelope::into_state`; the [Trusted load](#trusted-load)

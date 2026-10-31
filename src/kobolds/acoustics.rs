@@ -32,6 +32,7 @@ pub enum KoboldFootfallKind {
     Footsteps,
     Dragging,
     Foraging,
+    Splashing,
     Hurrying,
 }
 
@@ -81,6 +82,7 @@ fn footfall_kind(activity: KoboldTrailKind) -> (KoboldFootfallKind, u8) {
         KoboldTrailKind::Walking => (KoboldFootfallKind::Footsteps, 4),
         KoboldTrailKind::Hauling => (KoboldFootfallKind::Dragging, 5),
         KoboldTrailKind::Foraging => (KoboldFootfallKind::Foraging, 3),
+        KoboldTrailKind::Drinking => (KoboldFootfallKind::Splashing, 3),
         KoboldTrailKind::Fleeing => (KoboldFootfallKind::Hurrying, 5),
     }
 }

@@ -20,6 +20,7 @@ pub enum KoboldTrailKind {
     Walking,
     Hauling,
     Foraging,
+    Drinking,
     Fleeing,
 }
 
@@ -125,6 +126,13 @@ impl KoboldColony {
         for trail in &self.tracks {
             let tick = trail.at.value();
             if trail.role != KoboldRole::Scout
+                || (trail.kind == KoboldTrailKind::Drinking
+                    && (state.kobold_state().consumed_fluids.is_empty()
+                        || state
+                            .logistics()
+                            .fluid_stores_at(trail.from)
+                            .next()
+                            .is_none()))
                 || tick < FIRST_SCOUT_TICK
                 || tick > state.tick().value()
                 || !(tick - FIRST_SCOUT_TICK).is_multiple_of(SCOUT_STEP_TICKS)

@@ -71,7 +71,10 @@ pub fn calculate_fluid_volume_accounting(
         })
     });
     let consumed = state.survival().consumed_fluids();
-    for (fluid, volume) in stored.chain(consumed) {
+    for (fluid, volume) in stored
+        .chain(consumed)
+        .chain(state.kobold_state().consumed_fluids())
+    {
         let current = by_fluid
             .get(&fluid)
             .copied()

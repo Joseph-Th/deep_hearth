@@ -1,15 +1,16 @@
 //! Trusted-load validation of kobold occupancy, custody, history, and schedules.
 
+use crate::content::FLUID_WATER;
 use crate::core::state::AppState;
 use crate::core::time::ControlTick;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
 use super::{
-    FIRST_SCOUT_TICK, FULL_BALANCE_PPM, KoboldColony, KoboldState, SCOUT_FORAGE_INTERVAL_TICKS,
-    SCOUT_MEAL_INTERVAL_TICKS, SCOUT_MEAL_MASS, SCOUT_SAFE_SCAVENGE_TEMPERATURE, SCOUT_STEP_TICKS,
-    SCOUT_WARY_INTERVAL_TICKS, scavenging::is_portable_drop, scrap_tools, temple_archivist,
-    temple_guard,
+    FIRST_SCOUT_TICK, FULL_BALANCE_PPM, KoboldColony, KoboldState, SCOUT_DRINK_INTERVAL_TICKS,
+    SCOUT_FORAGE_INTERVAL_TICKS, SCOUT_MEAL_INTERVAL_TICKS, SCOUT_MEAL_MASS,
+    SCOUT_SAFE_SCAVENGE_TEMPERATURE, SCOUT_STEP_TICKS, SCOUT_WARY_INTERVAL_TICKS,
+    scavenging::is_portable_drop, scrap_tools, temple_archivist, temple_guard,
 };
 
 /// An opening resident's body cannot coexist with full-cell constructed
@@ -111,6 +112,53 @@ fn validate_consumed_matter(
     Ok(())
 }
 
+fn validate_consumed_fluids(
+    registries: &Registries,
+    state: &KoboldState,
+) -> Result<(), &'static str> {
+    if state.consumed_fluids.iter().any(|(fluid, volume)| {
+        volume.is_zero()
+            || *fluid != FLUID_WATER
+            || registries.fluid().get_fluid(*fluid).is_none()
+            || !volume
+                .microliters()
+                .is_multiple_of(u128::from(super::SCOUT_DRINK_VOLUME.microliters()))
+    }) {
+        return Err("kobold consumed water ledger is invalid");
+    }
+    Ok(())
+}
+
+fn validate_water_schedule(colony: &KoboldColony, state: &AppState) -> Result<(), &'static str> {
+    let current = state.tick().value();
+    let first_drink = FIRST_SCOUT_TICK + SCOUT_DRINK_INTERVAL_TICKS;
+    if colony.next_drink_at.value() < first_drink
+        || !(colony.next_drink_at.value() - FIRST_SCOUT_TICK).is_multiple_of(SCOUT_STEP_TICKS)
+        || (current < first_drink && colony.next_drink_at.value() != first_drink)
+        || (current >= first_drink
+            && colony.next_drink_at.value() > current.saturating_add(SCOUT_DRINK_INTERVAL_TICKS))
+        || (colony.next_drink_at.value() > first_drink
+            && state.kobold_state().consumed_fluids.is_empty())
+        || (current < first_drink && !state.kobold_state().consumed_fluids.is_empty())
+    {
+        return Err("kobold water need is not aligned with real scout visits");
+    }
+    Ok(())
+}
+
+fn validate_caution_schedule(colony: &KoboldColony, current: u64) -> Result<(), &'static str> {
+    if let Some(wary_until) = colony.wary_until {
+        let due = wary_until.value();
+        if due < FIRST_SCOUT_TICK + SCOUT_WARY_INTERVAL_TICKS
+            || !(due - FIRST_SCOUT_TICK).is_multiple_of(SCOUT_STEP_TICKS)
+            || due > current.saturating_add(SCOUT_WARY_INTERVAL_TICKS)
+        {
+            return Err("kobold caution deadline is not aligned with authoritative time");
+        }
+    }
+    Ok(())
+}
+
 fn validate_contact_history(
     colony: &KoboldColony,
     current: ControlTick,
@@ -147,16 +195,15 @@ pub(crate) fn validate_loaded_kobolds(
     state: &AppState,
 ) -> Result<(), &'static str> {
     validate_consumed_matter(registries, state.kobold_state())?;
+    validate_consumed_fluids(registries, state.kobold_state())?;
     temple_guard::validate_temple_wardens(registries, state)?;
     temple_archivist::validate_archivists(registries, state)?;
     temple_guard::validate_temple_infrastructure(registries, state)?;
     let Some(colony) = state.kobold_state().colony.as_ref() else {
-        return state
-            .kobold_state()
-            .consumed_matter
-            .is_empty()
-            .then_some(())
-            .ok_or("uninhabited kobold state contains consumed matter");
+        return (state.kobold_state().consumed_matter.is_empty()
+            && state.kobold_state().consumed_fluids.is_empty())
+        .then_some(())
+        .ok_or("uninhabited kobold state contains consumed matter or water");
     };
     validate_contact_history(colony, state.control_tick(), state.combat())?;
     if colony.scout_step > 3
@@ -197,20 +244,13 @@ pub(crate) fn validate_loaded_kobolds(
     }
     let current = state.tick().value();
     validate_meal_schedule(colony, current)?;
+    validate_water_schedule(colony, state)?;
     colony.validate_mobilization(state.tick())?;
     scrap_tools::validate_pry_fitting(state, colony, state.tick())?;
     colony.validate_watchman(state.tick())?;
     colony.validate_tracks(state)?;
     colony.validate_watch_tracks(state)?;
-    if let Some(wary_until) = colony.wary_until {
-        let due = wary_until.value();
-        if due < FIRST_SCOUT_TICK + SCOUT_WARY_INTERVAL_TICKS
-            || !(due - FIRST_SCOUT_TICK).is_multiple_of(SCOUT_STEP_TICKS)
-            || due > current.saturating_add(SCOUT_WARY_INTERVAL_TICKS)
-        {
-            return Err("kobold caution deadline is not aligned with authoritative time");
-        }
-    }
+    validate_caution_schedule(colony, current)?;
     if let Some(next_forage) = colony.next_forage_at {
         let earliest = FIRST_SCOUT_TICK + SCOUT_STEP_TICKS + colony.forage_interval();
         let forage_due = next_forage.value();

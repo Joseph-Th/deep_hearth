@@ -56,6 +56,9 @@ pub(crate) fn apply_kobold_scout_tick(
         colony.recently_shoved(super::super::KoboldRole::Scout, state.control_tick())
     });
     let pressured = pressured_by_player || pressured_by_noise || pressured_by_light || recently_hit;
+    let drank_water = (!pressured)
+        .then(|| super::super::hydration::drink_on_scout_visit(registries, state, from, next_tick))
+        .flatten();
     // Meals use the existing sparse scout schedule, never a per-control-tick AI update.
     // Den resources remain physically recoverable until they are actually eaten.
     let (consumed_food, discarded_food, cleared_cache) =
@@ -87,6 +90,7 @@ pub(crate) fn apply_kobold_scout_tick(
                 foraged_food: None,
                 split_drop: None,
                 consumed_food: None,
+                drank_water: None,
                 discarded_food: None,
                 cleared_cache: None,
                 heard_junk_alarm,
@@ -168,6 +172,7 @@ pub(crate) fn apply_kobold_scout_tick(
                 foraged_food: None,
                 split_drop: None,
                 consumed_food: None,
+                drank_water: None,
                 discarded_food: None,
                 cleared_cache: None,
                 heard_junk_alarm: false,
@@ -276,13 +281,22 @@ pub(crate) fn apply_kobold_scout_tick(
                 .or(split_drop.map(|(id, _)| id))
                 .or_else(|| (step > 0).then(|| foraged_food.map(|(id, _)| id)).flatten()),
         );
-        let activity = KoboldTrailKind::from_step(
-            frightened,
-            turned_back_at_barrier,
-            relocated_drop.is_some() || cleared_cache.is_some() || discarded_food.is_some(),
-            split_drop.is_some(),
-            foraged_food.is_some(),
-        );
+        let activity = if drank_water.is_some()
+            && !frightened
+            && relocated_drop.is_none()
+            && split_drop.is_none()
+            && foraged_food.is_none()
+        {
+            KoboldTrailKind::Drinking
+        } else {
+            KoboldTrailKind::from_step(
+                frightened,
+                turned_back_at_barrier,
+                relocated_drop.is_some() || cleared_cache.is_some() || discarded_food.is_some(),
+                split_drop.is_some(),
+                foraged_food.is_some(),
+            )
+        };
         colony.record_track(from, position, next_tick, activity);
         colony.report_progress_at_home(next_tick);
         colony.deliver_watch_alarm_at_den(next_tick);
@@ -312,6 +326,7 @@ pub(crate) fn apply_kobold_scout_tick(
     let den_visible =
         player_position.is_some_and(|player| scout_visible_from(registries, state, from, player));
     let observed_meal = consumed_food.filter(|_| den_visible);
+    let observed_water = drank_water.filter(|_| den_visible);
     let observed_discard = discarded_food.filter(|_| den_visible);
     let observed_clearing = cleared_cache.filter(|_| den_visible);
     let had_local_activity = [
@@ -319,6 +334,7 @@ pub(crate) fn apply_kobold_scout_tick(
         heard_junk_alarm,
         abandoned_drop.is_some(),
         observed_meal.is_some(),
+        observed_water.is_some(),
         observed_discard.is_some(),
         observed_clearing.is_some(),
     ]
@@ -344,6 +360,7 @@ pub(crate) fn apply_kobold_scout_tick(
             foraged_food,
             split_drop,
             consumed_food: observed_meal,
+            drank_water: observed_water,
             discarded_food: observed_discard,
             cleared_cache: observed_clearing,
         }),

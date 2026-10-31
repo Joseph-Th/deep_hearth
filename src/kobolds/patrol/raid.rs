@@ -29,6 +29,7 @@ pub(super) struct ScoutRaidInterest {
     pub(super) exposed_at_current: bool,
     pub(super) inherited_target: Option<(VoxelCoord, Option<VoxelCoord>)>,
     pub(super) preferred_forage: Option<(VoxelCoord, Option<VoxelCoord>)>,
+    pub(super) preferred_water: Option<(VoxelCoord, Option<VoxelCoord>)>,
 }
 
 /// Choose a larger observed ration only when nearby food is insufficient.
@@ -152,6 +153,20 @@ pub(super) fn scout_raid_interest(
     let local_food = colony.hungry
         && has_local_scout_interest(registries, state, from, capacity, forage_ready, at, true);
     let preferred_forage = preferred_hungry_forage(registries, state, colony, context);
+    let preferred_water = (at >= colony.next_drink_at
+        && colony.scout_step == 1
+        && !colony.returning
+        && !pressured
+        && colony.scavenged_drop.is_none())
+    .then(|| {
+        super::super::hydration::reachable_water_from_junction(
+            registries,
+            state,
+            colony,
+            player_position,
+        )
+    })
+    .flatten();
     // A shaped striker on the authored outer patrol is a real salvage goal too.
     // A fed kobold bypasses nearer inert rock only while the part is still
     // visible, den-fitting, physically reachable, unguarded, and unlit.
@@ -214,11 +229,13 @@ pub(super) fn scout_raid_interest(
             && !missing_tool_at_tip)
             || local_food)
         && !continue_to_planned_far_raid(registries, state, colony, context)
-        && preferred_forage.is_none();
+        && preferred_forage.is_none()
+        && preferred_water.is_none();
     ScoutRaidInterest {
         exposed_at_current: exposed,
         inherited_target,
         preferred_forage,
+        preferred_water,
     }
 }
 
@@ -270,6 +287,15 @@ fn continue_to_planned_far_raid(
     let Some(goal) = colony.detour_goal else {
         return false;
     };
+    if context.at >= colony.next_drink_at
+        && super::super::hydration::usable_water_at(state, goal).is_some()
+    {
+        return scout_visible_from(registries, state, context.from, goal)
+            && scout_can_enter(registries, state, goal, context.player_position)
+            && !scout_sees_guarded_cell(registries, state, context.from, goal)
+            && assess_local_illumination(registries, state, goal).level()
+                < SCOUT_DETERRENT_LIGHT_LEVEL;
+    }
     let ScoutPatrolContext {
         from,
         den_space: capacity,
@@ -425,8 +451,12 @@ pub(super) fn choose_outbound_detour(
     let ScoutRaidInterest {
         inherited_target,
         preferred_forage,
+        preferred_water,
         ..
     } = interest;
+    if let Some(route) = preferred_water {
+        return Some(route);
+    }
     let junction = colony.route[1];
     let route = ScavengeRoute::new(colony.route, player_position);
     let loose_cache =
