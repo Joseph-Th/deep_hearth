@@ -5,7 +5,7 @@ pub(super) mod temple;
 mod terrain;
 
 pub(super) use minerals::seeded_mineral_state;
-use minerals::select_mineral_grade;
+use minerals::{seeded_surface_lode_state, select_mineral_grade};
 use terrain::mix64;
 pub(super) use terrain::terrain_height;
 
@@ -704,6 +704,9 @@ fn build_generated_chunk(
             let x = min_x + local_x as i64;
             let z = min_z + local_z as i64;
             let surface = terrain_height(profile.seed(), x, z);
+            let surface_lode = mineral_enabled
+                .then(|| seeded_surface_lode_state(profile.seed(), x, z, mineral_states))
+                .flatten();
             for y in WORLD_MIN_Y..=surface {
                 let position = VoxelCoord::new(x, y, z);
                 if temple.is_some_and(|site| site.surface_seal(surface, position)) {
@@ -731,10 +734,15 @@ fn build_generated_chunk(
                     }
                     continue;
                 }
-                if mineral_enabled
-                    && let Some(ore) =
-                        seeded_mineral_state(profile.seed(), position, mineral_states)
-                {
+                // A visible outcrop connects exploratory observations to a real
+                // finite mineral body. Ordinary mining and excavation remove its
+                // physical blocks; later visits never regenerate those cells.
+                let shallow_ore = (y >= surface - 3).then_some(surface_lode).flatten();
+                if let Some(ore) = shallow_ore.or_else(|| {
+                    mineral_enabled
+                        .then(|| seeded_mineral_state(profile.seed(), position, mineral_states))
+                        .flatten()
+                }) {
                     let ore = select_mineral_grade(registry, profile.seed(), position, ore);
                     let mass = registry
                         .represented_mass_for_state(ore)

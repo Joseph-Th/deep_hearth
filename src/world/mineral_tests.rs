@@ -146,6 +146,80 @@ fn mineral_generation_is_seeded_bounded_and_does_not_replace_shallow_rock() {
 }
 
 #[test]
+fn generated_shallow_ore_is_a_visible_finite_and_persistent_discovery() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5355_5246_4143_454F);
+    let mut state = AppState::new();
+    let mut found = None;
+    'chunks: for cx in 0..5 {
+        for cz in 0..5 {
+            let chunk = ChunkCoord::new(cx, cz);
+            validate_generate_chunk(&registries, &state, seed, chunk, BLOCK_STATE_STONE)
+                .unwrap()
+                .commit(&mut state)
+                .unwrap();
+            for x in chunk.world_min_x().unwrap()..chunk.world_min_x().unwrap() + CHUNK_SIDE as i64
+            {
+                for z in
+                    chunk.world_min_z().unwrap()..chunk.world_min_z().unwrap() + CHUNK_SIDE as i64
+                {
+                    let y = super::generation::terrain_height(seed, x, z);
+                    let surface = VoxelCoord::new(x, y, z);
+                    let block = state.world().block_at(surface).unwrap();
+                    if let Some(ore) = registries
+                        .world()
+                        .block_for_state(block)
+                        .and_then(|definition| definition.commodity())
+                        && ore.form() == FORM_ORE
+                    {
+                        for depth in 0..4 {
+                            let below = VoxelCoord::new(x, y - depth, z);
+                            let below_block = state.world().block_at(below).unwrap();
+                            let definition =
+                                registries.world().block_for_state(below_block).unwrap();
+                            assert_eq!(definition.commodity(), Some(ore));
+                            assert_eq!(
+                                definition.excavation().unwrap().fragmented_commodity(),
+                                ore
+                            );
+                        }
+                        found = Some((surface, block));
+                        break 'chunks;
+                    }
+                }
+            }
+        }
+    }
+    let (surface, ore) = found.expect("regional terrain must provide a discoverable outcrop");
+    // The actual player can point at the lode from its surface, without
+    // querying underground coordinates or a scenario-specific resource list.
+    crate::player::validate_admit_player(
+        &registries,
+        &state,
+        VoxelCoord::new(surface.x(), surface.y() + 1, surface.z()),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let downward = crate::spatial::ViewDirection::new(0, -1_000_000, 0).unwrap();
+    assert_eq!(
+        crate::world::raycast_player_block(&registries, &state, downward)
+            .unwrap()
+            .map(|target| target.voxel()),
+        Some(surface)
+    );
+    assert!(calculate_matter_accounting(&state).is_ok());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+    assert_eq!(loaded.world().block_at(surface), Some(ore));
+}
+
+#[test]
 fn additional_minerals_have_conserved_ore_forms_and_stratified_seeded_sites() {
     let registries = build_registries();
     let states = [

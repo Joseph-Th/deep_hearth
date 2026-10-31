@@ -53,7 +53,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Energy and fluids | Finite energy and losses, multi-cell straight timber shafts, campfire heat, drinking and local/downhill fluid transfer. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; timed posts, framing, cover and grounded timber roller; timed primary-break recovery. |
-| Block world | Eight ores, temple rooms, excavation and targeting. Lazy generated trees yield conserved logs from timed, wearing stone/copper adze work. Juvenile relocation is capability-only; no saplings, leaves or residency. |
+| Block world | Eight ores with sparse finite shallow outcrops, temple rooms, excavation and targeting. Lazy generated trees yield conserved logs from timed, wearing stone/copper adze work. Juvenile relocation is capability-only; no saplings, leaves or residency. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation

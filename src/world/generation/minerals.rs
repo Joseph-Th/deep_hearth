@@ -3,6 +3,38 @@
 use super::terrain::mix64;
 use super::{BlockStateId, VoxelCoord, WorldGenerationSeed, WorldRegistry};
 
+/// Sparse surface expressions of finite shallow mineral bodies. The two-by-two
+/// outcrop and the rock immediately below it have the same seeded identity.
+/// Each 32 m district has one site in a seed-chosen 16 m chunk, so exploration
+/// cannot leave entire neighboring districts barren by unlucky random rolls.
+/// No neighbor-chunk generation or per-visit discovery roll moves the ore.
+pub(super) fn seeded_surface_lode_state(
+    seed: WorldGenerationSeed,
+    x: i64,
+    z: i64,
+    states: [BlockStateId; 8],
+) -> Option<BlockStateId> {
+    let hash = mix64(
+        seed.value()
+            ^ (x.div_euclid(32) as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            ^ (z.div_euclid(32) as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F)
+            ^ 0x5355_5246_4143_454F,
+    );
+    let start_x = 16 * (hash & 1) as i64 + 3 + ((hash >> 8) % 10) as i64;
+    let start_z = 16 * ((hash >> 1) & 1) as i64 + 3 + ((hash >> 20) % 10) as i64;
+    if (start_x..start_x + 2).contains(&x.rem_euclid(32))
+        && (start_z..start_z + 2).contains(&z.rem_euclid(32))
+    {
+        Some(states[((hash >> 36) % states.len() as u64) as usize])
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+#[path = "minerals_tests.rs"]
+mod tests;
+
 /// 4 m mineral lenses at bounded deep elevations. This is seeded terrain
 /// identity: no virtual deposits, no metal extracted from chemically bound ore,
 /// and no repeated discovery rolls when the same chunk is reloaded.
