@@ -362,11 +362,17 @@ pub(crate) fn debug_assert_runtime_invariants(
         state.systems.mining.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): mining job ID cursor must remain above every allocated job"
     );
-    let logistics_validation = validate_loaded_logistics(registries, state);
-    debug_assert!(
-        logistics_validation.is_ok(),
-        "Runtime Invariants 6/8: logistics state must remain valid: {logistics_validation:?}"
-    );
+    // This traverses the entire cross-owner logistics graph. Keep the
+    // validation itself debug-only, not just the assertion on its result:
+    // this helper runs after every 20 Hz control step in release builds too.
+    #[cfg(debug_assertions)]
+    {
+        let logistics_validation = validate_loaded_logistics(registries, state);
+        debug_assert!(
+            logistics_validation.is_ok(),
+            "Runtime Invariants 6/8: logistics state must remain valid: {logistics_validation:?}"
+        );
+    }
     debug_assert!(
         state.systems.energy.has_valid_id_cursor(),
         "Runtime Invariant 8 (No Lost Runtime State): energy store ID cursor must remain valid"

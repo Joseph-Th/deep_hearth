@@ -81,7 +81,9 @@ pub(super) fn reachable_water_from_junction(
             && crate::energy::assess_local_illumination(registries, state, to).level()
                 < SCOUT_DETERRENT_LIGHT_LEVEL
     };
-    let mut routes = Vec::new();
+    // The water location index is cheap; visibility and local light are not.
+    // Keep only the shortest deterministic route, without allocating a list.
+    let mut best_route = None;
     for first in state.logistics().traversable_destinations(junction) {
         if first == colony.route[0]
             || first == colony.route[2]
@@ -91,25 +93,24 @@ pub(super) fn reachable_water_from_junction(
             continue;
         }
         if usable_water_at(state, first).is_some() {
-            routes.push((0_u8, first, None));
+            let route = (0_u8, first, None);
+            best_route = Some(best_route.map_or(route, |best| route.min(best)));
         }
         for goal in state.logistics().traversable_destinations(first) {
             if goal == junction
                 || goal == colony.route[0]
                 || goal == colony.route[2]
+                || usable_water_at(state, goal).is_none()
                 || !safe(first, goal)
                 || !scout_visible_from(registries, state, junction, goal)
-                || usable_water_at(state, goal).is_none()
             {
                 continue;
             }
-            routes.push((1_u8, first, Some(goal)));
+            let route = (1_u8, first, Some(goal));
+            best_route = Some(best_route.map_or(route, |best| route.min(best)));
         }
     }
-    routes
-        .into_iter()
-        .min()
-        .map(|(_, first, goal)| (first, goal))
+    best_route.map(|(_, first, goal)| (first, goal))
 }
 
 /// The resident takes one physical 60 mL serving while standing beside the

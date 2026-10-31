@@ -27,6 +27,75 @@ fn opening_water() -> (Registries, AppState, FluidStoreId, VoxelCoord) {
 }
 
 #[test]
+fn junction_water_search_prefers_a_real_nearby_source_over_far_detours() {
+    use crate::core::quantity::Temperature;
+    use crate::fluid::{GeneratedFluidStoreSpec, validate_generate_fluid_store};
+    use crate::logistics::{add_traversable_edge_for_test, validate_place_fluid_store};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let den = VoxelCoord::new(-1, 0, 0);
+    let junction = VoxelCoord::new(0, 0, 0);
+    let tip = VoxelCoord::new(1, 0, 0);
+    let near = VoxelCoord::new(0, 0, 1);
+    let via = VoxelCoord::new(0, 0, -1);
+    let far = VoxelCoord::new(0, 0, -2);
+    for (from, to) in [
+        (den, junction),
+        (junction, tip),
+        (junction, near),
+        (junction, via),
+        (via, far),
+        (near, VoxelCoord::new(0, 0, 2)),
+    ] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    let place = |state: &mut AppState, position| {
+        let store = validate_generate_fluid_store(
+            &registries,
+            state,
+            GeneratedFluidStoreSpec::new(
+                SCOUT_DRINK_VOLUME,
+                FLUID_WATER,
+                SCOUT_DRINK_VOLUME,
+                Temperature::from_millikelvin(293_150),
+            ),
+        )
+        .unwrap()
+        .commit(state)
+        .unwrap();
+        validate_place_fluid_store(state, store, position)
+            .unwrap()
+            .commit(state)
+            .unwrap();
+    };
+    let observed = |state: &AppState| {
+        reachable_water_from_junction(
+            &registries,
+            state,
+            state.kobold_state().colony.as_ref().unwrap(),
+            None,
+        )
+    };
+    assert_eq!(observed(&state), None, "empty passages are not water");
+    place(&mut state, far);
+    assert_eq!(observed(&state), Some((via, Some(far))));
+    place(&mut state, near);
+    assert_eq!(observed(&state), Some((near, None)));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, replay);
+    assert_eq!(observed(&replay), Some((near, None)));
+}
+
+#[test]
 fn thirsty_scout_seeks_real_water_and_its_drink_survives_replay() {
     let (registries, mut state, source, position) = opening_water();
     let original = state.fluid().get_store(source).unwrap().stored_volume();
