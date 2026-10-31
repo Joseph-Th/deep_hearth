@@ -34,6 +34,11 @@ pub(crate) struct SurfaceResourceSpec {
 }
 
 impl SurfaceResourceSpec {
+    #[must_use]
+    pub(crate) const fn position(&self) -> VoxelCoord {
+        self.position
+    }
+
     pub(crate) fn new(
         kind: SurfaceResourceKind,
         position: VoxelCoord,

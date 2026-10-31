@@ -1135,6 +1135,30 @@ impl LogisticsState {
         self.revision = next_revision;
     }
 
+    /// Atomically locate natural surface water already allocated by the
+    /// fluid owner during the same validated terrain-expansion transaction.
+    pub(crate) fn apply_generated_spring_locations(
+        &mut self,
+        expected_revision: u64,
+        next_revision: u64,
+        locations: Vec<(FluidStoreId, VoxelCoord)>,
+    ) {
+        assert!(!locations.is_empty());
+        assert_eq!(self.revision, expected_revision);
+        assert_eq!(expected_revision.checked_add(1), Some(next_revision));
+        let mut previous = None;
+        for (store, position) in locations {
+            assert!(previous.is_none_or(|prior| prior < store));
+            assert!(self.fluid_store_locations.insert(store, position).is_none());
+            self.fluid_stores_by_position
+                .entry(position)
+                .or_default()
+                .insert(store);
+            previous = Some(store);
+        }
+        self.revision = next_revision;
+    }
+
     pub(crate) fn apply_generated_opening_access(
         &mut self,
         expected_revision: u64,

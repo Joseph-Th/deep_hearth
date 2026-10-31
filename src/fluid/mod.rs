@@ -32,7 +32,8 @@ pub(crate) use egress::{
 };
 pub(crate) use generation::{
     FluidGenerationCommitError, FluidGenerationError, GeneratedFluidStoreSpec,
-    ValidatedFluidGeneration, validate_generate_fluid_store,
+    ValidatedFluidGeneration, ValidatedFluidGenerationBatch, validate_generate_fluid_store,
+    validate_generate_fluid_stores,
 };
 pub(crate) use physics::{FluidMassProjectionError, project_fluid_material_mass};
 pub(crate) use state::validate_loaded_fluid;

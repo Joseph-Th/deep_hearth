@@ -200,6 +200,27 @@ impl FluidState {
         self.revision == 0 && self.next_store_id == 1 && self.records.is_empty()
     }
 
+    /// Batch natural-water creation consumes all IDs with one reserved revision.
+    pub(crate) fn insert_generated_batch(
+        &mut self,
+        records: Vec<FluidStoreRecord>,
+        next_store_id: u64,
+        next_revision: u64,
+    ) {
+        assert!(!records.is_empty());
+        assert_eq!(self.revision.checked_add(1), Some(next_revision));
+        assert_eq!(
+            self.next_store_id.checked_add(records.len() as u64),
+            Some(next_store_id)
+        );
+        for (index, record) in records.into_iter().enumerate() {
+            assert_eq!(record.id.value(), self.next_store_id + index as u64);
+            assert!(self.records.insert(record.id, record).is_none());
+        }
+        self.next_store_id = next_store_id;
+        self.revision = next_revision;
+    }
+
     /// Applies one validated egress final contents under one owner revision advance.
     pub(super) fn apply_egress_contents(
         &mut self,

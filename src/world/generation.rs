@@ -3,6 +3,7 @@
 mod forage;
 mod habitat;
 mod minerals;
+mod springs;
 pub(super) mod temple;
 pub(in crate::world) mod terrain;
 
@@ -20,6 +21,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
+use crate::fluid::{
+    FluidGenerationCommitError, FluidGenerationError, ValidatedFluidGenerationBatch,
+    validate_generate_fluid_stores,
+};
 use crate::logistics::first_player_body_collision_in_chunk;
 use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::Registries;
@@ -97,6 +102,10 @@ pub enum ChunkGenerationError {
     ForageIdExhausted,
     ForageRevisionExhausted,
     InvalidForageResource(crate::surface::SurfaceResourceValidationError),
+    SpringIdExhausted,
+    SpringRevisionExhausted,
+    InvalidSpringWater,
+    LogisticsRevisionExhausted,
 }
 
 impl Display for ChunkGenerationError {
@@ -201,6 +210,10 @@ impl Display for ChunkGenerationError {
             Self::ForageIdExhausted => formatter.write_str("terrain forage exhausted resource identifiers"),
             Self::ForageRevisionExhausted => formatter.write_str("terrain forage exhausted surface revisions"),
             Self::InvalidForageResource(error) => write!(formatter, "terrain forage is invalid: {error}"),
+            Self::SpringIdExhausted => formatter.write_str("natural water exhausted store identifiers"),
+            Self::SpringRevisionExhausted => formatter.write_str("natural water exhausted fluid revisions"),
+            Self::InvalidSpringWater => formatter.write_str("natural water has invalid authored fluid properties"),
+            Self::LogisticsRevisionExhausted => formatter.write_str("natural spring generation exhausted logistics revisions"),
         }
     }
 }
@@ -209,6 +222,18 @@ impl Error for ChunkGenerationError {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ChunkGenerationCommitError {
+    SpringClockChanged {
+        expected: SimulationTick,
+        actual: SimulationTick,
+    },
+    StaleFluidRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleFluidIdentity {
+        expected: u64,
+        actual: u64,
+    },
     StaleWorldRevision {
         expected: u64,
         actual: u64,
@@ -245,6 +270,20 @@ pub enum ChunkGenerationCommitError {
 impl Display for ChunkGenerationCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::SpringClockChanged { expected, actual } => write!(
+                formatter,
+                "natural-water plan was built at tick {} but the current tick is {}",
+                expected.value(),
+                actual.value()
+            ),
+            Self::StaleFluidRevision { expected, actual } => write!(
+                formatter,
+                "fluid revision changed from {expected} to {actual} before natural spring generation"
+            ),
+            Self::StaleFluidIdentity { expected, actual } => write!(
+                formatter,
+                "fluid next-store identity changed from {expected} to {actual} before natural spring generation"
+            ),
             Self::StaleWorldRevision { expected, actual } => write!(
                 formatter,
                 "world revision changed from {expected} to {actual} before terrain generation commit"
@@ -429,6 +468,7 @@ pub struct ValidatedPlayerChunkDemand {
     profile: WorldGenerationProfile,
     chunks: Vec<WorldChunk>,
     forage: Option<ValidatedSurfaceResourceCreation>,
+    springs: Option<(ValidatedFluidGenerationBatch, Vec<VoxelCoord>, u64)>,
 }
 
 impl ValidatedPlayerChunkDemand {
@@ -441,6 +481,19 @@ impl ValidatedPlayerChunkDemand {
         state: &mut AppState,
     ) -> Result<Vec<ChunkCoord>, ChunkGenerationCommitError> {
         self.guard.precheck(state, &self.chunks)?;
+        if let Some((generation, _, _)) = self.springs.as_ref() {
+            generation.precheck(state).map_err(|error| match error {
+                FluidGenerationCommitError::Tick { expected, actual } => {
+                    ChunkGenerationCommitError::SpringClockChanged { expected, actual }
+                }
+                FluidGenerationCommitError::Revision { expected, actual } => {
+                    ChunkGenerationCommitError::StaleFluidRevision { expected, actual }
+                }
+                FluidGenerationCommitError::NextStoreId { expected, actual } => {
+                    ChunkGenerationCommitError::StaleFluidIdentity { expected, actual }
+                }
+            })?;
+        }
         for chunk in &self.chunks {
             if state.world().get_chunk(chunk.coord()).is_some() {
                 return Err(ChunkGenerationCommitError::ChunkAppeared {
@@ -453,6 +506,17 @@ impl ValidatedPlayerChunkDemand {
         // clock advance cannot stale their physical generation identity.
         if let Some(forage) = self.forage {
             forage.apply(state);
+        }
+        if let Some((generation, positions, next_logistics_revision)) = self.springs {
+            let locations = generation.store_ids().zip(positions).collect();
+            generation.apply(state);
+            state
+                .logistics_state_mut()
+                .apply_generated_spring_locations(
+                    self.guard.logistics_revision,
+                    next_logistics_revision,
+                    locations,
+                );
         }
         let coords = self
             .chunks
@@ -551,6 +615,7 @@ pub fn validate_generate_player_neighborhood(
     }
     chunks.sort_unstable_by_key(WorldChunk::coord);
     let forage = validate_forage_for_chunks(registries, state, profile, &chunks)?;
+    let springs = validate_springs_for_chunks(registries, state, profile, &chunks)?;
     if !state.can_spend_world_revisions(1) {
         return Err(ChunkGenerationError::WorldRevisionExhausted);
     }
@@ -564,7 +629,48 @@ pub fn validate_generate_player_neighborhood(
         profile,
         chunks,
         forage,
+        springs,
     }))
+}
+
+fn validate_springs_for_chunks(
+    registries: &Registries,
+    state: &AppState,
+    profile: WorldGenerationProfile,
+    chunks: &[WorldChunk],
+) -> Result<Option<(ValidatedFluidGenerationBatch, Vec<VoxelCoord>, u64)>, ChunkGenerationError> {
+    let sources = chunks
+        .iter()
+        .filter_map(|chunk| {
+            let planned_forage = forage::seeded_forage_spec(registries, state, profile, chunk);
+            let blocked = planned_forage
+                .as_ref()
+                .map(|resource| vec![resource.position()])
+                .unwrap_or_default();
+            springs::seeded_spring_spec(state, profile, chunk, &blocked)
+        })
+        .collect::<Vec<_>>();
+    if sources.is_empty() {
+        return Ok(None);
+    }
+    if !state.can_spend_logistics_revisions(1) {
+        return Err(ChunkGenerationError::LogisticsRevisionExhausted);
+    }
+    let next_logistics_revision = state
+        .logistics()
+        .revision()
+        .checked_add(1)
+        .ok_or(ChunkGenerationError::LogisticsRevisionExhausted)?;
+    let (positions, specs): (Vec<_>, Vec<_>) = sources.into_iter().unzip();
+    let batch =
+        validate_generate_fluid_stores(registries, state, specs).map_err(|error| match error {
+            FluidGenerationError::IdExhausted => ChunkGenerationError::SpringIdExhausted,
+            FluidGenerationError::RevisionExhausted => {
+                ChunkGenerationError::SpringRevisionExhausted
+            }
+            _ => ChunkGenerationError::InvalidSpringWater,
+        })?;
+    Ok(Some((batch, positions, next_logistics_revision)))
 }
 
 /// One surface-owner admission for all newly generated natural food patches.

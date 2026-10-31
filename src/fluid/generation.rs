@@ -79,6 +79,91 @@ pub(crate) struct ValidatedFluidGeneration {
     next_revision: u64,
 }
 
+/// Batch of finite water pockets admitted against one world snapshot.
+#[must_use]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ValidatedFluidGenerationBatch {
+    expected_tick: SimulationTick,
+    expected_revision: u64,
+    expected_next_store_id: u64,
+    records: Vec<FluidStoreRecord>,
+    next_store_id: u64,
+    next_revision: u64,
+}
+
+impl ValidatedFluidGenerationBatch {
+    pub(crate) fn precheck(&self, state: &AppState) -> Result<(), FluidGenerationCommitError> {
+        if state.tick() != self.expected_tick {
+            return Err(FluidGenerationCommitError::Tick {
+                expected: self.expected_tick,
+                actual: state.tick(),
+            });
+        }
+        if state.fluid().revision() != self.expected_revision {
+            return Err(FluidGenerationCommitError::Revision {
+                expected: self.expected_revision,
+                actual: state.fluid().revision(),
+            });
+        }
+        if state.fluid().next_store_id() != self.expected_next_store_id {
+            return Err(FluidGenerationCommitError::NextStoreId {
+                expected: self.expected_next_store_id,
+                actual: state.fluid().next_store_id(),
+            });
+        }
+        Ok(())
+    }
+
+    pub(crate) fn store_ids(&self) -> impl ExactSizeIterator<Item = FluidStoreId> + '_ {
+        self.records.iter().map(FluidStoreRecord::id)
+    }
+
+    pub(crate) fn apply(self, state: &mut AppState) {
+        state.fluid_state_mut().insert_generated_batch(
+            self.records,
+            self.next_store_id,
+            self.next_revision,
+        );
+    }
+}
+
+pub(crate) fn validate_generate_fluid_stores(
+    registries: &Registries,
+    state: &AppState,
+    specs: impl IntoIterator<Item = GeneratedFluidStoreSpec>,
+) -> Result<ValidatedFluidGenerationBatch, FluidGenerationError> {
+    let mut records = Vec::new();
+    let fluid = state.fluid();
+    let mut next_store_id = fluid.next_store_id();
+    for spec in specs {
+        let contents = validate_generated_contents(registries, spec)?;
+        let id = FluidStoreId::new(next_store_id);
+        next_store_id = next_store_id
+            .checked_add(1)
+            .ok_or(FluidGenerationError::IdExhausted)?;
+        records.push(FluidStoreRecord {
+            id,
+            capacity: spec.capacity,
+            contents: Some(contents),
+            supported_by: None,
+            created_at: state.tick(),
+        });
+    }
+    assert!(!records.is_empty(), "generated fluid batch requires water");
+    let next_revision = fluid
+        .revision()
+        .checked_add(1)
+        .ok_or(FluidGenerationError::RevisionExhausted)?;
+    Ok(ValidatedFluidGenerationBatch {
+        expected_tick: state.tick(),
+        expected_revision: fluid.revision(),
+        expected_next_store_id: fluid.next_store_id(),
+        records,
+        next_store_id,
+        next_revision,
+    })
+}
+
 impl ValidatedFluidGeneration {
     #[must_use]
     pub(crate) const fn store(&self) -> FluidStoreId {
@@ -128,11 +213,10 @@ impl ValidatedFluidGeneration {
     }
 }
 
-pub(crate) fn validate_generate_fluid_store(
+fn validate_generated_contents(
     registries: &Registries,
-    state: &AppState,
     spec: GeneratedFluidStoreSpec,
-) -> Result<ValidatedFluidGeneration, FluidGenerationError> {
+) -> Result<FluidContents, FluidGenerationError> {
     if spec.capacity.is_zero() {
         return Err(FluidGenerationError::ZeroCapacity);
     }
@@ -162,6 +246,19 @@ pub(crate) fn validate_generate_fluid_store(
             melting_point,
         });
     }
+    Ok(FluidContents {
+        fluid: spec.fluid,
+        volume: spec.volume,
+        temperature: spec.temperature,
+    })
+}
+
+pub(crate) fn validate_generate_fluid_store(
+    registries: &Registries,
+    state: &AppState,
+    spec: GeneratedFluidStoreSpec,
+) -> Result<ValidatedFluidGeneration, FluidGenerationError> {
+    let contents = validate_generated_contents(registries, spec)?;
 
     let fluid = state.fluid();
     let id = FluidStoreId::new(fluid.next_store_id());
@@ -180,11 +277,7 @@ pub(crate) fn validate_generate_fluid_store(
         record: FluidStoreRecord {
             id,
             capacity: spec.capacity,
-            contents: Some(FluidContents {
-                fluid: spec.fluid,
-                volume: spec.volume,
-                temperature: spec.temperature,
-            }),
+            contents: Some(contents),
             supported_by: None,
             created_at: state.tick(),
         },
