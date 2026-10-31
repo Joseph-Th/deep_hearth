@@ -59,7 +59,11 @@ pub fn available_visible_generated_water(
                     continue;
                 };
                 let to = VoxelCoord::new(x, y, z);
-                if !super::has_clear_two_step_sightline(registries, state, from, to)
+                // Most cells in the local sight volume hold no fluid. Check the
+                // exact-position index before expensive sight and sky queries;
+                // this is only a private candidate gate, not remote disclosure.
+                if state.logistics().fluid_stores_at(to).next().is_none()
+                    || !super::has_clear_two_step_sightline(registries, state, from, to)
                     || (super::assess_generated_skylight(registries, state, to) == 0
                         && crate::energy::assess_local_illumination(registries, state, to).level()
                             == 0)
