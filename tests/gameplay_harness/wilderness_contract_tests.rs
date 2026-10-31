@@ -1866,13 +1866,25 @@ fn extend_worksite_with_shelter(
     let comfort_after = assess_survival(registries, &exposure_probe)
         .unwrap_or_else(|| panic!("long-stay shelter covered result disappeared"))
         .thermal_comfort_ppm();
+    // The tick may itself cross a new wind front. Observe its committed
+    // ambient state rather than assuming the preceding front continued.
+    let weather = deep_hearth::world::assess_player_weather(registries, &exposure_probe)
+        .expect("the constructed shelter stands in generated terrain");
+    let expected_cover_loss = thermal.exposure_loss_ppm_per_tick(
+        deep_hearth::survival::ThermalExposure::GeneratedOverheadCover {
+            cooling_multiplier_ppm: weather.cooling_multiplier_ppm(),
+        },
+    );
+    let expected_open_loss =
+        thermal.exposure_loss_ppm_per_tick(deep_hearth::survival::ThermalExposure::GeneratedOpen {
+            cooling_multiplier_ppm: weather.cooling_multiplier_ppm(),
+        });
     let observed_cover_loss = comfort_before.saturating_sub(comfort_after);
     assert_eq!(
-        observed_cover_loss,
-        thermal.overhead_cover_loss_ppm_per_tick(),
-        "long-stay shelter must settle the authored covered exposure after finite fire heat is gone"
+        observed_cover_loss, expected_cover_loss,
+        "long-stay shelter must settle ambient-adjusted covered exposure after finite fire heat is gone"
     );
-    assert!(thermal.overhead_cover_loss_ppm_per_tick() < thermal.unsheltered_loss_ppm_per_tick());
+    assert!(expected_cover_loss < expected_open_loss);
 
     WildernessShelterReview {
         tool: assembly_option.definition(),
@@ -1891,8 +1903,8 @@ fn extend_worksite_with_shelter(
         assisted_ticks,
         with_setup_ticks,
         saved_ticks: bare_ticks - with_setup_ticks,
-        open_loss_ppm_per_tick: thermal.unsheltered_loss_ppm_per_tick(),
-        covered_loss_ppm_per_tick: thermal.overhead_cover_loss_ppm_per_tick(),
+        open_loss_ppm_per_tick: expected_open_loss,
+        covered_loss_ppm_per_tick: expected_cover_loss,
         observed_loss_ppm_per_tick: observed_cover_loss,
         board_output_mg: expected_board_mass.milligrams(),
         tool_worn,
@@ -3521,6 +3533,34 @@ fn evaluate_generated_wilderness_opening_internal(
                 "one kilogram campfire charge should provide at least one authored physical hour of usable fire"
             );
 
+            // Once weather becomes physically relevant, a worksite may be colder
+            // than the old fixed twenty-tick recovery assumption. Budget from
+            // actual warmth debt and the authoritative local thermal exchange,
+            // retaining twenty ticks of slack for the finite fire's decay.
+            let thermal = physiology.thermal_comfort();
+            let current_comfort = assess_survival(&registries, &state)
+                .unwrap_or_else(|| panic!("wilderness campfire lost its living player"))
+                .thermal_comfort_ppm();
+            let ambient = deep_hearth::world::assess_player_weather(&registries, &state);
+            let exposure =
+                ambient.map_or(deep_hearth::survival::ThermalExposure::Open, |weather| {
+                    deep_hearth::survival::ThermalExposure::GeneratedOpen {
+                        cooling_multiplier_ppm: weather.cooling_multiplier_ppm(),
+                    }
+                });
+            let maximum_gain = thermal.local_heat_gain_ppm(thermal.local_heat_for_maximum_gain());
+            let net_warming = maximum_gain
+                .checked_sub(thermal.exposure_loss_ppm_per_tick(exposure))
+                .filter(|gain| *gain > 0)
+                .expect("a fueled campfire must be able to overcome observed outdoor cooling");
+            let warmth_debt = thermal.warning_below_ppm().saturating_sub(current_comfort);
+            let recovery_budget = u64::from(warmth_debt.div_ceil(net_warming))
+                .checked_add(CAMPFIRE_RECOVERY_BUDGET_TICKS)
+                .unwrap_or_else(|| panic!("bounded campfire recovery budget overflowed"));
+            assert!(
+                recovery_budget < campfire_single_charge_runway_ticks,
+                "restoring comfort must fit within one finite fire charge even in observed weather"
+            );
             loop {
                 let warmth = assess_survival(&registries, &state)
                     .unwrap_or_else(|| panic!("wilderness player disappeared beside campfire"));
@@ -3541,8 +3581,8 @@ fn evaluate_generated_wilderness_opening_internal(
                     .checked_add(1)
                     .unwrap_or_else(|| panic!("wilderness campfire recovery duration overflowed"));
                 assert!(
-                    campfire_recovery_ticks <= CAMPFIRE_RECOVERY_BUDGET_TICKS,
-                    "primitive campfire recovery must stay within the pre-work survival budget"
+                    campfire_recovery_ticks <= recovery_budget,
+                    "primitive campfire recovery must track physical warmth debt and actual weather before its fuel runs out"
                 );
             }
             assert!(

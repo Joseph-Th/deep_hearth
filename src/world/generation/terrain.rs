@@ -35,7 +35,7 @@ fn lerp_integer(left: i64, right: i64, offset: i64, span: i64) -> i64 {
     (left * (span - offset) + right * offset).div_euclid(span)
 }
 
-pub(super) fn mix64(mut value: u64) -> u64 {
+pub(in crate::world) fn mix64(mut value: u64) -> u64 {
     value ^= value >> 30;
     value = value.wrapping_mul(0xBF58_476D_1CE4_E5B9);
     value ^= value >> 27;

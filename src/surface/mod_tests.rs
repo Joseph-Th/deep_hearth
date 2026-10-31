@@ -2035,6 +2035,12 @@ fn selected_boards_build_material_backed_overhead_cover_that_reduces_exposure() 
     let comfort_before = assess_survival(&registries, &state)
         .unwrap_or_else(|| panic!("cover survival assessment disappeared"))
         .thermal_comfort_ppm();
+    let weather = crate::world::assess_player_weather_at(
+        &registries,
+        &state,
+        crate::core::time::SimulationTick::new(state.tick().value() + 1),
+    )
+    .expect("generated cover must have next-tick outdoor conditions");
     let _ = advance_tick(&registries, &mut state)
         .unwrap_or_else(|error| panic!("covered survival tick failed: {error}"));
     let comfort_after = assess_survival(&registries, &state)
@@ -2046,7 +2052,9 @@ fn selected_boards_build_material_backed_overhead_cover_that_reduces_exposure() 
             .survival()
             .physiology()
             .thermal_comfort()
-            .overhead_cover_loss_ppm_per_tick()
+            .exposure_loss_ppm_per_tick(crate::survival::ThermalExposure::GeneratedOverheadCover {
+                cooling_multiplier_ppm: weather.cooling_multiplier_ppm(),
+            })
     );
 }
 

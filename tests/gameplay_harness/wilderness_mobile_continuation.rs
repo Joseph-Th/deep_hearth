@@ -600,9 +600,10 @@ pub(super) fn evaluate_mobile_cold_response(
         recovered_nut_mass_mg, observed_nut_loss_mg,
         "maintained player should be able to follow and reclaim the scout's visible displaced natural food"
     );
-    assert!(
+    assert_eq!(
         recovery_route_ticks > 0,
-        "recovering visible food must occupy real travel time"
+        visible_recovery.is_some(),
+        "a visible displaced parcel requires real travel, but early cold can precede the scout's first theft"
     );
     let built = build_campfire_from_observed_local_sources(registries, &mut state, junction);
     let after_fuel = state.tick();

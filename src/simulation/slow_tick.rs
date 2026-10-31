@@ -34,8 +34,8 @@ use crate::survival::{
     decide_survival_tick_with_local_heat,
 };
 use crate::world::{
-    apply_block_excavation_tick, apply_tree_felling_wear, decide_block_excavation_tick,
-    decide_tree_felling_wear, validate_due_player_tree_felling,
+    apply_block_excavation_tick, apply_tree_felling_wear, assess_player_weather_at,
+    decide_block_excavation_tick, decide_tree_felling_wear, validate_due_player_tree_felling,
 };
 
 /// Advances the full slow simulation by one 3.6-second physical/accounting quantum.
@@ -173,12 +173,22 @@ pub(super) fn advance_simulation_tick(
             .checked_add(locomotion_exertion.hydration_loss_per_tick())
             .ok_or(TickError::SurvivalHydrationCostOverflow)?,
     );
-    let thermal_exposure = match assess_player_overhead_cover(registries, state) {
-        Some(PlayerOverheadCoverAssessment::Covered) => ThermalExposure::OverheadCover,
-        Some(
-            PlayerOverheadCoverAssessment::Open | PlayerOverheadCoverAssessment::WorldUnavailable,
-        )
-        | None => ThermalExposure::Open,
+    let covered = matches!(
+        assess_player_overhead_cover(registries, state),
+        Some(PlayerOverheadCoverAssessment::Covered)
+    );
+    let thermal_exposure = match (
+        covered,
+        assess_player_weather_at(registries, state, next_tick),
+    ) {
+        (true, Some(weather)) => ThermalExposure::GeneratedOverheadCover {
+            cooling_multiplier_ppm: weather.cooling_multiplier_ppm(),
+        },
+        (false, Some(weather)) => ThermalExposure::GeneratedOpen {
+            cooling_multiplier_ppm: weather.cooling_multiplier_ppm(),
+        },
+        (true, None) => ThermalExposure::OverheadCover,
+        (false, None) => ThermalExposure::Open,
     };
     let survival_plan = decide_survival_tick_with_local_heat(
         registries,

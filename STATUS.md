@@ -53,7 +53,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Energy and fluids | Finite energy and losses, multi-cell straight timber shafts, campfire heat, drinking and local/downhill fluid transfer. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; timed posts, framing, cover and grounded timber roller; timed primary-break recovery. |
-| Block world | Seeded deep ores and shallow outcrops, wild-food patches on player-neighborhood demand, temples, excavation and targeting. Generated trees yield conserved logs via timed adze work. Juvenile relocation is capability-only; no saplings, leaves or residency. |
+| Block world | Seeded ore, finite forage, standing woodland, temple ruins and direct excavation. Regional wind and temperature alter generated-world thermal exposure; no seasonal regrowth or renderer. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation

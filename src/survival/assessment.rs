@@ -23,6 +23,7 @@ pub struct PlayerUnheatedComfortRunway {
     current: Option<TickSpan>,
     if_open: TickSpan,
     if_covered: TickSpan,
+    weather_changes_in: Option<TickSpan>,
 }
 
 /// Time until a living player's first hunger/thirst warning while resting without intake.
@@ -114,6 +115,13 @@ impl PlayerUnheatedComfortRunway {
     pub const fn if_covered(self) -> TickSpan {
         self.if_covered
     }
+
+    /// The forecast assumes current weather stays unchanged. This bound tells
+    /// the player when a regional front or day-phase transition may invalidate it.
+    #[must_use]
+    pub const fn weather_changes_in(self) -> Option<TickSpan> {
+        self.weather_changes_in
+    }
 }
 
 /// Combines real current cover, live survival reserve and authored warmth loss.
@@ -129,12 +137,21 @@ pub fn assess_player_unheated_comfort_runway(
     }
     let cover = assess_player_overhead_cover(registries, state)?;
     let comfort = registries.survival().physiology().thermal_comfort();
-    let if_open = comfort
-        .ticks_until_unheated_discomfort(player.thermal_comfort_ppm(), ThermalExposure::Open);
-    let if_covered = comfort.ticks_until_unheated_discomfort(
-        player.thermal_comfort_ppm(),
-        ThermalExposure::OverheadCover,
-    );
+    let weather = crate::world::assess_player_weather(registries, state);
+    let exposure_open = weather.map_or(ThermalExposure::Open, |weather| {
+        ThermalExposure::GeneratedOpen {
+            cooling_multiplier_ppm: weather.cooling_multiplier_ppm(),
+        }
+    });
+    let exposure_covered = weather.map_or(ThermalExposure::OverheadCover, |weather| {
+        ThermalExposure::GeneratedOverheadCover {
+            cooling_multiplier_ppm: weather.cooling_multiplier_ppm(),
+        }
+    });
+    let if_open =
+        comfort.ticks_until_unheated_discomfort(player.thermal_comfort_ppm(), exposure_open);
+    let if_covered =
+        comfort.ticks_until_unheated_discomfort(player.thermal_comfort_ppm(), exposure_covered);
     let current = match cover {
         PlayerOverheadCoverAssessment::Open => Some(if_open),
         PlayerOverheadCoverAssessment::Covered => Some(if_covered),
@@ -145,6 +162,7 @@ pub fn assess_player_unheated_comfort_runway(
         current,
         if_open,
         if_covered,
+        weather_changes_in: weather.map(|weather| weather.changes_in()),
     })
 }
 

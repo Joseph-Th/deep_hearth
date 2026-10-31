@@ -317,6 +317,14 @@ impl SurvivalStressDefinition {
 pub enum ThermalExposure {
     Open,
     OverheadCover,
+    /// Ambient wind and temperature alter generated-world cooling without
+    /// changing the meaning of a built roof or adding virtual heat energy.
+    GeneratedOpen {
+        cooling_multiplier_ppm: u32,
+    },
+    GeneratedOverheadCover {
+        cooling_multiplier_ppm: u32,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -376,9 +384,24 @@ impl ThermalComfortDefinition {
 
     #[must_use]
     pub const fn exposure_loss_ppm_per_tick(self, exposure: ThermalExposure) -> u32 {
-        match exposure {
-            ThermalExposure::Open => self.unsheltered_loss_ppm_per_tick,
-            ThermalExposure::OverheadCover => self.overhead_cover_loss_ppm_per_tick,
+        let (baseline, multiplier) = match exposure {
+            ThermalExposure::Open => (self.unsheltered_loss_ppm_per_tick, 1_000_000),
+            ThermalExposure::OverheadCover => (self.overhead_cover_loss_ppm_per_tick, 1_000_000),
+            ThermalExposure::GeneratedOpen {
+                cooling_multiplier_ppm,
+            } => (self.unsheltered_loss_ppm_per_tick, cooling_multiplier_ppm),
+            ThermalExposure::GeneratedOverheadCover {
+                cooling_multiplier_ppm,
+            } => (
+                self.overhead_cover_loss_ppm_per_tick,
+                cooling_multiplier_ppm,
+            ),
+        };
+        let loss = (baseline as u64 * multiplier as u64) / 1_000_000;
+        if loss > NORMALIZED_PARTS_PER_MILLION as u64 {
+            NORMALIZED_PARTS_PER_MILLION
+        } else {
+            loss as u32
         }
     }
 

@@ -1210,6 +1210,13 @@ fn opaque_overhead_cover_reduces_thermal_exposure_without_warming() {
         .copied()
         .unwrap_or_else(|| panic!("overhead-cover survival player disappeared"))
         .thermal_comfort_ppm();
+    let weather = crate::world::assess_player_weather_at(
+        &registries,
+        &open,
+        crate::core::time::SimulationTick::new(open.tick().value() + 1),
+    )
+    .expect("generated terrain must expose next-tick weather");
+    let cooling = weather.cooling_multiplier_ppm();
     let _ = advance_tick(&registries, &mut open)
         .unwrap_or_else(|error| panic!("open thermal exposure tick failed: {error}"));
     let _ = advance_tick(&registries, &mut covered)
@@ -1227,10 +1234,19 @@ fn opaque_overhead_cover_reduces_thermal_exposure_without_warming() {
         .unwrap_or_else(|| panic!("covered thermal exposure player disappeared"))
         .thermal_comfort_ppm();
     let thermal = registries.survival().physiology().thermal_comfort();
-    assert_eq!(before - open_after, thermal.unsheltered_loss_ppm_per_tick());
+    assert_eq!(
+        before - open_after,
+        thermal.exposure_loss_ppm_per_tick(crate::survival::ThermalExposure::GeneratedOpen {
+            cooling_multiplier_ppm: cooling,
+        })
+    );
     assert_eq!(
         before - covered_after,
-        thermal.overhead_cover_loss_ppm_per_tick()
+        thermal.exposure_loss_ppm_per_tick(
+            crate::survival::ThermalExposure::GeneratedOverheadCover {
+                cooling_multiplier_ppm: cooling,
+            }
+        )
     );
     assert!(
         covered_after < before,
@@ -1271,6 +1287,12 @@ fn overhead_cover_can_be_above_standing_headroom_without_an_immediate_ceiling() 
         "a raised solid roof still blocks vertical exposure to the sky"
     );
     let before = state.survival().player().unwrap().thermal_comfort_ppm();
+    let weather = crate::world::assess_player_weather_at(
+        &registries,
+        &state,
+        crate::core::time::SimulationTick::new(state.tick().value() + 1),
+    )
+    .unwrap();
     let _ = advance_tick(&registries, &mut state).unwrap();
     assert_eq!(
         before - state.survival().player().unwrap().thermal_comfort_ppm(),
@@ -1278,7 +1300,9 @@ fn overhead_cover_can_be_above_standing_headroom_without_an_immediate_ceiling() 
             .survival()
             .physiology()
             .thermal_comfort()
-            .overhead_cover_loss_ppm_per_tick()
+            .exposure_loss_ppm_per_tick(crate::survival::ThermalExposure::GeneratedOverheadCover {
+                cooling_multiplier_ppm: weather.cooling_multiplier_ppm(),
+            })
     );
     set_generated_block_for_test(
         registries.world(),

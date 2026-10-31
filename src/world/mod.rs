@@ -10,6 +10,7 @@ mod targeting;
 mod transplant;
 mod trees;
 mod validation;
+mod weather;
 
 pub(crate) use definitions::mixed_full_cube_mass;
 pub use definitions::{
@@ -64,6 +65,8 @@ pub(crate) use trees::generated_tree;
 pub use trees::{BIOLOGICAL_YEAR_TICKS, TreeRecord};
 pub(crate) use trees::{FelledTreeRecord, TransplantedTreeRecord};
 pub use validation::{WorldValidationError, validate_loaded_world};
+pub(crate) use weather::assess_player_weather_at;
+pub use weather::{DayPhase, PlayerWeather, WindCondition, assess_player_weather};
 
 #[cfg(test)]
 #[path = "world_tests.rs"]

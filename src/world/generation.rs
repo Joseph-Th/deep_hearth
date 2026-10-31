@@ -3,7 +3,7 @@
 mod forage;
 mod minerals;
 pub(super) mod temple;
-mod terrain;
+pub(in crate::world) mod terrain;
 
 pub(super) use minerals::seeded_mineral_state;
 use minerals::{seeded_surface_lode_state, select_mineral_grade};
