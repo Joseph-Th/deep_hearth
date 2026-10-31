@@ -32,6 +32,9 @@ mod validation;
 mod visibility;
 mod watchman;
 
+pub use acoustics::{
+    KoboldFootfall, KoboldFootfallBearing, KoboldFootfallKind, available_nearby_kobold_footfalls,
+};
 pub use junkworks::{
     KoboldAlarmPulse, KoboldJunkRig, KoboldJunkRigKind, available_nearby_kobold_junk_relay,
     available_nearby_kobold_junk_rig,

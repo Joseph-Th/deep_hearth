@@ -646,3 +646,247 @@ fn materialized_member_obscures_a_scout_and_blocks_air_sound_until_a_bypass_open
         KoboldJunkRigKind::StoneClatter
     ));
 }
+
+#[test]
+fn unseen_scout_footsteps_change_to_real_cargo_dragging_and_then_fall_silent() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let [den, junction, tip] = [
+        VoxelCoord::new(0, 0, 0),
+        VoxelCoord::new(1, 0, 0),
+        VoxelCoord::new(2, 0, 0),
+    ];
+    for (from, to) in [(den, junction), (junction, tip)] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    drop_part(
+        &registries,
+        &mut state,
+        tip,
+        CommodityKey::new(crate::content::MATERIAL_STONE, crate::content::FORM_CHIP),
+    );
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    while state.tick().value() < 180 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert!(
+        available_nearby_kobold_footfalls(&registries, &state).is_empty(),
+        "resident movement does not become an omniscient sound query"
+    );
+    let observer = VoxelCoord::new(1, 0, 3);
+    validate_admit_player(&registries, &state, observer)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let first = available_nearby_kobold_footfalls(&registries, &state);
+    assert_eq!(
+        first,
+        vec![KoboldFootfall {
+            kind: KoboldFootfallKind::Footsteps,
+            bearing: KoboldFootfallBearing::North,
+            occurred_at: SimulationTick::new(180),
+        }]
+    );
+    assert!(
+        super::super::tracks::available_nearby_kobold_tracks(&registries, &state)
+            .next()
+            .is_none(),
+        "footsteps are detectable beyond the short visual track range"
+    );
+    while state.tick().value() < 183 {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    assert!(
+        available_nearby_kobold_footfalls(&registries, &state).is_empty(),
+        "an old footprint cannot sound forever"
+    );
+    while state.tick().value() < 190 {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(
+        available_nearby_kobold_footfalls(&registries, &state),
+        vec![KoboldFootfall {
+            kind: KoboldFootfallKind::Dragging,
+            bearing: KoboldFootfallBearing::North,
+            occurred_at: SimulationTick::new(190),
+        }],
+        "the noise must reflect actual conserved loot carried on the return step"
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(
+        available_nearby_kobold_footfalls(&registries, &state),
+        available_nearby_kobold_footfalls(&registries, &replay)
+    );
+    while state.tick().value() < 193 {
+        assert_eq!(
+            advance_control_tick(&registries, &mut state).unwrap(),
+            advance_control_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert!(available_nearby_kobold_footfalls(&registries, &state).is_empty());
+}
+
+#[test]
+fn real_generated_scout_footsteps_can_be_heard_around_stone_but_not_through_it() {
+    let (registries, mut state) = solid_generated_chunk();
+    let den = VoxelCoord::new(7, -10, 8);
+    let junction = VoxelCoord::new(8, -10, 8);
+    let bend = VoxelCoord::new(8, -10, 9);
+    let listener = VoxelCoord::new(9, -10, 9);
+    for position in [den, junction, bend, listener] {
+        carve(
+            &registries,
+            &mut state,
+            &[
+                position,
+                VoxelCoord::new(position.x(), position.y() + 1, position.z()),
+            ],
+        );
+    }
+    for (from, to) in [(den, junction), (junction, bend)] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, bend]);
+    while state.tick().value() < 180 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    validate_admit_player(&registries, &state, listener)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(!super::super::visibility::scout_visible_from(
+        &registries,
+        &state,
+        junction,
+        listener
+    ));
+    assert_eq!(
+        available_nearby_kobold_footfalls(&registries, &state),
+        vec![KoboldFootfall {
+            kind: KoboldFootfallKind::Footsteps,
+            bearing: KoboldFootfallBearing::Nearby,
+            occurred_at: SimulationTick::new(180),
+        }]
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(
+        available_nearby_kobold_footfalls(&registries, &state),
+        available_nearby_kobold_footfalls(&registries, &restored)
+    );
+    // Closing the sole air bend silences the scout in this read-side
+    // geometry probe, without replacing the actual authored patrol route.
+    for voxel in [bend, VoxelCoord::new(bend.x(), bend.y() + 1, bend.z())] {
+        set_generated_block_for_test(registries.world(), &mut state, voxel, BLOCK_STATE_STONE);
+    }
+    assert!(available_nearby_kobold_footfalls(&registries, &state).is_empty());
+}
+
+#[test]
+fn a_real_sprint_behind_a_stone_corner_makes_the_scout_hold_back_but_quiet_play_does_not() {
+    use crate::logistics::{HorizontalControlInput, PlayerControlInput};
+    use crate::simulation::advance_control_tick_with_input;
+
+    let (registries, mut state) = solid_generated_chunk();
+    let den = VoxelCoord::new(7, -10, 8);
+    let junction = VoxelCoord::new(8, -10, 8);
+    let tip = VoxelCoord::new(8, -10, 9);
+    let spawn = VoxelCoord::new(13, -10, 9);
+    // A roofed L-shaped corridor. Sound follows actual air and the scout
+    // cannot see through the rock between its den and the moving player.
+    for position in [den, junction, tip]
+        .into_iter()
+        .chain((9..=13).map(|x| VoxelCoord::new(x, -10, 9)))
+    {
+        carve(
+            &registries,
+            &mut state,
+            &[
+                position,
+                VoxelCoord::new(position.x(), position.y() + 1, position.z()),
+            ],
+        );
+    }
+    for (from, to) in [(den, junction), (junction, tip)] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    while state.tick().value() < 179 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    for _ in 0..58 {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    let mut quiet = state.clone();
+    let movement = PlayerControlInput::new(HorizontalControlInput::new(-1_000_000, 0).unwrap());
+    let sprint = movement.with_sprint(true);
+    assert!(!scout_hears_running_player(&registries, &state, den));
+    for _ in 0..13 {
+        let _ = advance_control_tick_with_input(&registries, &mut state, sprint).unwrap();
+        let _ = advance_control_tick_with_input(&registries, &mut quiet, movement).unwrap();
+    }
+    let player = state.logistics().player().unwrap().position();
+    assert!(
+        (9..=11).contains(&player.x()),
+        "the actual sprint must stay in the carved passage"
+    );
+    assert!(
+        !super::super::visibility::scout_visible_from(&registries, &state, den, player),
+        "a scout cannot see through the corner to explain its response"
+    );
+    assert!(scout_hears_running_player(&registries, &state, den));
+    assert!(!scout_hears_running_player(&registries, &quiet, den));
+
+    let mut sealed = state.clone();
+    for voxel in [tip, VoxelCoord::new(tip.x(), tip.y() + 1, tip.z())] {
+        set_generated_block_for_test(registries.world(), &mut sealed, voxel, BLOCK_STATE_STONE);
+    }
+    assert!(
+        !scout_hears_running_player(&registries, &sealed, den),
+        "a sealed rock passage must block the runner's sound"
+    );
+    let _ = advance_control_tick_with_input(&registries, &mut state, sprint).unwrap();
+    let _ = advance_control_tick_with_input(&registries, &mut quiet, movement).unwrap();
+    assert_eq!(state.tick(), SimulationTick::new(180));
+    assert_eq!(quiet.tick(), SimulationTick::new(180));
+    assert_eq!(
+        state.kobold_state().colony.as_ref().unwrap().scout_step,
+        0,
+        "a scout hearing a sprint holds at its physical den"
+    );
+    assert_eq!(
+        quiet.kobold_state().colony.as_ref().unwrap().scout_step,
+        1,
+        "ordinary walking leaves the unseen scout on its usual patrol"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &quiet), Ok(()));
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, restored);
+}

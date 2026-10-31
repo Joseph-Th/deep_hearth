@@ -10,12 +10,187 @@
 use std::collections::{BTreeSet, VecDeque};
 
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
+use crate::logistics::{PlayerStance, player_body_is_grounded};
 use crate::registry::Registries;
 use crate::spatial::{CubeFace, VoxelCoord};
+use crate::survival::Vitality;
 use crate::world::{BlockCollisionShape, ChunkCoord};
 
 use super::junkworks::{KoboldJunkRig, KoboldJunkRigKind};
+use super::tracks::KoboldTrailKind;
 use super::visibility::within_manhattan_reach;
+
+/// Only an actual recent movement makes a sound. Tracks remain visible much
+/// longer; they must not turn into a permanent noise source.
+const FOOTFALL_AUDIBLE_TICKS: u64 = 2;
+
+/// What a nearby living resident can be heard doing without identifying them
+/// or disclosing the coordinates of an unseen den or patrol.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KoboldFootfallKind {
+    Footsteps,
+    Dragging,
+    Foraging,
+    Hurrying,
+}
+
+/// Broad bearing only; sound can bend through air corridors and does not
+/// provide a target, a distance measurement, or the resident's route.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KoboldFootfallBearing {
+    Nearby,
+    North,
+    South,
+    East,
+    West,
+    Above,
+    Below,
+}
+
+/// A short-lived auditory clue from one physically recorded resident step.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KoboldFootfall {
+    kind: KoboldFootfallKind,
+    bearing: KoboldFootfallBearing,
+    occurred_at: SimulationTick,
+}
+
+impl KoboldFootfall {
+    #[must_use]
+    pub const fn kind(self) -> KoboldFootfallKind {
+        self.kind
+    }
+
+    #[must_use]
+    pub const fn bearing(self) -> KoboldFootfallBearing {
+        self.bearing
+    }
+
+    /// Allows an audio adapter to play each real step once instead of
+    /// retriggering it on every 20 Hz observation.
+    #[must_use]
+    pub const fn occurred_at(self) -> SimulationTick {
+        self.occurred_at
+    }
+}
+
+fn footfall_kind(activity: KoboldTrailKind) -> (KoboldFootfallKind, u8) {
+    match activity {
+        KoboldTrailKind::Walking => (KoboldFootfallKind::Footsteps, 4),
+        KoboldTrailKind::Hauling => (KoboldFootfallKind::Dragging, 5),
+        KoboldTrailKind::Foraging => (KoboldFootfallKind::Foraging, 3),
+        KoboldTrailKind::Fleeing => (KoboldFootfallKind::Hurrying, 5),
+    }
+}
+
+fn footfall_bearing(source: VoxelCoord, listener: VoxelCoord) -> KoboldFootfallBearing {
+    let dx = source.x().abs_diff(listener.x());
+    let dy = source.y().abs_diff(listener.y());
+    let dz = source.z().abs_diff(listener.z());
+    if dy > dx.max(dz) {
+        return if source.y() > listener.y() {
+            KoboldFootfallBearing::Above
+        } else {
+            KoboldFootfallBearing::Below
+        };
+    }
+    if dx > dz {
+        if source.x() > listener.x() {
+            KoboldFootfallBearing::East
+        } else {
+            KoboldFootfallBearing::West
+        }
+    } else if dz > dx {
+        if source.z() > listener.z() {
+            KoboldFootfallBearing::South
+        } else {
+            KoboldFootfallBearing::North
+        }
+    } else {
+        KoboldFootfallBearing::Nearby
+    }
+}
+
+/// Present only real footfalls on the current resident clock, with bounded
+/// propagation through the same physical air as a material-built den alarm.
+/// The speaker's role and exact location are deliberately not returned.
+#[must_use]
+pub fn available_nearby_kobold_footfalls(
+    registries: &Registries,
+    state: &AppState,
+) -> Vec<KoboldFootfall> {
+    let Some(listener) = state.logistics().player().map(|player| player.position()) else {
+        return Vec::new();
+    };
+    if state
+        .survival()
+        .player()
+        .is_none_or(|player| player.vitality() == Vitality::ZERO)
+    {
+        return Vec::new();
+    }
+    let Some(colony) = state.kobold_state().colony.as_ref() else {
+        return Vec::new();
+    };
+    [colony.tracks.last(), colony.watch_tracks.last()]
+        .into_iter()
+        .flatten()
+        .filter_map(|track| {
+            let age = state.tick().checked_duration_since(track.left_at())?;
+            if age.value() > FOOTFALL_AUDIBLE_TICKS {
+                return None;
+            }
+            let source = track.toward();
+            let (kind, reach) = footfall_kind(track.observed_activity());
+            audible_with_reach(registries, state, source, listener, reach).then_some(
+                KoboldFootfall {
+                    kind,
+                    bearing: footfall_bearing(source, listener),
+                    occurred_at: track.left_at(),
+                },
+            )
+        })
+        .collect()
+}
+
+/// A sprinting player's actual grounded body motion can alert a nearby scout
+/// even around a stone corner. Crouching, stationary, airborne and ordinary
+/// walking actors do not make this extra warning. The resident still knows
+/// only that something noisy is near, not a target path or remote inventory.
+pub(super) fn scout_hears_running_player(
+    registries: &Registries,
+    state: &AppState,
+    listener: VoxelCoord,
+) -> bool {
+    let Some(player) = state.logistics().player() else {
+        return false;
+    };
+    if state
+        .survival()
+        .player()
+        .is_none_or(|record| record.vitality() == Vitality::ZERO)
+        || player.body().stance() != PlayerStance::Standing
+        || !player_body_is_grounded(registries, state)
+    {
+        return false;
+    }
+    let velocity = player.body().horizontal_velocity();
+    let x = u128::from(velocity.x_nanometers_per_second().unsigned_abs());
+    let z = u128::from(velocity.z_nanometers_per_second().unsigned_abs());
+    let walking = u128::from(
+        registries
+            .survival()
+            .physiology()
+            .locomotion()
+            .walking_speed()
+            .nanometers_per_second(),
+    );
+    let speed_squared = x.saturating_mul(x).saturating_add(z.saturating_mul(z));
+    speed_squared > walking * walking
+        && audible_with_reach(registries, state, player.position(), listener, 4)
+}
 
 fn acoustic_reach(kind: KoboldJunkRigKind) -> u8 {
     match kind {
@@ -61,7 +236,16 @@ fn audible_path(
     listener: VoxelCoord,
     kind: KoboldJunkRigKind,
 ) -> bool {
-    let reach = acoustic_reach(kind);
+    audible_with_reach(registries, state, source, listener, acoustic_reach(kind))
+}
+
+fn audible_with_reach(
+    registries: &Registries,
+    state: &AppState,
+    source: VoxelCoord,
+    listener: VoxelCoord,
+    reach: u8,
+) -> bool {
     if !within_manhattan_reach(source, listener, u64::from(reach)) {
         return false;
     }

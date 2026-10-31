@@ -45,6 +45,8 @@ pub(crate) fn apply_kobold_scout_tick(
         .next_forage_at
         .is_none_or(|due| next_tick >= due);
     let player_position = state.logistics().player().map(|player| player.position());
+    let pressured_by_noise =
+        super::super::acoustics::scout_hears_running_player(registries, state, from);
     let pressured_by_player = living_player_deters_scout(registries, state, from);
     // World-owned opaque blocks and live finite energy stores control this field.
     // Neither player-held torches nor hidden ambient/skylight are invented here.
@@ -53,7 +55,7 @@ pub(crate) fn apply_kobold_scout_tick(
     let recently_hit = state.kobold_state().colony.as_ref().is_some_and(|colony| {
         colony.recently_shoved(super::super::KoboldRole::Scout, state.control_tick())
     });
-    let pressured = pressured_by_player || pressured_by_light || recently_hit;
+    let pressured = pressured_by_player || pressured_by_noise || pressured_by_light || recently_hit;
     // Meals use the existing sparse scout schedule, never a per-control-tick AI update.
     // Den resources remain physically recoverable until they are actually eaten.
     let (consumed_food, discarded_food, cleared_cache) =
@@ -332,7 +334,8 @@ pub(crate) fn apply_kobold_scout_tick(
             discovered_player_drop: discovered,
             raided_stockpile: None,
             relocated_drop,
-            fled_player: (pressured_by_player || ahead_is_guarded) && can_move,
+            fled_player: (pressured_by_player || pressured_by_noise || ahead_is_guarded)
+                && can_move,
             fled_light: (pressured_by_light || (turned_back_at_barrier && ahead_is_lit))
                 && can_move,
             turned_back_at_barrier: turned_back_at_barrier && can_move,
