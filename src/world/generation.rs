@@ -1,5 +1,6 @@
 //! Deterministic terrain identity, explicit chunk generation, and player-neighborhood demand.
 
+mod forage;
 mod minerals;
 pub(super) mod temple;
 mod terrain;
@@ -15,10 +16,12 @@ use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
 
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::logistics::first_player_body_collision_in_chunk;
 use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::Registries;
 use crate::spatial::{VoxelBounds, VoxelCoord};
+use crate::surface::{SurfaceResourceCreationError, ValidatedSurfaceResourceCreation};
 
 use super::{
     BlockCollisionShape, BlockStateId, CHUNK_SIDE, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y,
@@ -88,6 +91,9 @@ pub enum ChunkGenerationError {
     TreePlacementObstructed { voxel: VoxelCoord },
     PlayerDemandCoordinateOverflow { center: ChunkCoord },
     WorldRevisionExhausted,
+    ForageIdExhausted,
+    ForageRevisionExhausted,
+    InvalidForageResource(crate::surface::SurfaceResourceValidationError),
 }
 
 impl Display for ChunkGenerationError {
@@ -189,6 +195,9 @@ impl Display for ChunkGenerationError {
             Self::WorldRevisionExhausted => {
                 formatter.write_str("terrain generation exhausted world revision capacity")
             }
+            Self::ForageIdExhausted => formatter.write_str("terrain forage exhausted resource identifiers"),
+            Self::ForageRevisionExhausted => formatter.write_str("terrain forage exhausted surface revisions"),
+            Self::InvalidForageResource(error) => write!(formatter, "terrain forage is invalid: {error}"),
         }
     }
 }
@@ -416,6 +425,7 @@ pub struct ValidatedPlayerChunkDemand {
     next_revision: u64,
     profile: WorldGenerationProfile,
     chunks: Vec<WorldChunk>,
+    forage: Option<ValidatedSurfaceResourceCreation>,
 }
 
 impl ValidatedPlayerChunkDemand {
@@ -434,6 +444,12 @@ impl ValidatedPlayerChunkDemand {
                     chunk: chunk.coord(),
                 });
             }
+        }
+        // The common terrain guard already binds surface, world and structure
+        // revisions. These source parcels are dated to tick zero, so a distant
+        // clock advance cannot stale their physical generation identity.
+        if let Some(forage) = self.forage {
+            forage.apply(state);
         }
         let coords = self
             .chunks
@@ -531,6 +547,7 @@ pub fn validate_generate_player_neighborhood(
         return Ok(None);
     }
     chunks.sort_unstable_by_key(WorldChunk::coord);
+    let forage = validate_forage_for_chunks(registries, state, profile, &chunks)?;
     if !state.can_spend_world_revisions(1) {
         return Err(ChunkGenerationError::WorldRevisionExhausted);
     }
@@ -543,7 +560,43 @@ pub fn validate_generate_player_neighborhood(
         next_revision,
         profile,
         chunks,
+        forage,
     }))
+}
+
+/// One surface-owner admission for all newly generated natural food patches.
+/// The biological source existed at world creation, even if a distant column
+/// only becomes persistent later; exploration does not refresh its shelf age.
+fn validate_forage_for_chunks(
+    registries: &Registries,
+    state: &AppState,
+    profile: WorldGenerationProfile,
+    chunks: &[WorldChunk],
+) -> Result<Option<ValidatedSurfaceResourceCreation>, ChunkGenerationError> {
+    let specs = chunks
+        .iter()
+        .filter_map(|chunk| forage::seeded_forage_spec(registries, state, profile, chunk))
+        .collect::<Vec<_>>();
+    if specs.is_empty() {
+        return Ok(None);
+    }
+    crate::surface::validate_create_surface_resources_at(
+        registries,
+        state,
+        specs,
+        SimulationTick::ZERO,
+    )
+    .map(Some)
+    .map_err(|error| match error {
+        SurfaceResourceCreationError::Empty => unreachable!("forage generation has nonempty specs"),
+        SurfaceResourceCreationError::IdExhausted => ChunkGenerationError::ForageIdExhausted,
+        SurfaceResourceCreationError::RevisionExhausted => {
+            ChunkGenerationError::ForageRevisionExhausted
+        }
+        SurfaceResourceCreationError::InvalidResource(error) => {
+            ChunkGenerationError::InvalidForageResource(error)
+        }
+    })
 }
 
 /// One shared physical admission for both direct and atomic neighborhood

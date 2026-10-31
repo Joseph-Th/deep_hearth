@@ -227,6 +227,7 @@ impl Display for SurfaceResourceCreationCommitError {
 impl Error for SurfaceResourceCreationCommitError {}
 
 #[must_use]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedSurfaceResourceCreation {
     expected_tick: SimulationTick,
     expected_revision: u64,

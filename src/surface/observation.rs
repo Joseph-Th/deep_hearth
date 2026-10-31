@@ -33,6 +33,56 @@ impl AdjacentSurfaceResource {
     pub const fn position(self) -> VoxelCoord {
         self.position
     }
+
+    /// Player-local view of loose matter within two physical voxel steps in
+    /// generated terrain. Every returned cell has a short, unoccluded sightline
+    /// through authoritative blocks, trees and embodied structures. This is a
+    /// coarse orientation read: exact mass and freshness still require the player
+    /// to stand at the source.
+    ///
+    /// The query examines at most 25 neighboring cells rather than scanning
+    /// remote resources or leaking undiscovered opportunities beyond walls.
+    pub fn visible_in_generated_world(
+        registries: &crate::registry::Registries,
+        state: &AppState,
+    ) -> impl Iterator<Item = Self> {
+        let mut nearby = Vec::new();
+        if let Some(player) = state.logistics().player() {
+            let from = player.position();
+            if state.world().has_generated_terrain_at(from) {
+                for dx in -2_i64..=2 {
+                    let remaining = 2 - dx.abs();
+                    for dy in -remaining..=remaining {
+                        let last = remaining - dy.abs();
+                        for dz in -last..=last {
+                            let (Some(x), Some(y), Some(z)) = (
+                                from.x().checked_add(dx),
+                                from.y().checked_add(dy),
+                                from.z().checked_add(dz),
+                            ) else {
+                                continue;
+                            };
+                            let to = VoxelCoord::new(x, y, z);
+                            if !crate::world::has_clear_two_step_sightline(
+                                registries, state, from, to,
+                            ) {
+                                continue;
+                            }
+                            nearby.extend(state.surface().available_resources_at(Some(to)).map(
+                                |resource| AdjacentSurfaceResource {
+                                    resource: resource.id(),
+                                    commodity: resource.commodity(),
+                                    position: resource.position(),
+                                },
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        nearby.sort_unstable_by_key(|resource| resource.resource);
+        nearby.into_iter()
+    }
 }
 
 /// Iterates available loose resources on traversal-authorized face-neighbors of the player.

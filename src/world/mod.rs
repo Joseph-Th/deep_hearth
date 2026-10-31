@@ -4,6 +4,7 @@ mod definitions;
 mod excavation;
 mod felling;
 mod generation;
+mod local_visibility;
 mod state;
 mod targeting;
 mod transplant;
@@ -46,6 +47,7 @@ pub use generation::{
     ValidatedPlayerChunkDemand, WorldGenerationSeed, validate_generate_chunk,
     validate_generate_player_neighborhood,
 };
+pub(crate) use local_visibility::{has_clear_two_step_sightline, within_manhattan_reach};
 #[cfg(test)]
 pub(crate) use state::set_generated_block_for_test;
 pub use state::{
