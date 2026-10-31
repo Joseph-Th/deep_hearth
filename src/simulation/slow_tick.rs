@@ -35,8 +35,9 @@ use crate::survival::{
     decide_survival_tick_with_local_heat,
 };
 use crate::world::{
-    apply_block_excavation_tick, apply_tree_felling_wear, assess_player_weather_at,
-    decide_block_excavation_tick, decide_tree_felling_wear, validate_due_player_tree_felling,
+    apply_block_excavation_tick, apply_natural_forage_cycle, apply_tree_felling_wear,
+    assess_player_weather_at, decide_block_excavation_tick, decide_tree_felling_wear,
+    validate_due_player_tree_felling,
 };
 
 /// Advances the full slow simulation by one 3.6-second physical/accounting quantum.
@@ -302,6 +303,7 @@ pub(super) fn advance_simulation_tick(
     // before residents assess a player's actual living threat: a death on this
     // very tick must not make a corpse deter or challenge a neighboring scout.
     let _ = apply_survival_tick(state, survival_plan);
+    apply_natural_forage_cycle(registries, state, next_tick);
     // Weather-front changes can move existing water between the exposed pool
     // and its shallow basin before residents choose whether to drink.
     apply_natural_water_cycle(registries, state, next_tick);

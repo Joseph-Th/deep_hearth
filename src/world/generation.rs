@@ -1,6 +1,7 @@
 //! Deterministic terrain identity, explicit chunk generation, and player-neighborhood demand.
 
 mod forage;
+pub(crate) use forage::seeded_perennial_matches;
 mod habitat;
 mod minerals;
 mod springs;

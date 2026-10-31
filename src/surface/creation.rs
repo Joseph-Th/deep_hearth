@@ -27,6 +27,7 @@ pub(crate) struct SurfaceResourceSpec {
     kind: SurfaceResourceKind,
     position: VoxelCoord,
     mass: Mass,
+    perennial_reserve: Mass,
     profile: MaterialLotProfile,
     provenance: Option<MaterialLotProvenance>,
     ambient_age_parts_at_created_at: u128,
@@ -61,6 +62,7 @@ impl SurfaceResourceSpec {
             kind,
             position,
             mass: material.mass(),
+            perennial_reserve: Mass::ZERO,
             profile: MaterialLotProfile::from_spec(&material),
             provenance: None,
             ambient_age_parts_at_created_at: 0,
@@ -83,6 +85,7 @@ impl SurfaceResourceSpec {
             kind,
             position,
             mass,
+            perennial_reserve: Mass::ZERO,
             profile,
             provenance: Some(provenance),
             ambient_age_parts_at_created_at,
@@ -96,6 +99,17 @@ impl SurfaceResourceSpec {
         tick: ControlTick,
     ) -> Self {
         self.automatic_pickup_delay_started_at = Some(tick);
+        self
+    }
+
+    /// Adds finite underground matter at the generated site, initially
+    /// unavailable to gathering. No ambient input is claimed by regrowth.
+    pub(crate) fn with_perennial_reserve(mut self, mass: Mass) -> Self {
+        self.perennial_reserve = mass;
+        self.mass = self
+            .mass
+            .checked_add(mass)
+            .expect("bounded perennial plant");
         self
     }
 
@@ -384,6 +398,7 @@ fn validate_create_surface_resources_with_felling_at(
         let kind = spec.kind;
         let position = spec.position;
         let automatic_pickup_delay_started_at = spec.automatic_pickup_delay_started_at;
+        let perennial_reserve = spec.perennial_reserve;
         let parcel = spec.into_parcel(created_at);
         let record = SurfaceResourceRecord::created(
             id,
@@ -392,6 +407,7 @@ fn validate_create_surface_resources_with_felling_at(
             parcel,
             created_at,
             automatic_pickup_delay_started_at,
+            perennial_reserve,
         );
         validate_surface_resource_record(
             registries.materials(),

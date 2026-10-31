@@ -42,6 +42,15 @@ pub enum SurfaceResourceKind {
     Drop,
 }
 
+/// Finite underground plant biomass not available for immediate gathering.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PerennialForage {
+    pub(crate) root_reserve: Mass,
+    pub(crate) original_fruit: Mass,
+    pub(crate) ripened_at: SimulationTick,
+}
+
 /// Exact physical/provenance parcel retained while finite loose matter is in surface custody.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -76,6 +85,8 @@ pub struct SurfaceResourceRecord {
     position: VoxelCoord,
     material: SurfaceMaterialParcel,
     remaining_mass: Mass,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
+    pub(crate) perennial: Option<PerennialForage>,
     lifecycle: SurfaceResourceLifecycle,
     created_at: SimulationTick,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
@@ -92,14 +103,24 @@ impl SurfaceResourceRecord {
         material: SurfaceMaterialParcel,
         created_at: SimulationTick,
         automatic_pickup_delay_started_at: Option<ControlTick>,
+        perennial_reserve: Mass,
     ) -> Self {
         let mass = material.initial_mass;
+        let visible = mass
+            .checked_sub(perennial_reserve)
+            .expect("bounded perennial reserve");
+        let perennial = (!perennial_reserve.is_zero()).then_some(PerennialForage {
+            root_reserve: perennial_reserve,
+            original_fruit: visible,
+            ripened_at: created_at,
+        });
         Self {
             id,
             kind,
             position,
             material,
-            remaining_mass: mass,
+            remaining_mass: visible,
+            perennial,
             lifecycle: SurfaceResourceLifecycle::Available,
             created_at,
             automatic_pickup_delay_started_at,
@@ -152,6 +173,10 @@ impl SurfaceResourceRecord {
         self.created_at
     }
 
+    pub(crate) const fn depleted_at(&self) -> Option<SimulationTick> {
+        self.depleted_at
+    }
+
     #[must_use]
     pub(crate) const fn automatic_pickup_delay_started_at(&self) -> Option<ControlTick> {
         self.automatic_pickup_delay_started_at
@@ -170,8 +195,13 @@ impl SurfaceResourceRecord {
         at: SimulationTick,
     ) -> Option<MaterialStorageHistory> {
         MaterialStorageHistory::with_ambient_age_parts(
-            self.material.ambient_age_parts_at_created_at,
-            self.created_at,
+            if self.perennial.is_some() {
+                0
+            } else {
+                self.material.ambient_age_parts_at_created_at
+            },
+            self.perennial
+                .map_or(self.created_at, |plant| plant.ripened_at),
         )
         .rebase(at, AMBIENT_PRESERVATION_MULTIPLIER_PPM)
     }
@@ -183,6 +213,14 @@ impl SurfaceResourceRecord {
 
     pub(crate) const fn ambient_age_parts_at_created_at(&self) -> u128 {
         self.material.ambient_age_parts_at_created_at
+    }
+
+    #[must_use]
+    pub(crate) const fn perennial_root_mass(&self) -> Mass {
+        match self.perennial {
+            Some(plant) => plant.root_reserve,
+            None => Mass::ZERO,
+        }
     }
 }
 
@@ -462,6 +500,46 @@ impl SurfaceResourceState {
             record.depleted_at = Some(gathered_at);
             let position = record.position;
             self.remove_available_index(position, resource);
+        }
+        self.revision = next_revision;
+    }
+
+    /// Conserved field senescence and fruit ripening under one surface revision.
+    pub(crate) fn apply_perennial_cycle(
+        &mut self,
+        changes: Vec<(
+            SurfaceResourceId,
+            PerennialForage,
+            Mass,
+            SurfaceResourceLifecycle,
+            Option<SimulationTick>,
+        )>,
+        next_revision: u64,
+    ) {
+        assert!(!changes.is_empty());
+        assert_eq!(self.revision.checked_add(1), Some(next_revision));
+        for (id, perennial, visible, lifecycle, depleted_at) in changes {
+            let record = self
+                .resources
+                .get_mut(&id)
+                .expect("preplanned perennial source");
+            let was_available = record.lifecycle == SurfaceResourceLifecycle::Available;
+            let position = record.position;
+            record.perennial = Some(perennial);
+            record.remaining_mass = visible;
+            record.lifecycle = lifecycle;
+            record.depleted_at = depleted_at;
+            let now_available = lifecycle == SurfaceResourceLifecycle::Available;
+            if was_available && !now_available {
+                self.remove_available_index(position, id);
+            } else if !was_available && now_available {
+                assert!(
+                    self.available_by_position
+                        .entry(position)
+                        .or_default()
+                        .insert(id)
+                );
+            }
         }
         self.revision = next_revision;
     }

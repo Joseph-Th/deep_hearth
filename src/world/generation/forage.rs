@@ -2,7 +2,8 @@
 //!
 //! One sparse seed-selected site per two-by-two chunk district can become a
 //! finite edible opportunity. Terrain and surface ownership commit atomically;
-//! no background respawn or player-centered loot roll is involved.
+//! no unlimited respawn or player-centered loot roll is involved. A finite
+//! root reserve can later support conserved seasonal fruit cycling.
 
 #[cfg(test)]
 #[path = "forage_tests.rs"]
@@ -17,9 +18,77 @@ use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec};
 
 use super::terrain::{mix64, terrain_height};
-use super::{BlockStateId, WorldChunk, WorldGenerationProfile};
+use super::{BlockStateId, ChunkCoord, WorldChunk, WorldGenerationProfile};
 
 const AMBIENT_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
+
+fn district_hash(profile: WorldGenerationProfile, coord: ChunkCoord) -> u64 {
+    mix64(
+        profile.seed().value()
+            ^ (coord.x().div_euclid(2) as u64).wrapping_mul(0x8EBC_6AF0_9C88_C6E3)
+            ^ (coord.z().div_euclid(2) as u64).wrapping_mul(0x5899_65CC_7537_4CC3)
+            ^ 0x464F_5241_4745_5F57,
+    )
+}
+
+fn seeded_food(profile: WorldGenerationProfile, hash: u64, x: i64, z: i64) -> (CommodityKey, Mass) {
+    let (material, mass_mg) = match super::habitat_at(profile.seed(), x, z) {
+        super::HabitatKind::DampGrove => (MATERIAL_BERRIES, 700_000 + ((hash >> 40) % 500_000)),
+        super::HabitatKind::DryScrub => (MATERIAL_WILD_NUTS, 180_000 + ((hash >> 40) % 320_000)),
+        super::HabitatKind::MixedWoodland => (
+            if hash & 4 == 0 {
+                MATERIAL_BERRIES
+            } else {
+                MATERIAL_WILD_NUTS
+            },
+            250_000 + ((hash >> 40) % 600_000),
+        ),
+    };
+    (
+        CommodityKey::new(material, FORM_FOOD),
+        Mass::from_milligrams(mass_mg),
+    )
+}
+
+/// Verify decoded rooted biomass against the original world seed without
+/// consulting changed terrain, current fruit, exploration order or live
+/// occupants. Any of the five original candidate roots was legal if earlier
+/// sites were obstructed at the generation boundary.
+pub(crate) fn seeded_perennial_matches(
+    profile: WorldGenerationProfile,
+    position: VoxelCoord,
+    commodity: CommodityKey,
+    original_fruit: Mass,
+) -> bool {
+    if profile.solid_state() != BLOCK_STATE_STONE {
+        return false;
+    }
+    let coord = ChunkCoord::containing(position);
+    let hash = district_hash(profile, coord);
+    if coord.x().rem_euclid(2) as u64 != hash & 1
+        || coord.z().rem_euclid(2) as u64 != (hash >> 1) & 1
+    {
+        return false;
+    }
+    let Some((x, z)) = coord
+        .world_min_x()
+        .and_then(|x| x.checked_add(3 + ((hash >> 12) % 10) as i64))
+        .zip(
+            coord
+                .world_min_z()
+                .and_then(|z| z.checked_add(3 + ((hash >> 26) % 10) as i64)),
+        )
+    else {
+        return false;
+    };
+    [(0, 0), (2, 0), (0, 2), (-2, 0), (0, -2)]
+        .into_iter()
+        .filter_map(|(dx, dz)| Some((x.checked_add(dx)?, z.checked_add(dz)?)))
+        .any(|(cx, cz)| {
+            position == VoxelCoord::new(cx, terrain_height(profile.seed(), cx, cz) + 1, cz)
+                && seeded_food(profile, hash, cx, cz) == (commodity, original_fruit)
+        })
+}
 
 /// The sparse site is selected by district, not by independent chunk rolls.
 /// Only already-generated world cells and co-located owned matter may prevent
@@ -34,12 +103,7 @@ pub(super) fn seeded_forage_spec(
         return None;
     }
     let coord = chunk.coord();
-    let hash = mix64(
-        profile.seed().value()
-            ^ (coord.x().div_euclid(2) as u64).wrapping_mul(0x8EBC_6AF0_9C88_C6E3)
-            ^ (coord.z().div_euclid(2) as u64).wrapping_mul(0x5899_65CC_7537_4CC3)
-            ^ 0x464F_5241_4745_5F57,
-    );
+    let hash = district_hash(profile, coord);
     if coord.x().rem_euclid(2) as u64 != hash & 1
         || coord.z().rem_euclid(2) as u64 != (hash >> 1) & 1
     {
@@ -75,26 +139,12 @@ pub(super) fn seeded_forage_spec(
         // Both food type and yield are consequences of the local habitat,
         // not independent resource rolls. Wet groves reward fruit seeking;
         // sparse scrub carries less food but tends to provide dense nuts.
-        // The parcel is still finite and ages from world creation.
-        let (material, mass_mg) = match super::habitat_at(profile.seed(), x, z) {
-            super::HabitatKind::DampGrove => (MATERIAL_BERRIES, 700_000 + ((hash >> 40) % 500_000)),
-            super::HabitatKind::DryScrub => {
-                (MATERIAL_WILD_NUTS, 180_000 + ((hash >> 40) % 320_000))
-            }
-            super::HabitatKind::MixedWoodland => (
-                if hash & 4 == 0 {
-                    MATERIAL_BERRIES
-                } else {
-                    MATERIAL_WILD_NUTS
-                },
-                250_000 + ((hash >> 40) % 600_000),
-            ),
-        };
-        let commodity = CommodityKey::new(material, FORM_FOOD);
+        // The first crop ages from world creation; finite roots may later
+        // support a smaller new crop through the normal biological cycle.
+        let (commodity, mass) = seeded_food(profile, hash, x, z);
         if !registries.materials().has_commodity(commodity) {
             return None;
         }
-        let mass = Mass::from_milligrams(mass_mg);
         return Some(
             SurfaceResourceSpec::new(
                 SurfaceResourceKind::Opportunity,
@@ -102,9 +152,10 @@ pub(super) fn seeded_forage_spec(
                 commodity,
                 mass,
                 AMBIENT_TEMPERATURE,
-                MaterialComposition::pure(material),
+                MaterialComposition::pure(commodity.material()),
             )
-            .expect("built-in forage has nonzero mass and pure registered material"),
+            .expect("built-in forage has nonzero mass and pure registered material")
+            .with_perennial_reserve(Mass::from_milligrams(mass.milligrams() / 2)),
         );
     }
     None

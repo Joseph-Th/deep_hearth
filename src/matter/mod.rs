@@ -182,10 +182,14 @@ impl Display for MatterAccountingError {
 
 fn calculate_surface_mass(state: &AppState) -> Result<AggregateMass, MatterAccountingError> {
     sum_masses(
-        state
-            .surface()
-            .resources()
-            .map(|resource| AggregateMass::from_mass(resource.remaining_mass())),
+        state.surface().resources().map(|resource| {
+            AggregateMass::from_mass(
+                resource
+                    .remaining_mass()
+                    .checked_add(resource.perennial_root_mass())
+                    .expect("perennial source cannot exceed its initial budget"),
+            )
+        }),
         MatterAccountingError::SurfaceMassOverflow,
     )
 }

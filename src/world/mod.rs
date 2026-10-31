@@ -3,6 +3,7 @@
 mod definitions;
 mod excavation;
 mod felling;
+mod forage_cycle;
 mod forage_scent;
 mod generation;
 mod local_visibility;
@@ -39,6 +40,7 @@ pub(crate) use felling::{
     apply_tree_felling_wear, decide_tree_felling_wear, tree_felling_condition_after,
     tree_felling_duration, tree_felling_exertion, validate_due_player_tree_felling,
 };
+pub(crate) use forage_cycle::apply_natural_forage_cycle;
 pub use forage_scent::{
     ForageScent, ForageScentIntensity, ForageScentKind, assess_player_forage_scents,
 };
@@ -47,6 +49,7 @@ pub(crate) use generation::first_buried_stationary_enclosure_in_world;
 pub(crate) use generation::first_embodied_structure_collision_in_world;
 pub(crate) use generation::first_solid_block_in_structural_bounds;
 pub(crate) use generation::nearby_temple_residents;
+pub(crate) use generation::seeded_perennial_matches;
 pub(crate) use generation::temple_residents_at;
 pub(crate) use generation::temple_warden_route_at;
 pub use generation::{

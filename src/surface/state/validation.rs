@@ -21,6 +21,9 @@ use super::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SurfaceResourceValidationError {
     InvalidLocationIndex,
+    InvalidPerennialBudget {
+        resource: SurfaceResourceId,
+    },
     EmbeddedInSolidWorld {
         resource: SurfaceResourceId,
         voxel: VoxelCoord,
@@ -125,6 +128,11 @@ pub enum SurfaceResourceValidationError {
 impl Display for SurfaceResourceValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::InvalidPerennialBudget { resource } => write!(
+                formatter,
+                "perennial {} has invalid finite root, crop age or initial biomass budget",
+                resource.value()
+            ),
             Self::InvalidLocationIndex => formatter.write_str(
                 "surface resource position index does not match available parcel custody",
             ),
@@ -305,6 +313,7 @@ impl Error for SurfaceResourceValidationError {
             Self::InvalidPhaseState { error, .. } => Some(error),
             Self::InvalidParticleSizeState { error, .. } => Some(error),
             Self::InvalidLocationIndex
+            | Self::InvalidPerennialBudget { .. }
             | Self::EmbeddedInSolidWorld { .. }
             | Self::EmbeddedInSolidStructure { .. }
             | Self::ZeroNextResourceId
@@ -410,6 +419,39 @@ pub(in crate::surface) fn validate_surface_resource_record(
     }
     if record.remaining_mass() > record.initial_mass() {
         return Err(SurfaceResourceValidationError::RemainingMassExceedsInitial { resource: key });
+    }
+    if let Some(plant) = record.perennial {
+        let original = plant.original_fruit.milligrams();
+        let expected_total = original.checked_add(original / 2);
+        if record.kind() != super::SurfaceResourceKind::Opportunity
+            || record.commodity().form() != crate::content::FORM_FOOD
+            || !matches!(
+                record.commodity().material(),
+                crate::content::MATERIAL_BERRIES | crate::content::MATERIAL_WILD_NUTS
+            )
+            || record.created_at() != SimulationTick::ZERO
+            || original == 0
+            || expected_total != Some(record.initial_mass().milligrams())
+            || plant.root_reserve > record.initial_mass()
+            || record.remaining_mass().milligrams() > original
+            || record
+                .remaining_mass()
+                .milligrams()
+                .checked_add(plant.root_reserve.milligrams())
+                .is_none_or(|sum| sum > record.initial_mass().milligrams())
+            || plant.ripened_at < record.created_at()
+            || plant.ripened_at > current
+            || !plant
+                .ripened_at
+                .value()
+                .is_multiple_of(crate::world::WEATHER_FRONT_TICKS)
+            || record
+                .depleted_at()
+                .is_some_and(|depleted| plant.ripened_at > depleted)
+            || record.ambient_age_parts_at_created_at() != 0
+        {
+            return Err(SurfaceResourceValidationError::InvalidPerennialBudget { resource: key });
+        }
     }
     match record.lifecycle {
         SurfaceResourceLifecycle::Available if record.remaining_mass.is_zero() => {
@@ -580,6 +622,18 @@ pub(crate) fn validate_loaded_surface_resources(
     }
     for (key, record) in &state.resources {
         validate_surface_resource_record(materials, *key, record, current, current_control)?;
+        if let Some(plant) = record.perennial
+            && !world.generation_profile().is_some_and(|profile| {
+                crate::world::seeded_perennial_matches(
+                    profile,
+                    record.position(),
+                    record.commodity(),
+                    plant.original_fruit,
+                )
+            })
+        {
+            return Err(SurfaceResourceValidationError::InvalidPerennialBudget { resource: *key });
+        }
         validate_surface_resource_physical_position(
             world_registry,
             world,
