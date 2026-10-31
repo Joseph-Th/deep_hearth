@@ -77,7 +77,7 @@ pub(crate) fn apply_natural_forage_cycle(
     let moisture = std::cell::OnceCell::new();
     let changes = state
         .surface()
-        .resources()
+        .perennial_resources()
         .filter_map(|source| {
             let mut plant = source.perennial?;
             if source.lifecycle() == SurfaceResourceLifecycle::Available {

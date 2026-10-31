@@ -642,7 +642,7 @@ pub(crate) fn validate_loaded_surface_resources(
             None,
         )?;
     }
-    if !state.has_valid_position_index() {
+    if !state.has_valid_derived_indexes() {
         return Err(SurfaceResourceValidationError::InvalidLocationIndex);
     }
     Ok(())

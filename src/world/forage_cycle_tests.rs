@@ -64,6 +64,88 @@ fn strip_plant(state: &mut AppState, id: crate::surface::SurfaceResourceId) {
 }
 
 #[test]
+fn perennial_field_index_excludes_unrelated_drops_and_survives_depletion_and_load() {
+    use crate::content::{FORM_CHIP, MATERIAL_STONE};
+    use crate::core::quantity::Temperature;
+    use crate::material::{CommodityKey, MaterialComposition};
+    use crate::surface::{SurfaceResourceSpec, validate_create_surface_resources};
+
+    let (registries, mut state, plant) = generated_plant();
+    let original_ids = state
+        .surface()
+        .resources()
+        .filter(|source| source.perennial.is_some())
+        .map(|source| source.id())
+        .collect::<Vec<_>>();
+    assert!(original_ids.contains(&plant));
+    let indexed = |state: &AppState| {
+        state
+            .surface()
+            .perennial_resources()
+            .map(|source| source.id())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(indexed(&state), original_ids);
+
+    let position = state.surface().get(plant).unwrap().position();
+    assert_ne!(position, state.logistics().player().unwrap().position());
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let drop = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        position,
+        commodity,
+        Mass::from_milligrams(100_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    validate_create_surface_resources(&registries, &state, [drop])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        indexed(&state),
+        original_ids,
+        "a new drop is not a rooted plant"
+    );
+    strip_plant(&mut state, plant);
+    assert_eq!(
+        indexed(&state),
+        original_ids,
+        "depleted roots must remain indexed"
+    );
+
+    let original_matter = calculate_matter_accounting(&state).unwrap().total();
+    for _ in 0..400 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(indexed(&state), original_ids);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        original_matter
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let serialized = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&serialized)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(indexed(&replay), original_ids);
+    assert_eq!(replay, state);
+    for _ in 0..1_600 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+        let _ = advance_tick(&registries, &mut replay).unwrap();
+    }
+    assert_eq!(indexed(&state), original_ids);
+    assert_eq!(
+        state, replay,
+        "field continuation must survive index reconstruction"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn harvested_perennial_reappears_with_smaller_real_crop_and_no_minted_matter() {
     let (registries, mut state, id) = generated_plant();
     let first = state.surface().get(id).unwrap().remaining_mass();
