@@ -286,3 +286,179 @@ fn perennial_origin_and_original_yield_are_verified_against_world_seed() {
         plant.original_fruit,
     ));
 }
+
+/// Select an actually seeded shrub below an actual tree's future grown crown;
+/// the generated district, tree and biomass are not fabricated for the test.
+fn shaded_perennial() -> (
+    Registries,
+    AppState,
+    crate::surface::SurfaceResourceId,
+    VoxelCoord,
+) {
+    use crate::core::state::apply_clock_advance;
+
+    let registries = build_registries();
+    let calendar = registries.core().calendar();
+    let season_span = calendar.ticks_per_day()
+        * u64::from(calendar.days_per_month())
+        * u64::from(calendar.months_per_year() / 4);
+    let summer = SimulationTick::new(4 * season_span * 4 + season_span);
+    for seed_value in 1..64 {
+        let seed = WorldGenerationSeed::new(seed_value);
+        let mut state = AppState::new();
+        validate_generate_chunk(
+            &registries,
+            &state,
+            seed,
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+        let y = super::super::generation::terrain_height(seed, 0, 0) + 1;
+        validate_admit_player(&registries, &state, VoxelCoord::new(0, y, 0))
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        validate_generate_player_neighborhood(&registries, &state)
+            .unwrap()
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        apply_clock_advance(&mut state, summer);
+        let candidate = state.surface().resources().find_map(|resource| {
+            let shade = super::super::sky::living_canopy_shade_at(
+                &registries,
+                &state,
+                resource.position(),
+                summer,
+            );
+            if shade == 0 || resource.perennial.is_none() {
+                return None;
+            }
+            let root = state
+                .world()
+                .trees_near_horizontal(resource.position(), 3)
+                .find(|tree| {
+                    tree.canopy_radius_voxels(summer) > 0
+                        && tree
+                            .root()
+                            .x()
+                            .abs_diff(resource.position().x())
+                            .max(tree.root().z().abs_diff(resource.position().z()))
+                            <= u64::from(tree.canopy_radius_voxels(summer))
+                })?
+                .root();
+            Some((resource.id(), root))
+        });
+        if let Some((id, root)) = candidate {
+            return (registries, state, id, root);
+        }
+    }
+    panic!("no naturally generated canopy-shaded edible shrub in finite seed search")
+}
+
+#[test]
+fn living_tree_canopy_reduces_next_real_crop_without_destroying_root_biomass() {
+    let (registries, mut state, id, root) = shaded_perennial();
+    let site = state.surface().get(id).unwrap().position();
+    let when = state.tick();
+    let shade = super::super::sky::living_canopy_shade_at(&registries, &state, site, when);
+    assert!(shade > 0);
+    let calendar = registries.core().calendar();
+    let season_span = calendar.ticks_per_day()
+        * u64::from(calendar.days_per_month())
+        * u64::from(calendar.months_per_year() / 4);
+    assert_eq!(
+        super::super::sky::living_canopy_shade_at(
+            &registries,
+            &state,
+            site,
+            SimulationTick::new(when.value() + 2 * season_span),
+        ),
+        0,
+        "the same deciduous crown is leafless two seasons after summer"
+    );
+    let original_root = state.surface().get(id).unwrap().perennial_root_mass();
+    let original = state
+        .surface()
+        .get(id)
+        .unwrap()
+        .perennial
+        .unwrap()
+        .original_fruit;
+    // Harvest the same rooted crop, then compare the next real weather-front
+    // recovery with and without the mature canopy.
+    strip_plant(&mut state, id);
+    let mut under_tree = state.clone();
+    let baseline = calculate_matter_accounting(&state).unwrap().total();
+    // This is the same canonical felling operation that transfers the mature
+    // tree to an ordinary recoverable surface parcel.
+    crate::logistics::relocate_player_for_test(
+        &mut state,
+        VoxelCoord::new(root.x() + 1, root.y(), root.z()),
+    );
+    let fell = super::super::felling::validate_fell_tree(&registries, &state, root).unwrap();
+    let _ = fell.commit(&mut state).unwrap();
+    assert!(super::super::sky::living_canopy_shade_at(&registries, &state, site, when) < shade);
+    // The settled calendar projection can cross years without millions of
+    // artificial player input samples. Trigger exactly the normal biological
+    // owner at the next suitable 200-tick weather front in both world states.
+    let profile = state.world().generation_profile().unwrap();
+    // The site may be in dry scrub with a 2,400-tick recovery minimum;
+    // selecting the first merely warm front would not yet permit ripening.
+    let next_front = (12..60)
+        .map(|step| SimulationTick::new(when.value() + step * 200))
+        .find(|&at| {
+            let air =
+                super::super::weather::weather_at(&registries, profile.seed().value(), site, at);
+            (283_150..=303_150).contains(&air.ambient_temperature().millikelvin())
+        })
+        .expect("a suitable warm growing front follows the harvested crop");
+    crate::core::state::apply_clock_advance(&mut under_tree, next_front);
+    crate::core::state::apply_clock_advance(&mut state, next_front);
+    apply_natural_forage_cycle(&registries, &mut under_tree, next_front);
+    apply_natural_forage_cycle(&registries, &mut state, next_front);
+    let shaded = under_tree.surface().get(id).unwrap();
+    let sunlit = state.surface().get(id).unwrap();
+    assert_eq!(shaded.lifecycle(), SurfaceResourceLifecycle::Available);
+    assert_eq!(sunlit.lifecycle(), SurfaceResourceLifecycle::Available);
+    assert!(
+        sunlit.remaining_mass() > shaded.remaining_mass(),
+        "removing a shade-casting tree must result in a larger real edible crop"
+    );
+    for (record, total_root) in [(shaded, original_root), (sunlit, original_root)] {
+        assert_eq!(
+            record
+                .remaining_mass()
+                .checked_add(record.perennial_root_mass())
+                .unwrap(),
+            total_root,
+            "each branch transfers only its own previously rooted physical matter"
+        );
+        assert!(record.remaining_mass() <= original);
+    }
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        baseline
+    );
+    assert_eq!(
+        calculate_matter_accounting(&under_tree).unwrap().total(),
+        baseline
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &under_tree), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, loaded);
+    let another_front = SimulationTick::new(next_front.value() + 200);
+    crate::core::state::apply_clock_advance(&mut state, another_front);
+    crate::core::state::apply_clock_advance(&mut loaded, another_front);
+    apply_natural_forage_cycle(&registries, &mut state, another_front);
+    apply_natural_forage_cycle(&registries, &mut loaded, another_front);
+    assert_eq!(state, loaded);
+}

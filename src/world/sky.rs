@@ -18,8 +18,13 @@ const CANOPY_VERTICAL_REACH_BELOW_ROOT: i64 = 1;
 /// A grown crown casts diffuse partial shade, not a solid-block shadow.
 /// Evergreen trunk opacity remains separate. A deciduous crown has little
 /// leaf area in winter, and spring/autumn attenuate less than summer.
-fn living_canopy_shade(registries: &Registries, state: &AppState, position: VoxelCoord) -> u8 {
-    let season = registries.core().calendar().date_at(state.tick()).season();
+pub(crate) fn living_canopy_shade_at(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    at: SimulationTick,
+) -> u8 {
+    let season = registries.core().calendar().date_at(at).season();
     if season == Season::Winter {
         return 0;
     }
@@ -28,7 +33,7 @@ fn living_canopy_shade(registries: &Registries, state: &AppState, position: Voxe
         .trees_near_horizontal(position, MAX_CANOPY_RADIUS)
         .filter_map(|tree| {
             let root = tree.root();
-            let radius = tree.canopy_radius_voxels(state.tick());
+            let radius = tree.canopy_radius_voxels(at);
             let horizontal = root
                 .x()
                 .abs_diff(position.x())
@@ -118,7 +123,12 @@ pub fn assess_generated_skylight(
     if light == 0 || !has_open_sky(registries, state, position) {
         return 0;
     }
-    light.saturating_sub(living_canopy_shade(registries, state, position))
+    light.saturating_sub(living_canopy_shade_at(
+        registries,
+        state,
+        position,
+        state.tick(),
+    ))
 }
 
 #[cfg(test)]

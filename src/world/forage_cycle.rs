@@ -13,7 +13,7 @@ use crate::registry::Registries;
 use crate::surface::SurfaceResourceLifecycle;
 
 use super::generation::{HabitatKind, habitat_at};
-use super::sky::has_open_sky;
+use super::sky::{has_open_sky, living_canopy_shade_at};
 use super::weather::weather_at;
 
 /// One check per regional front, not one vegetation scan per physics step.
@@ -105,11 +105,23 @@ pub(crate) fn apply_natural_forage_cycle(
             if !(283_150..=303_150).contains(&weather.ambient_temperature().millikelvin()) {
                 return None;
             }
+            // The physical crown of an older neighboring tree intercepts
+            // direct sunlight from the understory shrub. Smaller crops
+            // leave their unspent mass in its actual root reserve; no water,
+            // organic matter or food is silently removed or manufactured.
+            let shade = u64::from(living_canopy_shade_at(
+                registries,
+                state,
+                source.position(),
+                at,
+            ));
+            let open_batch = (plant.original_fruit.milligrams() / 4).max(1);
+            let light_fraction = 8_u64.saturating_sub(shade.min(8));
             let batch = Mass::from_milligrams(
                 plant
                     .root_reserve
                     .milligrams()
-                    .min((plant.original_fruit.milligrams() / 4).max(1)),
+                    .min((open_batch * light_fraction / 8).max(1)),
             );
             plant.root_reserve = plant.root_reserve.checked_sub(batch)?;
             plant.ripened_at = at;
