@@ -5,7 +5,10 @@ use std::num::NonZeroU64;
 
 use crate::core::quantity::{Mass, Temperature};
 use crate::inventory::ConsumedMaterialTrace;
-use crate::material::{CommodityKey, MaterialComposition, MaterialLotSpec, MaterialLotSpecError};
+use crate::material::{
+    CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE, MaterialComposition, MaterialLotSpec,
+    MaterialLotSpecError,
+};
 
 use super::ManualCraftDefinition;
 
@@ -28,6 +31,16 @@ pub(super) enum ManualCraftOutputError {
         commodity: CommodityKey,
         error: MaterialLotSpecError,
     },
+}
+
+/// The same hand-contact gate is used by new manual-work admission and trusted-load replay.
+/// Powered processes may handle hotter feedstock without player contact.
+pub(super) fn first_unsafe_hand_input(
+    traces: &[ConsumedMaterialTrace],
+) -> Option<&ConsumedMaterialTrace> {
+    traces
+        .iter()
+        .find(|trace| trace.profile().temperature() > MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

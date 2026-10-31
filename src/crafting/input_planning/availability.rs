@@ -2,8 +2,8 @@
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::inventory::StockpileId;
-use crate::material::{CommodityKey, MaterialComposition};
+use crate::inventory::{MaterialLotRecord, StockpileId};
+use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE, MaterialComposition};
 use crate::production::ProcessId;
 use crate::registry::ProcessEquipmentRole;
 
@@ -30,6 +30,16 @@ impl CompatibleInputInventory {
     }
 }
 
+/// One eligibility rule for both the recipe catalog and exact automatic lot allocation.
+/// The precomputed expected composition avoids reconstructing a component vector per lot.
+pub(super) fn is_eligible_manual_input(
+    lot: &MaterialLotRecord,
+    expected_composition: &MaterialComposition,
+) -> bool {
+    lot.composition() == expected_composition
+        && lot.temperature() <= MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE
+}
+
 pub(super) fn scan_compatible_input(
     state: &AppState,
     source: StockpileId,
@@ -50,7 +60,7 @@ pub(super) fn scan_compatible_input(
             input,
             "commodity index must only return lots for the requested recipe input"
         );
-        if lot.composition() != &expected_composition {
+        if !is_eligible_manual_input(lot, &expected_composition) {
             continue;
         }
         total_eligible_mass = total_eligible_mass
@@ -102,8 +112,8 @@ impl ManualCraftStockpileOption {
 
 /// Read-only stockpile availability for one authored manual recipe.
 ///
-/// Durable temperature cohorts compose because manual shaping retains their exact thermal state in
-/// separate output parcels. Availability therefore reflects all pure compatible input mass.
+/// Safe-to-handle durable temperature cohorts compose because manual shaping retains their exact
+/// thermal state in separate output parcels. Hot stock is unavailable to hand crafting.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ManualCraftInputAvailability {

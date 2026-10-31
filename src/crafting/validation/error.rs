@@ -5,13 +5,13 @@ use std::fmt::{Display, Formatter};
 use std::num::NonZeroU64;
 
 use crate::capability::{CapabilityEvaluationError, CapabilityId, CapabilityValueKind};
-use crate::core::quantity::{Energy, Mass};
+use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::throughput::MassFlowDurationError;
 use crate::core::time::TickSpan;
 use crate::energy::{EnergyCarrier, EnergyStoreDefinitionId, PowerDurationError};
 use crate::equipment::EquipmentDefinitionId;
 use crate::maintenance::{ActiveConditionDurationError, Condition};
-use crate::material::MaterialLotSpecError;
+use crate::material::{CommodityKey, MaterialLotSpecError};
 use crate::production::ProductionJobId;
 
 /// Corruption or semantic drift in an in-flight manual or powered shaping job.
@@ -88,6 +88,12 @@ pub enum CraftingJobValidationError {
     },
     InputCompositionMismatch {
         job: ProductionJobId,
+    },
+    InputTooHot {
+        job: ProductionJobId,
+        commodity: CommodityKey,
+        temperature: Temperature,
+        maximum: Temperature,
     },
     InputMassNotWholeBatches {
         job: ProductionJobId,
@@ -238,6 +244,20 @@ impl Display for CraftingJobValidationError {
                 "craft job {} consumed material whose composition its shaping transform cannot accept",
                 job.value()
             ),
+            Self::InputTooHot {
+                job,
+                commodity,
+                temperature,
+                maximum,
+            } => write!(
+                formatter,
+                "manual craft job {} consumed material {} form {} at {} mK above unprotected handling maximum {} mK",
+                job.value(),
+                commodity.material().value(),
+                commodity.form().value(),
+                temperature.millikelvin(),
+                maximum.millikelvin()
+            ),
             Self::InputMassNotWholeBatches {
                 job,
                 consumed,
@@ -309,6 +329,7 @@ impl Error for CraftingJobValidationError {
             | Self::InputCommodityMismatch { .. }
             | Self::EmptyInput { .. }
             | Self::InputCompositionMismatch { .. }
+            | Self::InputTooHot { .. }
             | Self::InputMassNotWholeBatches { .. }
             | Self::DurationOverflow { .. }
             | Self::DurationMismatch { .. }

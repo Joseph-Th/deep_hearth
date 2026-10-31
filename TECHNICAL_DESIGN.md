@@ -1307,7 +1307,10 @@ generic structural foundations, or soil/water contamination.
 Manual shaping conserves material identity/mass and cannot change phase. Pure durable input lots may span exact
 temperatures: form-only shaping retains every selected thermal cohort and apportions each authored output across
 the remaining cohort distribution at whole-milligram precision, so crafting neither averages heat nor performs
-free temperature separation. Powered crafting delegates the same material/yield transform. Optional equipment may
+free temperature separation. Manual work admits only input cohorts within the unprotected hand-handling temperature
+limit; its recipe catalog and automatic batch planner exclude hotter stock, and exact selections are rechecked at
+canonical resolution. Powered crafting delegates the material/yield transform without this hand-work gate.
+Optional equipment may
 reduce attention through canonical condition-adjusted throughput; required equipment rejects the equipment-free
 route. Equipment changes throughput/wear, not recipe yield. Scrap/chip outputs remain represented matter until an
 explicit authored recovery process consumes them. Cast copper ingots also feed three direct

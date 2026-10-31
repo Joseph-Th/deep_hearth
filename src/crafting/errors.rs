@@ -3,7 +3,7 @@
 use std::num::NonZeroU64;
 
 use crate::capability::{CapabilityId, CapabilityValueKind};
-use crate::core::quantity::Mass;
+use crate::core::quantity::{Mass, Temperature};
 use crate::core::throughput::MassFlowDurationError;
 use crate::equipment::{EquipmentDefinitionId, EquipmentId, EquipmentProviderError};
 use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError};
@@ -87,6 +87,11 @@ pub enum ManualCraftError {
     },
     InputCompositionMismatch {
         expected: CommodityKey,
+    },
+    InputTooHot {
+        commodity: CommodityKey,
+        temperature: Temperature,
+        maximum: Temperature,
     },
     InputMassNotWholeBatches {
         consumed: Mass,

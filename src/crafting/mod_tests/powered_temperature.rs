@@ -72,13 +72,16 @@ fn powered_shaping_preserves_mixed_temperature_cohorts_through_replay_validation
         600_000,
         293_150,
     );
+    // Machine shaping is not an unprotected hand-work operation. A hot but still
+    // solid timber cohort remains eligible and retains its exact heat in the outputs.
+    let warm_temperature = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE.millikelvin() + 1;
     let warm = deposit(
         &registries,
         &mut state,
         source,
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
         400_000,
-        313_150,
+        warm_temperature,
     );
     let destination = stockpile(&mut state, 1_000_000);
     let drive = add_energy_store_with_initial_for_fixture(
@@ -101,7 +104,7 @@ fn powered_shaping_preserves_mixed_temperature_cohorts_through_replay_validation
 
     let resolution = resolve_powered_craft(&registries, &state, &request)
         .unwrap_or_else(|error| panic!("powered mixed-temperature shaping failed: {error}"));
-    for (temperature, expected_mass) in [(293_150, 600_000), (313_150, 400_000)] {
+    for (temperature, expected_mass) in [(293_150, 600_000), (warm_temperature, 400_000)] {
         let temperature = Temperature::from_millikelvin(temperature);
         let mass = resolution
             .outputs()

@@ -509,6 +509,152 @@ fn familiar_recipe_planner_combines_temperature_cohorts_without_heat_exchange() 
 }
 
 #[test]
+fn manual_crafting_excludes_hot_feedstock_and_rejects_explicit_unsafe_selection() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let here = VoxelCoord::new(0, 0, 0);
+    validate_admit_player(&registries, &state, here)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let source =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000)).unwrap();
+    validate_place_ground_stockpile(&state, source, here)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
+    let threshold = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    let hot_temperature = Temperature::from_millikelvin(threshold.millikelvin() + 1);
+    // An older, unsafe lot comes first by inventory ID. Automatic planning must skip it
+    // rather than silently select it ahead of material that can actually be worked by hand.
+    let hot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        commodity,
+        Mass::from_milligrams(1_000_000),
+        hot_temperature,
+    )
+    .unwrap();
+    let safe = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        commodity,
+        Mass::from_milligrams(1_000_000),
+        threshold,
+    )
+    .unwrap();
+    let baseline = state.clone();
+    let availability =
+        assess_manual_craft_inputs(&registries, &state, PROCESS_KNAP_STONE_TOOL, source).unwrap();
+    assert_eq!(
+        availability.total_eligible_mass(),
+        Mass::from_milligrams(1_000_000)
+    );
+    assert_eq!(availability.maximum_batches(), 1);
+    assert_eq!(
+        plan_manual_craft_from_stockpile(
+            &registries,
+            &state,
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            batches(2)
+        )
+        .err(),
+        Some(ManualCraftInputPlanError::InsufficientInput {
+            input: commodity,
+            available: Mass::from_milligrams(1_000_000),
+            required: Mass::from_milligrams(2_000_000),
+        })
+    );
+    let catalog = manual_craft_options_from_stockpile(&registries, &state, source).unwrap();
+    assert!(catalog.iter().any(|option| {
+        option.process() == PROCESS_KNAP_STONE_TOOL
+            && option.input_mode() == ManualCraftInputMode::Automatic(availability)
+    }));
+    let selected = plan_manual_craft_from_stockpile(
+        &registries,
+        &state,
+        PROCESS_KNAP_STONE_TOOL,
+        source,
+        batches(1),
+    )
+    .unwrap();
+    assert_eq!(
+        selected.selections(),
+        &[crate::inventory::MaterialLotSelection::new(
+            safe,
+            Mass::from_milligrams(1_000_000),
+        )]
+    );
+    // The exact-lot route is an independent admission boundary, not a workaround for
+    // the catalog's hot-stock filter.
+    let unsafe_request = ManualCraftStartRequest::in_place(ManualCraftRequest::single(
+        PROCESS_KNAP_STONE_TOOL,
+        source,
+        crate::inventory::MaterialLotSelection::new(hot, Mass::from_milligrams(1_000_000)),
+    ));
+    assert_eq!(
+        validate_start_manual_craft(&registries, &state, unsafe_request).err(),
+        Some(StartManualCraftError::Resolution(
+            ManualCraftError::InputTooHot {
+                commodity,
+                temperature: hot_temperature,
+                maximum: threshold,
+            }
+        ))
+    );
+    assert_eq!(state, baseline);
+    // At the exact limit the canonical hand-work owner still accepts the safe cohort.
+    let before = crate::matter::calculate_matter_accounting(&state)
+        .unwrap()
+        .total();
+    let job = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::in_place(selected),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(
+        crate::matter::calculate_matter_accounting(&state)
+            .unwrap()
+            .total(),
+        before
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+    // Reject crafted save-state hot manual work rather than trusting a trace just because
+    // it has the right material identity and mass. Powered work has a different heat path.
+    let mut tampered = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    tampered["state"]["systems"]["production"]["jobs"][job.value().to_string()]["resources"]["consumed_inputs"]
+        [0]["profile"]["temperature"] = serde_json::json!(hot_temperature.millikelvin());
+    let tampered: LoadedSaveEnvelope = serde_json::from_value(tampered).unwrap();
+    assert_eq!(
+        tampered.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::CraftingJob(
+            crate::crafting::CraftingJobValidationError::InputTooHot {
+                job,
+                commodity,
+                temperature: hot_temperature,
+                maximum: threshold,
+            }
+        )))
+    );
+}
+
+#[test]
 fn familiar_recipe_catalog_keeps_durable_temperature_cohorts_automatic() {
     let registries = build_registries();
     let mut state = AppState::new();

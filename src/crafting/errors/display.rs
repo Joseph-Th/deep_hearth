@@ -117,6 +117,18 @@ impl Display for ManualCraftError {
                 expected.material().value(),
                 expected.form().value()
             ),
+            Self::InputTooHot {
+                commodity,
+                temperature,
+                maximum,
+            } => write!(
+                formatter,
+                "cannot manually shape material {} form {} at {} mK; unprotected handling maximum is {} mK",
+                commodity.material().value(),
+                commodity.form().value(),
+                temperature.millikelvin(),
+                maximum.millikelvin()
+            ),
             Self::InputMassNotWholeBatches {
                 consumed,
                 batch_mass,

@@ -15,7 +15,7 @@ use super::ManualCraftRequest;
 mod availability;
 mod errors;
 
-use availability::{CompatibleInputInventory, scan_compatible_input};
+use availability::{CompatibleInputInventory, is_eligible_manual_input, scan_compatible_input};
 pub use availability::{
     ManualCraftInputAvailability, ManualCraftInputMode, ManualCraftStockpileOption,
 };
@@ -152,7 +152,7 @@ pub fn plan_manual_craft_from_stockpile(
                 lot_id.value()
             )
         });
-        if lot.composition() != &expected_composition {
+        if !is_eligible_manual_input(lot, &expected_composition) {
             continue;
         }
         let selected = lot.mass().min(remaining);

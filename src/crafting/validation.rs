@@ -2,7 +2,7 @@
 
 use crate::core::time::TickSpan;
 use crate::energy::calculate_mass_specific_energy;
-use crate::material::MaterialLotSpec;
+use crate::material::{MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE, MaterialLotSpec};
 use crate::production::{ProcessOutputStreamId, ProductionJobRecord};
 use crate::registry::Registries;
 
@@ -320,6 +320,18 @@ pub(crate) fn validate_loaded_crafting_job(
                 batch_mass,
             },
         })?;
+    // A powered machine owns heat handling; an in-flight manual job must satisfy the
+    // same input-contact rule as newly admitted player work.
+    if required_duration.is_none() {
+        if let Some(trace) = super::batch::first_unsafe_hand_input(job.consumed_inputs()) {
+            return Err(CraftingJobValidationError::InputTooHot {
+                job: job.id(),
+                commodity: trace.profile().commodity(),
+                temperature: trace.profile().temperature(),
+                maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+            });
+        }
+    }
     let batches = batch.batches();
     let required_duration = match required_duration {
         Some(duration) => duration,
