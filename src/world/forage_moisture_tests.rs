@@ -19,6 +19,51 @@ use crate::world::{
     ChunkCoord, WorldGenerationSeed, validate_generate_chunk, validate_generate_player_neighborhood,
 };
 
+#[test]
+fn spring_survey_selects_the_wettest_reachable_basin_at_spatial_boundaries() {
+    let mut survey = RootMoistureSurvey {
+        springs: vec![
+            (VoxelCoord::new(13, 0, 0), 900_000),
+            (VoxelCoord::new(0, 0, 13), 900_000),
+            (VoxelCoord::new(0, 4, 0), 900_000),
+            (VoxelCoord::new(12, 0, 3), 700_000),
+            (VoxelCoord::new(-12, 0, 0), 100_000),
+            (VoxelCoord::new(0, 0, 0), 400_000),
+            (VoxelCoord::new(i64::MIN, 0, 0), 300_000),
+            (VoxelCoord::new(i64::MAX, 0, 0), 600_000),
+        ],
+    };
+    survey
+        .springs
+        .sort_unstable_by_key(|(position, _)| position.x());
+    assert_eq!(
+        survey.at(VoxelCoord::new(0, 0, 0)),
+        RootMoisture::Basin {
+            fraction_ppm: 700_000
+        },
+        "the reach includes exactly twelve horizontal cells but not thirteen or four vertical cells"
+    );
+    assert_eq!(
+        survey.at(VoxelCoord::new(0, 4, 0)),
+        RootMoisture::Basin {
+            fraction_ppm: 900_000
+        },
+    );
+    assert_eq!(
+        survey.at(VoxelCoord::new(i64::MIN, 0, 0)),
+        RootMoisture::Basin {
+            fraction_ppm: 300_000
+        },
+    );
+    assert_eq!(
+        survey.at(VoxelCoord::new(i64::MAX, 0, 0)),
+        RootMoisture::Basin {
+            fraction_ppm: 600_000
+        },
+    );
+    assert_eq!(survey.at(VoxelCoord::new(50, 0, 0)), RootMoisture::NoBasin);
+}
+
 fn rooted_basin() -> (
     Registries,
     AppState,
@@ -54,12 +99,13 @@ fn rooted_basin() -> (
             .commit(&mut state)
             .unwrap();
 
+        let moisture = RootMoistureSurvey::observe(&state);
         let mut found = None;
         'scan: for source in state.surface().resources() {
             if source.kind() != SurfaceResourceKind::Opportunity || source.perennial.is_none() {
                 continue;
             }
-            if root_moisture_at(&state, source.position())
+            if moisture.at(source.position())
                 != (RootMoisture::Basin {
                     fraction_ppm: 1_000_000,
                 })
@@ -121,7 +167,7 @@ fn moving_actual_spring_water_to_a_container_reduces_neighboring_fruit_yield() {
         .1
         .position;
     assert_eq!(
-        root_moisture_at(&watered, plant),
+        RootMoistureSurvey::observe(&watered).at(plant),
         RootMoisture::Basin {
             fraction_ppm: 1_000_000
         }
@@ -162,7 +208,7 @@ fn moving_actual_spring_water_to_a_container_reduces_neighboring_fruit_yield() {
         Volume::ZERO
     );
     assert_eq!(
-        root_moisture_at(&drought, plant),
+        RootMoistureSurvey::observe(&drought).at(plant),
         RootMoisture::Basin { fraction_ppm: 0 }
     );
     assert_eq!(
@@ -188,7 +234,7 @@ fn moving_actual_spring_water_to_a_container_reduces_neighboring_fruit_yield() {
     .unwrap();
     let _ = returned.commit(&mut refilled).unwrap();
     assert_eq!(
-        root_moisture_at(&refilled, plant),
+        RootMoistureSurvey::observe(&refilled).at(plant),
         RootMoisture::Basin {
             fraction_ppm: 1_000_000
         }
@@ -204,7 +250,8 @@ fn moving_actual_spring_water_to_a_container_reduces_neighboring_fruit_yield() {
     )
     .unwrap();
     let _ = partial.commit(&mut half_full).unwrap();
-    let RootMoisture::Basin { fraction_ppm } = root_moisture_at(&half_full, plant) else {
+    let RootMoisture::Basin { fraction_ppm } = RootMoistureSurvey::observe(&half_full).at(plant)
+    else {
         panic!("half-filled spring must retain its original natural basin identity");
     };
     assert!((499_000..=500_000).contains(&fraction_ppm));
@@ -292,7 +339,7 @@ fn water_stored_beneath_a_dry_looking_spring_remains_available_to_roots() {
         Volume::from_microliters(250_000)
     );
     assert_eq!(
-        root_moisture_at(&state, location),
+        RootMoistureSurvey::observe(&state).at(location),
         RootMoisture::Basin {
             fraction_ppm: 1_000_000
         }

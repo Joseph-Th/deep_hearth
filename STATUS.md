@@ -17,8 +17,8 @@ Progression:
 | Prospecting and mining | Opening hard-copper seam requires acquired survey evidence and a reinforced pick. Ore is finite and must be hauled; reserves stay private. |
 | Crafting and equipment | Flint/copper tools, kiln, cooling bed, fired ceramic casting mold, maintenance and upgrades; finite waste storage. |
 | Power | Hand crank, treadle, flywheels and buffers. Straight built timber shafts couple opposed mechanical stores at up to 50 W, losing 20% per roller. No gearboxes or electric networks. |
-| Processing | Ore dressing and local powered crusher choices from visible exact-lot feed, machine, charge and output bins; timed unattended execution. Casting, PbS+Fe smelting, kiln firing and finite cooling. No general reduction or passive cooling. |
-| Opening wilderness acquisition | Scouts forage, drink, steal and warn; prolonged thirst curbs raids. Light and boxes deter theft; loot stays recoverable. Steps, splashes, hauling and running alarms are audible. Clubs cause nonlethal contact; enemy strikes need fitted tools (scenario only). |
+| Processing | Ore dressing, local crusher batch choices and unattended work; casting, PbS+Fe smelting, kiln firing and finite cooling. No general reduction or passive cooling. |
+| Opening wilderness acquisition | Scouts forage, drink, steal and warn; thirst limits raids. Light and boxes deter theft; loot remains recoverable. Footsteps, splashes and alarms are audible; clubs stagger, fitted tools enable enemy contact injury (scenario only). |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 
 ## Current integration frontier
@@ -33,8 +33,8 @@ Missing ordinary edges:
 | Player equipment service/recovery | Maintenance-tool requirements and service-site transport beyond exact-local carried stock. |
 | Finite energy stores | Branching, gears, electrical distribution and conversion beyond straight timber shaft runs. |
 | Finite fluid stores | Horizontal/remote transport, pumping, chemical mixing and pressure networks. |
-| Industrial workshop/ore/foundry execution | Raw acquisition and player placement of powered workshop parts and located ore bins; multi-stage autonomous ore processing. |
-| Checked coordinates + compact chunk ownership + geological evidence | Terrain access/collision, regional geology-to-chunk composition, and clue-location discovery. |
+| Industrial workshop/ore/foundry execution | Raw acquisition, placed workshop parts, located ore bins and multi-stage autonomous processing. |
+| Checked coordinates + compact chunks + geology | Regional geology-to-terrain and broader clue discovery. |
 
 [`DIRECTION.md`](DIRECTION.md) owns which boundary should be closed next.
 
@@ -53,7 +53,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Energy and fluids | Finite energy and losses, multi-cell straight timber shafts, campfire heat, drinking and local/downhill fluid transfer. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; timed posts, framing, cover and grounded timber roller; timed primary-break recovery. |
-| Block world | Seeded ore, habitats, rooted forage, trees, springs, temples and excavation. Tree shade and actual spring moisture shape finite fruit recovery; weather moves retained spring water. No full ecology or renderer. |
+| Block world | Seeded ore, habitats, rooted forage, trees, springs, temples and excavation. Shade and spring moisture affect crops; weather moves finite spring water. No full ecology or renderer. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation
@@ -70,9 +70,9 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 
 | Area | Boundary |
 | --- | --- |
-| Wilderness opening | Travel beyond bounded graph, weather/climate, pathfinding, hydrology, general enclosures/lighting and full first-day branches. Limited camp/refuge exists. |
+| Wilderness opening | Maintained open-ended journey, precipitation, pathfinding, flowing hydrology, propagated lighting, general enclosures, and complete first-day loop. Generated terrain already has travel, weather and springs. |
 | Engine/platform | Graphics backend, window/input/audio integration, ECS, networking, and general engine shell. |
-| World representation | Residency, general placement, partial shapes, regional geology, biomes and clues. |
+| World representation | Residency, general terrain placement, partial shapes, regional geology/biomes and discovery beyond local clues. |
 | Logistics | General access generation, routing/haulage/transport, remote acquisition, adapter inventory UI, fluid transport, and mounted-production geometry. |
 | Advanced geology/mining | Mixed-grade world ore, regional generation, voxel ore topology, laboratory/geophysical surveys, mechanized mining, drainage, ground control and tailings transport. |
 | Thermal/chemical industry | Environmental heat, vaporization, general combustion/emissions, alloy phases, reduction/smelting, alloying, forging, machining and recycling. Campfire is not an atmospheric model. |

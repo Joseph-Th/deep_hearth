@@ -27,6 +27,7 @@ The comparison uses these verdicts:
 | --- | --- |
 | `PARITY+` | The familiar mechanic exists or the current owner model is materially stronger while preserving the familiar action. |
 | `PARITY` | The mechanic is equivalent enough for the block-survival shell. |
+| `PARTIAL` | An authoritative part of the mechanic exists, but the familiar action or broader system remains incomplete. |
 | `DIFFERENT+` | Deep Hearth should deliberately differ because its physical model gives a concrete benefit, while still preserving the familiar action grammar. |
 | `GAP-P0` | Missing substrate blocks ordinary first-person block-survival play. Close before further breadth is treated as the main integration frontier. |
 | `GAP-P1` | Missing familiar system materially weakens the first-day or sandbox loop, but does not block walking around and manipulating a basic world. |
@@ -40,8 +41,8 @@ removes a basic player action is a regression, not an improvement.
 ## Overall verdict
 
 Deep Hearth is substantially deeper than Minecraft in several simulation domains, but it is not yet mechanically
-at parity with Minecraft's basic sandbox substrate. Its strengths are downstream of a world shell that does not
-exist yet.
+at parity with Minecraft's basic sandbox substrate. Its strengths are downstream of a generated
+world and direct-control core whose interactive presentation and broader sandbox shell remain incomplete.
 
 Strong current foundations:
 
@@ -77,17 +78,17 @@ Foundational blockers:
   physical/freshness boundaries and can drive partial same-voxel storage transfer without exposing lot IDs; selected carried material
   can also be dropped into exact finite surface custody and later recovered without losing its physical profile,
   provenance, or storage history;
-- deterministic terrain generation and admitted-player neighborhood demand exist; residency/unload streaming,
-  biome/climate fields, and general world discovery do not;
-- no world lighting, sky light, darkness gameplay, weather, or environmental heat transport;
-- no entity runtime for creatures, combat, projectiles, item entities, vehicles, or AI;
+- deterministic terrain generation, habitat variation, localized weather fronts and admitted-player neighborhood demand exist; residency/unload streaming,
+  coherent regional biome/climate fields, and open-ended world discovery do not;
+- generated direct skylight, darkness, fueled local light, seasonal wind/temperature fronts and survival cooling exist; propagated block light, precipitation, and general environmental heat transport do not;
+- finite kobold residents, bounded patrols, nonlethal melee/contact, alarm and material-backed scavenging exist; a general spatial entity runtime, projectiles, vehicles, and broader AI do not;
 - no world-space fluid field or fluid flow;
 - no graphics backend, section mesher, visibility system, audio, input adapter, or save-file storage adapter.
 
 The first compact block-world storage/generation slice now exists, so the practical conclusion has narrowed:
 Deep Hearth should stop using the bounded six-edge opening graph as the shape of future world interaction. It
 remains useful evidence for existing owner interactions, but ordinary play still needs adapter residency,
-direct block actions, and the first-person presentation/input shell over generated cells. Deeper industrial work should build on that substrate, not
+broader block placement and use, and the first-person presentation/input shell over generated cells. Deeper industrial work should build on that substrate, not
 continue to get farther ahead of it.
 
 ## 1. Runtime, time, and authority
@@ -268,8 +269,8 @@ reintroducing a discrete player-movement work owner.
 ## 6. Raycasting, breaking, placing, using, and direct manipulation
 
 Minecraft's basic grammar is point at something, then primary or secondary action. Deep Hearth's design already
-requires this grammar, but production currently exposes domain-specific validators rather than one direct world
-interaction composition layer.
+requires this grammar, and core now composes bounded primary break/attack and secondary use/placement intents with
+canonical owner validators. Adapter input, richer block verbs and target feedback remain missing.
 
 | Granular mechanic | Minecraft | Deep Hearth now | Verdict | Required Deep Hearth position |
 | --- | --- | --- | --- | --- |
@@ -280,8 +281,8 @@ interaction composition layer.
 | Tool selection | Held hotbar item defines tool context | Logistics persists one active equipment reference into carried custody; primary block action derives the canonical mining method from that selected tool and target | `PARITY` narrow tool context | Keep this owner/reference model when the full quick-slot projection arrives; material-stack active context is still absent. |
 | Placement preview | Click face and state placement rules determine result | Grounded structural plan is explicit API | `GAP-P0` | Secondary action should derive candidate placeable/block state from held stack and hit result. Heavy structural work may then continue as timed construction. |
 | Instant simple placement | Most Minecraft blocks place immediately | Structural materialization takes authored work | `DIFFERENT+` | Simple loose/placeable camp blocks may commit immediately or near-immediately; materially significant structural members can require work. Do not make every block placement a construction form. |
-| Contextual use | Doors, chests, crafting stations, buttons, food | Domain-specific operations exist | `GAP-P0` | Add a thin interaction resolver that selects the owning domain operation without duplicating legality. |
-| Attack | Primary on entity attacks | Combat absent | `GAP-P1` | Same primary-action grammar should target entities when no block action takes precedence. |
+| Contextual use | Doors, chests, crafting stations, buttons, food | Direct secondary use composes selected food, local drink, gathering and some supported placement through canonical validators; doors, machine controls and general station interactions remain absent | `GAP-P1` wider verbs | Extend the existing resolver to more owner operations without duplicating legality. |
+| Attack | Primary on entity attacks | Primary intent can select a real nearby kobold contact; carried primitive melee tools and unarmed shoves spend authored exertion, wear and control-time recovery, without lethal injury or projectiles | `PARTIAL` | Expand defensive, equipment and damage consequences while retaining the canonical primary-action grammar. |
 | Pick block | Creative convenience | None | `OUT-OF-SCOPE` | Development/creative tooling can add later. |
 | Auto pickup | Broken drops enter inventory if possible | Design requires it; some mining/gathering already auto-land outputs | `PARITY+` direction | Generalize to world item matter once dropped entities exist. Capacity failure leaves matter in world. |
 
@@ -345,11 +346,11 @@ and rest shell that makes survival feel complete.
 | Dehydration damage | Absent | Explicit | `PARITY+` | Keep. |
 | Drowning | Air meter/damage | Absent | `GAP-P1` | Add when spatial fluids exist. |
 | Fire/burning | Fire ticks and damage | Thermal energy exists but player burning absent | `GAP-P1` | Add heat exposure/burn damage as physical environmental consequence. |
-| Fall damage | Landing damage | Absent | `GAP-P1` | Add impact injury from kinematics. |
+| Fall damage | Landing damage | Impact-speed-dependent vitality loss is accrued by authoritative 20 Hz landing and settled by survival; exact impact and save/load persistence are tested | `PARITY+` narrow | Add protection and other injury causes within the existing survival boundary. |
 | Suffocation | Collision with solid blocks damages | Absent | `GAP-P1` | Add body-space occupancy safety and escape/recovery. |
 | Poison/status effects | Timed effects modify attributes/health | No general status-effect owner | `GAP-P2` | Add domain-specific conditions when ecology/toxicity needs them; avoid generic effect soup if typed physiology can own the cause. |
-| Natural regeneration | Health regenerates under food conditions | No general injury recovery loop | `GAP-P1` | Add recoverable vitality/injury treatment with food/rest/medical causes rather than automatic arcade regen alone. |
-| Death | Player dies and can respawn, inventory handling depends on rules | Death cancels/settles active work; no complete ordinary respawn loop | `GAP-P1` | Define death, corpse/dropped custody, respawn/recovery and world continuation. Matter must remain accounted for. |
+| Natural regeneration | Health regenerates under food conditions | Diet-supported fractional vitality recovery requires sufficient energy, hydration and thermal comfort; it cannot offset simultaneous damage | `PARITY+` basic recovery | Add richer injury treatment and rest when those causes are modeled. |
+| Death | Player dies and can respawn, inventory handling depends on rules | Fatal survival cancels/suspends work, clears pending attacks, and a validated respawn places the actor at a safe anchor or fallback while relocating conserved carried material and equipment into recoverable world custody | `PARITY` core | Expose death/respawn and recovery through the future interactive adapter; preserve exact custody. |
 | Sleep | Bed sets spawn and skips/advances night under rules | Absent | `GAP-P1` | Add rest as recovery and time-management after world clock/shelter exist. Do not require instant night skip if it breaks environmental/production causality. |
 
 ## 10. Entities, creatures, combat, projectiles, and AI
@@ -360,16 +361,16 @@ domain records for equipment/stores and a player logistics record, but no generi
 | Granular mechanic | Minecraft | Deep Hearth now | Verdict | Required Deep Hearth position |
 | --- | --- | --- | --- | --- |
 | Entity identity | Runtime entity IDs/UUIDs | Typed IDs per domain, no general entity | `DIFFERENT+` | Keep domain identity. Add a spatial actor/entity owner only for things with shared transform/lifecycle semantics. |
-| Continuous transform | Position/rotation/velocity | Absent except discrete player voxel | `GAP-P0` | Shared fixed-point transform primitive for player, creatures, item drops, projectiles and vehicles. |
-| Entity collision | AABB/block and selected entity interactions | Absent | `GAP-P1` | Add broadphase spatial indexing and shape-aware collision. |
+| Continuous transform | Position/rotation/velocity | Player body has persistent fixed-point 3D position, horizontal/vertical velocity and stance; residents still use bounded discrete patrol cells | `PARTIAL` | Reuse checked spatial vocabulary for future freely moving creatures, projectiles and vehicles. |
+| Entity collision | AABB/block and selected entity interactions | Generated player-body collision checks full-cube terrain, built structures and temple castes; opening scouts avoid occupied route cells, but no general multi-actor broadphase or partial shapes exist | `PARTIAL` | Add shared actor spatial indexing and shape-aware collision without replacing existing body authority. |
 | Item entity | Dropped stack in world | Absent | `GAP-P0` | First generic entity-like custody case. |
 | Passive animals | Spawn, wander, flee, breed | Absent | `GAP-P2` | Ecology should eventually own populations/reproduction. Basic wildlife is needed before the world feels like a survival sandbox. |
-| Hostile mobs | Spawn/AI/attack | Absent | `GAP-P1` for familiar survival tension | One coherent threat family is enough initially. Do not copy the entire mob roster. |
-| Melee attack | Reach, cooldown/damage/knockback | Absent | `GAP-P1` | Add primary-action entity attack, equipment capability, hit timing and physical knockback. |
+| Hostile mobs | Spawn/AI/attack | Finite kobolds forage, steal, guard, sound alarms and inflict limited nonlethal contact injury when equipped; no general spawning or pursuing mob system | `PARTIAL` | Complete one coherent physical threat family before adding broad creature rosters. |
+| Melee attack | Reach, cooldown/damage/knockback | Fixed-point target rays, prepared and ordinary primitive strikes, control-tick cooldown, stamina, wear and resident balance staggering; no lethal player damage or full knockback | `PARTIAL` | Extend physical injury and defense without introducing a parallel action clock. |
 | Armor | Damage mitigation equipment | Equipment exists, protection capability absent | `GAP-P2` | Model material/protection/coverage rather than armor points only. |
 | Shield/block | Contextual defense | Absent | `GAP-P2` | Add when combat merits it. |
 | Projectiles | Arrow-like entities with flight/collision | Absent | `GAP-P2` | Fixed-point ballistic projectile owner can reuse kinematics/collision. |
-| Pathfinding | A* over loaded world navigation types | No general terrain/access graph | `GAP-P1` | Derive navigation from voxel collision and movement capabilities. Explicit traversal edges should not be hand-authored world truth. |
+| Pathfinding | A* over loaded world navigation types | A bounded explicit traversal-edge graph supports opening resident routing, but no general pathfinder over generated collision terrain exists | `GAP-P1` | Derive navigation from voxel collision and movement capabilities rather than hand-authoring broad world access. |
 | Spawning | Local conditions + caps | No ecology/entities | `GAP-P2` | Prefer ecology/population causes over arbitrary caps where feasible, while still bounding active entity cost. |
 | Despawn | Rules reduce far mob count | No entities | `DIFFERENT+` opportunity | Persistent ecology can aggregate far populations instead of deleting creatures solely for performance. |
 | Riding/vehicles | Entity passengers, boats, carts, mounts | Absent | `GAP-P2` | Later logistics can reuse transform/attachment primitives. |
@@ -386,41 +387,42 @@ but no world-space fluid or environment field.
 | Flow | Scheduled local propagation | No world flow | `GAP-P1` | Flow finite volume through cells/porous media/channels with deterministic scheduling. |
 | Source blocks | Water can regenerate under rules | Finite non-refilling water reserve | `DIFFERENT+` | Do not copy infinite source creation. Recharge must come from hydrology. |
 | Fluid level | Local flow amount maps to visual height | Store volume only | `GAP-P1` | Spatial fluid cells need bounded fill/volume state and surface height. |
-| Waterlogging | Blocks can coexist with fluid | No world blocks | `GAP-P1` | Model pore/contained fluid or explicit waterlogged state for compatible geometry. |
+| Waterlogging | Blocks can coexist with fluid | Solid block cells exist, but no spatial fluid occupancy or block waterlogging state | `GAP-P1` | Model pore/contained fluid or explicit waterlogged state for compatible geometry. |
 | Buoyancy/current | Entity-fluid interaction | Absent | `GAP-P1` | Couple fluid density/velocity to body movement. |
 | Lava | Flowing hazardous fluid, block reactions | General molten materials exist in foundry, no world lava | `GAP-P2` | World molten material can reuse thermal/material physics. No need for Minecraft's special source semantics. |
 | Combustion | Fire/campfires/furnaces consume fuels with simplified rules | Exact fuel matter to thermal energy and terminal mass accounting for campfire | `PARITY+` model | Preserve matter/energy accounting. Add world ignition, flame exposure and visible fire. |
 | Fire spread | Random/scheduled ignition of flammables | Absent | `GAP-P1` | Add material ignition/combustibility when environment owner exists. |
 | Smoke | Particles/campfires; little atmospheric simulation | Absent | `GAP-P2` | Ventilation/air quality can eventually make smoke causal rather than visual only. |
-| Block light | 0-15 propagated light | No world light engine | `GAP-P0` for caves/night | Add authoritative gameplay light field with emission/occlusion. Exact numeric scale need not match Minecraft. |
-| Sky light | Propagated sky exposure | No light engine | `GAP-P0` | Add sky/exposure light derived from world geometry and clock. |
+| Block light | 0-15 propagated light | Local finite fueled light and obstruction affect sight and resident deterrence; no neighbor-propagated block lighting | `PARTIAL` | Extend the authoritative 0..15 light assessment into propagation for caves and interiors. |
+| Sky light | Propagated sky exposure | Generated direct skylight uses calendar day phase, opaque-column obstruction and living seasonal canopy shade; indirect propagation is absent | `PARTIAL` | Add bounded indirect sky propagation while retaining exact direct occlusion. |
 | Dynamic visual light | Limited vanilla behavior | Shader budget supports dynamic lights but no backend | `GAP-P2` | Visual lights augment, not replace, gameplay visibility/light truth. |
-| Day/night | 24,000-tick cycle | Calendar date exists, no sun/sky/daylight gameplay | `GAP-P1` | World clock drives sky, light, temperature and schedules. Cycle duration can differ with explicit pacing reason. |
-| Rain/thunder | Dimension weather state affects world | Absent | `GAP-P1` | Weather should affect temperature, wetness, fire, soil, visibility, water and work, not just visuals. |
+| Day/night | 24,000-tick cycle | Calendar phases change generated skylight, night vision, resident scavenging and authored outdoor temperature | `PARITY` core | Carry current light/weather and event cues into the rendering adapter. |
+| Rain/thunder | Dimension weather state affects world | Seeded regional wind/temperature fronts drive survival exposure, natural spring exchange, forage scent and scout hydration; rain/thunder and general wetness absent | `PARTIAL` weather | Add finite precipitation, wetness and their physical consequences rather than visual-only effects. |
 | Biome climate | Temperature/precipitation/environment parameters | Intended, not implemented | `GAP-P1` | Generate climate fields that actually feed survival/ecology/hydrology. |
-| Seasons | Vanilla lacks ordinary seasonal cycle | Calendar already projects four seasons | `PARITY+` planned depth | Use seasons only once they change observable environment and decisions. |
+| Seasons | Vanilla lacks ordinary seasonal cycle | Four authored seasons change outdoor temperatures, deciduous shade and perennial crop opportunities | `PARITY+` | Extend seasonal effects only where they yield meaningful physical decisions. |
 
 ## 12. World generation, biomes, geology, structures, and discovery
 
 Minecraft deterministically derives terrain, biomes, caves, aquifers, ores, structures and decorations from the
 seed plus world settings/data packs. Deep Hearth has an explicit seed and strong geological information models,
-but its production world generation is currently a six-position opening layout and five traversal edges.
+and deterministic generated 16x16 terrain chunks, habitat-driven trees, rooted food, finite springs,
+seeded ores and temples. The maintained six-edge opening remains a separate bounded gameplay sample.
 
 | Granular mechanic | Minecraft | Deep Hearth now | Verdict | Required Deep Hearth position |
 | --- | --- | --- | --- | --- |
 | World seed | Deterministic world input | Explicit `WorldGenerationSeed` | `PARITY` | Keep explicit seed. |
-| Procedural terrain | Density field resolves solid/air terrain | None | `GAP-P0` | Generate real chunk terrain from deterministic regional fields. |
-| Height variation | Mountains/valleys/continents etc. | None | `GAP-P0` | Terrain field needs elevation, erosion/roughness and landform scale. Exact Minecraft noise stack need not be copied. |
+| Procedural terrain | Density field resolves solid/air terrain | Seeded chunk columns and palette-compressed sections resolve authoritative stone/air height terrain; broad landforms and caves remain limited | `PARTIAL` | Expand coherent regional geology and relief without inventing a second world geometry owner. |
+| Height variation | Mountains/valleys/continents etc. | Seed-derived terrain height changes across generated columns, without regional mountains, watersheds or large landforms | `PARTIAL` | Extend relief with regional-scale terrain and causal drainage. |
 | Caves | Carvers/density create underground space | None | `GAP-P1` | Add caves when underground mining becomes world-space rather than abstract deposit work. |
-| Biomes | Climate sampling maps positions to biome definitions | None | `GAP-P1` | Biome/ecoregion should be a readable projection of climate, soil/geology and ecology rather than arbitrary paint where possible. |
+| Biomes | Climate sampling maps positions to biome definitions | Seed-derived damp grove, mixed woodland and dry scrub habitat affects vegetation, springs and local temperature; no full biome or soil field | `PARTIAL` | Build a coherent regional ecoregion projection from shared geology and climate. |
 | Surface rules | Terrain material varies by context | None | `GAP-P0` | Surface material derives from geology, weathering, soil and climate. |
-| Aquifers | Worldgen water tables/flooded caves | Finite opening water store only | `GAP-P1` | Hydrology should own water table/recharge/flow. |
+| Aquifers | Worldgen water tables/flooded caves | Seeded finite natural springs exchange conserved standing water and shallow soil water according to current weather; no aquifer network, flow or recharge | `PARTIAL` | Hydrology should own actual water tables, recharge and spatial flow. |
 | Ore placement | Seeded geological/worldgen placement | Hidden geology/deposits can be generated in controlled paths | `DIFFERENT+` | Keep geology as causal owner and extend it regionally into terrain chunks. Avoid independent scatter-noise ore blobs where geological structure can explain them. |
-| Structures | Villages, camps, dungeons, etc. | Player-built structures only; no generated built sites | `GAP-P2` | Generated ruins/camps/settlements can come after terrain, with material-backed world state where practical. |
+| Structures | Villages, camps, dungeons, etc. | Seeded temple districts and persistent guarded corridor features exist, alongside player-built structural elements; no general settlement generation | `PARTIAL` | Integrate other material-backed generated settlements only when ordinary discovery and interaction justify them. |
 | Vegetation features | Trees/patches placed by feature passes | Standard stone chunks now generate one seed-positioned, persistent tree record with a two-cell trunk and lazy wood growth; opening fallen timber and forage remain separate finite sources | `PARTIAL` | Add regional forest density/species/soil rules and full vegetation geometry; adze-based timed chopping exists, and existing juveniles can be locally transplanted through a bounded capability. |
 | Feature placement pipeline | What, where, biome ownership separated | No general generator | `PARITY+` opportunity | Preserve separation among generator definition, placement rule and regional/ecological eligibility. |
 | Chunk generation stages | Progressive chunk statuses allow partial work | None | `GAP-P0` | Use staged generation so terrain can stream before every expensive ecology/geology detail is complete. |
-| Discovery | Player sees/loads world by travel | Exact observation only on bounded graph edges | `GAP-P0` | Loaded/rendered local terrain itself becomes primary discovery. Information-gated geology remains deeper evidence, not permission to see ordinary ground. |
+| Discovery | Player sees/loads world by travel | Generated local world supports continuous movement, bounded line-of-sight observations, windborne forage scent and field prospecting; no renderer/streamed open-ended exploration | `PARTIAL` | Make loaded/rendered local terrain the primary discovery interface; preserve acquired geological evidence. |
 | Spawn selection | Safe-ish valid world spawn | Caller supplies opening spawn | `GAP-P1` | Generate/select a valid spawn from terrain, water/food opportunity and collision safety without guaranteeing a scripted resource checklist. |
 
 ### Better-than-Minecraft generation target
@@ -443,7 +445,7 @@ stronger structural owner. The parity challenge is to make that depth compatible
 | Granular mechanic | Minecraft | Deep Hearth now | Verdict | Required Deep Hearth position |
 | --- | --- | --- | --- | --- |
 | Stack blocks freely | Most solid blocks can be placed without support analysis | Secondary use places timed 3.25 kg timber posts/framing and one supported 6.5 kg board cover panel; other shapes/materials remain unplaced | `GAP-P0` shell | Extend this familiar gesture across simple authored shapes while structural simulation rejects/settles impossible builds instead of turning placement into engineering UI. |
-| Gravity blocks | Sand/gravel-like blocks fall | Structural owner models load but no terrain blocks | `DIFFERENT+` | Loose/unsupported materials should fall or fail based on material/cohesion/support, not a hardcoded tiny list. |
+| Gravity blocks | Sand/gravel-like blocks fall | Solid terrain blocks and separate structural load physics exist, but unsupported terrain blocks do not fall | `GAP-P1` | Loose materials should fall or fail based on material/cohesion/support, not a hardcoded tiny list. |
 | Structural failure | Most Minecraft blocks never fail by load | Support/load/failure physics | `PARITY+` | This is a major differentiator. Keep failure readable and recoverable. |
 | Terrain support | Terrain implicitly supports blocks | Terrain support absent | `GAP-P0` | World terrain must contribute structural support before structures can integrate with actual ground. |
 | Joints/panels | Block adjacency usually implies connection | One solid supported cover-panel geometry exists; general joints/panel families are absent | `GAP-P1` | Add explicit connection semantics where material/geometry needs them; ordinary masonry/block contact can use simple defaults. |

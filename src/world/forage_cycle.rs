@@ -5,70 +5,27 @@
 //! into another fresh, locally gatherable crop. This is transfer, not a
 //! photosynthetic source or loot respawn.
 
-use crate::content::{BLOCK_STATE_STONE, FLUID_WATER};
+use crate::content::BLOCK_STATE_STONE;
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::{Season, SimulationTick};
 use crate::registry::Registries;
-use crate::spatial::VoxelCoord;
 use crate::surface::SurfaceResourceLifecycle;
 
 use super::generation::{HabitatKind, habitat_at};
 use super::sky::{has_open_sky, living_canopy_shade_at};
 use super::weather::weather_at;
 
+mod moisture;
+#[cfg(test)]
+use moisture::{BASIN_ROOT_REACH_VOXELS, BASIN_ROOT_VERTICAL_REACH_VOXELS};
+use moisture::{RootMoisture, RootMoistureSurvey};
+
 /// One check per regional front, not one vegetation scan per physics step.
 const FIELD_CHECK_TICKS: u64 = super::WEATHER_FRONT_TICKS;
 /// Unpicked crop material eventually returns to the plant's finite nutrient
 /// reserve, rather than staying fresh indefinitely or vanishing from custody.
 const FRUIT_SENESCENCE_TICKS: u64 = 2_400;
-/// Shallow basin moisture influences nearby roots, not an entire region or a
-/// distant aquifer. No permeability or nutrient transport model is claimed.
-const BASIN_ROOT_REACH_VOXELS: u64 = 12;
-const BASIN_ROOT_VERTICAL_REACH_VOXELS: u64 = 3;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RootMoisture {
-    NoBasin,
-    /// Finite natural source volume as a fraction of the original basin size.
-    Basin {
-        fraction_ppm: u32,
-    },
-}
-
-/// A naturally generated source has distinct finite surface and subsurface
-/// custody. A dry-looking pool with water still in its own shallow catchment
-/// remains moist; an empty bucket elsewhere is not a natural aquifer.
-fn root_moisture_at(state: &AppState, position: VoxelCoord) -> RootMoisture {
-    let mut wettest: Option<u32> = None;
-    for (id, soil) in state.fluid().spring_soil() {
-        if position.x().abs_diff(soil.position.x()) > BASIN_ROOT_REACH_VOXELS
-            || position.z().abs_diff(soil.position.z()) > BASIN_ROOT_REACH_VOXELS
-            || position.y().abs_diff(soil.position.y()) > BASIN_ROOT_VERTICAL_REACH_VOXELS
-            || state.logistics().fluid_store_position(id) != Some(soil.position)
-        {
-            continue;
-        }
-        let Some(pool) = state.fluid().get_store(id) else {
-            continue;
-        };
-        let standing_water = pool
-            .contents()
-            .filter(|liquid| liquid.fluid() == FLUID_WATER);
-        let retained = standing_water
-            .map_or(0, |liquid| u128::from(liquid.volume().microliters()))
-            .saturating_add(u128::from(soil.soaked.microliters()))
-            .min(u128::from(pool.capacity().microliters()));
-        let fraction_ppm =
-            u32::try_from(retained * 1_000_000 / u128::from(pool.capacity().microliters()))
-                .expect("bounded natural water ratio fits ppm");
-        wettest = Some(wettest.map_or(fraction_ppm, |previous| previous.max(fraction_ppm)));
-    }
-    wettest.map_or(RootMoisture::NoBasin, |fraction_ppm| RootMoisture::Basin {
-        fraction_ppm,
-    })
-}
-
 /// Fraction of the otherwise available fruit biomass that one rooted shrub
 /// may transfer at this weather front. These ratios never consume fluid or
 /// add material: the source is a fixed, previously present underground reserve.
@@ -114,6 +71,10 @@ pub(crate) fn apply_natural_forage_cycle(
     let Some(next_revision) = state.surface().revision().checked_add(1) else {
         return;
     };
+    // Only survey springs if a depleted shrub actually reaches a viable
+    // ripening decision. Senescence, winter, and barren districts need no
+    // moisture scan or allocation at this weather front.
+    let moisture = std::cell::OnceCell::new();
     let changes = state
         .surface()
         .resources()
@@ -181,8 +142,8 @@ pub(crate) fn apply_natural_forage_cycle(
             ));
             let open_batch = (plant.original_fruit.milligrams() / 4).max(1);
             let light_fraction = 8_u64.saturating_sub(shade.min(8));
-            let watered_batch =
-                moisture_adjusted_crop(open_batch, root_moisture_at(state, source.position()));
+            let moisture = moisture.get_or_init(|| RootMoistureSurvey::observe(state));
+            let watered_batch = moisture_adjusted_crop(open_batch, moisture.at(source.position()));
             let batch = Mass::from_milligrams(
                 plant
                     .root_reserve
