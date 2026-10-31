@@ -296,9 +296,6 @@ pub(super) fn attempt_selected_timber_cover_placement(
     if commodity != CommodityKey::new(MATERIAL_WOOD, FORM_BOARD) {
         return None;
     }
-    if !state.control_tick().is_simulation_boundary() {
-        return Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary);
-    }
     let stack = match resolve_unique_carried_stack(registries, state, commodity) {
         Ok(stack) => stack,
         Err(outcome) => return Some(outcome),
@@ -311,6 +308,11 @@ pub(super) fn attempt_selected_timber_cover_placement(
     };
     if let Err(error) = validate_structural_placement_position(state, bounds.min()) {
         return Some(structural_placement_error(error));
+    }
+    // Physical context and carried material are observable on the input frame.
+    // Construction admission still occurs on the next authoritative slow tick.
+    if !state.control_tick().is_simulation_boundary() {
+        return Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary);
     }
     let geometry = StructuralElementGeometry::new(
         bounds,
@@ -355,19 +357,27 @@ pub(super) fn attempt_selected_timber_placement(
     if !is_roller && commodity != CommodityKey::new(MATERIAL_WOOD, FORM_LOG) {
         return None;
     }
-    if !state.control_tick().is_simulation_boundary() {
-        return Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary);
-    }
     let stack = match resolve_unique_carried_stack(registries, state, commodity) {
         Ok(stack) => stack,
         Err(outcome) => return Some(outcome),
     };
     let stack = &stack;
-    if !is_roller
-        && let Some(outcome) =
-            attempt_supported_timber_placement(registries, state, stack, direction)
-    {
-        return Some(outcome);
+    if !is_roller {
+        if state.control_tick().is_simulation_boundary() {
+            if let Some(outcome) =
+                attempt_supported_timber_placement(registries, state, stack, direction)
+            {
+                return Some(outcome);
+            }
+        } else {
+            match resolve_supported_timber_target(registries, state, direction) {
+                Ok(Some(_)) => {
+                    return Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary);
+                }
+                Ok(None) => {}
+                Err(error) => return Some(error),
+            }
+        }
     }
     let (face, position) = match resolve_direct_placement_target(registries, state, direction) {
         Ok(target) => target,
@@ -379,6 +389,9 @@ pub(super) fn attempt_selected_timber_placement(
     let Some(bounds) = single_voxel_bounds(position) else {
         return Some(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow);
     };
+    if !state.control_tick().is_simulation_boundary() {
+        return Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary);
+    }
     let geometry = StructuralElementGeometry::new(
         bounds,
         if is_roller {

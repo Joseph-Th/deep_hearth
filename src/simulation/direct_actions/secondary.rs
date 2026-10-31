@@ -331,9 +331,18 @@ pub(super) fn attempt_selected_secondary_action(
         if matches!(
             outcome,
             SecondaryActionOutcome::StructuralPlacementIntersectsPlayer { .. }
-        ) && let Some(combustion) = attempt_selected_combustion(registries, state, commodity)
-        {
-            return combustion;
+        ) {
+            // A downward log gesture can instead feed a co-located fire.
+            // Keep that physical energy transaction on the slow boundary,
+            // even though an impossible post placement rejects immediately.
+            if !state.control_tick().is_simulation_boundary()
+                && resolve_selected_combustion_target(registries, state, commodity).is_some()
+            {
+                return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
+            }
+            if let Some(combustion) = attempt_selected_combustion(registries, state, commodity) {
+                return combustion;
+            }
         }
         return outcome;
     }
@@ -354,13 +363,16 @@ pub(super) fn attempt_selected_secondary_action(
     if registries.survival().get_food(commodity).is_none() {
         return SecondaryActionOutcome::MaterialNotContextual;
     }
-    if !state.control_tick().is_simulation_boundary() {
-        return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
-    }
     let stack = match resolve_unique_carried_stack(registries, state, commodity) {
         Ok(stack) => stack,
         Err(outcome) => return outcome,
     };
+    // Hotbar commodity bindings intentionally survive depletion. Report a
+    // missing or ambiguous carried stack on the input frame, rather than
+    // queuing a meal that is already impossible to start.
+    if !state.control_tick().is_simulation_boundary() {
+        return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
+    }
     let stack = &stack;
     match validate_eat_stack_to_full(registries, state, stack) {
         Ok(Some(validated)) => {
@@ -376,12 +388,22 @@ pub(super) fn attempt_selected_secondary_action(
     }
 }
 
-fn attempt_selected_combustion(
+/// One read-only physical combustion choice, reused by the input-frame
+/// deferral gate and the canonical slow-boundary action. No duplicate policy
+/// can make the preview and eventual transaction select different stores.
+enum SelectedCombustionTarget {
+    Existing(crate::energy::EnergyStoreId),
+    AmbiguousStores(usize),
+    Assembly(crate::energy::EnergyStoreDefinitionId),
+    AmbiguousDefinitions(usize),
+}
+
+fn resolve_selected_combustion_target(
     registries: &Registries,
-    state: &mut AppState,
+    state: &AppState,
     commodity: CommodityKey,
-) -> Option<SecondaryActionOutcome> {
-    let matching_stores = state
+) -> Option<SelectedCombustionTarget> {
+    let mut stores = state
         .available_local_energy_stores()
         .filter(|store| {
             registries
@@ -389,41 +411,16 @@ fn attempt_selected_combustion(
                 .get_store(store.definition())
                 .is_some_and(|definition| definition.combustion_profile_for(commodity).is_some())
         })
-        .map(|store| store.id())
-        .collect::<Vec<_>>();
-    match matching_stores.as_slice() {
-        [store] => {
-            let store = *store;
-            let source = state
-                .logistics()
-                .player()
-                .map(|player| player.carried_stockpile())
-                .unwrap_or_else(|| {
-                    panic!("runtime invariant broken: local combustion store requires player")
-                });
-            return Some(
-                match validate_combust_selected_fuel(registries, state, store, source, commodity) {
-                    Ok(validated) => {
-                        let released = validated.commit(state).unwrap_or_else(|error| {
-                        panic!(
-                            "runtime invariant broken: synchronous combustion became stale: {error}"
-                        )
-                    });
-                        SecondaryActionOutcome::CombustionFuelAdded { store, released }
-                    }
-                    Err(error) => SecondaryActionOutcome::CombustionFuelRejected { store, error },
-                },
-            );
-        }
-        [] => {}
-        stores => {
-            return Some(SecondaryActionOutcome::AmbiguousLocalCombustionStores {
-                count: stores.len(),
-            });
-        }
+        .map(|store| store.id());
+    if let Some(store) = stores.next() {
+        let additional = stores.count();
+        return Some(if additional == 0 {
+            SelectedCombustionTarget::Existing(store)
+        } else {
+            SelectedCombustionTarget::AmbiguousStores(additional + 1)
+        });
     }
-
-    let definitions = registries
+    let mut definitions = registries
         .energy()
         .definitions()
         .filter(|definition| definition.combustion_profile().is_some())
@@ -433,39 +430,72 @@ fn attempt_selected_combustion(
                 inputs.len() == 1 && inputs[0].commodity() == commodity
             })
         })
-        .map(|definition| definition.id())
-        .collect::<Vec<_>>();
-    let definition = match definitions.as_slice() {
-        [] => return None,
-        [definition] => *definition,
-        definitions => {
-            return Some(SecondaryActionOutcome::AmbiguousCombustionDefinitions {
-                count: definitions.len(),
-            });
-        }
-    };
-    let source = state
-        .logistics()
-        .player()
-        .map(|player| player.carried_stockpile())
-        .unwrap_or_else(|| {
-            panic!("runtime invariant broken: selected combustion assembly requires player")
-        });
-    Some(
-        match validate_assemble_energy_store(registries, state, definition, source) {
-            Ok(validated) => {
-                let store = validated.commit(state).unwrap_or_else(|error| {
-                    panic!(
-                        "runtime invariant broken: synchronous combustion-store assembly became stale: {error}"
-                    )
-                });
-                SecondaryActionOutcome::EnergyStoreAssembled { definition, store }
-            }
-            Err(error) => SecondaryActionOutcome::EnergyStoreAssemblyRejected { definition, error },
-        },
-    )
+        .map(|definition| definition.id());
+    let definition = definitions.next()?;
+    let additional = definitions.count();
+    Some(if additional == 0 {
+        SelectedCombustionTarget::Assembly(definition)
+    } else {
+        SelectedCombustionTarget::AmbiguousDefinitions(additional + 1)
+    })
 }
 
+fn attempt_selected_combustion(
+    registries: &Registries,
+    state: &mut AppState,
+    commodity: CommodityKey,
+) -> Option<SecondaryActionOutcome> {
+    match resolve_selected_combustion_target(registries, state, commodity)? {
+        SelectedCombustionTarget::Existing(store) => {
+            let source = state
+                .logistics()
+                .player()
+                .map(|player| player.carried_stockpile())
+                .unwrap_or_else(|| {
+                    panic!("runtime invariant broken: local combustion store requires player")
+                });
+            Some(
+                match validate_combust_selected_fuel(registries, state, store, source, commodity) {
+                    Ok(validated) => {
+                        let released = validated.commit(state).unwrap_or_else(|error| {
+                        panic!("runtime invariant broken: synchronous combustion became stale: {error}")
+                    });
+                        SecondaryActionOutcome::CombustionFuelAdded { store, released }
+                    }
+                    Err(error) => SecondaryActionOutcome::CombustionFuelRejected { store, error },
+                },
+            )
+        }
+        SelectedCombustionTarget::AmbiguousStores(count) => {
+            Some(SecondaryActionOutcome::AmbiguousLocalCombustionStores { count })
+        }
+        SelectedCombustionTarget::Assembly(definition) => {
+            let source = state
+                .logistics()
+                .player()
+                .map(|player| player.carried_stockpile())
+                .unwrap_or_else(|| {
+                    panic!("runtime invariant broken: selected combustion assembly requires player")
+                });
+            Some(
+                match validate_assemble_energy_store(registries, state, definition, source) {
+                    Ok(validated) => {
+                        let store = validated.commit(state).unwrap_or_else(|error| {
+                        panic!("runtime invariant broken: synchronous combustion-store assembly became stale: {error}")
+                    });
+                        SecondaryActionOutcome::EnergyStoreAssembled { definition, store }
+                    }
+                    Err(error) => {
+                        SecondaryActionOutcome::EnergyStoreAssemblyRejected { definition, error }
+                    }
+                },
+            )
+        }
+        SelectedCombustionTarget::AmbiguousDefinitions(count) => {
+            Some(SecondaryActionOutcome::AmbiguousCombustionDefinitions { count })
+        }
+    }
+}
 #[cfg(test)]
 #[path = "secondary_tests.rs"]
 mod tests;

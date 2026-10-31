@@ -2225,6 +2225,60 @@ fn one_shot_secondary_use_composes_selected_food_without_exposing_lot_identity()
 }
 
 #[test]
+fn depleted_selected_food_rejects_immediately_without_a_queued_meal() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let carried = admit_player(&registries, &mut state, position);
+    let commodity = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        Mass::from_milligrams(500_000),
+        TEMPERATURE,
+    )
+    .unwrap();
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(commodity)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let dropped = validate_drop_player_material(&registries, &state, commodity)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(dropped.dropped_mass(), Mass::from_milligrams(500_000));
+    assert_eq!(
+        state.logistics().active_selection(),
+        Some(PlayerActiveSelection::material(commodity)),
+        "hotbar bindings remain after their physical stack is depleted"
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let response = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(positive_x_view())),
+    )
+    .unwrap();
+    assert_eq!(
+        response.secondary_action(),
+        Some(&SecondaryActionOutcome::MaterialUnavailable)
+    );
+    assert!(state.logistics().pending_secondary_use().is_none());
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn dropping_queued_food_does_not_eat_it_after_automatic_repickup() {
     for keep_use_pressed in [false, true] {
         let registries = build_registries();
@@ -2775,24 +2829,14 @@ fn secondary_use_refuses_ambiguous_physical_food_cohorts() {
     let input = PlayerDirectControlInput::NEUTRAL
         .with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
 
-    let queued = advance_control_tick_with_direct_input(&registries, &mut state, input)
-        .unwrap_or_else(|error| panic!("ambiguous secondary-use queue failed: {error}"));
+    let rejected = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("ambiguous secondary-use preflight failed: {error}"));
     assert_eq!(
-        queued.secondary_action(),
-        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+        rejected.secondary_action(),
+        Some(&SecondaryActionOutcome::AmbiguousMaterialStacks { count: 2 }),
+        "already-visible incompatible food cohorts must be rejected before queuing"
     );
-    let outcome = loop {
-        let control = advance_control_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("ambiguous secondary-use continuation failed: {error}"));
-        match control.secondary_action() {
-            None => {}
-            Some(outcome) => break outcome.clone(),
-        }
-    };
-    assert_eq!(
-        outcome,
-        SecondaryActionOutcome::AmbiguousMaterialStacks { count: 2 }
-    );
+    assert!(state.logistics().pending_secondary_use().is_none());
     assert_eq!(state.player_work().active(), None);
 }
 
@@ -3313,7 +3357,7 @@ fn impossible_self_placement_does_not_prevent_fueling_a_local_campfire() {
     .commit(&mut no_fire)
     .unwrap();
     let no_fire_before = calculate_matter_accounting(&no_fire).unwrap().total();
-    let queued = advance_control_tick_with_direct_input(
+    let rejected = advance_control_tick_with_direct_input(
         &registries,
         &mut no_fire,
         PlayerDirectControlInput::NEUTRAL
@@ -3321,19 +3365,11 @@ fn impossible_self_placement_does_not_prevent_fueling_a_local_campfire() {
     )
     .unwrap();
     assert_eq!(
-        queued.secondary_action(),
-        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+        rejected.secondary_action(),
+        Some(&SecondaryActionOutcome::StructuralPlacementIntersectsPlayer { position }),
+        "without a local combustion target, invalid post geometry rejects on the input frame"
     );
-    let rejection = loop {
-        let control = advance_control_tick(&registries, &mut no_fire).unwrap();
-        if let Some(outcome) = control.secondary_action() {
-            break outcome.clone();
-        }
-    };
-    assert_eq!(
-        rejection,
-        SecondaryActionOutcome::StructuralPlacementIntersectsPlayer { position }
-    );
+    assert!(no_fire.logistics().pending_secondary_use().is_none());
     assert_eq!(no_fire.structures().elements().count(), 0);
     assert_eq!(
         no_fire

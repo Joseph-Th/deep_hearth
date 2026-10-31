@@ -121,6 +121,12 @@ plan when no physical member is hit. The empty plan cannot provide a placement s
 occupy generated air, so a pointed timber post may use the actual terrain behind it. Bounded
 structural footprint checks use the existing horizontal index and exact intersection tests,
 including for broad geometry.
+On the 20 Hz direct-input frame, selected log, handle and board placement checks
+the currently carried stack, visible target and unoccupied placement geometry before
+buffering. Invalid aims and missing materials reject immediately; a feasible
+construction still waits for canonical slow-tick admission and revalidation.
+Selected food use likewise resolves the actual carried stack before queuing;
+durable hotbar bindings to depleted food cannot reserve a doomed meal.
 At a simultaneous voxel-face crossing, physical tree trunks take occlusion priority over
 otherwise selectable adjacent air targets, as do solid blocks and embodied full-cell panels.
 Material-backed storage enclosure construction checks live opening and temple resident occupancy

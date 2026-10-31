@@ -1,11 +1,60 @@
 //! Pointed construction distinguishes slender post overlap from full-cell obstruction.
 
 use super::*;
-use crate::content::{FORM_CHIP, MATERIAL_STONE};
+use crate::content::{FORM_BOARD, FORM_CHIP, FORM_HANDLE, MATERIAL_STONE};
 use crate::logistics::{PlayerActiveSelection, validate_set_active_selection};
 use crate::material::MaterialComposition;
 use crate::matter::calculate_matter_accounting;
 use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec, insert_surface_resource_for_test};
+
+#[test]
+fn impossible_timber_use_rejects_on_input_tick_instead_of_queuing() {
+    for form in [FORM_LOG, FORM_BOARD, FORM_HANDLE] {
+        let (registries, mut state, _) = generated_grounded_player_at(0, 0);
+        let commodity = CommodityKey::new(MATERIAL_WOOD, form);
+        let carried = state.logistics().player().unwrap().carried_stockpile();
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            commodity,
+            Mass::from_milligrams(6_500_000),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+        validate_set_active_selection(
+            &registries,
+            &state,
+            Some(PlayerActiveSelection::material(commodity)),
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+        let upward = ViewDirection::new(0, 1_000_000, 0).unwrap();
+        assert_eq!(
+            crate::world::raycast_player_block(&registries, &state, upward).unwrap(),
+            None,
+            "the aim must not hit a real world surface"
+        );
+        let outcome = advance_control_tick_with_direct_input(
+            &registries,
+            &mut state,
+            PlayerDirectControlInput::NEUTRAL
+                .with_secondary(SecondaryControlIntent::use_active(upward)),
+        )
+        .unwrap();
+        assert_eq!(
+            outcome.secondary_action(),
+            Some(&SecondaryActionOutcome::NoStructuralPlacementTarget),
+            "impossible timber placement must not reserve a future action for {form:?}"
+        );
+        assert!(state.logistics().pending_secondary_use().is_none());
+        assert_eq!(
+            crate::core::state::validate_loaded_state(&registries, &state),
+            Ok(())
+        );
+    }
+}
 
 #[test]
 fn direct_timber_post_can_share_a_cell_with_loose_matter() {
