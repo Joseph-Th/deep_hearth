@@ -500,8 +500,8 @@ fn living_tree_canopy_reduces_next_real_crop_without_destroying_root_biomass() {
         .expect("a suitable warm growing front follows the harvested crop");
     crate::core::state::apply_clock_advance(&mut under_tree, next_front);
     crate::core::state::apply_clock_advance(&mut state, next_front);
-    apply_natural_forage_cycle(&registries, &mut under_tree, next_front);
-    apply_natural_forage_cycle(&registries, &mut state, next_front);
+    apply_natural_forage_cycle(&registries, &mut under_tree, next_front).unwrap();
+    apply_natural_forage_cycle(&registries, &mut state, next_front).unwrap();
     let shaded = under_tree.surface().get(id).unwrap();
     let sunlit = state.surface().get(id).unwrap();
     assert_eq!(shaded.lifecycle(), SurfaceResourceLifecycle::Available);
@@ -540,7 +540,38 @@ fn living_tree_canopy_reduces_next_real_crop_without_destroying_root_biomass() {
     let another_front = SimulationTick::new(next_front.value() + 200);
     crate::core::state::apply_clock_advance(&mut state, another_front);
     crate::core::state::apply_clock_advance(&mut loaded, another_front);
-    apply_natural_forage_cycle(&registries, &mut state, another_front);
-    apply_natural_forage_cycle(&registries, &mut loaded, another_front);
+    apply_natural_forage_cycle(&registries, &mut state, another_front).unwrap();
+    apply_natural_forage_cycle(&registries, &mut loaded, another_front).unwrap();
     assert_eq!(state, loaded);
+}
+
+#[test]
+fn exhausted_perennial_revision_rejects_due_senescence_atomically() {
+    use crate::simulation::TickError;
+    use crate::surface::SurfaceResourceState;
+
+    let (registries, mut state, plant) = generated_plant();
+    let due = SimulationTick::new(FRUIT_SENESCENCE_TICKS);
+    crate::core::state::apply_clock_advance(&mut state, SimulationTick::new(due.value() - 1));
+    assert_eq!(
+        state.surface().get(plant).unwrap().lifecycle(),
+        SurfaceResourceLifecycle::Available
+    );
+
+    let save = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut persisted = save["state"]["systems"]["surface"].clone();
+    persisted["revision"] = serde_json::json!(u64::MAX);
+    let mut exhausted: SurfaceResourceState = serde_json::from_value(persisted).unwrap();
+    exhausted.rebuild_derived_indexes();
+    *state.surface_state_mut() = exhausted;
+
+    let before = state.clone();
+    assert_eq!(
+        advance_tick(&registries, &mut state),
+        Err(TickError::SurfaceRevisionExhausted)
+    );
+    assert_eq!(
+        state, before,
+        "the late ripening decision cannot partially settle a tick"
+    );
 }

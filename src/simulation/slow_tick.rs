@@ -16,7 +16,7 @@ use crate::energy::{
     decide_mechanical_transmission, decide_passive_energy_dissipation,
 };
 use crate::equipment::{apply_equipment_maintenance_tick, decide_equipment_maintenance_tick};
-use crate::fluid::apply_natural_water_cycle;
+use crate::fluid::{NaturalWaterCycleError, apply_natural_water_cycle, decide_natural_water_cycle};
 use crate::geology::{apply_field_prospecting_tick, decide_field_prospecting_tick};
 use crate::inventory::apply_storage_enclosure_dismantling_tick;
 use crate::kobolds::apply_kobold_scout_tick;
@@ -35,9 +35,9 @@ use crate::survival::{
     decide_survival_tick_with_local_heat,
 };
 use crate::world::{
-    apply_block_excavation_tick, apply_natural_forage_cycle, apply_tree_felling_wear,
-    assess_player_weather_at, decide_block_excavation_tick, decide_tree_felling_wear,
-    validate_due_player_tree_felling,
+    NaturalForageCycleError, apply_block_excavation_tick, apply_natural_forage_cycle,
+    apply_tree_felling_wear, assess_player_weather_at, decide_block_excavation_tick,
+    decide_tree_felling_wear, validate_due_player_tree_felling,
 };
 
 /// Advances the full slow simulation by one 3.6-second physical/accounting quantum.
@@ -46,6 +46,47 @@ use crate::world::{
 /// explicit same-tick projection when an earlier completion changes a downstream admission fact,
 /// then mutations apply in one deterministic order.
 pub(super) fn advance_simulation_tick(
+    registries: &Registries,
+    state: &mut AppState,
+    next_tick: SimulationTick,
+    locomotion_exertion: SurvivalExertion,
+    fall_vitality_loss_ppm: u32,
+) -> Result<TickOutcome, TickError> {
+    // Natural changes observe the world after same-tick constructions, removals,
+    // and excavation. The surface headroom check includes all already-promised
+    // player-work mutations plus one prospective forage change. Water has no
+    // other slow-tick writer. Stage only fronts where those revision reservations
+    // cannot be made, so rejection stays atomic without cloning ordinary fronts.
+    let weather_front = next_tick
+        .value()
+        .is_multiple_of(crate::world::WEATHER_FRONT_TICKS);
+    if weather_front
+        && ((state.surface().perennial_resources().next().is_some()
+            && !state.can_spend_surface_revisions(1))
+            || (state.fluid().revision() == u64::MAX
+                && state.fluid().spring_soil().next().is_some()))
+    {
+        let mut staged = state.snapshot_for_control_transaction();
+        let outcome = advance_simulation_tick_unstaged(
+            registries,
+            &mut staged,
+            next_tick,
+            locomotion_exertion,
+            fall_vitality_loss_ppm,
+        )?;
+        *state = staged;
+        return Ok(outcome);
+    }
+    advance_simulation_tick_unstaged(
+        registries,
+        state,
+        next_tick,
+        locomotion_exertion,
+        fall_vitality_loss_ppm,
+    )
+}
+
+fn advance_simulation_tick_unstaged(
     registries: &Registries,
     state: &mut AppState,
     next_tick: SimulationTick,
@@ -303,10 +344,14 @@ pub(super) fn advance_simulation_tick(
     // before residents assess a player's actual living threat: a death on this
     // very tick must not make a corpse deter or challenge a neighboring scout.
     let _ = apply_survival_tick(state, survival_plan);
-    apply_natural_forage_cycle(registries, state, next_tick);
+    apply_natural_forage_cycle(registries, state, next_tick).map_err(
+        |NaturalForageCycleError::RevisionExhausted| TickError::SurfaceRevisionExhausted,
+    )?;
     // Weather-front changes can move existing water between the exposed pool
     // and its shallow basin before residents choose whether to drink.
-    apply_natural_water_cycle(registries, state, next_tick);
+    let natural_water_plan = decide_natural_water_cycle(registries, state, next_tick)
+        .map_err(|NaturalWaterCycleError::RevisionExhausted| TickError::FluidRevisionExhausted)?;
+    apply_natural_water_cycle(state, natural_water_plan);
     let (kobold_scout, kobold_alarm_pulses) = apply_kobold_scout_tick(registries, state, next_tick);
     if player_dead_after_tick {
         // Raised weapons cannot survive a fatal survival transition or grant a charged respawn hit.

@@ -140,7 +140,8 @@ fn returning_soil_water_mixes_with_warmer_replenished_pool_without_creating_heat
     };
     let dry = next_front_with(&state, SpringMoistureFlux::Drying);
     apply_clock_advance(&mut state, dry);
-    apply_natural_water_cycle(&registries, &mut state, dry);
+    let plan = decide_natural_water_cycle(&registries, &state, dry).unwrap();
+    apply_natural_water_cycle(&mut state, plan);
     let soil = state.fluid().spring_soil.get(&pool).unwrap();
     assert_eq!(soil.soaked, WATER_PER_FRONT);
     assert_eq!(
@@ -215,7 +216,8 @@ fn returning_soil_water_mixes_with_warmer_replenished_pool_without_creating_heat
         .unwrap();
     for actor in [&mut state, &mut replay] {
         apply_clock_advance(actor, return_front);
-        apply_natural_water_cycle(&registries, actor, return_front);
+        let plan = decide_natural_water_cycle(&registries, actor, return_front).unwrap();
+        apply_natural_water_cycle(actor, plan);
     }
     assert_eq!(
         state, replay,
@@ -317,4 +319,41 @@ fn natural_pool_is_ground_bound_not_an_attachable_vessel() {
     );
     assert_eq!(state, original);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn exhausted_spring_revision_rejects_whole_weather_front_without_moving_water_or_time() {
+    use crate::core::state::apply_clock_advance;
+    use crate::simulation::TickError;
+
+    let (registries, mut state, pool, position) = actual_natural_pool();
+    let dry = (1..=500)
+        .map(|step| SimulationTick::new(step * WEATHER_FRONT_TICKS))
+        .find(|&at| {
+            spring_moisture_flux(&registries, &state, position, at) == SpringMoistureFlux::Drying
+        })
+        .expect("seeded spring must experience a drying front");
+    apply_clock_advance(&mut state, SimulationTick::new(dry.value() - 1));
+
+    // Construct the exceptional owner state through its serialized fields;
+    // ordinary simulation still uses the canonical revision-checked path.
+    let mut saved = serde_json::to_value(state.fluid()).unwrap();
+    saved["revision"] = serde_json::json!(u64::MAX);
+    let mut exhausted: crate::fluid::FluidState = serde_json::from_value(saved).unwrap();
+    exhausted.rebuild_derived_indexes();
+    *state.fluid_state_mut() = exhausted;
+
+    let before = state.clone();
+    assert_eq!(
+        advance_tick(&registries, &mut state),
+        Err(TickError::FluidRevisionExhausted),
+    );
+    assert_eq!(
+        state, before,
+        "rejection must roll back every prior slow-tick owner"
+    );
+    assert_eq!(
+        state.fluid().get_store(pool),
+        before.fluid().get_store(pool)
+    );
 }

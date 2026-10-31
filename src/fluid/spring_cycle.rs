@@ -12,17 +12,25 @@ use super::state::{FluidContents, SpringSoilExchange};
 
 const WATER_PER_FRONT: Volume = Volume::from_microliters(250_000);
 
-pub(crate) fn apply_natural_water_cycle(
+/// Checked finite-water exchange resolved against the final same-tick roof and world state.
+pub(crate) struct NaturalWaterCyclePlan {
+    changes: Vec<SpringSoilExchange>,
+    next_revision: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NaturalWaterCycleError {
+    RevisionExhausted,
+}
+
+pub(crate) fn decide_natural_water_cycle(
     registries: &Registries,
-    state: &mut AppState,
+    state: &AppState,
     at: SimulationTick,
-) {
+) -> Result<Option<NaturalWaterCyclePlan>, NaturalWaterCycleError> {
     if !at.value().is_multiple_of(WEATHER_FRONT_TICKS) {
-        return;
+        return Ok(None);
     }
-    let Some(next_revision) = state.fluid().revision().checked_add(1) else {
-        return;
-    };
     let changes = state
         .fluid()
         .spring_soil()
@@ -104,10 +112,25 @@ pub(crate) fn apply_natural_water_cycle(
             }
         })
         .collect::<Vec<_>>();
-    if !changes.is_empty() {
+    if changes.is_empty() {
+        return Ok(None);
+    }
+    let next_revision = state
+        .fluid()
+        .revision()
+        .checked_add(1)
+        .ok_or(NaturalWaterCycleError::RevisionExhausted)?;
+    Ok(Some(NaturalWaterCyclePlan {
+        changes,
+        next_revision,
+    }))
+}
+
+pub(crate) fn apply_natural_water_cycle(state: &mut AppState, plan: Option<NaturalWaterCyclePlan>) {
+    if let Some(plan) = plan {
         state
             .fluid_state_mut()
-            .apply_spring_soil_exchange(changes, next_revision);
+            .apply_spring_soil_exchange(plan.changes, plan.next_revision);
     }
 }
 

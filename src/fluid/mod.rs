@@ -39,7 +39,9 @@ pub(crate) use generation::{
 pub(crate) use physics::{
     FluidMassProjectionError, project_fluid_material_mass, project_soaked_spring_water,
 };
-pub(crate) use spring_cycle::apply_natural_water_cycle;
+pub(crate) use spring_cycle::{
+    NaturalWaterCycleError, apply_natural_water_cycle, decide_natural_water_cycle,
+};
 pub(crate) use state::{validate_loaded_fluid, validate_loaded_natural_spring_locations};
 pub(crate) use structural_integration::validate_existing_fluid_load;
 

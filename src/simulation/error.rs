@@ -35,6 +35,8 @@ pub enum TickError {
     EquipmentRevisionExhausted,
     /// Energy storage cannot advance its persisted revision for this tick's ingress or passive loss.
     EnergyRevisionExhausted,
+    /// Natural water exchange cannot advance its persisted fluid revision.
+    FluidRevisionExhausted,
     /// Player/world logistics cannot advance its persisted revision for movement completion.
     LogisticsRevisionExhausted,
     /// Player survival cannot advance its persisted revision for this tick.
@@ -188,6 +190,9 @@ impl Display for TickError {
             Self::EnergyRevisionExhausted => {
                 formatter.write_str("energy revision space is exhausted")
             }
+            Self::FluidRevisionExhausted => {
+                formatter.write_str("fluid revision space is exhausted")
+            }
             Self::LogisticsRevisionExhausted => {
                 formatter.write_str("logistics revision space is exhausted")
             }
@@ -257,6 +262,7 @@ impl Error for TickError {
             | Self::ProductionRevisionExhausted
             | Self::EquipmentRevisionExhausted
             | Self::EnergyRevisionExhausted
+            | Self::FluidRevisionExhausted
             | Self::LogisticsRevisionExhausted
             | Self::SurvivalRevisionExhausted
             | Self::SurvivalEnergyCostOverflow

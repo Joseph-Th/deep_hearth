@@ -147,7 +147,7 @@ fn ready_crop(registries: &Registries, state: &mut AppState, source: SurfaceReso
         })
         .unwrap();
     crate::core::state::apply_clock_advance(state, due);
-    apply_natural_forage_cycle(registries, state, due);
+    apply_natural_forage_cycle(registries, state, due).unwrap();
     assert_eq!(
         state.surface().get(source).unwrap().lifecycle(),
         SurfaceResourceLifecycle::Available
@@ -318,7 +318,8 @@ fn water_stored_beneath_a_dry_looking_spring_remains_available_to_roots() {
     let original_water = calculate_fluid_volume_accounting(&state).unwrap();
     let previous = state.fluid().get_store(basin).unwrap().stored_volume();
     crate::core::state::apply_clock_advance(&mut state, drying_front);
-    crate::fluid::apply_natural_water_cycle(&registries, &mut state, drying_front);
+    let plan = crate::fluid::decide_natural_water_cycle(&registries, &state, drying_front).unwrap();
+    crate::fluid::apply_natural_water_cycle(&mut state, plan);
     assert_eq!(
         state
             .fluid()

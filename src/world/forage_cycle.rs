@@ -26,6 +26,11 @@ const FIELD_CHECK_TICKS: u64 = super::WEATHER_FRONT_TICKS;
 /// Unpicked crop material eventually returns to the plant's finite nutrient
 /// reserve, rather than staying fresh indefinitely or vanishing from custody.
 const FRUIT_SENESCENCE_TICKS: u64 = 2_400;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NaturalForageCycleError {
+    RevisionExhausted,
+}
 /// Fraction of the otherwise available fruit biomass that one rooted shrub
 /// may transfer at this weather front. These ratios never consume fluid or
 /// add material: the source is a fixed, previously present underground reserve.
@@ -57,19 +62,16 @@ pub(crate) fn apply_natural_forage_cycle(
     registries: &Registries,
     state: &mut AppState,
     at: SimulationTick,
-) {
+) -> Result<(), NaturalForageCycleError> {
     if !at.value().is_multiple_of(FIELD_CHECK_TICKS) {
-        return;
+        return Ok(());
     }
     let growing_season = matches!(
         registries.core().calendar().season_at(at),
         Season::Spring | Season::Summer
     );
     let Some(profile) = state.world().generation_profile() else {
-        return;
-    };
-    let Some(next_revision) = state.surface().revision().checked_add(1) else {
-        return;
+        return Ok(());
     };
     // Only survey springs if a depleted shrub actually reaches a viable
     // ripening decision. Senescence, winter, and barren districts need no
@@ -162,10 +164,16 @@ pub(crate) fn apply_natural_forage_cycle(
         })
         .collect::<Vec<_>>();
     if !changes.is_empty() {
+        let next_revision = state
+            .surface()
+            .revision()
+            .checked_add(1)
+            .ok_or(NaturalForageCycleError::RevisionExhausted)?;
         state
             .surface_state_mut()
             .apply_perennial_cycle(changes, next_revision);
     }
+    Ok(())
 }
 
 #[cfg(test)]
