@@ -72,6 +72,94 @@ fn single_real_berry_patch() -> (Registries, AppState, VoxelCoord) {
     (registries, state, site)
 }
 
+#[test]
+fn scent_crossing_a_weather_front_follows_the_source_wind_not_the_observers() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5343_454E_545F_4652);
+    let mut original = AppState::new();
+    for coord in [ChunkCoord::new(7, 0), ChunkCoord::new(8, 0)] {
+        validate_generate_chunk(&registries, &original, seed, coord, BLOCK_STATE_STONE)
+            .unwrap()
+            .commit(&mut original)
+            .unwrap();
+    }
+    // Both points are in real generated air, three open steps apart, but on
+    // opposite sides of the 128-voxel regional wind boundary.
+    let source = VoxelCoord::new(127, 6, 8);
+    let observer = VoxelCoord::new(130, 6, 8);
+    for x in source.x()..=observer.x() {
+        assert_eq!(
+            original.world().block_at(VoxelCoord::new(x, 6, 8)),
+            Some(BlockStateId::AIR)
+        );
+    }
+    validate_admit_player(&registries, &original, observer)
+        .unwrap()
+        .commit(&mut original)
+        .unwrap();
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Opportunity,
+        source,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(300_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_BERRIES),
+    )
+    .unwrap();
+    validate_create_surface_resources(&registries, &original, [spec])
+        .unwrap()
+        .commit(&mut original)
+        .unwrap();
+    let conserved = calculate_matter_accounting(&original).unwrap().total();
+
+    let mut saw_source_downwind = false;
+    let mut saw_source_upwind = false;
+    for front in 0..400_u64 {
+        let at = SimulationTick::new(front * 200);
+        let source_wind = weather_at(&registries, seed.value(), source, at).wind_direction();
+        let observer_wind = weather_at(&registries, seed.value(), observer, at).wind_direction();
+        let expected = match (source_wind, observer_wind) {
+            (Some(WindDirection::East), Some(WindDirection::West)) => true,
+            (Some(WindDirection::West), Some(WindDirection::East)) => false,
+            _ => continue,
+        };
+        let mut state = original.clone();
+        apply_clock_advance(&mut state, at);
+        let before = state.clone();
+        let cues = assess_player_forage_scents(&registries, &state);
+        assert_eq!(
+            cues.iter()
+                .any(|cue| cue.kind() == ForageScentKind::SweetFruit),
+            expected,
+            "scent must follow the source wind across opposing regional fronts at {at:?}"
+        );
+        assert_eq!(state, before, "weather sensing cannot mutate world custody");
+        if expected {
+            saw_source_downwind = true;
+            let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+            let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+                .unwrap()
+                .into_state(&registries)
+                .unwrap();
+            assert_eq!(restored, state);
+            assert_eq!(assess_player_forage_scents(&registries, &restored), cues);
+            assert_eq!(
+                calculate_matter_accounting(&state).unwrap().total(),
+                conserved
+            );
+        } else {
+            saw_source_upwind = true;
+        }
+        if saw_source_downwind && saw_source_upwind {
+            break;
+        }
+    }
+    assert!(
+        saw_source_downwind && saw_source_upwind,
+        "seeded regional fronts must supply both opposing-wind observations"
+    );
+}
+
 /// No resource coordinate is supplied to the player. The test controls weather
 /// and location to establish a repeatable *witness* of a real windborne clue.
 fn try_find_downwind_witness(

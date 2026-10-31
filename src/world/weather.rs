@@ -13,7 +13,7 @@ use super::generation::terrain::mix64;
 
 /// Physical time between changes in a regional wind/temperature front: twelve minutes.
 const WEATHER_FRONT_TICKS: u64 = 200;
-const REGION_SIDE_VOXELS: i64 = 128;
+pub(super) const REGION_SIDE_VOXELS: i64 = 128;
 const COOLING_REFERENCE_CELSIUS: i32 = 12;
 const COOLING_PER_DEGREE_PPM: i32 = 30_000;
 const BREEZE_COOLING_PPM: u32 = 180_000;
@@ -125,7 +125,7 @@ pub(crate) fn assess_player_weather_at(
         .then(|| weather_at(registries, profile.seed().value(), position, at))
 }
 
-fn weather_at(
+pub(super) fn weather_at(
     registries: &Registries,
     seed: u64,
     position: VoxelCoord,

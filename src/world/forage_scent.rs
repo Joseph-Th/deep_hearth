@@ -12,6 +12,7 @@ use crate::spatial::VoxelCoord;
 use crate::surface::SurfaceResourceKind;
 use crate::survival::{FoodFreshness, Vitality, freshness_from_history};
 
+use super::weather::{REGION_SIDE_VOXELS, weather_at};
 use super::{BlockCollisionShape, WindCondition, WindDirection, assess_player_weather};
 
 const MAX_AIR_STEPS: u8 = 8;
@@ -20,6 +21,14 @@ const BREEZE_AIR_STEPS: u8 = 6;
 const MAX_VERTICAL_DEVIATION: u64 = 2;
 const STRONG_SCENT_STEPS: u8 = 4;
 const DISTINCT_SOURCE_MASS_MG: u64 = 250_000;
+
+fn scent_reach(wind: WindCondition) -> u8 {
+    match wind {
+        WindCondition::Calm => CALM_AIR_STEPS,
+        WindCondition::Breeze => BREEZE_AIR_STEPS,
+        WindCondition::Gusting => MAX_AIR_STEPS,
+    }
+}
 
 /// General character of a plant smell. No source identity or position is disclosed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -91,16 +100,14 @@ fn live_food_scent(
     state: &AppState,
     position: VoxelCoord,
     distance: u8,
-    wind_direction: Option<WindDirection>,
+    world_seed: u64,
     observer: VoxelCoord,
 ) -> impl Iterator<Item = ForageScent> {
     state
         .surface()
         .available_resources_at(Some(position))
         .filter_map(move |resource| {
-            if resource.kind() != SurfaceResourceKind::Opportunity
-                || !scent_reaches_player(resource.position(), observer, wind_direction, distance)
-            {
+            if resource.kind() != SurfaceResourceKind::Opportunity {
                 return None;
             }
             let kind = match resource.commodity().material() {
@@ -119,6 +126,19 @@ fn live_food_scent(
                 ),
                 Ok(FoodFreshness::Fresh { .. })
             ) {
+                return None;
+            }
+            // Source-local wind controls emission, even when the observer is
+            // across a regional weather boundary with an opposing front.
+            let source_weather = weather_at(registries, world_seed, position, state.tick());
+            if distance > scent_reach(source_weather.wind())
+                || !scent_reaches_player(
+                    position,
+                    observer,
+                    source_weather.wind_direction(),
+                    distance,
+                )
+            {
                 return None;
             }
             Some(ForageScent {
@@ -158,20 +178,32 @@ pub fn assess_player_forage_scents(registries: &Registries, state: &AppState) ->
     let Some(weather) = assess_player_weather(registries, state) else {
         return Vec::new();
     };
+    let world_seed = state
+        .world()
+        .generation_profile()
+        .expect("observable generated weather requires a generation profile")
+        .seed()
+        .value();
     if !passable_air(registries, state, start) {
         return Vec::new();
     }
-    let wind = weather.wind_direction();
-    let reach = match weather.wind() {
-        WindCondition::Calm => CALM_AIR_STEPS,
-        WindCondition::Breeze => BREEZE_AIR_STEPS,
-        WindCondition::Gusting => MAX_AIR_STEPS,
+    // A source up to eight air steps away can have a different front near a
+    // regional border. Elsewhere the observer's shorter range remains exact.
+    let near_frontier = [start.x(), start.z()].into_iter().any(|axis| {
+        let within_region = axis.rem_euclid(REGION_SIDE_VOXELS);
+        within_region < i64::from(MAX_AIR_STEPS)
+            || within_region >= REGION_SIDE_VOXELS - i64::from(MAX_AIR_STEPS)
+    });
+    let reach = if near_frontier {
+        MAX_AIR_STEPS
+    } else {
+        scent_reach(weather.wind())
     };
     let mut visited = BTreeSet::from([start]);
     let mut queue = VecDeque::from([(start, 0u8)]);
     let mut best: [Option<ForageScentIntensity>; 2] = [None, None];
     while let Some((voxel, steps)) = queue.pop_front() {
-        for scent in live_food_scent(registries, state, voxel, steps, wind, start) {
+        for scent in live_food_scent(registries, state, voxel, steps, world_seed, start) {
             let index = match scent.kind {
                 ForageScentKind::SweetFruit => 0,
                 ForageScentKind::WildNuts => 1,
