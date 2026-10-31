@@ -57,7 +57,9 @@ fn preferred_hungry_forage(
     {
         return None;
     }
-    let maximum_mass = colony.forage_batch().min(den_space);
+    let maximum_mass = colony
+        .forage_batch_in_world(registries, state, from, at)
+        .min(den_space);
     let local_forage =
         best_local_forage(registries, state, from, at, maximum_mass).map(|(mass, _)| mass);
     let local_portable = local_portable_source(

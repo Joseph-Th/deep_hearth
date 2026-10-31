@@ -500,6 +500,140 @@ fn distant_scout_patrol_does_not_block_player_neighborhood_streaming() {
 }
 
 #[test]
+fn generated_night_scout_forage_transfers_more_finite_food_than_daytime() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::core::state::validate_loaded_state;
+    use crate::energy::assess_local_illumination;
+    use crate::logistics::add_traversable_edge_for_test;
+    use crate::world::{ChunkCoord, validate_generate_chunk};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x534B_594C_4947_4854),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+
+    // Pick three naturally contiguous, traversable cells on actual terrain.
+    let route = (3..12)
+        .flat_map(|x| (3..12).map(move |z| (x, z)))
+        .find_map(|(x, z)| {
+            let floor = |xp: i64| {
+                (-20..=8).rev().find(|&y| {
+                    state.world().block_at(VoxelCoord::new(xp, y, z)) == Some(BLOCK_STATE_STONE)
+                })
+            };
+            let y = floor(x)?;
+            (floor(x + 1) == Some(y) && floor(x + 2) == Some(y)).then_some([
+                VoxelCoord::new(x, y + 1, z),
+                VoxelCoord::new(x + 1, y + 1, z),
+                VoxelCoord::new(x + 2, y + 1, z),
+            ])
+        })
+        .filter(|route| {
+            route.iter().all(|voxel| {
+                state
+                    .world()
+                    .has_standing_clearance(registries.world(), *voxel)
+            })
+        })
+        .expect("generated stone surface has a natural three-cell scout route");
+    for (from, to) in [(route[0], route[1]), (route[1], route[2])] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state.kobold_state_mut().apply_opening_colony(route);
+    assert_eq!(
+        crate::world::assess_generated_skylight(&registries, &state, route[1]),
+        9
+    );
+    assert_eq!(
+        assess_local_illumination(&registries, &state, route[1]).level(),
+        0
+    );
+    assert_eq!(
+        colony(&state).forage_batch_in_world(
+            &registries,
+            &state,
+            route[1],
+            SimulationTick::new(180)
+        ),
+        super::super::SCOUT_FORAGE_BATCH,
+    );
+    let dayticks = registries.core().calendar().ticks_per_day();
+    let night = dayticks * 3 / 4;
+    while state.tick().value() < night {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(
+        crate::world::assess_generated_skylight(&registries, &state, route[1]),
+        0
+    );
+    assert_eq!(
+        colony(&state).forage_batch_in_world(&registries, &state, route[1], state.tick()),
+        crate::core::quantity::Mass::from_milligrams(200_000),
+    );
+    // Wild food appears in the resident's actual two-edge patrol space after dusk.
+    // The colony must fetch it across real steps, not teleport from distant custody.
+    let source = crate::surface::SurfaceResourceSpec::new(
+        crate::surface::SurfaceResourceKind::Opportunity,
+        route[1],
+        crate::material::CommodityKey::new(
+            crate::content::MATERIAL_WILD_NUTS,
+            crate::content::FORM_FOOD,
+        ),
+        crate::core::quantity::Mass::from_milligrams(400_000),
+        crate::core::quantity::Temperature::from_millikelvin(293_150),
+        crate::material::MaterialComposition::pure(crate::content::MATERIAL_WILD_NUTS),
+    )
+    .unwrap();
+    let creation =
+        crate::surface::validate_create_surface_resources(&registries, &state, [source]).unwrap();
+    let source_id = creation.resource_ids().next().unwrap();
+    creation.commit(&mut state).unwrap();
+    let before = crate::matter::calculate_matter_accounting(&state)
+        .unwrap()
+        .total();
+    let mut foraged = false;
+    for _ in 0..100 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+        if state.surface().get(source_id).unwrap().remaining_mass()
+            < crate::core::quantity::Mass::from_milligrams(400_000)
+        {
+            foraged = true;
+            break;
+        }
+    }
+    assert!(
+        foraged,
+        "night scouting must discover and materially harvest reachable food"
+    );
+    assert_eq!(
+        state.surface().get(source_id).unwrap().remaining_mass(),
+        crate::core::quantity::Mass::from_milligrams(200_000),
+        "night foraging transfers the doubled finite batch through the same custody owner",
+    );
+    assert_eq!(
+        crate::matter::calculate_matter_accounting(&state)
+            .unwrap()
+            .total(),
+        before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+}
+
+#[test]
 fn player_guards_diagonal_clearing_but_cannot_deter_through_an_opaque_corner() {
     use crate::content::BLOCK_STATE_STONE;
     use crate::world::{

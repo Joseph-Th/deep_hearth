@@ -65,7 +65,12 @@ impl AdjacentSurfaceResource {
                             let to = VoxelCoord::new(x, y, z);
                             if !crate::world::has_clear_two_step_sightline(
                                 registries, state, from, to,
-                            ) {
+                            ) || (crate::world::assess_generated_skylight(registries, state, to)
+                                == 0
+                                && crate::energy::assess_local_illumination(registries, state, to)
+                                    .level()
+                                    == 0)
+                            {
                                 continue;
                             }
                             nearby.extend(state.surface().available_resources_at(Some(to)).map(

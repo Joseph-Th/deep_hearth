@@ -39,8 +39,8 @@ impl LocalLightSourceProjection {
 
 /// Current block-aware local-light assessment at one world voxel.
 ///
-/// This is a read model, not persisted lighting state. Sky light, richer attenuation, meshing, and
-/// visibility remain adapter/world concerns.
+/// This is a read model, not persisted lighting state. Environmental skylight,
+/// indirect bounce, meshing, and visibility remain adapter/world concerns.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LocalIlluminationAssessment {

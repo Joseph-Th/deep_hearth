@@ -180,7 +180,7 @@ pub(crate) fn apply_kobold_scout_tick(
         .as_ref()
         .expect("colony still exists");
     let salvage_batch = colony.salvage_batch();
-    let forage_batch = colony.forage_batch();
+    let forage_batch = colony.forage_batch_in_world(registries, state, from, next_tick);
     let forage_interval = colony.forage_interval();
     let mobilized = colony.mobilized_at.is_some();
     let den_space = den_cache_space(state, colony.route[0]);

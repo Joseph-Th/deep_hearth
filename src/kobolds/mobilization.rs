@@ -61,6 +61,24 @@ impl KoboldColony {
             .unwrap_or(SCOUT_FORAGE_BATCH)
     }
 
+    /// Scavengers carry a larger finite serving on dark generated-world
+    /// patrols. The same surface transfer and den capacity still govern the
+    /// amount actually removed; old authored wilderness has no sky calendar.
+    pub(super) fn forage_batch_in_world(
+        &self,
+        registries: &Registries,
+        state: &AppState,
+        position: VoxelCoord,
+        at: SimulationTick,
+    ) -> Mass {
+        let regular = self.forage_batch();
+        if crate::world::is_generated_night(registries, state, position, at) {
+            regular.checked_add(regular).unwrap_or(regular)
+        } else {
+            regular
+        }
+    }
+
     pub(super) fn forage_interval(&self) -> u64 {
         self.mobilized_at
             .map(|_| MOBILIZED_FORAGE_INTERVAL_TICKS)

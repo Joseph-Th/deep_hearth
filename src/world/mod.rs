@@ -6,6 +6,7 @@ mod felling;
 mod forage_scent;
 mod generation;
 mod local_visibility;
+mod sky;
 mod state;
 mod targeting;
 mod transplant;
@@ -53,6 +54,8 @@ pub use generation::{
     validate_generate_player_neighborhood,
 };
 pub(crate) use local_visibility::{has_clear_two_step_sightline, within_manhattan_reach};
+pub use sky::assess_generated_skylight;
+pub(crate) use sky::is_generated_night;
 #[cfg(test)]
 pub(crate) use state::set_generated_block_for_test;
 pub use state::{
