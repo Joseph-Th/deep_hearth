@@ -8,7 +8,7 @@ use std::collections::{BTreeSet, VecDeque};
 use crate::content::{MATERIAL_BERRIES, MATERIAL_WILD_NUTS};
 use crate::core::state::AppState;
 use crate::registry::Registries;
-use crate::spatial::VoxelCoord;
+use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::surface::SurfaceResourceKind;
 use crate::survival::{FoodFreshness, Vitality, freshness_from_history};
 
@@ -71,6 +71,42 @@ fn passable_air(registries: &Registries, state: &AppState, at: VoxelCoord) -> bo
             .block_at(at)
             .and_then(|state_id| registries.world().block_for_state(state_id))
             .is_some_and(|block| block.collision() == BlockCollisionShape::Empty)
+}
+
+/// Avoid searching air corridors when no indexed source can lie within the
+/// maximum eight-step smell envelope. Coordinate-bound failures must not
+/// conceal a legitimate scent near the represented world edge.
+fn potentially_scented_forage_nearby(state: &AppState, observer: VoxelCoord) -> bool {
+    let radius = i64::from(MAX_AIR_STEPS);
+    let vertical = MAX_VERTICAL_DEVIATION as i64;
+    let limits = (
+        observer.x().checked_sub(radius),
+        observer.y().checked_sub(vertical),
+        observer.z().checked_sub(radius),
+        observer.x().checked_add(radius + 1),
+        observer.y().checked_add(vertical + 1),
+        observer.z().checked_add(radius + 1),
+    );
+    let (Some(min_x), Some(min_y), Some(min_z), Some(max_x), Some(max_y), Some(max_z)) = limits
+    else {
+        return true;
+    };
+    let Ok(bounds) = VoxelBounds::new(
+        VoxelCoord::new(min_x, min_y, min_z),
+        VoxelCoord::new(max_x, max_y, max_z),
+    ) else {
+        return true;
+    };
+    state
+        .surface()
+        .available_resources_in_bounds(bounds)
+        .any(|resource| {
+            resource.kind() == SurfaceResourceKind::Opportunity
+                && matches!(
+                    resource.commodity().material(),
+                    MATERIAL_BERRIES | MATERIAL_WILD_NUTS
+                )
+        })
 }
 
 fn scent_reaches_player(
@@ -175,6 +211,10 @@ pub fn assess_player_forage_scents(registries: &Registries, state: &AppState) ->
         return Vec::new();
     }
     let start = player.position();
+    // Empty clearings need neither a weather lookup nor bounded air traversal.
+    if !potentially_scented_forage_nearby(state, start) {
+        return Vec::new();
+    }
     let Some(weather) = assess_player_weather(registries, state) else {
         return Vec::new();
     };

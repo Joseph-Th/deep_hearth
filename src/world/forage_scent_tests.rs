@@ -73,6 +73,88 @@ fn single_real_berry_patch() -> (Registries, AppState, VoxelCoord) {
 }
 
 #[test]
+fn indexed_scent_absence_preserves_envelope_edges_and_excludes_drops() {
+    let (registries, mut state, site) = single_real_berry_patch();
+    let before = state.clone();
+    assert!(potentially_scented_forage_nearby(&state, site));
+    for (dx, dy, dz) in [
+        (8, 0, 0),
+        (-8, 0, 0),
+        (0, 2, 0),
+        (0, -2, 0),
+        (0, 0, 8),
+        (0, 0, -8),
+    ] {
+        assert!(
+            potentially_scented_forage_nearby(
+                &state,
+                VoxelCoord::new(site.x() + dx, site.y() + dy, site.z() + dz),
+            ),
+            "a live source exactly on the scent envelope's boundary must not be excluded"
+        );
+    }
+    for (dx, dy, dz) in [(9, 0, 0), (0, 3, 0), (0, 0, -9)] {
+        assert!(!potentially_scented_forage_nearby(
+            &state,
+            VoxelCoord::new(site.x() + dx, site.y() + dy, site.z() + dz),
+        ));
+    }
+    // Bounds that cannot be represented fail open into the normal physical
+    // air search, rather than inventing a missing-source observation.
+    assert!(potentially_scented_forage_nearby(
+        &state,
+        VoxelCoord::new(i64::MAX, site.y(), site.z()),
+    ));
+    assert_eq!(state, before, "indexed scent lookup is read-only");
+    assert_eq!(
+        assess_player_forage_scents(&registries, &state)
+            .iter()
+            .map(|cue| cue.kind())
+            .collect::<Vec<_>>(),
+        vec![ForageScentKind::SweetFruit],
+    );
+
+    let source = state
+        .surface()
+        .available_resources_at(Some(site))
+        .next()
+        .unwrap();
+    let id = source.id();
+    let remaining = source.remaining_mass();
+    let revision = state.surface().revision() + 1;
+    let tick = state.tick();
+    state
+        .surface_state_mut()
+        .apply_gathering(id, remaining, tick, revision);
+    assert!(!potentially_scented_forage_nearby(&state, site));
+    assert!(assess_player_forage_scents(&registries, &state).is_empty());
+
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        site,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(100_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_BERRIES),
+    )
+    .unwrap();
+    validate_create_surface_resources(&registries, &state, [spec])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(!potentially_scented_forage_nearby(&state, site));
+    assert!(assess_player_forage_scents(&registries, &state).is_empty());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let json = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&json)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+    assert!(!potentially_scented_forage_nearby(&restored, site));
+}
+
+#[test]
 fn scent_crossing_a_weather_front_follows_the_source_wind_not_the_observers() {
     let registries = build_registries();
     let seed = WorldGenerationSeed::new(0x5343_454E_545F_4652);
