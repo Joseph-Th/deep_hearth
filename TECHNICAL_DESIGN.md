@@ -319,7 +319,10 @@ or whether the caller is crossing an ownership boundary it does not control.
   the opening scout drinking schedule and terminal water ledger. Schema 127
   adds finite per-spring shallow-catchment custody. Schema 128 adds perennial
   forage root/fruit records. Schema 129 adds scout drink-visit
-  provenance and weather-conditioned demand. Earlier saves, including
+  provenance and weather-conditioned demand. Schema 130 retains exact
+  temperature for water held in finite shallow catchments; natural spring
+  seepage and return conserve both water volume and explicitly modeled heat.
+  Earlier saves, including
   schema 124 worlds with the prior uniform initial-wood distribution, require
   an explicit migration before loading; no implicit compatibility fallback exists.
 - Untrusted save data enters through `LoadedSaveEnvelope::into_state`; the [Trusted load](#trusted-load)

@@ -18,8 +18,8 @@ use owners::account_nonfluid_energy_owners;
 /// Snapshot of currently modeled explicit energy ownership.
 ///
 /// Chemical, gravitational, elastic, kinetic, and environmental thermal energy are not inferred
-/// here. This accounting covers finite stores, stored-fluid sensible heat, plus modeled sensible
-/// and solid/liquid latent energy represented by authoritative material forms.
+/// here. This accounting covers finite stores, fluid sensible heat in stores and spring soil,
+/// plus modeled sensible and solid/liquid latent energy represented by authoritative material forms.
 ///
 /// This is a diagnostic conservation surface, not actor-safe observation. Geological thermal
 /// energy and the aggregate total include hidden finite geology and must not feed player policy;
@@ -161,7 +161,8 @@ impl Error for ExplicitEnergyAccountingError {
 ///
 /// Material thermal energy uses absolute zero as the accounting reference. Liquid forms include
 /// authored latent heat; unsupported mixed liquid phases fail explicitly rather than inventing an
-/// alloy phase diagram. Stored fluids contribute exact sensible heat from represented volume,
+/// alloy phase diagram. Stored fluids and finite water held beneath natural springs contribute
+/// exact sensible heat from represented volume,
 /// material density, temperature, and specific heat; a fluid whose material has authored fusion
 /// properties also contributes its liquid latent heat. Matter and fluid already transferred
 /// into the terminal survival-consumption boundary are excluded because biological transformation,

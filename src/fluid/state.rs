@@ -109,12 +109,23 @@ impl FluidStoreRecord {
     }
 }
 
-/// Finite soil water beneath one generated surface pocket.
+/// Finite soil water beneath one generated surface pocket, including its retained temperature.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SpringSoilWater {
     pub(crate) position: VoxelCoord,
     pub(crate) soaked: Volume,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
+    pub(crate) soaked_temperature: Option<Temperature>,
+}
+
+/// The jointly settled surface and subsurface state of one natural spring.
+/// Only the natural-water planner constructs these prechecked changes.
+pub(crate) struct SpringSoilExchange {
+    pub(crate) store: FluidStoreId,
+    pub(crate) surface: Option<FluidContents>,
+    pub(crate) soaked: Volume,
+    pub(crate) soaked_temperature: Option<Temperature>,
 }
 
 /// Persistent owner for finite fluid stores and monotonic identity/revision cursors.
@@ -244,7 +255,8 @@ impl FluidState {
                         spring_id,
                         SpringSoilWater {
                             position,
-                            soaked: Volume::ZERO
+                            soaked: Volume::ZERO,
+                            soaked_temperature: None,
                         },
                     )
                     .is_none()
@@ -256,23 +268,25 @@ impl FluidState {
     }
 
     /// Exchange a finite batch of shallow soil and standing water under one
-    /// fluid revision. All volume projections were checked before mutation.
+    /// fluid revision. All volume and temperature projections were checked before mutation.
     pub(crate) fn apply_spring_soil_exchange(
         &mut self,
-        changes: Vec<(FluidStoreId, Option<FluidContents>, Volume)>,
+        changes: Vec<SpringSoilExchange>,
         next_revision: u64,
     ) {
         assert!(!changes.is_empty());
         assert_eq!(self.revision.checked_add(1), Some(next_revision));
-        for (id, contents, soaked) in changes {
-            self.spring_soil
-                .get_mut(&id)
-                .expect("preplanned natural source")
-                .soaked = soaked;
+        for change in changes {
+            let soil = self
+                .spring_soil
+                .get_mut(&change.store)
+                .expect("preplanned natural source");
+            soil.soaked = change.soaked;
+            soil.soaked_temperature = change.soaked_temperature;
             self.records
-                .get_mut(&id)
+                .get_mut(&change.store)
                 .expect("preplanned natural store")
-                .contents = contents;
+                .contents = change.surface;
         }
         self.revision = next_revision;
     }

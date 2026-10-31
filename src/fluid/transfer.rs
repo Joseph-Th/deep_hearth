@@ -16,6 +16,7 @@ use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::structural::{StructuralAnalysis, StructuralCommitError, StructuralMutationOutcome};
 
+use super::physics::exact_mixed_temperature;
 use super::state::FluidContents;
 use super::structural_integration::{
     FluidContentsChange, FluidStructuralLoadError, ValidatedFluidStructuralLoad,
@@ -123,21 +124,17 @@ fn equilibrium_temperature(
     moved: Volume,
     combined_volume: Volume,
 ) -> Result<Temperature, FluidTransferError> {
-    let weighted_source =
-        u128::from(moved.microliters()) * u128::from(source.temperature().millikelvin());
-    let weighted_destination = u128::from(destination.volume().microliters())
-        * u128::from(destination.temperature().millikelvin());
-    let weighted = weighted_source + weighted_destination;
-    let divisor = u128::from(combined_volume.microliters());
-    if weighted % divisor != 0 {
-        return Err(FluidTransferError::UnrepresentableEquilibriumTemperature {
-            weighted_millikelvin_microliters: weighted,
-            combined_volume,
-        });
-    }
-    let millikelvin = u32::try_from(weighted / divisor)
-        .expect("a convex combination of two u32 temperatures fits u32");
-    Ok(Temperature::from_millikelvin(millikelvin))
+    exact_mixed_temperature(
+        (destination.volume(), destination.temperature()),
+        (moved, source.temperature()),
+        combined_volume,
+    )
+    .map_err(
+        |error| FluidTransferError::UnrepresentableEquilibriumTemperature {
+            weighted_millikelvin_microliters: error.weighted_millikelvin_microliters,
+            combined_volume: error.combined_volume,
+        },
+    )
 }
 
 /// Revision-bound proof of an authorized local or gravity-fed two-store volume move.

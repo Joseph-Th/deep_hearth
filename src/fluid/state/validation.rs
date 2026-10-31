@@ -1,5 +1,6 @@
 //! Validates persisted fluid stores, contents, support indexes, authored references, and cursors.
 
+use crate::content::FLUID_WATER;
 use crate::core::quantity::Temperature;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
@@ -32,6 +33,14 @@ pub(crate) fn validate_loaded_fluid(
         if soil.soaked > store.capacity
             || store.supported_by.is_some()
             || store.created_at > current
+            || soil.soaked.is_zero() != soil.soaked_temperature.is_none()
+            || soil.soaked_temperature.is_some_and(|temperature| {
+                temperature == Temperature::ZERO
+                    || registry
+                        .get_fluid(FLUID_WATER)
+                        .and_then(|fluid| fluid.minimum_modeled_temperature(materials))
+                        .is_some_and(|minimum| temperature < minimum)
+            })
         {
             return Err(FluidValidationError::InvalidNaturalSpring { store: *id });
         }

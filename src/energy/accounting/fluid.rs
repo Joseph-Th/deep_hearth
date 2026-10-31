@@ -5,6 +5,7 @@ use crate::core::quantity::{Energy, PreciseEnergy};
 use crate::core::state::AppState;
 use crate::fluid::{
     FluidContents, FluidMassProjectionError, FluidStoreId, project_fluid_material_mass,
+    project_soaked_spring_water,
 };
 use crate::registry::Registries;
 
@@ -86,11 +87,13 @@ pub(super) fn account_fluid_material(
     state: &AppState,
     accounting: &mut ExplicitEnergyAccounting,
 ) -> Result<(), ExplicitEnergyAccountingError> {
-    for store in state.fluid().stores() {
-        let Some(contents) = store.contents() else {
-            continue;
-        };
-        let thermal = calculate_fluid_thermal_energy(registries, store.id(), contents)?;
+    for (store, contents) in state
+        .fluid()
+        .stores()
+        .filter_map(|store| store.contents().map(|contents| (store.id(), contents)))
+        .chain(project_soaked_spring_water(state.fluid()))
+    {
+        let thermal = calculate_fluid_thermal_energy(registries, store, contents)?;
         accounting.fluid_material_thermal = accounting
             .fluid_material_thermal
             .checked_add(thermal)
