@@ -46,7 +46,7 @@ pub(crate) fn apply_kobold_scout_tick(
         .is_none_or(|due| next_tick >= due);
     let player_position = state.logistics().player().map(|player| player.position());
     let pressured_by_noise =
-        super::super::acoustics::scout_hears_running_player(registries, state, from);
+        super::super::acoustics::scout_hears_running_player(registries, state, from, next_tick);
     let pressured_by_player = living_player_deters_scout(registries, state, from);
     // World-owned opaque blocks and live finite energy stores control this field.
     // Neither player-held torches nor hidden ambient/skylight are invented here.

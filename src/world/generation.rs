@@ -1,10 +1,13 @@
 //! Deterministic terrain identity, explicit chunk generation, and player-neighborhood demand.
 
 mod forage;
+mod habitat;
 mod minerals;
 pub(super) mod temple;
 pub(in crate::world) mod terrain;
 
+pub(super) use habitat::habitat_at;
+pub use habitat::{HabitatKind, assess_player_habitat};
 pub(super) use minerals::seeded_mineral_state;
 use minerals::{seeded_surface_lode_state, select_mineral_grade};
 use terrain::mix64;

@@ -77,38 +77,46 @@ pub(crate) fn is_generated_night(
     state.world().has_generated_terrain_at(position) && sky_brightness(registries, at) == 0
 }
 
-#[must_use]
-pub fn assess_generated_skylight(
+/// Physical sky opening independent of day phase: rock, built roofs, standing
+/// trunks, and absent world truth stop direct outdoor exposure even at night.
+pub(crate) fn has_open_sky(
     registries: &Registries,
     state: &AppState,
     position: VoxelCoord,
-) -> u8 {
+) -> bool {
     if !(WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&position.y())
         || !state.world().has_generated_terrain_at(position)
     {
-        return 0;
+        return false;
     }
-    let light = sky_brightness(registries, state.tick());
-    if light == 0 {
-        return 0;
-    }
-    // Short circuit on any real overhead obstruction. The destination itself
-    // also has to be transparent. Partial open sections remain traversable.
     for y in position.y()..WORLD_MAX_Y_EXCLUSIVE {
         let at = VoxelCoord::new(position.x(), y, position.z());
         if state.structures().blocks_full_cell(at) || state.world().tree_trunk_at(at).is_some() {
-            return 0;
+            return false;
         }
         let Some(block) = state.world().block_at(at) else {
-            return 0;
+            return false;
         };
         if registries
             .world()
             .block_for_state(block)
             .is_none_or(|definition| definition.is_opaque())
         {
-            return 0;
+            return false;
         }
+    }
+    true
+}
+
+#[must_use]
+pub fn assess_generated_skylight(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+) -> u8 {
+    let light = sky_brightness(registries, state.tick());
+    if light == 0 || !has_open_sky(registries, state, position) {
+        return 0;
     }
     light.saturating_sub(living_canopy_shade(registries, state, position))
 }

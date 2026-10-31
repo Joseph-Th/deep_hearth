@@ -842,7 +842,12 @@ fn a_real_sprint_behind_a_stone_corner_makes_the_scout_hold_back_but_quiet_play_
     let mut quiet = state.clone();
     let movement = PlayerControlInput::new(HorizontalControlInput::new(-1_000_000, 0).unwrap());
     let sprint = movement.with_sprint(true);
-    assert!(!scout_hears_running_player(&registries, &state, den));
+    assert!(!scout_hears_running_player(
+        &registries,
+        &state,
+        den,
+        state.tick()
+    ));
     for _ in 0..13 {
         let _ = advance_control_tick_with_input(&registries, &mut state, sprint).unwrap();
         let _ = advance_control_tick_with_input(&registries, &mut quiet, movement).unwrap();
@@ -856,15 +861,25 @@ fn a_real_sprint_behind_a_stone_corner_makes_the_scout_hold_back_but_quiet_play_
         !super::super::visibility::scout_visible_from(&registries, &state, den, player),
         "a scout cannot see through the corner to explain its response"
     );
-    assert!(scout_hears_running_player(&registries, &state, den));
-    assert!(!scout_hears_running_player(&registries, &quiet, den));
+    assert!(scout_hears_running_player(
+        &registries,
+        &state,
+        den,
+        state.tick()
+    ));
+    assert!(!scout_hears_running_player(
+        &registries,
+        &quiet,
+        den,
+        quiet.tick()
+    ));
 
     let mut sealed = state.clone();
     for voxel in [tip, VoxelCoord::new(tip.x(), tip.y() + 1, tip.z())] {
         set_generated_block_for_test(registries.world(), &mut sealed, voxel, BLOCK_STATE_STONE);
     }
     assert!(
-        !scout_hears_running_player(&registries, &sealed, den),
+        !scout_hears_running_player(&registries, &sealed, den, sealed.tick()),
         "a sealed rock passage must block the runner's sound"
     );
     let _ = advance_control_tick_with_input(&registries, &mut state, sprint).unwrap();
@@ -889,4 +904,71 @@ fn a_real_sprint_behind_a_stone_corner_makes_the_scout_hold_back_but_quiet_play_
         .into_state(&registries)
         .unwrap();
     assert_eq!(state, restored);
+}
+
+#[test]
+fn actual_wind_fronts_mask_surface_steps_without_muffling_underground_passages() {
+    let (registries, state) = solid_generated_chunk();
+    let surface = (-10..=10)
+        .find(|&y| {
+            state.world().block_at(VoxelCoord::new(2, y, 2)) == Some(BlockStateId::AIR)
+                && state.world().block_at(VoxelCoord::new(2, y - 1, 2)) != Some(BlockStateId::AIR)
+        })
+        .map(|y| VoxelCoord::new(2, y, 2))
+        .expect("seeded terrain has a surface above the stone");
+    assert_eq!(state.world().block_at(surface), Some(BlockStateId::AIR));
+    let mut observed = [false; 3];
+    for front in 0..40 {
+        let at = SimulationTick::new(front * 200);
+        let wind = wind_at_generated_position(&registries, &state, surface, at).unwrap();
+        let (index, expected) = match wind {
+            WindCondition::Calm => (0, 6),
+            WindCondition::Breeze => (1, 5),
+            WindCondition::Gusting => (2, 4),
+        };
+        observed[index] = true;
+        assert_eq!(
+            wind_masked_reach(&registries, &state, surface, at, 6),
+            expected,
+            "weather makes the same actual outdoor footsteps more or less audible"
+        );
+    }
+    assert_eq!(
+        observed, [true; 3],
+        "the same site experiences all three wind conditions"
+    );
+
+    let subterranean = VoxelCoord::new(surface.x(), -10, surface.z());
+    assert!(
+        state.world().has_generated_terrain_at(subterranean),
+        "the stone cavern belongs to known terrain"
+    );
+    assert_eq!(
+        wind_at_generated_position(&registries, &state, subterranean, SimulationTick::new(200)),
+        None
+    );
+    assert_eq!(
+        wind_masked_reach(
+            &registries,
+            &state,
+            subterranean,
+            SimulationTick::new(200),
+            6
+        ),
+        6,
+        "surface gusts cannot mask sound in a rock tunnel"
+    );
+    let mut covered = state.clone();
+    let roof = VoxelCoord::new(surface.x(), surface.y() + 3, surface.z());
+    assert_eq!(covered.world().block_at(roof), Some(BlockStateId::AIR));
+    set_generated_block_for_test(registries.world(), &mut covered, roof, BLOCK_STATE_STONE);
+    assert_eq!(
+        wind_at_generated_position(&registries, &covered, surface, SimulationTick::new(200)),
+        None,
+        "a physical overhead roof shelters an otherwise windy surface"
+    );
+    assert_eq!(
+        wind_masked_reach(&registries, &covered, surface, SimulationTick::new(200), 6),
+        6
+    );
 }

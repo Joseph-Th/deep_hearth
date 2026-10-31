@@ -45,15 +45,6 @@ pub(super) fn seeded_forage_spec(
     {
         return None;
     }
-    let material = if hash & 4 == 0 {
-        MATERIAL_BERRIES
-    } else {
-        MATERIAL_WILD_NUTS
-    };
-    let commodity = CommodityKey::new(material, FORM_FOOD);
-    if !registries.materials().has_commodity(commodity) {
-        return None;
-    }
     let min_x = coord.world_min_x()?;
     let min_z = coord.world_min_z()?;
     // A small number of alternate rooted sites prevents a single tree or
@@ -81,9 +72,29 @@ pub(super) fn seeded_forage_spec(
         {
             continue;
         }
-        // Each patch supplies a few finite, human-scale servings. Existing
-        // food physiology and spoilage own its utility and deterioration.
-        let mass = Mass::from_milligrams(250_000 + ((hash >> 40) % 600_000));
+        // Both food type and yield are consequences of the local habitat,
+        // not independent resource rolls. Wet groves reward fruit seeking;
+        // sparse scrub carries less food but tends to provide dense nuts.
+        // The parcel is still finite and ages from world creation.
+        let (material, mass_mg) = match super::habitat_at(profile.seed(), x, z) {
+            super::HabitatKind::DampGrove => (MATERIAL_BERRIES, 700_000 + ((hash >> 40) % 500_000)),
+            super::HabitatKind::DryScrub => {
+                (MATERIAL_WILD_NUTS, 180_000 + ((hash >> 40) % 320_000))
+            }
+            super::HabitatKind::MixedWoodland => (
+                if hash & 4 == 0 {
+                    MATERIAL_BERRIES
+                } else {
+                    MATERIAL_WILD_NUTS
+                },
+                250_000 + ((hash >> 40) % 600_000),
+            ),
+        };
+        let commodity = CommodityKey::new(material, FORM_FOOD);
+        if !registries.materials().has_commodity(commodity) {
+            return None;
+        }
+        let mass = Mass::from_milligrams(mass_mg);
         return Some(
             SurfaceResourceSpec::new(
                 SurfaceResourceKind::Opportunity,

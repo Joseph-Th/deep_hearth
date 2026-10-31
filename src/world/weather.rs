@@ -10,6 +10,7 @@ use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
 use super::generation::terrain::mix64;
+use super::generation::{HabitatKind, WorldGenerationSeed, habitat_at};
 
 /// Physical time between changes in a regional wind/temperature front: twelve minutes.
 const WEATHER_FRONT_TICKS: u64 = 200;
@@ -172,7 +173,15 @@ pub(super) fn weather_at(
             _ => WindDirection::South,
         })
     };
-    let celsius = base_celsius + ((hash >> 20) % 5) as i32 - 2;
+    // Broad ground moisture and shading affect outdoor temperature even
+    // when the same weather front crosses adjacent habitat provinces.
+    let local_ground_delta =
+        match habitat_at(WorldGenerationSeed::new(seed), position.x(), position.z()) {
+            HabitatKind::DampGrove => -2,
+            HabitatKind::MixedWoodland => 0,
+            HabitatKind::DryScrub => 2,
+        };
+    let celsius = base_celsius + ((hash >> 20) % 5) as i32 - 2 + local_ground_delta;
     let wind_cooling = match wind {
         WindCondition::Calm => 0,
         WindCondition::Breeze => BREEZE_COOLING_PPM,
@@ -202,6 +211,22 @@ pub(super) fn weather_at(
             .expect("authored weather cooling bound fits u32"),
         changes_in: TickSpan::new(front_in.min(day_phase_end - day_tick)),
     }
+}
+
+/// Source-local outdoor wind for physical sound attenuation. Generated rock
+/// caverns are not exposed to surface gusts; missing chunk truth does not
+/// invent atmospheric masking for an unobserved place.
+pub(crate) fn wind_at_generated_position(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    at: SimulationTick,
+) -> Option<WindCondition> {
+    let profile = state.world().generation_profile()?;
+    if !super::sky::has_open_sky(registries, state, position) {
+        return None;
+    }
+    Some(weather_at(registries, profile.seed().value(), position, at).wind())
 }
 
 #[cfg(test)]

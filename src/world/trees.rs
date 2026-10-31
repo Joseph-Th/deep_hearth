@@ -249,11 +249,17 @@ pub(super) fn seeded_tree_identity(
     let (x, z) = seeded_tree_column(profile, chunk)?;
     let root_y = super::generation::terrain_height(profile.seed(), x, z).checked_add(1)?;
     let mixed = tree_entropy(profile.seed(), chunk);
-    // A small minority are juvenile, while established trees supply meaningful timber.
-    let initial = if mixed & 3 == 0 {
-        8_000_000
-    } else {
-        280_000_000 + (mixed >> 24) % 180_000_000
+    // Different ground conditions have an observable effect on how much
+    // canopy and timber exists before the player arrives. A dry scrubland is
+    // not an invisible mature forest, while groves shelter real larger trees.
+    let initial = match super::generation::habitat_at(profile.seed(), x, z) {
+        super::generation::HabitatKind::DampGrove if mixed & 7 != 0 => {
+            480_000_000 + (mixed >> 24) % 240_000_000
+        }
+        super::generation::HabitatKind::DryScrub if mixed & 3 != 0 => 8_000_000,
+        super::generation::HabitatKind::DryScrub => 150_000_000 + (mixed >> 24) % 110_000_000,
+        _ if mixed & 3 == 0 => 8_000_000,
+        _ => 280_000_000 + (mixed >> 24) % 180_000_000,
     };
     Some(TreeRecord::new(
         VoxelCoord::new(x, root_y, z),

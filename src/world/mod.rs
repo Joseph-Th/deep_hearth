@@ -49,9 +49,9 @@ pub(crate) use generation::nearby_temple_residents;
 pub(crate) use generation::temple_residents_at;
 pub(crate) use generation::temple_warden_route_at;
 pub use generation::{
-    ChunkGenerationCommitError, ChunkGenerationError, ValidatedChunkGeneration,
-    ValidatedPlayerChunkDemand, WorldGenerationSeed, validate_generate_chunk,
-    validate_generate_player_neighborhood,
+    ChunkGenerationCommitError, ChunkGenerationError, HabitatKind, ValidatedChunkGeneration,
+    ValidatedPlayerChunkDemand, WorldGenerationSeed, assess_player_habitat,
+    validate_generate_chunk, validate_generate_player_neighborhood,
 };
 pub(crate) use local_visibility::{has_clear_two_step_sightline, within_manhattan_reach};
 pub use sky::assess_generated_skylight;
@@ -73,6 +73,7 @@ pub use trees::{BIOLOGICAL_YEAR_TICKS, TreeRecord};
 pub(crate) use trees::{FelledTreeRecord, TransplantedTreeRecord};
 pub use validation::{WorldValidationError, validate_loaded_world};
 pub(crate) use weather::assess_player_weather_at;
+pub(crate) use weather::wind_at_generated_position;
 pub use weather::{DayPhase, PlayerWeather, WindCondition, WindDirection, assess_player_weather};
 
 #[cfg(test)]

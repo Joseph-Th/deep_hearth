@@ -15,7 +15,7 @@ use crate::logistics::{PlayerStance, player_body_is_grounded};
 use crate::registry::Registries;
 use crate::spatial::{CubeFace, VoxelCoord};
 use crate::survival::Vitality;
-use crate::world::{BlockCollisionShape, ChunkCoord};
+use crate::world::{BlockCollisionShape, ChunkCoord, WindCondition, wind_at_generated_position};
 
 use super::junkworks::{KoboldJunkRig, KoboldJunkRigKind};
 use super::tracks::KoboldTrailKind;
@@ -85,6 +85,22 @@ fn footfall_kind(activity: KoboldTrailKind) -> (KoboldFootfallKind, u8) {
     }
 }
 
+/// Open-air gusts mask softer movement; underground rock passages retain
+/// their own air-borne acoustics independent of the surface weather.
+fn wind_masked_reach(
+    registries: &Registries,
+    state: &AppState,
+    origin: VoxelCoord,
+    at: SimulationTick,
+    reach: u8,
+) -> u8 {
+    match wind_at_generated_position(registries, state, origin, at) {
+        Some(WindCondition::Breeze) => reach.saturating_sub(1),
+        Some(WindCondition::Gusting) => reach.saturating_sub(2),
+        Some(WindCondition::Calm) | None => reach,
+    }
+}
+
 fn footfall_bearing(source: VoxelCoord, listener: VoxelCoord) -> KoboldFootfallBearing {
     let dx = source.x().abs_diff(listener.x());
     let dy = source.y().abs_diff(listener.y());
@@ -143,7 +159,9 @@ pub fn available_nearby_kobold_footfalls(
                 return None;
             }
             let source = track.toward();
-            let (kind, reach) = footfall_kind(track.observed_activity());
+            let (kind, nominal_reach) = footfall_kind(track.observed_activity());
+            let reach =
+                wind_masked_reach(registries, state, source, track.left_at(), nominal_reach);
             audible_with_reach(registries, state, source, listener, reach).then_some(
                 KoboldFootfall {
                     kind,
@@ -163,6 +181,7 @@ pub(super) fn scout_hears_running_player(
     registries: &Registries,
     state: &AppState,
     listener: VoxelCoord,
+    at: SimulationTick,
 ) -> bool {
     let Some(player) = state.logistics().player() else {
         return false;
@@ -189,7 +208,13 @@ pub(super) fn scout_hears_running_player(
     );
     let speed_squared = x.saturating_mul(x).saturating_add(z.saturating_mul(z));
     speed_squared > walking * walking
-        && audible_with_reach(registries, state, player.position(), listener, 4)
+        && audible_with_reach(
+            registries,
+            state,
+            player.position(),
+            listener,
+            wind_masked_reach(registries, state, player.position(), at, 6),
+        )
 }
 
 fn acoustic_reach(kind: KoboldJunkRigKind) -> u8 {
