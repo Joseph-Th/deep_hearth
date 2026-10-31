@@ -195,6 +195,15 @@ the occupant changes after excavation validation; the scout and watchman also av
 a floor already reserved for complete removal. Partial cuts retain collision and
 remain admissible.
 
+An opening den watchman's food-funded patrol takes exactly 20 g of fresh local
+food from recoverable surface custody. One sufficient parcel is preferred;
+otherwise multiple fresh fragments can fund the same complete ration, with
+larger fragments selected first and stable source IDs breaking ties. Before
+deployment the feeding owner reserves every surface revision and checked
+per-material terminal-consumption ledger update. Insufficient fragments,
+spoilage, or exhausted revision capacity leave all den food untouched; the
+scout's outstanding meal keeps its earlier claim on the same finite custody.
+
 | Surface | Definitions / immutable input | Authoritative read / observation | Plan / resolve | Mutate / continue |
 | --- | --- | --- | --- | --- |
 | Root simulation and time | core definitions, typed quantities/time | `AppState::control_tick()`, `AppState::tick()`, immutable owner accessors | per-phase `decide_*` is crate-owned orchestration | `advance_control_tick` is the canonical 20 Hz step and owns active body physics; at a slow boundary it settles prior locomotion exertion into the slow transaction, then decides current body motion from the post-transaction state before direct interactions observe that committed body state; a fatal slow tick clears any buffered direct intent inside the slow transaction before state validation, and the corresponding control step reports the canceled intent as `PlayerDead`; `advance_tick` atomically advances one slow boundary only when no generated-world body requires those intervening control steps, including when due structural dismantling could remove embodied floor beneath the player's horizontal footprint and cause immediate 20 Hz falling; unrelated dismantling retains safe neutral fast-forward; direct clock/owner applies stay crate-private |

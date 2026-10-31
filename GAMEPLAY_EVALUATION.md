@@ -221,7 +221,9 @@ recognizes a small protein-rich nut source using the player-visible, revision-bo
 food profile (including source-history freshness),
 collects one direct batch, physically returns to its earlier camp route, and leaves the source
 unattended. After passive exposure and a trusted save/load roundtrip, the actor returns to
-observe the missing food and can reclaim its visible conserved parcel from the adjacent den.
+check whether the scout actually took food. If a visible displaced parcel exists, the actor
+reclaims it through the adjacent den and real travel; if cold arrives before the scout's first
+theft, the source remains intact and the actor takes no invented recovery journey.
 The mobile continuation reports its self-chosen work and its action-free exposure separately;
 waiting for a warning is not credited as engaging player work.
 Its thermal forecast comes from the same player-facing cover-aware survival projection
@@ -231,8 +233,10 @@ The matched forward-preparation policy makes a campfire from exactly gathered st
 leaves the entire site unattended before the scout arrives, then returns to the same physical
 heat when it needs warmth. This isolation matters: food protection must be attributable to
 finite firelight, not to a scout being scared away by a player standing at the source. Fuel
-burned while absent remains a real cost. The later reactive branch still succeeds, but must
-spend extra attention returning through the visible recovery route and starts warming later.
+burned while absent remains a real cost. The later reactive branch still succeeds and starts warming later; it spends
+additional recovery travel only when an actual theft created a visible reclaimable parcel.
+The concise report distinguishes verified fire-protected food from a no-theft-yet outcome,
+without attributing hypothetical deterrence to an observed player consequence.
 The maintained forward actor also uses part of the unattended fire window for actual
 reconnaissance from its own known spawn: it follows the locally visible water branch to
 an outcrop only when the next opportunity becomes adjacent, performs a catalog-discovered

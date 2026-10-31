@@ -2400,5 +2400,7 @@ fn den_cache_eviction_requires_scout_sight_but_far_salvage_is_found_on_patrol() 
     assert_eq!(validate_loaded_state(&registries, &open), Ok(()));
 }
 
+#[path = "watchman_ration_tests.rs"]
+mod watchman_ration_tests;
 #[path = "watchman_tests.rs"]
 mod watchman_tests;

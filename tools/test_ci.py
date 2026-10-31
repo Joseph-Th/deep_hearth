@@ -3760,6 +3760,45 @@ class GameplayReportContractTests(unittest.TestCase):
             "active:19t passive:6.4m-vs-8.9m fire-only-deterrence:matched]",
             lived_experience,
         )
+        # A chilly warning can predate the first patrol. Do not fabricate a
+        # theft, recovery trip or demonstrated fire protection in that branch.
+        untouched = [
+            row.replace(
+                "unattended-source-lost:100g recovered-visible-parcel:100g "
+                "chase-cost:2t source-after:485g prepared-fire-source-after:585g",
+                "unattended-source-lost:0g recovered-visible-parcel:0g "
+                "chase-cost:0t source-after:585g prepared-fire-source-after:585g",
+            ).replace(
+                "food-source-protected:100g", "food-source-protected:0g"
+            ).replace(
+                "late-recovery:100g extra-travel:2t",
+                "late-recovery:0g extra-travel:0t",
+            )
+            for row in lived
+        ]
+        no_theft = gameplay_report_summary.wilderness_player_experience(
+            [opening, adaptation, *untouched]
+        )
+        assert no_theft is not None
+        self.assertIn(
+            "scout-displaced:0g recovery:not-needed "
+            "fire-protection:not-observed-before-warning",
+            no_theft,
+        )
+        with self.assertRaisesRegex(ValueError, "finite provisions and firelight protection"):
+            gameplay_report_summary.wilderness_player_experience([
+                opening, adaptation,
+                untouched[0],
+                untouched[1].replace("recovered-visible-parcel:0g", "recovered-visible-parcel:1g"),
+                *untouched[2:],
+            ])
+        with self.assertRaisesRegex(ValueError, "finite provisions and firelight protection"):
+            gameplay_report_summary.wilderness_player_experience([
+                opening, adaptation,
+                untouched[0],
+                untouched[1].replace("chase-cost:0t", "chase-cost:2t"),
+                *untouched[2:],
+            ])
         with self.assertRaisesRegex(ValueError, "all four physical journey phases"):
             gameplay_report_summary.wilderness_player_experience(
                 [opening, adaptation, *lived[:-1]]

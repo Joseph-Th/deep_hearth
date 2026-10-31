@@ -1,5 +1,8 @@
 //! Sparse resident feeding from recoverable den custody into terminal matter accounting.
 
+use std::cmp::Reverse;
+use std::collections::BTreeMap;
+
 use crate::core::quantity::{AggregateMass, Mass};
 use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
@@ -230,4 +233,88 @@ pub(super) fn consume_den_meal(
         .kobold_state_mut()
         .apply_meal(material, consumed_after);
     Some((source, mass))
+}
+
+/// A watch sortie needs one complete meal, not one arbitrarily large food
+/// parcel. A full serving is preferred; otherwise several fresh den fragments
+/// may together supply its exact ration in one physical feeding opportunity.
+///
+/// Check the entire ration, terminal matter ledgers and surface revision
+/// headroom before touching any custody. An insufficient or unrepresentable
+/// collection leaves every fragment untouched.
+pub(super) fn consume_complete_den_ration(
+    registries: &Registries,
+    state: &mut AppState,
+    den: VoxelCoord,
+    at: SimulationTick,
+) -> bool {
+    if consume_den_meal(registries, state, den, at, SCOUT_MEAL_MASS, SCOUT_MEAL_MASS).is_some() {
+        return true;
+    }
+    let mut fragments = state
+        .surface()
+        .available_resources_at(Some(den))
+        .filter(|resource| {
+            resource.kind() == SurfaceResourceKind::Drop
+                && matches!(
+                    food_condition(registries, resource, at),
+                    Some(FoodFreshness::Fresh { .. })
+                )
+        })
+        .map(|resource| {
+            (
+                resource.id(),
+                resource.commodity().material(),
+                resource.remaining_mass(),
+            )
+        })
+        .collect::<Vec<_>>();
+    // Consume larger fragments first to minimize physical handling and owner
+    // writes. Stable IDs break ties independently of map insertion history.
+    fragments.sort_unstable_by_key(|(id, _, mass)| (Reverse(*mass), *id));
+    let mut remaining = SCOUT_MEAL_MASS;
+    let mut portions = Vec::new();
+    let mut ledgers = BTreeMap::new();
+    for (source, material, available) in fragments {
+        if remaining.is_zero() {
+            break;
+        }
+        let mass = available.min(remaining);
+        let before = ledgers.get(&material).copied().unwrap_or_else(|| {
+            state
+                .kobold_state()
+                .consumed_matter
+                .get(&material)
+                .copied()
+                .unwrap_or(AggregateMass::ZERO)
+        });
+        let Some(after) = before.checked_add(AggregateMass::from_mass(mass)) else {
+            return false;
+        };
+        ledgers.insert(material, after);
+        portions.push((source, material, mass, after));
+        remaining = remaining
+            .checked_sub(mass)
+            .expect("selected watch ration never exceeds its missing mass");
+    }
+    if !remaining.is_zero()
+        || portions.len() < 2
+        || !state.can_spend_surface_revisions(portions.len() as u64)
+    {
+        return false;
+    }
+    for (source, material, mass, consumed_after) in portions {
+        let revision = state
+            .surface()
+            .revision()
+            .checked_add(1)
+            .expect("complete watch ration reserved every surface revision");
+        state
+            .surface_state_mut()
+            .apply_gathering(source, mass, at, revision);
+        state
+            .kobold_state_mut()
+            .apply_meal(material, consumed_after);
+    }
+    true
 }

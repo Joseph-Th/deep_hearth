@@ -8,7 +8,7 @@ use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::survival::Vitality;
 
-use super::feeding::consume_den_meal;
+use super::feeding::consume_complete_den_ration;
 use super::junkworks::{KoboldAlarmPulse, locally_audible_alarm_pulses, relay_watch_alarm};
 use super::patrol::{living_player_deters_scout, scout_can_enter, scout_sees_guarded_cell};
 use super::tracks::KoboldTrailKind;
@@ -233,16 +233,7 @@ pub(super) fn apply_watchman_tick(
             watcher.watch_counterpatrol_pending = false;
         }
         true
-    } else if consume_den_meal(
-        registries,
-        state,
-        den,
-        at,
-        super::SCOUT_MEAL_MASS,
-        super::SCOUT_MEAL_MASS,
-    )
-    .is_some()
-    {
+    } else if consume_complete_den_ration(registries, state, den, at) {
         let watcher = state.kobold_state_mut().colony.as_mut().unwrap();
         watcher.watch_deployed_at = Some(at);
         watcher.watch_leg = 0;

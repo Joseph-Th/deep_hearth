@@ -167,9 +167,12 @@ def _wilderness_mobile_journey(
         or not 0 < int(percent) < 100
         or not 0 < int(secured)
         or not 0 < int(energy)
-        or not 0 < int(missing) == int(reclaimed) == int(saved_food) == int(late_recovery)
+        or int(missing) != int(reclaimed)
+        or int(missing) != int(saved_food)
+        or int(missing) != int(late_recovery)
         or int(protected_after) - int(exposed_after) != int(saved_food)
-        or not 0 < int(chase) == int(extra_travel)
+        or int(chase) != int(extra_travel)
+        or (int(missing) == 0) != (int(chase) == 0)
         or not 0 < int(early) == int(planned_fueled) < int(fueled) == int(reactive_at)
         or int(prepared_at) != int(provision_ticks)
         or int(protected_comfort) != int(planned_comfort) == int(future_comfort)
@@ -191,11 +194,19 @@ def _wilderness_mobile_journey(
         or float(proactive_passive[:-1]) >= float(exposed[:-1])
     ):
         raise ValueError("mobile continuation did not earn finite provisions and firelight protection")
+    # Cold can arrive before the first real scout theft. Zero displaced mass and
+    # no recovery trip are then truthful outcomes, not evidence that a fire
+    # protected food from a threat that never arrived.
+    scout_consequence = (
+        "scout-displaced:" + missing + "g reclaimed:" + reclaimed + "g/" + chase + "t"
+        + " unattended-fire-protected:" + saved_food + "g"
+        if int(missing) > 0 else
+        "scout-displaced:0g recovery:not-needed fire-protection:not-observed-before-warning"
+    )
     return (
         " lived=[nuts:" + secured + "g " + energy + "kJ"
         + " active:" + prep + " passive:" + exposed + " (" + percent + "%)"
-        + " scout-displaced:" + missing + "g reclaimed:" + reclaimed + "g/" + chase + "t"
-        + " unattended-fire-protected:" + saved_food + "g"
+        + " " + scout_consequence
         + " early-fuel:" + early_runway + "t-vs-reactive:" + late_runway + "t]"
         + " productive-gap=[observed-copper-scout:survey-" + survey + "t"
         + " secured:" + sample + "g active:" + recon_ticks + "t"
