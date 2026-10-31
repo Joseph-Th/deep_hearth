@@ -112,6 +112,9 @@ impl Error for FluidStructuralLoadError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FluidSupportError {
     PlayerDead,
+    NaturalPoolIsNotAVessel {
+        store: FluidStoreId,
+    },
     UnknownStore {
         store: FluidStoreId,
     },
@@ -140,6 +143,11 @@ impl Display for FluidSupportError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerDead => formatter.write_str("dead player cannot move fluid-store support"),
+            Self::NaturalPoolIsNotAVessel { store } => write!(
+                formatter,
+                "natural water pocket {} is ground-bound and cannot be mounted as a vessel",
+                store.value()
+            ),
             Self::UnknownStore { store } => {
                 write!(formatter, "unknown fluid store {}", store.value())
             }
@@ -187,6 +195,7 @@ impl Error for FluidSupportError {
             Self::Load(error) => Some(error),
             Self::Access(error) => Some(error),
             Self::PlayerDead
+            | Self::NaturalPoolIsNotAVessel { .. }
             | Self::UnknownStore { .. }
             | Self::AlreadyMounted { .. }
             | Self::NotMounted { .. }

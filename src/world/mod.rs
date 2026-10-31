@@ -77,6 +77,7 @@ pub use validation::{WorldValidationError, validate_loaded_world};
 pub(crate) use weather::assess_player_weather_at;
 pub(crate) use weather::wind_at_generated_position;
 pub use weather::{DayPhase, PlayerWeather, WindCondition, WindDirection, assess_player_weather};
+pub(crate) use weather::{SpringMoistureFlux, WEATHER_FRONT_TICKS, spring_moisture_flux};
 
 #[cfg(test)]
 #[path = "world_tests.rs"]

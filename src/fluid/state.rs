@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{Temperature, Volume};
 use crate::core::time::SimulationTick;
+use crate::spatial::VoxelCoord;
 use crate::structural::{
     StructuralElementId, apply_support_index_change, assert_support_index_change_available,
 };
@@ -108,6 +109,14 @@ impl FluidStoreRecord {
     }
 }
 
+/// Finite soil water beneath one generated surface pocket.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SpringSoilWater {
+    pub(crate) position: VoxelCoord,
+    pub(crate) soaked: Volume,
+}
+
 /// Persistent owner for finite fluid stores and monotonic identity/revision cursors.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -116,6 +125,8 @@ pub struct FluidState {
     next_store_id: u64,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     records: BTreeMap<FluidStoreId, FluidStoreRecord>,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
+    pub(crate) spring_soil: BTreeMap<FluidStoreId, SpringSoilWater>,
     #[serde(skip)]
     stores_by_support: BTreeMap<StructuralElementId, BTreeSet<FluidStoreId>>,
 }
@@ -127,6 +138,7 @@ impl FluidState {
             revision: 0,
             next_store_id: 1,
             records: BTreeMap::new(),
+            spring_soil: BTreeMap::new(),
             stores_by_support: BTreeMap::new(),
         }
     }
@@ -148,6 +160,10 @@ impl FluidState {
 
     pub fn stores(&self) -> impl Iterator<Item = &FluidStoreRecord> {
         self.records.values()
+    }
+
+    pub(crate) fn spring_soil(&self) -> impl Iterator<Item = (FluidStoreId, SpringSoilWater)> + '_ {
+        self.spring_soil.iter().map(|(id, record)| (*id, *record))
     }
 
     pub(crate) fn rebuild_derived_indexes(&mut self) {
@@ -197,17 +213,22 @@ impl FluidState {
 
     #[must_use]
     pub(crate) fn is_pristine_generation_state(&self) -> bool {
-        self.revision == 0 && self.next_store_id == 1 && self.records.is_empty()
+        self.revision == 0
+            && self.next_store_id == 1
+            && self.records.is_empty()
+            && self.spring_soil.is_empty()
     }
 
     /// Batch natural-water creation consumes all IDs with one reserved revision.
     pub(crate) fn insert_generated_batch(
         &mut self,
         records: Vec<FluidStoreRecord>,
+        spring_sites: &[(FluidStoreId, VoxelCoord)],
         next_store_id: u64,
         next_revision: u64,
     ) {
         assert!(!records.is_empty());
+        assert_eq!(records.len(), spring_sites.len());
         assert_eq!(self.revision.checked_add(1), Some(next_revision));
         assert_eq!(
             self.next_store_id.checked_add(records.len() as u64),
@@ -215,9 +236,44 @@ impl FluidState {
         );
         for (index, record) in records.into_iter().enumerate() {
             assert_eq!(record.id.value(), self.next_store_id + index as u64);
+            let (spring_id, position) = spring_sites[index];
+            assert_eq!(record.id, spring_id);
+            assert!(
+                self.spring_soil
+                    .insert(
+                        spring_id,
+                        SpringSoilWater {
+                            position,
+                            soaked: Volume::ZERO
+                        },
+                    )
+                    .is_none()
+            );
             assert!(self.records.insert(record.id, record).is_none());
         }
         self.next_store_id = next_store_id;
+        self.revision = next_revision;
+    }
+
+    /// Exchange a finite batch of shallow soil and standing water under one
+    /// fluid revision. All volume projections were checked before mutation.
+    pub(crate) fn apply_spring_soil_exchange(
+        &mut self,
+        changes: Vec<(FluidStoreId, Option<FluidContents>, Volume)>,
+        next_revision: u64,
+    ) {
+        assert!(!changes.is_empty());
+        assert_eq!(self.revision.checked_add(1), Some(next_revision));
+        for (id, contents, soaked) in changes {
+            self.spring_soil
+                .get_mut(&id)
+                .expect("preplanned natural source")
+                .soaked = soaked;
+            self.records
+                .get_mut(&id)
+                .expect("preplanned natural store")
+                .contents = contents;
+        }
         self.revision = next_revision;
     }
 
@@ -329,4 +385,4 @@ impl FluidState {
 mod validation;
 
 pub use validation::FluidValidationError;
-pub(crate) use validation::validate_loaded_fluid;
+pub(crate) use validation::{validate_loaded_fluid, validate_loaded_natural_spring_locations};

@@ -144,6 +144,9 @@ pub fn validate_mount_fluid_store(
         .get_store(store)
         .ok_or(FluidSupportError::UnknownStore { store })?;
     validate_player_fluid_store_access(state, store).map_err(FluidSupportError::Access)?;
+    if state.fluid().spring_soil.contains_key(&store) {
+        return Err(FluidSupportError::NaturalPoolIsNotAVessel { store });
+    }
     if let Some(existing) = record.supported_by() {
         return Err(FluidSupportError::AlreadyMounted {
             store,

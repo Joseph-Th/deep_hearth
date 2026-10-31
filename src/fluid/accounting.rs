@@ -71,9 +71,16 @@ pub fn calculate_fluid_volume_accounting(
         })
     });
     let consumed = state.survival().consumed_fluids();
+    let catchments = state.fluid().spring_soil().map(|(_, moisture)| {
+        (
+            crate::content::FLUID_WATER,
+            AggregateVolume::from_volume(moisture.soaked),
+        )
+    });
     for (fluid, volume) in stored
         .chain(consumed)
         .chain(state.kobold_state().consumed_fluids())
+        .chain(catchments)
     {
         let current = by_fluid
             .get(&fluid)

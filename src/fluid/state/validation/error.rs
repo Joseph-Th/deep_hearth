@@ -14,6 +14,9 @@ use super::super::FluidStoreId;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FluidValidationError {
     InvalidIdCursor,
+    InvalidNaturalSpring {
+        store: FluidStoreId,
+    },
     ZeroStoreId,
     RecordKeyMismatch {
         key: FluidStoreId,
@@ -76,6 +79,11 @@ pub enum FluidValidationError {
 impl Display for FluidValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::InvalidNaturalSpring { store } => write!(
+                formatter,
+                "natural water pocket {} has invalid finite catchment custody or location",
+                store.value()
+            ),
             Self::InvalidIdCursor => formatter.write_str("fluid store ID cursor is invalid"),
             Self::ZeroStoreId => formatter.write_str("fluid store ID must be nonzero"),
             Self::RecordKeyMismatch { key, record } => write!(

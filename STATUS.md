@@ -18,7 +18,7 @@ Progression:
 | Crafting and equipment | Flint/copper tools, kiln, cooling bed, fired ceramic casting mold, maintenance and upgrades; finite waste storage. |
 | Power | Hand crank, treadle, flywheels and buffers. Straight built timber shafts couple opposed mechanical stores at up to 50 W, losing 20% per roller. No gearboxes or electric networks. |
 | Processing | Ore dressing and local powered crusher choices from visible exact-lot feed, machine, charge and output bins; timed unattended execution. Casting, PbS+Fe smelting, kiln firing and finite cooling. No general reduction or passive cooling. |
-| Opening wilderness acquisition | Scouts forage, drink, warn and steal; machinery attracts raids. Presence, light and boxes deter theft; loot is recoverable. Steps, splashes and hauling are audible; running alerts scouts. Clubs have nonlethal contact, wear and exertion. Enemy strikes require fitted stationary tools (owner scenario only). |
+| Opening wilderness acquisition | Scouts forage, drink, steal and warn. Light, presence and boxes deter raids; stolen loot remains recoverable. Audible steps/splashes/hauling and running-triggered alarms. Clubs make nonlethal contact. Enemy strikes need fitted tools (owner scenario only). |
 | Structures | Timed carried-stack posts/framing plus a 6.5 kg cover panel; activation occurs on completion. |
 
 ## Current integration frontier
@@ -53,7 +53,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Energy and fluids | Finite energy and losses, multi-cell straight timber shafts, campfire heat, drinking and local/downhill fluid transfer. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; timed posts, framing, cover and grounded timber roller; timed primary-break recovery. |
-| Block world | Seeded ore, habitats, trees, forage, springs, temples and excavation. Groves/scrub vary food, water, shade and exposure; weather changes warmth/scent. Scouts forage at night. No regeneration or renderer. |
+| Block world | Seeded ore, habitats, trees, forage, springs, temples and excavation. Groves/scrub vary food, shade and exposure; weather shifts finite spring water and warmth/scent. No ecology or renderer. |
 | Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
 
 ## Capability-only evaluation

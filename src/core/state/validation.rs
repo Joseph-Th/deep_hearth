@@ -2,7 +2,7 @@
 
 use crate::energy::validate_loaded_energy;
 use crate::equipment::validate_loaded_equipment;
-use crate::fluid::validate_loaded_fluid;
+use crate::fluid::{validate_loaded_fluid, validate_loaded_natural_spring_locations};
 use crate::geology::{validate_loaded_geological_knowledge, validate_loaded_geology};
 use crate::inventory::validate_loaded_inventory;
 use crate::kobolds::validate_loaded_kobolds;
@@ -102,6 +102,7 @@ pub fn validate_loaded_state(
     )
     .map_err(StateValidationError::Inventory)?;
     validate_loaded_logistics(registries, state).map_err(StateValidationError::Logistics)?;
+    validate_loaded_natural_spring_locations(state).map_err(StateValidationError::Fluid)?;
     validate_tree_integrations(registries, state)?;
     crate::combat::validate_loaded_combat_references(registries.equipment(), state)
         .map_err(StateValidationError::Combat)?;

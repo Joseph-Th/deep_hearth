@@ -4,6 +4,7 @@ use crate::core::quantity::{Temperature, Volume};
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::registry::Registries;
+use crate::spatial::VoxelCoord;
 
 use super::{FluidContents, FluidDefinitionId, FluidStoreId, FluidStoreRecord};
 
@@ -118,9 +119,10 @@ impl ValidatedFluidGenerationBatch {
         self.records.iter().map(FluidStoreRecord::id)
     }
 
-    pub(crate) fn apply(self, state: &mut AppState) {
+    pub(crate) fn apply(self, state: &mut AppState, spring_sites: &[(FluidStoreId, VoxelCoord)]) {
         state.fluid_state_mut().insert_generated_batch(
             self.records,
+            spring_sites,
             self.next_store_id,
             self.next_revision,
         );

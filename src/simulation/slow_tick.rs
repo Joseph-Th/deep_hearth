@@ -16,6 +16,7 @@ use crate::energy::{
     decide_mechanical_transmission, decide_passive_energy_dissipation,
 };
 use crate::equipment::{apply_equipment_maintenance_tick, decide_equipment_maintenance_tick};
+use crate::fluid::apply_natural_water_cycle;
 use crate::geology::{apply_field_prospecting_tick, decide_field_prospecting_tick};
 use crate::inventory::apply_storage_enclosure_dismantling_tick;
 use crate::kobolds::apply_kobold_scout_tick;
@@ -301,6 +302,9 @@ pub(super) fn advance_simulation_tick(
     // before residents assess a player's actual living threat: a death on this
     // very tick must not make a corpse deter or challenge a neighboring scout.
     let _ = apply_survival_tick(state, survival_plan);
+    // Weather-front changes can move existing water between the exposed pool
+    // and its shallow basin before residents choose whether to drink.
+    apply_natural_water_cycle(registries, state, next_tick);
     let (kobold_scout, kobold_alarm_pulses) = apply_kobold_scout_tick(registries, state, next_tick);
     if player_dead_after_tick {
         // Raised weapons cannot survive a fatal survival transition or grant a charged respawn hit.

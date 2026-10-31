@@ -7,6 +7,7 @@ mod egress;
 mod fixture_execution;
 mod generation;
 mod physics;
+mod spring_cycle;
 mod state;
 mod structural_integration;
 mod transfer;
@@ -36,7 +37,8 @@ pub(crate) use generation::{
     validate_generate_fluid_stores,
 };
 pub(crate) use physics::{FluidMassProjectionError, project_fluid_material_mass};
-pub(crate) use state::validate_loaded_fluid;
+pub(crate) use spring_cycle::apply_natural_water_cycle;
+pub(crate) use state::{validate_loaded_fluid, validate_loaded_natural_spring_locations};
 pub(crate) use structural_integration::validate_existing_fluid_load;
 
 #[cfg(test)]

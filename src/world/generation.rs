@@ -508,8 +508,8 @@ impl ValidatedPlayerChunkDemand {
             forage.apply(state);
         }
         if let Some((generation, positions, next_logistics_revision)) = self.springs {
-            let locations = generation.store_ids().zip(positions).collect();
-            generation.apply(state);
+            let locations = generation.store_ids().zip(positions).collect::<Vec<_>>();
+            generation.apply(state, &locations);
             state
                 .logistics_state_mut()
                 .apply_generated_spring_locations(

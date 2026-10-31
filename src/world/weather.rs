@@ -13,7 +13,7 @@ use super::generation::terrain::mix64;
 use super::generation::{HabitatKind, WorldGenerationSeed, habitat_at};
 
 /// Physical time between changes in a regional wind/temperature front: twelve minutes.
-const WEATHER_FRONT_TICKS: u64 = 200;
+pub(crate) const WEATHER_FRONT_TICKS: u64 = 200;
 pub(super) const REGION_SIDE_VOXELS: i64 = 128;
 const COOLING_REFERENCE_CELSIUS: i32 = 12;
 const COOLING_PER_DEGREE_PPM: i32 = 30_000;
@@ -27,6 +27,38 @@ pub enum WindCondition {
     Calm,
     Breeze,
     Gusting,
+}
+
+/// A regional front's tendency to exchange finite water with a shallow
+/// catchment. This does not model new precipitation or create water.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SpringMoistureFlux {
+    Drying,
+    Returning,
+    Balanced,
+}
+
+pub(crate) fn spring_moisture_flux(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    at: SimulationTick,
+) -> SpringMoistureFlux {
+    let Some(profile) = state.world().generation_profile() else {
+        return SpringMoistureFlux::Balanced;
+    };
+    if !super::sky::has_open_sky(registries, state, position) {
+        return SpringMoistureFlux::Balanced;
+    }
+    let weather = weather_at(registries, profile.seed().value(), position, at);
+    let temperature = weather.ambient_temperature().millikelvin();
+    if weather.wind() == WindCondition::Gusting || temperature >= 295_150 {
+        SpringMoistureFlux::Drying
+    } else if weather.wind() == WindCondition::Calm && temperature <= 291_150 {
+        SpringMoistureFlux::Returning
+    } else {
+        SpringMoistureFlux::Balanced
+    }
 }
 
 /// Horizontal direction in which air moves, not the direction it originates from.

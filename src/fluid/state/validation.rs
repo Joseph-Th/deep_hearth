@@ -1,6 +1,7 @@
 //! Validates persisted fluid stores, contents, support indexes, authored references, and cursors.
 
 use crate::core::quantity::Temperature;
+use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::material::MaterialRegistry;
 use crate::structural::{SupportIndexValidationFault, validate_support_index};
@@ -24,7 +25,33 @@ pub(crate) fn validate_loaded_fluid(
     for (key, record) in &state.records {
         validate_fluid_store(registry, materials, state, *key, record, current)?;
     }
+    for (id, soil) in &state.spring_soil {
+        let Some(store) = state.records.get(id) else {
+            return Err(FluidValidationError::InvalidNaturalSpring { store: *id });
+        };
+        if soil.soaked > store.capacity
+            || store.supported_by.is_some()
+            || store.created_at > current
+        {
+            return Err(FluidValidationError::InvalidNaturalSpring { store: *id });
+        }
+    }
     validate_fluid_support_index(state)
+}
+
+/// Natural pools are static world locations even while their visible water is
+/// exhausted. Their source coordinates must stay present and generated.
+pub(crate) fn validate_loaded_natural_spring_locations(
+    state: &AppState,
+) -> Result<(), FluidValidationError> {
+    for (id, soil) in state.fluid().spring_soil() {
+        if state.logistics().fluid_store_position(id) != Some(soil.position)
+            || !state.world().has_generated_terrain_at(soil.position)
+        {
+            return Err(FluidValidationError::InvalidNaturalSpring { store: id });
+        }
+    }
+    Ok(())
 }
 
 fn validate_fluid_store(
