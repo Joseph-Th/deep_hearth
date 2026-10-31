@@ -49,7 +49,7 @@ These systems have authoritative owners and canonical paths even where ordinary 
 | Production | Timed conserved work, routed outputs, actor-local powered comminution batch choices with capacity-limited outputs and stale-cohort rejection, metal remelting/casting and iron upkeep. PbS+Fe yields lead and FeS matte. |
 | Crafting | Timed exact-lot processing, including iron head finishing with recoverable chips, equipment admission and conserved outputs. |
 | Logistics | 20 Hz body collision, carrying/load exertion, falling injury, equipment and inventory access, nine-slot hotbar, buffered actions. |
-| Loose surface matter | Finite gathering and drops, empty-hand local gathering, capacity-limited pickup. Deep residue obstructs ground-storage footing. |
+| Loose surface matter | Finite gathering and drops, source-aware empty-hand gathering with immediate capacity rejection, capacity-limited pickup. Deep residue obstructs ground-storage footing. |
 | Energy and fluids | Finite energy and losses, multi-cell straight timber shafts, campfire heat, drinking and local/downhill fluid transfer. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; timed posts, framing, cover and grounded timber roller; timed primary-break recovery. |

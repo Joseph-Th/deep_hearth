@@ -12,7 +12,8 @@ use crate::registry::Registries;
 use crate::spatial::ViewDirection;
 use crate::surface::{
     PlayerSurfaceGatheringOption, SurfaceGatheringError, SurfaceResourceId,
-    player_surface_gathering_options, validate_start_player_surface_gathering_option,
+    assess_player_surface_gathering_reservation, player_surface_gathering_options,
+    validate_start_player_surface_gathering_option,
 };
 use crate::survival::{
     available_local_drink_sources, validate_drink_store_to_full, validate_eat_stack_to_full,
@@ -39,22 +40,30 @@ fn resolve_direct_surface_gathering(
     let options = player_surface_gathering_options(registries, state).unwrap_or_else(|error| {
         panic!("runtime invariant broken: direct gathering option projection failed: {error}")
     });
-    // The surface owner projects methods grouped by resource. Inspect each group once rather
-    // than re-counting the entire option set for every visible source.
-    if let Some(methods) = options
-        .chunk_by(|left, right| left.resource() == right.resource())
-        .find(|methods| methods.len() > 1)
-    {
-        return DirectSurfaceGatheringResolution::AmbiguousMethods {
+    classify_direct_surface_gathering_options(&options)
+}
+
+fn classify_direct_surface_gathering_options(
+    options: &[PlayerSurfaceGatheringOption],
+) -> DirectSurfaceGatheringResolution {
+    // Resolve physical sources before their possible gathering methods. Multiple
+    // methods for one source must not mask a different local source, and method
+    // multiplicity must not inflate the number of physical resources reported.
+    let mut resources = options.chunk_by(|left, right| left.resource() == right.resource());
+    let Some(methods) = resources.next() else {
+        return DirectSurfaceGatheringResolution::None;
+    };
+    let additional_resources = resources.count();
+    if additional_resources != 0 {
+        DirectSurfaceGatheringResolution::AmbiguousResources {
+            count: additional_resources + 1,
+        }
+    } else if methods.len() > 1 {
+        DirectSurfaceGatheringResolution::AmbiguousMethods {
             count: methods.len(),
-        };
-    }
-    match options.as_slice() {
-        [] => DirectSurfaceGatheringResolution::None,
-        [option] => DirectSurfaceGatheringResolution::One(*option),
-        options => DirectSurfaceGatheringResolution::AmbiguousResources {
-            count: options.len(),
-        },
+        }
+    } else {
+        DirectSurfaceGatheringResolution::One(methods[0])
     }
 }
 
@@ -65,11 +74,9 @@ pub(super) fn attempt_empty_hand_secondary_action(
     let drink_sources = available_local_drink_sources(registries, state).collect::<Vec<_>>();
     let gathering = resolve_direct_surface_gathering(registries, state);
     let surface_resources = match gathering {
-        DirectSurfaceGatheringResolution::AmbiguousMethods { count } => {
-            return SecondaryActionOutcome::AmbiguousSurfaceGatheringMethods { count };
-        }
         DirectSurfaceGatheringResolution::AmbiguousResources { count } => count,
-        DirectSurfaceGatheringResolution::One(_) => 1,
+        DirectSurfaceGatheringResolution::One(_)
+        | DirectSurfaceGatheringResolution::AmbiguousMethods { .. } => 1,
         DirectSurfaceGatheringResolution::None => 0,
     };
     if surface_resources != 0 && !drink_sources.is_empty() {
@@ -77,6 +84,9 @@ pub(super) fn attempt_empty_hand_secondary_action(
             drink_sources: drink_sources.len(),
             surface_resources,
         };
+    }
+    if let DirectSurfaceGatheringResolution::AmbiguousMethods { count } = gathering {
+        return SecondaryActionOutcome::AmbiguousSurfaceGatheringMethods { count };
     }
     if surface_resources > 1 {
         return SecondaryActionOutcome::AmbiguousLocalSurfaceResources {
@@ -103,9 +113,6 @@ fn attempt_direct_surface_gathering(
     if let Some(blocker) = option.hand_handling_blocker() {
         return SecondaryActionOutcome::SurfaceGatheringRejected(blocker);
     }
-    if !state.control_tick().is_simulation_boundary() {
-        return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
-    }
     let carried = state
         .logistics()
         .player()
@@ -127,6 +134,12 @@ fn attempt_direct_surface_gathering(
     } else {
         gathered_mass
     };
+    if let Err(error) = assess_player_surface_gathering_reservation(state, request_mass) {
+        return SecondaryActionOutcome::SurfaceGatheringRejected(error);
+    }
+    if !state.control_tick().is_simulation_boundary() {
+        return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
+    }
     match validate_start_player_surface_gathering_option(registries, state, option, request_mass) {
         Ok(validated) => {
             validated.commit(state).unwrap_or_else(|error| {
@@ -207,6 +220,9 @@ pub(super) fn attempt_explicit_surface_gathering(
     // one-shot request solely to reject it at the next slow boundary.
     if let Some(blocker) = option.hand_handling_blocker() {
         return SecondaryActionOutcome::SurfaceGatheringRejected(blocker);
+    }
+    if let Err(error) = assess_player_surface_gathering_reservation(state, mass) {
+        return SecondaryActionOutcome::SurfaceGatheringRejected(error);
     }
     if !state.control_tick().is_simulation_boundary() {
         return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
@@ -449,3 +465,7 @@ fn attempt_selected_combustion(
         },
     )
 }
+
+#[cfg(test)]
+#[path = "secondary_tests.rs"]
+mod tests;

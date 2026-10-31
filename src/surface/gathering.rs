@@ -543,6 +543,23 @@ pub fn validate_start_player_surface_gathering_option(
     )
 }
 
+/// Read-only capacity preflight for a proposed direct gathering amount. This invokes
+/// inventory's exact reservation policy without reserving anything; full gathering
+/// admission still checks storage, player attention, revisions, and source custody.
+pub(crate) fn assess_player_surface_gathering_reservation(
+    state: &AppState,
+    mass: Mass,
+) -> Result<(), SurfaceGatheringError> {
+    let destination = state
+        .logistics()
+        .player()
+        .map(|player| player.carried_stockpile())
+        .ok_or(SurfaceGatheringError::PlayerNotLocated)?;
+    validate_inbound_reservation(state.inventory(), destination, mass)
+        .map(|_| ())
+        .map_err(map_reservation_error)
+}
+
 fn map_reservation_error(error: InboundReservationError) -> SurfaceGatheringError {
     match error {
         InboundReservationError::UnknownStockpile { stockpile } => {

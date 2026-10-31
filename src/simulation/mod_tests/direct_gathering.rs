@@ -10,6 +10,177 @@ use crate::surface::{
 };
 
 #[test]
+fn full_carrying_capacity_rejects_explicit_and_empty_hand_gathering_before_queueing() {
+    use crate::content::{FORM_LUMP, MATERIAL_STONE};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
+    let temperature = Temperature::from_millikelvin(293_150);
+    let source_mass = Mass::from_milligrams(1_000_000);
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Opportunity,
+        position,
+        commodity,
+        source_mass,
+        temperature,
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let creation = validate_create_surface_resources(&registries, &state, [spec]).unwrap();
+    let resource = creation.first_resource_id();
+    creation.commit(&mut state).unwrap();
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let mut queued_before_filling = state.clone();
+    let capacity = state.inventory().get_stockpile(carried).unwrap().capacity();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        capacity,
+        temperature,
+    )
+    .unwrap();
+    let before = state.clone();
+    let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
+    let requested = Mass::from_milligrams(100_000);
+
+    let explicit = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::gather_surface(
+            resource, requested, direction,
+        )),
+    )
+    .unwrap();
+    assert_eq!(
+        explicit.secondary_action(),
+        Some(&SecondaryActionOutcome::SurfaceGatheringRejected(
+            SurfaceGatheringError::DestinationCapacityExceeded {
+                stockpile: carried,
+                capacity,
+                committed: capacity,
+                requested,
+            }
+        ))
+    );
+    assert!(state.logistics().pending_secondary_use().is_none());
+    assert_eq!(state.player_work().active(), None);
+
+    let contextual = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(direction)),
+    )
+    .unwrap();
+    assert_eq!(
+        contextual.secondary_action(),
+        Some(&SecondaryActionOutcome::SurfaceGatheringRejected(
+            SurfaceGatheringError::DestinationCapacityExceeded {
+                stockpile: carried,
+                capacity,
+                committed: capacity,
+                requested: source_mass,
+            }
+        ))
+    );
+    assert!(state.logistics().pending_secondary_use().is_none());
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(state.inventory(), before.inventory());
+    assert_eq!(state.surface(), before.surface());
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        calculate_matter_accounting(&before).unwrap().total()
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+
+    // An initially legal buffered request must recheck inventory custody
+    // after the pack fills, including after trusted save/reload.
+    let queued = advance_control_tick_with_direct_input(
+        &registries,
+        &mut queued_before_filling,
+        PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::gather_surface(
+            resource, requested, direction,
+        )),
+    )
+    .unwrap();
+    assert_eq!(
+        queued.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    deposit_lot_for_test(
+        &registries,
+        &mut queued_before_filling,
+        carried,
+        commodity,
+        capacity,
+        temperature,
+    )
+    .unwrap();
+    let matter_before = calculate_matter_accounting(&queued_before_filling)
+        .unwrap()
+        .total();
+    let serialized =
+        serde_json::to_vec(&SaveEnvelope::new(&registries, &queued_before_filling)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&serialized)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let mut due_rejected = false;
+    while !queued_before_filling
+        .control_tick()
+        .is_simulation_boundary()
+    {
+        let outcome = advance_control_tick(&registries, &mut queued_before_filling).unwrap();
+        let replay_outcome = advance_control_tick(&registries, &mut replay).unwrap();
+        assert_eq!(outcome, replay_outcome);
+        if let Some(SecondaryActionOutcome::SurfaceGatheringRejected(
+            SurfaceGatheringError::DestinationCapacityExceeded {
+                stockpile,
+                requested: due_mass,
+                ..
+            },
+        )) = outcome.secondary_action()
+        {
+            assert_eq!((*stockpile, *due_mass), (carried, requested));
+            due_rejected = true;
+        }
+    }
+    assert!(
+        due_rejected,
+        "a stale buffered capacity must fail on its due boundary"
+    );
+    assert_eq!(queued_before_filling, replay);
+    assert!(
+        queued_before_filling
+            .logistics()
+            .pending_secondary_use()
+            .is_none()
+    );
+    assert!(queued_before_filling.player_work().active().is_none());
+    assert_eq!(
+        calculate_matter_accounting(&queued_before_filling)
+            .unwrap()
+            .total(),
+        matter_before
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &queued_before_filling),
+        Ok(())
+    );
+}
+
+#[test]
 fn hot_natural_gathering_is_reported_on_the_input_frame_without_buffering() {
     use crate::content::{FORM_CHIP, MATERIAL_STONE};
     use crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
