@@ -494,14 +494,14 @@ fn validate_world_location(
     Ok(())
 }
 
-/// A harvested perennial still has live roots at its site. An enclosure may
-/// not be built over them and later contain fruit regrown inside its body.
-/// Placement is rare, so query the perennial index instead of all surface drops.
+/// Harvested patches with live root reserves still occupy their sites; a
+/// rootless and fruitless provenance receipt does not. Placement is rare, so
+/// query the perennial index instead of all loose surface drops.
 fn rooted_foraging_at(state: &AppState, position: VoxelCoord) -> bool {
     state
         .surface()
         .perennial_resources()
-        .any(|resource| resource.position() == position)
+        .any(|resource| resource.position() == position && resource.rooted_biomass_occupies_site())
 }
 
 fn enclosure_position_is_solid(

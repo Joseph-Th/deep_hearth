@@ -134,11 +134,13 @@ at both direct placement and in-place assembly; neither operation may embody a c
 a resident. Validated enclosure construction is bound to its control tick as well as the relevant
 owner revisions, so a later resident movement cannot make an old placement token safe to commit.
 A material-backed storage enclosure cannot be placed or assembled on a living rooted
-forage patch, even after harvesting depletes its fruit; natural regrowth also
-checks actual enclosure occupancy. Trusted-load promotion rejects a saved enclosure
-relocated onto such roots after rebuilding the derived location index.
-The local inventory/logistics occupancy
-projection blocks scout traversal but does not pretend a storage box is a
+forage patch, even after harvesting depletes its fruit, while its underground
+reserve remains nonzero. A final unharvested fruit crop still occupies its site;
+a provenance-only perennial with neither fruit nor living roots does not.
+Natural regrowth checks actual enclosure occupancy. Trusted-load promotion rejects
+a saved enclosure relocated onto living roots or remaining fruit after rebuilding
+the derived location index. The local inventory/logistics occupancy projection
+blocks scout traversal but does not pretend a storage box is a
 full-cell opaque wall: player bodies and campfires may share its voxel, and
 finite light, sound, sight, and sky visibility retain their actual terrain
 and materialized-structure occlusion rules.

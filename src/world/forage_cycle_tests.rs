@@ -276,6 +276,27 @@ fn strip_plant(state: &mut AppState, id: crate::surface::SurfaceResourceId) {
 }
 
 #[test]
+fn spent_perennial_provenance_does_not_permanently_reserve_building_land() {
+    let (_, mut state, plant) = generated_plant();
+    let mut fruiting = state.surface().get(plant).unwrap().clone();
+    assert!(fruiting.rooted_biomass_occupies_site());
+    fruiting.perennial.as_mut().unwrap().root_reserve = Mass::ZERO;
+    assert!(
+        fruiting.rooted_biomass_occupies_site(),
+        "the last unharvested fruit still has physical mass at the site"
+    );
+    strip_plant(&mut state, plant);
+    let mut stripped = state.surface().get(plant).unwrap().clone();
+    assert!(stripped.rooted_biomass_occupies_site());
+    assert_eq!(stripped.remaining_mass(), Mass::ZERO);
+    stripped.perennial.as_mut().unwrap().root_reserve = Mass::ZERO;
+    assert!(
+        !stripped.rooted_biomass_occupies_site(),
+        "an exhausted, fruitless provenance record is not living vegetation"
+    );
+}
+
+#[test]
 fn canopy_darkness_and_sub_milligram_yields_leave_root_matter_intact() {
     let roots = Mass::from_milligrams(800);
     let fruit = Mass::from_milligrams(800);

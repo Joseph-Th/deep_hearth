@@ -114,6 +114,7 @@ pub fn validate_loaded_state(
     if let Some(position) = state
         .surface()
         .perennial_resources()
+        .filter(|source| source.rooted_biomass_occupies_site())
         .map(|source| source.position())
         .find(|position| state.has_enclosed_stockpile_at(*position))
     {

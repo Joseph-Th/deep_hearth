@@ -222,6 +222,15 @@ impl SurfaceResourceRecord {
             None => Mass::ZERO,
         }
     }
+
+    /// A perennial retains a physical footprint while either live roots or
+    /// its final fruit crop still has mass. Its exhausted provenance record
+    /// alone does not reserve land indefinitely.
+    #[must_use]
+    pub(crate) const fn rooted_biomass_occupies_site(&self) -> bool {
+        self.perennial.is_some()
+            && (!self.perennial_root_mass().is_zero() || !self.remaining_mass.is_zero())
+    }
 }
 
 #[derive(Deserialize)]
