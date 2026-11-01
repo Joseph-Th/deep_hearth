@@ -9,7 +9,7 @@ use crate::core::time::{Season, SimulationTick};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
-use super::{WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y};
+use super::{ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y};
 
 const MAX_CANOPY_RADIUS: i64 = 3;
 const CANOPY_VERTICAL_REACH_ABOVE_ROOT: i64 = 5;
@@ -89,22 +89,42 @@ pub(crate) fn has_open_sky(
     state: &AppState,
     position: VoxelCoord,
 ) -> bool {
-    if !(WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&position.y())
-        || !state.world().has_generated_terrain_at(position)
+    if !(WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&position.y()) {
+        return false;
+    }
+    // Every vertical cell in one horizontal column belongs to the same
+    // generated chunk. Resolve that authority once instead of repeating a
+    // chunk-index lookup for every elevation and every light/weather query.
+    let Some(chunk) = state.world().get_chunk(ChunkCoord::containing(position)) else {
+        return false;
+    };
+    // The structural owner already indexes full-footprint members by
+    // horizontal column. One bounded vertical query detects roofs without
+    // repeating the spatial-index traversal for every cell above the actor.
+    if state.structures().has_full_cell_member_in_voxel_box(
+        position,
+        VoxelCoord::new(position.x(), WORLD_MAX_Y_EXCLUSIVE - 1, position.z()),
+    ) {
+        return false;
+    }
+    // The trunk is only two cells tall, and tree roots are already indexed
+    // by horizontal location. One range lookup replaces one or two tree-map
+    // searches per vertical cell without treating diffuse canopies as solids.
+    if state
+        .world()
+        .trees_near_horizontal(position, 0)
+        .any(|tree| {
+            let root = tree.root();
+            root.y() < WORLD_MAX_Y_EXCLUSIVE && i128::from(root.y()) + 1 >= i128::from(position.y())
+        })
     {
         return false;
     }
     for y in position.y()..WORLD_MAX_Y_EXCLUSIVE {
         let at = VoxelCoord::new(position.x(), y, position.z());
-        if state.structures().blocks_full_cell(at) || state.world().tree_trunk_at(at).is_some() {
-            return false;
-        }
-        let Some(block) = state.world().block_at(at) else {
-            return false;
-        };
         if registries
             .world()
-            .block_for_state(block)
+            .block_for_state(chunk.block_at(at))
             .is_none_or(|definition| definition.is_opaque())
         {
             return false;

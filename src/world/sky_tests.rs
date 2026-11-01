@@ -235,6 +235,22 @@ fn seed_rooted_tree_growth_and_season_change_real_canopy_daylight() {
         .expect("a finite seed search provides a juvenile tree with a clear understory cell");
     let tree = *state.world().tree_at(root).unwrap();
     assert_eq!(tree.canopy_radius_voxels(SimulationTick::ZERO), 0);
+    assert!(
+        !has_open_sky(&registries, &state, root),
+        "the rooted trunk must occlude its own ground cell"
+    );
+    assert!(
+        !has_open_sky(
+            &registries,
+            &state,
+            VoxelCoord::new(root.x(), root.y() + 1, root.z())
+        ),
+        "the upper trunk cell must remain solid to the sky"
+    );
+    assert!(
+        has_open_sky(&registries, &state, position),
+        "diffuse canopy shade beside the trunk is not a full-cell ceiling"
+    );
     apply_clock_advance(&mut state, SimulationTick::new(season_ticks));
     assert_eq!(calendar.date_at(state.tick()).season(), Season::Summer);
     let juvenile_summer = assess_generated_skylight(&registries, &state, position);
