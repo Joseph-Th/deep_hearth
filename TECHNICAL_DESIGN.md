@@ -593,6 +593,13 @@ Identity-preserving scavenger relocations also use the surface owner's
 world-obstruction test at their destination: a solid voxel or tree trunk refuses the
 transfer without changing custody or revisions, while a cleared destination
 allows the same conserved parcel identity to continue its physical route.
+Incidental scavenger moves reserve surface-revision headroom beyond any
+already-admitted player's deferred gathering commitment. A whole-drop move
+that would consume the last promised revision stays at its original position.
+Perennial senescence and ripening likewise defer when their revision would
+consume later player-work headroom; once that work releases its reservation,
+subsequent weather fronts may resume the conserved cycle. An unreserved,
+fully exhausted surface revision still rejects a due change atomically.
 Generated chunks also reject full-cube blocks intersecting already embodied
 structural members. The prospective overlap scan is clipped to the finite
 incoming chunk, not the potentially large authored member bounds, and atomic

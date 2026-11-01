@@ -4366,6 +4366,80 @@ fn admit_player(
         .carried_stockpile()
 }
 
+#[test]
+fn scavenger_relocation_must_not_spend_reserved_surface_gathering_revision() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let player_position = VoxelCoord::new(0, 0, 0);
+    let from = VoxelCoord::new(2, 0, 0);
+    let to = VoxelCoord::new(3, 0, 0);
+    let mass = Mass::from_milligrams(1_000_000);
+    let source = seed_surface(
+        &registries,
+        &mut state,
+        player_position,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        mass,
+    );
+    let drop = insert_surface_resource_for_test(
+        &registries,
+        &mut state,
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            from,
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(50_000),
+            TEMPERATURE,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let _ = admit_player(&registries, &mut state, player_position);
+    validate_start_player_surface_gathering(
+        &registries,
+        &state,
+        SURFACE_GATHERING_HAND_COLLECT_STONE,
+        source,
+        mass,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+
+    let encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut modified = encoded;
+    modified["state"]["systems"]["surface"]["revision"] = serde_json::json!(u64::MAX - 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(modified).unwrap();
+    let mut state = decoded.into_state(&registries).unwrap();
+    assert!(!state.can_spend_surface_revisions(1));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let before = state.clone();
+    assert!(!relocate_scavenged_drop_step(
+        &registries,
+        &mut state,
+        drop,
+        from,
+        to,
+    ));
+    assert_eq!(
+        state, before,
+        "a scavenger must not steal promised revision space"
+    );
+    let due = match state.player_work().active() {
+        Some(crate::labor::PlayerWork::SurfaceGathering { work }) => work.completes_at(),
+        other => panic!("expected reserved gathering: {other:?}"),
+    };
+    while state.tick() < due {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(state.surface().revision(), u64::MAX);
+    assert_eq!(state.surface().get(drop).unwrap().position(), from);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
 fn make_next_tick_fatal(registries: &crate::registry::Registries, state: &mut AppState) {
     let physiology = registries.survival().physiology();
     let player = state

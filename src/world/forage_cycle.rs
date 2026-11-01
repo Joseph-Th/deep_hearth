@@ -90,6 +90,18 @@ pub(crate) fn apply_natural_forage_cycle(
     if !at.value().is_multiple_of(FIELD_CHECK_TICKS) {
         return Ok(());
     }
+    // Growth and senescence are incidental. A scheduled harvest owns its future
+    // surface revision even when it completes after this weather front. Defer
+    // vegetation changes rather than consuming that promised mutation space.
+    // With no outstanding reservation, a genuinely exhausted revision still
+    // reports an error instead of silently suppressing an otherwise due cycle.
+    if state
+        .checked_future_surface_revision_demand()
+        .is_some_and(|future| future != 0)
+        && !state.can_spend_surface_revisions(1)
+    {
+        return Ok(());
+    }
     let growing_season = matches!(
         registries.core().calendar().season_at(at),
         Season::Spring | Season::Summer

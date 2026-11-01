@@ -57,7 +57,8 @@ pub(crate) use state::{
 /// Conserved relocation of an exposed player drop by an already-authorized adjacent scavenger.
 ///
 /// The surface owner retains matter and physical history. The caller owns creature movement
-/// legality; this function refuses any missing/depleted/non-drop parcel or stale location.
+/// legality; this function refuses any missing/depleted/non-drop parcel, stale location,
+/// or mutation that would consume a surface revision reserved for active player work.
 pub(crate) fn relocate_scavenged_drop_step(
     registries: &crate::registry::Registries,
     state: &mut crate::core::state::AppState,
@@ -65,7 +66,8 @@ pub(crate) fn relocate_scavenged_drop_step(
     from: crate::spatial::VoxelCoord,
     to: crate::spatial::VoxelCoord,
 ) -> bool {
-    if !from.is_face_adjacent_to(to)
+    if !state.can_spend_surface_revisions(1)
+        || !from.is_face_adjacent_to(to)
         || state::validation::surface_position_has_solid_world(
             registries.world(),
             state.world(),

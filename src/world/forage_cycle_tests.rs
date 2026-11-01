@@ -680,6 +680,84 @@ fn living_tree_canopy_reduces_next_real_crop_without_destroying_root_biomass() {
 }
 
 #[test]
+fn natural_senescence_does_not_spend_a_later_gathering_completion_revision() {
+    use crate::content::{FORM_LUMP, MATERIAL_STONE, SURFACE_GATHERING_HAND_COLLECT_STONE};
+    use crate::material::{CommodityKey, MaterialComposition};
+    use crate::surface::{
+        SurfaceResourceSpec, SurfaceResourceState, validate_create_surface_resources,
+        validate_start_player_surface_gathering,
+    };
+
+    let (registries, mut state, plant) = generated_plant();
+    let player_position = state.logistics().player().unwrap().position();
+    let stone = crate::surface::SurfaceResourceId::new(state.surface().next_resource_id());
+    let stone_spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Opportunity,
+        player_position,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(2_000_000),
+        crate::core::quantity::Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    validate_create_surface_resources(&registries, &state, [stone_spec])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let next_front = SimulationTick::new(FRUIT_SENESCENCE_TICKS);
+    crate::core::state::apply_clock_advance(
+        &mut state,
+        SimulationTick::new(next_front.value() - 1),
+    );
+    validate_start_player_surface_gathering(
+        &registries,
+        &state,
+        SURFACE_GATHERING_HAND_COLLECT_STONE,
+        stone,
+        Mass::from_milligrams(1_000_000),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let gathering_due = match state.player_work().active() {
+        Some(crate::labor::PlayerWork::SurfaceGathering { work }) => work.completes_at(),
+        other => panic!("expected active gathering: {other:?}"),
+    };
+    assert!(gathering_due > next_front);
+
+    let mut unreserved = state.clone();
+    let _ = advance_tick(&registries, &mut unreserved).unwrap();
+    assert_eq!(
+        unreserved.surface().get(plant).unwrap().lifecycle(),
+        SurfaceResourceLifecycle::Depleted,
+        "the same front must actually trigger natural senescence"
+    );
+
+    let saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut surface = saved["state"]["systems"]["surface"].clone();
+    surface["revision"] = serde_json::json!(u64::MAX - 1);
+    let mut near_exhausted: SurfaceResourceState = serde_json::from_value(surface).unwrap();
+    near_exhausted.rebuild_derived_indexes();
+    *state.surface_state_mut() = near_exhausted;
+    assert!(!state.can_spend_surface_revisions(1));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(state.surface().revision(), u64::MAX - 1);
+    assert_eq!(
+        state.surface().get(plant).unwrap().lifecycle(),
+        SurfaceResourceLifecycle::Available,
+        "incidental senescence must defer instead of spending reserved revision space"
+    );
+    while state.tick() < gathering_due {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(state.surface().revision(), u64::MAX);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn exhausted_perennial_revision_rejects_due_senescence_atomically() {
     use crate::simulation::TickError;
     use crate::surface::SurfaceResourceState;
