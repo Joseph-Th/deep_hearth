@@ -39,12 +39,16 @@ fn generated_player() -> (Registries, AppState, WorldGenerationSeed) {
 }
 
 #[test]
-fn dead_player_cannot_inspect_current_weather_but_respawned_player_can() {
+fn dead_player_cannot_inspect_local_weather_habitat_or_cover_until_respawn() {
     use crate::player::validate_respawn_player;
     use crate::survival::{Vitality, player_record_with_thermal_comfort};
 
     let (registries, mut state, _) = generated_player();
     let living_weather = assess_player_weather(&registries, &state).unwrap();
+    let habitat = crate::world::assess_player_habitat(&state);
+    let cover = crate::logistics::assess_player_overhead_cover(&registries, &state);
+    assert!(habitat.is_some());
+    assert!(cover.is_some());
     let before = *state.survival().player().unwrap();
     let revision = state.survival().revision();
     state.survival_state_mut().apply_player(
@@ -61,6 +65,11 @@ fn dead_player_cannot_inspect_current_weather_but_respawned_player_can() {
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     assert_eq!(assess_player_weather(&registries, &state), None);
+    assert_eq!(crate::world::assess_player_habitat(&state), None);
+    assert_eq!(
+        crate::logistics::assess_player_overhead_cover(&registries, &state),
+        None
+    );
 
     let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
     let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
@@ -68,6 +77,11 @@ fn dead_player_cannot_inspect_current_weather_but_respawned_player_can() {
         .into_state(&registries)
         .unwrap();
     assert_eq!(assess_player_weather(&registries, &replay), None);
+    assert_eq!(crate::world::assess_player_habitat(&replay), None);
+    assert_eq!(
+        crate::logistics::assess_player_overhead_cover(&registries, &replay),
+        None
+    );
     assert_eq!(state, replay);
     let _ = validate_respawn_player(&registries, &state)
         .unwrap()
@@ -78,6 +92,11 @@ fn dead_player_cannot_inspect_current_weather_but_respawned_player_can() {
         .commit(&mut replay)
         .unwrap();
     assert_eq!(state, replay);
+    assert_eq!(crate::world::assess_player_habitat(&state), habitat);
+    assert_eq!(
+        crate::logistics::assess_player_overhead_cover(&registries, &state),
+        cover
+    );
     assert_eq!(
         assess_player_weather(&registries, &state),
         Some(living_weather)

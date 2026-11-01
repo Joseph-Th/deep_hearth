@@ -109,20 +109,9 @@ pub fn available_adjacent_surface_resources(
     // Scanning every surface record here would make a local HUD query grow with
     // remote world generation and the number of historically depleted sources.
     let mut nearby = state
-        .logistics()
-        .player()
-        .filter(|_| {
-            state
-                .survival()
-                .player()
-                .is_none_or(|survival| survival.vitality() != Vitality::ZERO)
-        })
+        .player_observation_position()
         .into_iter()
-        .flat_map(|player| {
-            state
-                .logistics()
-                .traversable_destinations(player.position())
-        })
+        .flat_map(|position| state.logistics().traversable_destinations(position))
         .flat_map(|position| state.surface().available_resources_at(Some(position)))
         .map(|resource| AdjacentSurfaceResource {
             resource: resource.id(),

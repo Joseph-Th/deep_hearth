@@ -373,8 +373,8 @@ synchronized indexes.
 Cross-owner operations coordinate owner APIs; they do not mutate another owner's private storage directly.
 
 Player-local resource, equipment, ground-container, nearby-tree, traversal,
-weather, and drink-source observations require a living actor when survival is
-initialized. The root locality query enforces that condition without modifying
+habitat, overhead-cover, weather, and drink-source observations require a living
+actor when survival is initialized. The root locality query enforces that condition without modifying
 the authoritative logistics position: a dead body still occupies its physical
 location and its carried matter remains recoverable at respawn. Logistics-only
 capability fixtures retain resource observations, but resident sightings and

@@ -25,6 +25,9 @@ pub fn assess_player_overhead_cover(
     registries: &Registries,
     state: &AppState,
 ) -> Option<PlayerOverheadCoverAssessment> {
+    // Physical cover remains world-owned, but its player-facing observation
+    // must not use a dead actor's persisted body position.
+    state.player_observation_position()?;
     let player = state.logistics().player().copied()?;
     let locomotion = registries.survival().physiology().locomotion();
     let Some((min_x, max_x, min_z, max_z)) = horizontal_voxel_bounds(player.body(), locomotion)

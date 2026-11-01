@@ -71,14 +71,23 @@ fn observed_sources() -> (Registries, AppState, StockpileId) {
         MaterialComposition::pure(MATERIAL_STONE),
     )
     .unwrap();
-    validate_create_surface_resources(&registries, &state, [drop])
+    let adjacent_drop = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        NEXT,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(100_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    validate_create_surface_resources(&registries, &state, [drop, adjacent_drop])
         .unwrap()
         .commit(&mut state)
         .unwrap();
     (registries, state, stockpile)
 }
 
-fn observations(state: &AppState) -> [usize; 6] {
+fn observations(state: &AppState) -> [usize; 7] {
     [
         state.available_local_energy_stores().count(),
         state.available_local_fluid_stores().count(),
@@ -86,6 +95,7 @@ fn observations(state: &AppState) -> [usize; 6] {
         state.available_surface_resources().count(),
         state.available_local_equipment().count(),
         state.available_adjacent_traversal_destinations().count(),
+        crate::surface::available_adjacent_surface_resources(state).count(),
     ]
 }
 
@@ -94,14 +104,14 @@ fn living_local_observations_close_at_death_without_erasing_world_custody() {
     let (registries, mut state, stockpile) = observed_sources();
     assert_eq!(
         observations(&state),
-        [0; 6],
+        [0; 7],
         "no actor may observe before admission"
     );
     validate_admit_player(&registries, &state, LOCAL)
         .unwrap()
         .commit(&mut state)
         .unwrap();
-    assert_eq!(observations(&state), [1, 1, 1, 1, 0, 1]);
+    assert_eq!(observations(&state), [1, 1, 1, 1, 0, 1, 1]);
     assert_eq!(state.player_observation_position(), Some(LOCAL));
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 
@@ -120,7 +130,7 @@ fn living_local_observations_close_at_death_without_erasing_world_custody() {
         ),
     );
     assert_eq!(state.player_observation_position(), None);
-    assert_eq!(observations(&state), [0; 6]);
+    assert_eq!(observations(&state), [0; 7]);
     assert_eq!(state.logistics().player().unwrap().position(), LOCAL);
     assert_eq!(
         state.logistics().stationary_stockpile_position(stockpile),
@@ -134,7 +144,7 @@ fn living_local_observations_close_at_death_without_erasing_world_custody() {
         .into_state(&registries)
         .unwrap();
     assert_eq!(state, replay);
-    assert_eq!(observations(&replay), [0; 6]);
+    assert_eq!(observations(&replay), [0; 7]);
     let _ = validate_respawn_player(&registries, &state)
         .unwrap()
         .commit(&mut state)
@@ -147,6 +157,6 @@ fn living_local_observations_close_at_death_without_erasing_world_custody() {
     assert_eq!(state.player_observation_position(), Some(LOCAL));
     // Respawn turns the old carried pack into a second recoverable local ground
     // stockpile. Neither death nor restored sight may delete that custody.
-    assert_eq!(observations(&state), [1, 1, 2, 1, 0, 1]);
+    assert_eq!(observations(&state), [1, 1, 2, 1, 0, 1, 1]);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }

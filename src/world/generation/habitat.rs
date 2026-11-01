@@ -68,7 +68,7 @@ pub(in crate::world) fn habitat_at(seed: WorldGenerationSeed, x: i64, z: i64) ->
 /// guarantee of an available meal. Absent terrain remains unknown.
 #[must_use]
 pub fn assess_player_habitat(state: &AppState) -> Option<HabitatKind> {
-    let position = state.logistics().player()?.position();
+    let position = state.player_observation_position()?;
     let profile = state.world().generation_profile()?;
     (state.world().has_generated_terrain_at(position)
         && position.y() > terrain_height(profile.seed(), position.x(), position.z()))
