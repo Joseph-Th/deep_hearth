@@ -21,8 +21,8 @@ use super::{
 pub struct PlayerUnheatedComfortRunway {
     overhead_cover: PlayerOverheadCoverAssessment,
     current: Option<TickSpan>,
-    if_open: TickSpan,
-    if_covered: TickSpan,
+    if_open: Option<TickSpan>,
+    if_covered: Option<TickSpan>,
     weather_changes_in: Option<TickSpan>,
 }
 
@@ -100,19 +100,23 @@ impl PlayerUnheatedComfortRunway {
     }
 
     /// Ticks until the first chilly/cold state if today's exposure and zero heat persist.
-    /// Unknown terrain/roof truth produces `None`, not an invented estimate.
+    /// `None` means either unknown terrain/roof truth or zero ongoing cooling.
+    /// `overhead_cover()` distinguishes unavailable world truth from a known
+    /// exposure with no finite discomfort horizon.
     #[must_use]
     pub const fn current(self) -> Option<TickSpan> {
         self.current
     }
 
     #[must_use]
-    pub const fn if_open(self) -> TickSpan {
+    /// `None` means open-air cooling rounds to zero for this exposure.
+    pub const fn if_open(self) -> Option<TickSpan> {
         self.if_open
     }
 
     #[must_use]
-    pub const fn if_covered(self) -> TickSpan {
+    /// `None` means covered cooling rounds to zero for this exposure.
+    pub const fn if_covered(self) -> Option<TickSpan> {
         self.if_covered
     }
 
@@ -153,8 +157,8 @@ pub fn assess_player_unheated_comfort_runway(
     let if_covered =
         comfort.ticks_until_unheated_discomfort(player.thermal_comfort_ppm(), exposure_covered);
     let current = match cover {
-        PlayerOverheadCoverAssessment::Open => Some(if_open),
-        PlayerOverheadCoverAssessment::Covered => Some(if_covered),
+        PlayerOverheadCoverAssessment::Open => if_open,
+        PlayerOverheadCoverAssessment::Covered => if_covered,
         PlayerOverheadCoverAssessment::WorldUnavailable => None,
     };
     Some(PlayerUnheatedComfortRunway {

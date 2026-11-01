@@ -108,7 +108,7 @@ fn the_exposed_player_loses_exactly_the_weather_adjusted_warmth_projected_before
     let forecast = assess_player_unheated_comfort_runway(&registries, &state).unwrap();
     assert_eq!(forecast.weather_changes_in(), Some(current.changes_in()));
     assert!(
-        forecast.if_covered() > forecast.if_open(),
+        forecast.if_covered().unwrap() > forecast.if_open().unwrap(),
         "an actual roof must reduce exposure"
     );
 

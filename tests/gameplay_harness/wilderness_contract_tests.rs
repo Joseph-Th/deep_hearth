@@ -1801,7 +1801,7 @@ fn extend_worksite_with_shelter(
         .unwrap_or_else(|| panic!("unfinished roof has no player-facing warmth forecast"));
     assert_eq!(
         unfinished_forecast.current(),
-        Some(unfinished_forecast.if_open()),
+        unfinished_forecast.if_open(),
         "in-progress construction must not claim future roof protection"
     );
     advance_to(
@@ -1827,11 +1827,11 @@ fn extend_worksite_with_shelter(
         .unwrap_or_else(|| panic!("completed roof has no player-facing warmth forecast"));
     assert_eq!(
         completed_forecast.current(),
-        Some(completed_forecast.if_covered()),
+        completed_forecast.if_covered(),
         "finished physical cover should immediately change the actor's actual warmth runway"
     );
     assert!(
-        completed_forecast.if_covered() > completed_forecast.if_open(),
+        completed_forecast.if_covered().unwrap() > completed_forecast.if_open().unwrap(),
         "the roof should buy more unheated time from the same current survival reserves"
     );
 
@@ -3677,6 +3677,7 @@ fn evaluate_generated_wilderness_opening_internal(
                         current_comfort,
                         deep_hearth::survival::ThermalExposure::OverheadCover,
                     )
+                    .unwrap_or_else(|| panic!("authored overhead cooling is positive"))
                     .value();
                 // Do not credit the last fifth of a dwindling charge as fully protective heat.
                 let reliable_fire_ticks = campfire_runway_before_refuel_ticks / 5 * 4;

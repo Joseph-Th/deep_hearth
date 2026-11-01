@@ -411,24 +411,28 @@ impl ThermalComfortDefinition {
     ///
     /// The threshold is strict: comfort exactly at the warning is still comfortable. When the
     /// authored warning is zero, the zero-comfort Cold band is the first adverse state.
+    /// `None` means the current exposure rounds to zero whole-unit loss per
+    /// tick, so discomfort cannot occur while that exposure persists.
     #[must_use]
     pub fn ticks_until_unheated_discomfort(
         self,
         current_comfort_ppm: u32,
         exposure: ThermalExposure,
-    ) -> TickSpan {
+    ) -> Option<TickSpan> {
         assert!(
             current_comfort_ppm <= NORMALIZED_PARTS_PER_MILLION,
             "thermal-comfort projection requires normalized player comfort"
         );
         let comfortable_floor = self.warning_below_ppm.max(1);
         if current_comfort_ppm < comfortable_floor {
-            return TickSpan::ZERO;
+            return Some(TickSpan::ZERO);
+        }
+        let loss = self.exposure_loss_ppm_per_tick(exposure);
+        if loss == 0 {
+            return None;
         }
         let reserve_to_spend = current_comfort_ppm - comfortable_floor + 1;
-        TickSpan::new(u64::from(
-            reserve_to_spend.div_ceil(self.exposure_loss_ppm_per_tick(exposure)),
-        ))
+        Some(TickSpan::new(u64::from(reserve_to_spend.div_ceil(loss))))
     }
 
     #[must_use]

@@ -382,9 +382,9 @@ pub(super) fn evaluate_mobile_cold_response(
     let predicted_discomfort = forecast
         .current()
         .unwrap_or_else(|| panic!("generated wilderness has no current roof truth"));
-    assert_eq!(forecast.if_open(), predicted_discomfort);
+    assert_eq!(forecast.if_open(), Some(predicted_discomfort));
     assert!(
-        forecast.if_covered() > predicted_discomfort,
+        forecast.if_covered().unwrap() > predicted_discomfort,
         "the actual player-facing forecast should expose why overhead shelter is worth considering"
     );
     let warning = registries
@@ -872,7 +872,10 @@ pub(super) fn evaluate_mobile_cold_response(
         planned_nut_source_after_mg,
         secured_nut_energy_nj,
         projected_unheated_ticks: predicted_discomfort.value(),
-        covered_unheated_ticks: forecast.if_covered().value(),
+        covered_unheated_ticks: forecast
+            .if_covered()
+            .unwrap_or_else(|| panic!("authored covered wilderness exposure has positive cooling"))
+            .value(),
         cold_comfort_ppm: cold_comfort,
         first_fueled_tick: after_fuel
             .checked_duration_since(started)

@@ -92,23 +92,23 @@ fn unheated_discomfort_projection_honors_strict_warning_and_roof_exposure() {
         ThermalComfortDefinition::new(800_000, 1_000, 500, 10_000, Energy::from_nanojoules(1), 1);
     assert_eq!(
         thermal.ticks_until_unheated_discomfort(978_000, ThermalExposure::Open),
-        TickSpan::new(179)
+        Some(TickSpan::new(179))
     );
     assert_eq!(
         thermal.ticks_until_unheated_discomfort(978_000, ThermalExposure::OverheadCover),
-        TickSpan::new(357)
+        Some(TickSpan::new(357))
     );
     assert_eq!(
         thermal.ticks_until_unheated_discomfort(800_000, ThermalExposure::Open),
-        TickSpan::new(1)
+        Some(TickSpan::new(1))
     );
     assert_eq!(
         thermal.ticks_until_unheated_discomfort(799_999, ThermalExposure::Open),
-        TickSpan::ZERO
+        Some(TickSpan::ZERO)
     );
     assert_eq!(
         thermal.ticks_until_unheated_discomfort(0, ThermalExposure::Open),
-        TickSpan::ZERO
+        Some(TickSpan::ZERO)
     );
 }
 
@@ -138,7 +138,10 @@ fn player_warmth_forecast_does_not_invent_cover_for_unloaded_world() {
         PlayerOverheadCoverAssessment::WorldUnavailable
     );
     assert_eq!(forecast.current(), None);
-    assert!(forecast.if_open() < forecast.if_covered());
+    assert!(
+        forecast.if_open().unwrap() < forecast.if_covered().unwrap(),
+        "authored ungenerated exposure must retain finite roof and open runways"
+    );
 }
 
 #[test]
@@ -180,15 +183,42 @@ fn zero_thermal_warning_projects_to_cold_instead_of_an_unreachable_chilly_band()
     let thermal = ThermalComfortDefinition::new(0, 2, 1, 1, Energy::from_nanojoules(1), 1);
     assert_eq!(
         thermal.ticks_until_unheated_discomfort(1, ThermalExposure::Open),
-        TickSpan::new(1)
+        Some(TickSpan::new(1))
     );
     assert_eq!(
         thermal.ticks_until_unheated_discomfort(4, ThermalExposure::Open),
-        TickSpan::new(2)
+        Some(TickSpan::new(2))
     );
     assert_eq!(
         thermal.ticks_until_unheated_discomfort(0, ThermalExposure::OverheadCover),
-        TickSpan::ZERO
+        Some(TickSpan::ZERO)
+    );
+}
+
+#[test]
+fn zero_fixed_point_cooling_has_no_discomfort_horizon_and_never_divides_by_zero() {
+    let thermal = ThermalComfortDefinition::new(500_000, 2, 1, 10, Energy::from_nanojoules(1), 1);
+    let open = ThermalExposure::GeneratedOpen {
+        cooling_multiplier_ppm: 400_000,
+    };
+    let covered = ThermalExposure::GeneratedOverheadCover {
+        cooling_multiplier_ppm: 400_000,
+    };
+    assert_eq!(thermal.exposure_loss_ppm_per_tick(open), 0);
+    assert_eq!(thermal.exposure_loss_ppm_per_tick(covered), 0);
+    assert_eq!(thermal.ticks_until_unheated_discomfort(500_000, open), None);
+    assert_eq!(
+        thermal.ticks_until_unheated_discomfort(800_000, covered),
+        None
+    );
+    assert_eq!(
+        thermal.ticks_until_unheated_discomfort(499_999, covered),
+        Some(TickSpan::ZERO),
+        "already-chilly players must still receive an immediate warning"
+    );
+    assert_eq!(
+        thermal.ticks_until_unheated_discomfort(800_000, ThermalExposure::Open),
+        Some(TickSpan::new(150_001))
     );
 }
 

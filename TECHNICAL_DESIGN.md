@@ -377,7 +377,12 @@ overhead-covered exposure spends comfort on each slow tick, and local dissipated
 can restore it. Exactly spending the last reserve has one tick of deficit grace;
 once the player is already at zero comfort, merely balancing ongoing exposure
 does not prevent cold vitality loss. Net warming must restore positive comfort
-to stop that injury.
+to stop that injury. The conditional unheated-comfort forecast uses the same
+integer cooling per tick as survival: a zero rate has no finite discomfort
+horizon (`None`), while an already chilly or cold player has an immediate
+zero-tick warning even when the current weather entails no additional cooling.
+Actual roof availability remains separately visible, so missing terrain truth
+is distinguishable from a physically stable warmth reserve.
 
 Kobold junkworks use existing surface custody rather than minting an equipment instance: after a
 physical industrial sighting has reached the den, co-located precision-copper salvage plus
