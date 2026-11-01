@@ -64,6 +64,43 @@ fn strip_plant(state: &mut AppState, id: crate::surface::SurfaceResourceId) {
 }
 
 #[test]
+fn canopy_darkness_and_sub_milligram_yields_leave_root_matter_intact() {
+    let roots = Mass::from_milligrams(800);
+    let fruit = Mass::from_milligrams(800);
+    assert_eq!(
+        ripened_crop(roots, fruit, RootMoisture::NoBasin, 8),
+        Mass::ZERO
+    );
+    assert_eq!(
+        ripened_crop(roots, fruit, RootMoisture::NoBasin, 15),
+        Mass::ZERO
+    );
+    assert_eq!(
+        ripened_crop(
+            Mass::from_milligrams(1),
+            Mass::from_milligrams(1),
+            RootMoisture::NoBasin,
+            6
+        ),
+        Mass::ZERO,
+        "fractional milligrams cannot be rounded into edible food"
+    );
+    assert_eq!(
+        ripened_crop(roots, fruit, RootMoisture::NoBasin, 6),
+        Mass::from_milligrams(50)
+    );
+    assert_eq!(
+        ripened_crop(roots, fruit, RootMoisture::NoBasin, 0),
+        Mass::from_milligrams(200)
+    );
+    assert_eq!(
+        ripened_crop(roots, fruit, RootMoisture::NoBasin, 0)
+            .checked_add(Mass::from_milligrams(600)),
+        Some(roots)
+    );
+}
+
+#[test]
 fn perennial_field_index_excludes_unrelated_drops_and_survives_depletion_and_load() {
     use crate::content::{FORM_CHIP, MATERIAL_STONE};
     use crate::core::quantity::Temperature;

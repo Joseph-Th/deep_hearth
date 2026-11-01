@@ -163,7 +163,10 @@ sprouting timestamp and growth clock, with one atomic world revision; it creates
 sapling, seed, log parcel or inventory item. Both admission and commit check local
 obstructions, actor position, time, combat and owner revisions. No ordinary planting input, digging,
 nutrient response or timed uprooting work is modeled. The canopy radius
-attenuates direct skylight but does not create a leaf collision body.
+attenuates direct skylight but does not create a leaf collision body. Overlapping
+crowns accumulate diffuse shade up to the full 15-level skylight scale. Rooted
+forage retains its finite underground reserve under full shade or when the
+projected fruit batch is below one milligram.
 Ordinary primary-break control pointing at a standing trunk starts exclusive tree-felling work
 with a selected carried stone or copper woodworking adze. A slow-tick schedule scales with
 woody mass (stone: 1.5 kg/tick; copper: 3 kg/tick, minimum eight ticks), charges physiological

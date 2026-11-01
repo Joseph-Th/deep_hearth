@@ -48,6 +48,25 @@ fn moisture_adjusted_crop(open_crop: u64, moisture: RootMoisture) -> u64 {
     }
 }
 
+/// Ripening transfers existing biomass only when light supports a whole-milligram
+/// crop. Dense overlapping crowns and fractional yields retain the root reserve.
+fn ripened_crop(
+    root_reserve: Mass,
+    original_fruit: Mass,
+    moisture: RootMoisture,
+    shade: u8,
+) -> Mass {
+    let light_fraction = 8_u64.saturating_sub(u64::from(shade).min(8));
+    if light_fraction == 0 || root_reserve.is_zero() {
+        return Mass::ZERO;
+    }
+    let open_batch = (original_fruit.milligrams() / 4).max(1);
+    let watered_batch = moisture_adjusted_crop(open_batch, moisture);
+    let lit_batch = u64::try_from(u128::from(watered_batch) * u128::from(light_fraction) / 8)
+        .unwrap_or(u64::MAX);
+    Mass::from_milligrams(root_reserve.milligrams().min(lit_batch))
+}
+
 /// A stripped plant needs real elapsed growth time; drought-tolerant scrub
 /// has a longer cycle than the sheltered, moist grove.
 fn recovery_ticks(habitat: HabitatKind) -> u64 {
@@ -136,22 +155,20 @@ pub(crate) fn apply_natural_forage_cycle(
             // direct sunlight from the understory shrub. Smaller crops
             // leave their unspent mass in its actual root reserve; no water,
             // organic matter or food is silently removed or manufactured.
-            let shade = u64::from(living_canopy_shade_at(
-                registries,
-                state,
-                source.position(),
-                at,
-            ));
-            let open_batch = (plant.original_fruit.milligrams() / 4).max(1);
-            let light_fraction = 8_u64.saturating_sub(shade.min(8));
+            let shade = living_canopy_shade_at(registries, state, source.position(), at);
+            if shade >= 8 {
+                return None;
+            }
             let moisture = moisture.get_or_init(|| RootMoistureSurvey::observe(state));
-            let watered_batch = moisture_adjusted_crop(open_batch, moisture.at(source.position()));
-            let batch = Mass::from_milligrams(
-                plant
-                    .root_reserve
-                    .milligrams()
-                    .min((watered_batch * light_fraction / 8).max(1)),
+            let batch = ripened_crop(
+                plant.root_reserve,
+                plant.original_fruit,
+                moisture.at(source.position()),
+                shade,
             );
+            if batch.is_zero() {
+                return None;
+            }
             plant.root_reserve = plant.root_reserve.checked_sub(batch)?;
             plant.ripened_at = at;
             Some((

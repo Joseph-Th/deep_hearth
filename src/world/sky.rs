@@ -15,9 +15,10 @@ const MAX_CANOPY_RADIUS: i64 = 3;
 const CANOPY_VERTICAL_REACH_ABOVE_ROOT: i64 = 5;
 const CANOPY_VERTICAL_REACH_BELOW_ROOT: i64 = 1;
 
-/// A grown crown casts diffuse partial shade, not a solid-block shadow.
-/// Evergreen trunk opacity remains separate. A deciduous crown has little
-/// leaf area in winter, and spring/autumn attenuate less than summer.
+/// Grown crowns cast cumulative diffuse shade, not solid-block shadows.
+/// Trunk opacity remains separate. A deciduous crown has little
+/// leaf area in winter, and spring/autumn attenuate less than summer. Multiple
+/// overlapping crowns can block substantially more daylight than one crown.
 pub(crate) fn living_canopy_shade_at(
     registries: &Registries,
     state: &AppState,
@@ -53,8 +54,8 @@ pub(crate) fn living_canopy_shade_at(
                 full.div_ceil(2)
             })
         })
-        .max()
-        .unwrap_or(0)
+        .fold(0_u8, u8::saturating_add)
+        .min(15)
 }
 
 /// Conservative direct daylight levels on the same 0..15 scale as local fire.

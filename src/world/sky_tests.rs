@@ -296,6 +296,105 @@ fn seed_rooted_tree_growth_and_season_change_real_canopy_daylight() {
 }
 
 #[test]
+fn transplanted_overlapping_crowns_compound_actual_skylight_and_survive_load() {
+    use crate::player::validate_admit_player;
+    use crate::world::{WorldGenerationProfile, validate_transplant_juvenile};
+
+    let registries = build_registries();
+    let left_chunk = ChunkCoord::new(0, 0);
+    let right_chunk = ChunkCoord::new(1, 0);
+    // Adjacent naturally seeded trees are spaced apart. Relocating a real
+    // juvenile closer to its neighbor makes their mature crowns overlap.
+    let (seed, from, to, other, site) = (1..20_000)
+        .find_map(|value| {
+            let seed = WorldGenerationSeed::new(value);
+            let profile = WorldGenerationProfile::new(seed, BLOCK_STATE_STONE);
+            let left = super::super::trees::seeded_tree_identity(profile, left_chunk)?;
+            let right = super::super::trees::seeded_tree_identity(profile, right_chunk)?;
+            let from = left.root();
+            let other = right.root();
+            let to = VoxelCoord::new(from.x() + 2, from.y(), from.z());
+            let player = VoxelCoord::new(from.x() + 1, from.y(), from.z());
+            let site_x = if other.x() == to.x() + 3 {
+                to.x() + 2
+            } else {
+                to.x() + 3
+            };
+            let site = VoxelCoord::new(site_x, from.y().max(other.y()) + 1, other.z());
+            (left.initial_wood().milligrams() == 8_000_000
+                && other.x() > to.x() + 2
+                && other.x() - to.x() <= 6
+                && from.z().abs_diff(other.z()) <= 3
+                && from.y().abs_diff(other.y()) <= 4
+                && super::super::generation::terrain_height(seed, player.x(), player.z())
+                    == from.y() - 1
+                && super::super::generation::terrain_height(seed, to.x(), to.z()) == to.y() - 1
+                && super::super::generation::terrain_height(seed, site.x(), site.z()) < site.y())
+            .then_some((seed, from, to, other, site))
+        })
+        .expect("nearby original trees and a clear juvenile transplant site exist");
+    let mut state = AppState::new();
+    validate_admit_player(
+        &registries,
+        &state,
+        VoxelCoord::new(from.x() + 1, from.y(), from.z()),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    for chunk in [left_chunk, right_chunk] {
+        validate_generate_chunk(&registries, &state, seed, chunk, BLOCK_STATE_STONE)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    }
+    assert!(state.world().tree_at(from).is_some());
+    assert!(state.world().tree_at(other).is_some());
+    let transplanted = validate_transplant_juvenile(&registries, &state, from, to)
+        .unwrap()
+        .commit(&registries, &mut state)
+        .unwrap();
+    assert_eq!(transplanted.from(), from);
+    assert_eq!(transplanted.to(), to);
+
+    let calendar = registries.core().calendar();
+    let season_ticks = calendar.ticks_per_day()
+        * u64::from(calendar.days_per_month())
+        * u64::from(calendar.months_per_year() / 4);
+    let year_ticks = season_ticks * 4;
+    let matured_summer = (super::super::trees::BIOLOGICAL_YEAR_TICKS * 40).div_ceil(year_ticks)
+        * year_ticks
+        + season_ticks;
+    apply_clock_advance(&mut state, SimulationTick::new(matured_summer));
+    let left_radius = state
+        .world()
+        .tree_at(to)
+        .unwrap()
+        .canopy_radius_voxels(state.tick());
+    let right_radius = state
+        .world()
+        .tree_at(other)
+        .unwrap()
+        .canopy_radius_voxels(state.tick());
+    assert_eq!((left_radius, right_radius), (3, 3));
+    assert!(has_open_sky(&registries, &state, site));
+    assert_eq!(
+        living_canopy_shade_at(&registries, &state, site, state.tick()),
+        12
+    );
+    assert_eq!(assess_generated_skylight(&registries, &state, site), 0);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+    assert_eq!(assess_generated_skylight(&registries, &restored, site), 0);
+}
+
+#[test]
 fn physical_roof_and_tree_trunk_block_daylight_but_not_adjacent_outdoors() {
     let registries = build_registries();
     let mut state = AppState::new();
