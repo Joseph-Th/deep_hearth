@@ -225,6 +225,14 @@ pub fn project_player_walk_path_for_load(
     for &destination in destinations {
         project_walk_leg(&mut projection, destination)?;
     }
+    // Each projected control sample changes the persisted body or its velocity,
+    // consuming one logistics revision on execution. Check the whole route and
+    // already-promised future logistics work before advertising its budget.
+    if !state.can_spend_logistics_revisions(projection.control_ticks) {
+        return Err(PlayerWalkProjectionError::BodyMotion(
+            PlayerBodyMotionError::LogisticsRevisionExhausted,
+        ));
+    }
 
     let locomotion_exertion = projection.exertion.pending();
     let resource_budget = project_survival_resource_budget(

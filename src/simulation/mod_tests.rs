@@ -242,6 +242,93 @@ fn passive_dissipation_registries() -> Registries {
 }
 
 #[test]
+fn walk_projection_requires_revisions_for_every_projected_body_control_tick() {
+    let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
+    let destination = VoxelCoord::new(1, floor_y, 0);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(1, floor_y - 1, 0),
+        BLOCK_STATE_STONE,
+    );
+    for y in floor_y..=floor_y + 1 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(1, y, 0),
+            BlockStateId::AIR,
+        );
+    }
+    let expected = project_player_adjacent_walk(&registries, &state, destination)
+        .unwrap_or_else(|error| panic!("ordinary adjacent walk must be feasible: {error}"));
+    assert!(expected.control_ticks() > 1);
+    let encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded_at = |revision: u64| {
+        let mut save = encoded.clone();
+        save["state"]["systems"]["logistics"]["revision"] = serde_json::json!(revision);
+        serde_json::from_value::<LoadedSaveEnvelope>(save)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap_or_else(|error| panic!("valid near-exhausted walk save rejected: {error}"))
+    };
+    let just_enough = loaded_at(u64::MAX - expected.control_ticks());
+    assert_eq!(
+        project_player_adjacent_walk(&registries, &just_enough, destination),
+        Ok(expected),
+        "exact headroom for all projected ticks must remain usable"
+    );
+    let mut executable = just_enough.clone();
+    let movement = PlayerControlInput::new(HorizontalControlInput::new(1_000_000, 0).unwrap());
+    let mut actual_control_ticks = 0;
+    while executable.logistics().player().unwrap().position() != destination {
+        let _ = advance_control_tick_with_input(&registries, &mut executable, movement)
+            .unwrap_or_else(|error| panic!("walk with exact owner headroom failed: {error}"));
+        actual_control_ticks += 1;
+        assert!(actual_control_ticks <= expected.control_ticks());
+    }
+    while executable.logistics().player().is_some_and(|player| {
+        let velocity = player.body().horizontal_velocity();
+        velocity.x_nanometers_per_second() != 0 || velocity.z_nanometers_per_second() != 0
+    }) {
+        let _ = advance_control_tick(&registries, &mut executable)
+            .unwrap_or_else(|error| panic!("exact-headroom braking failed: {error}"));
+        actual_control_ticks += 1;
+        assert!(actual_control_ticks <= expected.control_ticks());
+    }
+    assert_eq!(actual_control_ticks, expected.control_ticks());
+    assert_eq!(executable.logistics().revision(), u64::MAX);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &executable),
+        Ok(())
+    );
+
+    let too_few = loaded_at(u64::MAX - expected.control_ticks() + 1);
+    assert_eq!(
+        project_player_adjacent_walk(&registries, &too_few, destination),
+        Err(PlayerWalkProjectionError::BodyMotion(
+            crate::logistics::PlayerBodyMotionError::LogisticsRevisionExhausted
+        )),
+        "the read-only path must not promise body motion the logistics owner cannot commit"
+    );
+    let mut exhausted = loaded_at(u64::MAX);
+    assert_eq!(
+        project_player_adjacent_walk(&registries, &exhausted, destination),
+        Err(PlayerWalkProjectionError::BodyMotion(
+            crate::logistics::PlayerBodyMotionError::LogisticsRevisionExhausted
+        ))
+    );
+    let before = exhausted.clone();
+    let walk = PlayerControlInput::new(HorizontalControlInput::new(1_000_000, 0).unwrap());
+    assert_eq!(
+        advance_control_tick_with_input(&registries, &mut exhausted, walk),
+        Err(TickError::PlayerBodyMotion(
+            crate::logistics::PlayerBodyMotionError::LogisticsRevisionExhausted
+        ))
+    );
+    assert_eq!(exhausted, before);
+}
+
+#[test]
 fn walk_path_projection_prices_future_load_without_mutating_custody() {
     let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
     let path = (1..=4)
