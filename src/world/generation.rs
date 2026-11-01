@@ -30,7 +30,9 @@ use crate::logistics::first_player_body_collision_in_chunk;
 use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::Registries;
 use crate::spatial::{VoxelBounds, VoxelCoord};
-use crate::surface::{SurfaceResourceCreationError, ValidatedSurfaceResourceCreation};
+use crate::surface::{
+    SurfaceResourceCreationError, SurfaceResourceSpec, ValidatedSurfaceResourceCreation,
+};
 
 use super::{
     BlockCollisionShape, BlockStateId, CHUNK_SIDE, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y,
@@ -615,8 +617,11 @@ pub fn validate_generate_player_neighborhood(
         return Ok(None);
     }
     chunks.sort_unstable_by_key(WorldChunk::coord);
-    let forage = validate_forage_for_chunks(registries, state, profile, &chunks)?;
-    let springs = validate_springs_for_chunks(registries, state, profile, &chunks)?;
+    // Plan each seeded forage site once. Springs must use exactly the sites
+    // authorized for this expansion, not a separate regeneration of the same
+    // candidate choices with potentially diverging occupancy assumptions.
+    let (forage, forage_sites) = validate_forage_for_chunks(registries, state, profile, &chunks)?;
+    let springs = validate_springs_for_chunks(registries, state, profile, &chunks, &forage_sites)?;
     if !state.can_spend_world_revisions(1) {
         return Err(ChunkGenerationError::WorldRevisionExhausted);
     }
@@ -639,16 +644,14 @@ fn validate_springs_for_chunks(
     state: &AppState,
     profile: WorldGenerationProfile,
     chunks: &[WorldChunk],
+    forage_sites: &[Option<VoxelCoord>],
 ) -> Result<Option<(ValidatedFluidGenerationBatch, Vec<VoxelCoord>, u64)>, ChunkGenerationError> {
     let sources = chunks
         .iter()
-        .filter_map(|chunk| {
-            let planned_forage = forage::seeded_forage_spec(registries, state, profile, chunk);
-            let blocked = planned_forage
-                .as_ref()
-                .map(|resource| vec![resource.position()])
-                .unwrap_or_default();
-            springs::seeded_spring_spec(state, profile, chunk, &blocked)
+        .zip(forage_sites)
+        .filter_map(|(chunk, forage_site)| {
+            let blocked = forage_site.as_ref().map_or(&[][..], std::slice::from_ref);
+            springs::seeded_spring_spec(state, profile, chunk, blocked)
         })
         .collect::<Vec<_>>();
     if sources.is_empty() {
@@ -682,21 +685,31 @@ fn validate_forage_for_chunks(
     state: &AppState,
     profile: WorldGenerationProfile,
     chunks: &[WorldChunk],
-) -> Result<Option<ValidatedSurfaceResourceCreation>, ChunkGenerationError> {
+) -> Result<
+    (
+        Option<ValidatedSurfaceResourceCreation>,
+        Vec<Option<VoxelCoord>>,
+    ),
+    ChunkGenerationError,
+> {
     let specs = chunks
         .iter()
-        .filter_map(|chunk| forage::seeded_forage_spec(registries, state, profile, chunk))
+        .map(|chunk| forage::seeded_forage_spec(registries, state, profile, chunk))
         .collect::<Vec<_>>();
-    if specs.is_empty() {
-        return Ok(None);
+    let sites = specs
+        .iter()
+        .map(|spec| spec.as_ref().map(SurfaceResourceSpec::position))
+        .collect::<Vec<_>>();
+    if specs.iter().all(Option::is_none) {
+        return Ok((None, sites));
     }
     crate::surface::validate_create_surface_resources_at(
         registries,
         state,
-        specs,
+        specs.into_iter().flatten(),
         SimulationTick::ZERO,
     )
-    .map(Some)
+    .map(|forage| (Some(forage), sites))
     .map_err(|error| match error {
         SurfaceResourceCreationError::Empty => unreachable!("forage generation has nonempty specs"),
         SurfaceResourceCreationError::IdExhausted => ChunkGenerationError::ForageIdExhausted,
