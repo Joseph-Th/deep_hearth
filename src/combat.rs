@@ -241,7 +241,9 @@ impl ValidatedPrimitiveAttack {
             .precheck(state)
             .map_err(|_| PrimitiveAttackCommitError::StaleSurvivalRevision)?;
         if let Some((equipment, before, _, expected_revision)) = self.weapon_wear {
-            if state.equipment().revision() != expected_revision {
+            if state.equipment().revision() != expected_revision
+                || !state.can_spend_equipment_revisions(1)
+            {
                 return Err(PrimitiveAttackCommitError::StaleEquipmentRevision);
             }
             if state.logistics().active_selection()
@@ -384,10 +386,13 @@ fn validate_attack(
         if equipment_occupancy(state, equipment).is_some() {
             return Err(PrimitiveAttackError::WeaponBusy);
         }
+        // A background process or mine may have already reserved the last
+        // equipment revision for its future wear settlement. Melee cannot
+        // spend that promise even when the selected weapon is otherwise idle.
+        if !state.can_spend_equipment_revisions(1) {
+            return Err(PrimitiveAttackError::EquipmentRevisionExhausted);
+        }
         let revision = state.equipment().revision();
-        revision
-            .checked_add(1)
-            .ok_or(PrimitiveAttackError::EquipmentRevisionExhausted)?;
         let before = record.condition();
         let wear = profile.wear_ppm_per_swing() * if powered { 2 } else { 1 };
         let after = Condition::new(before.parts_per_million().saturating_sub(wear))

@@ -140,7 +140,7 @@ pub fn assess_player_melee(
     // A HUD cannot advertise an attack whose owner would reject it before
     // tracing contact, even when recovery and survival reserves are ready.
     let owner_revisions_available = state.combat().revision().checked_add(1).is_some()
-        && (weapon.is_none() || state.equipment().revision().checked_add(1).is_some());
+        && (weapon.is_none() || state.can_spend_equipment_revisions(1));
     let ordinary_exertion_admissible = can_admit_melee_exertion(state, exertion);
     let prepared_weapon_matches_selection = state
         .combat()
