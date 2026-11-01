@@ -1,8 +1,9 @@
 # Content inspiration and connected gaps
 
-**Role:** Research and prioritization note for playable content. STATUS.md remains the
-authority for implemented reachability, GAME_DESIGN.md for intent, and
-GAMEPLAY_EVALUATION.md for the automated-player evidence boundary.
+**Role:** Research and prioritization note for playable content. The companion
+[GregTech progression comparison](GREGTECH_PROGRESSION_REVIEW.md) inventories tier-by-tier
+material gaps. STATUS.md remains the authority for implemented reachability, GAME_DESIGN.md
+for intent, and GAMEPLAY_EVALUATION.md for the automated-player evidence boundary.
 
 ## What the references actually contribute
 

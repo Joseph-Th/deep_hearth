@@ -3,18 +3,17 @@
 **Role:** Project entry point and task router.
 
 Deep Hearth is a deterministic Rust simulation core for a first-person survival, settlement, and industrialization
-game. It owns headless state, authored definitions, and simulation rules; platform and renderer IO belong to
-adapters.
+game. It owns headless state, authored definitions, and simulation rules; adapters own platform and renderer IO.
 
 ## Orientation
 
 1. Read [`AGENTS.md`](AGENTS.md) once for execution rules.
-2. Use the [task map](#task-map) to find the owner, canonical boundary, and contract.
-3. Read that owner and its adjacent tests. Consult [`STATUS.md`](STATUS.md) when scope or reachability matters.
+2. Use the [task map](#task-map) to find the owner, boundary, and contract.
+3. Read that owner and adjacent tests; consult [`STATUS.md`](STATUS.md) when scope or reachability matters.
 4. Verify with the smallest complete lane in [`TESTING.md`](TESTING.md).
 
-Do not read every authority page up front. Follow links only when the task crosses that authority. For
-consequential work, identify the owner, operation stage, crossed flow, and proof before widening the search.
+Read authority pages only when the task crosses them; for consequential work identify the owner, operation stage,
+crossed flow, and proof before search.
 
 ## Authority map
 
@@ -27,6 +26,7 @@ consequential work, identify the owner, operation stage, crossed flow, and proof
 | What player experience and progression are intended? | [`GAME_DESIGN.md`](GAME_DESIGN.md) |
 | What should be integrated next? | [`DIRECTION.md`](DIRECTION.md) |
 | How does the block-survival substrate compare mechanically with Minecraft? | [`BLOCK_SURVIVAL_PARITY.md`](BLOCK_SURVIVAL_PARITY.md) |
+| Playable-content gaps from reference games | [`CONTENT_INSPIRATION_GAPS.md`](CONTENT_INSPIRATION_GAPS.md) |
 | How may automated gameplay actors reason and what can their evidence establish? | [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) |
 | How are tests selected and work completed? | [`TESTING.md`](TESTING.md) |
 
