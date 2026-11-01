@@ -148,6 +148,10 @@ fn ordinary_drop_pickup_fills_remaining_capacity_and_leaves_conserved_remainder(
     assert_eq!(remainder[0].resource(), resource);
     assert_eq!(remainder[0].mass(), Mass::from_milligrams(300_000));
     assert!(remainder[0].automatic_pickup_ready());
+    assert!(
+        !remainder[0].automatic_pickup_preflight_ready(),
+        "the delay has elapsed but the full pack still prevents automatic pickup"
+    );
     let matter_after_pickup = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("world-drop gameplay matter audit failed: {error}"));
     assert_eq!(matter_after_pickup.total(), matter_before_pickup.total());

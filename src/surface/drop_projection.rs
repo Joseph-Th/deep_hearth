@@ -7,6 +7,7 @@ use crate::material::{CommodityKey, MaterialComposition, ParticleSizeRange};
 use crate::spatial::VoxelCoord;
 
 use super::material_drop::PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS;
+use super::pickup::automatic_surface_drop_pickup_preflight_ready;
 use super::{SurfaceResourceId, SurfaceResourceKind};
 
 /// Familiar read model for one player-created loose material parcel at the player's exact voxel.
@@ -27,6 +28,7 @@ pub struct PlayerWorldDropProjection {
     ambient_storage_age_parts: u128,
     automatic_pickup_available_at: Option<ControlTick>,
     automatic_pickup_ready: bool,
+    automatic_pickup_preflight_ready: bool,
 }
 
 impl PlayerWorldDropProjection {
@@ -78,9 +80,21 @@ impl PlayerWorldDropProjection {
         self.automatic_pickup_available_at
     }
 
+    /// Whether the parcel's control-time self-pickup delay has elapsed.
+    /// This does not imply the player can currently collect it.
     #[must_use]
     pub const fn automatic_pickup_ready(&self) -> bool {
         self.automatic_pickup_ready
+    }
+
+    /// Whether current player state and physical parcel conditions admit pickup.
+    ///
+    /// Includes the self-pickup timer, hand-safe temperature, gathering claim,
+    /// living actor, pack space and reserved owner-revision headroom. This is
+    /// advisory: competing drops and lot allocation are decided at control time.
+    #[must_use]
+    pub const fn automatic_pickup_preflight_ready(&self) -> bool {
+        self.automatic_pickup_preflight_ready
     }
 }
 
@@ -120,6 +134,9 @@ pub fn available_player_world_drops(
                     }),
                 automatic_pickup_ready: automatic_pickup_available_at
                     .is_none_or(|eligible| control_tick >= eligible),
+                automatic_pickup_preflight_ready: automatic_surface_drop_pickup_preflight_ready(
+                    state, resource,
+                ),
                 automatic_pickup_available_at,
             }
         })

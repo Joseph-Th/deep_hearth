@@ -105,6 +105,18 @@ fn pickup_eligible_at(state: &AppState, resource: &SurfaceResourceRecord, at: Co
             })
 }
 
+/// Read-only physical pickup preflight for player-facing drop presentation.
+///
+/// Final ingress still requires registry-dependent lot allocation, which is
+/// deliberately left to the actual control transaction.
+pub(super) fn automatic_surface_drop_pickup_preflight_ready(
+    state: &AppState,
+    resource: &SurfaceResourceRecord,
+) -> bool {
+    available_pickup_destination(state).is_some()
+        && pickup_eligible_at(state, resource, state.control_tick())
+}
+
 /// A full pack, dead player, unallocatable parcel, or drop whose pickup delay
 /// extends beyond the next slow boundary cannot produce a control-rate pickup
 /// during a skipped interval. A merge into an existing lot remains possible

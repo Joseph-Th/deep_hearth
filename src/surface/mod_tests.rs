@@ -931,6 +931,84 @@ fn player_world_drop_projection_excludes_natural_opportunities() {
 }
 
 #[test]
+fn player_world_drop_pickup_preflight_follows_death_load_and_respawn() {
+    use crate::player::validate_respawn_player;
+    use crate::survival::player_record_with_thermal_comfort;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let resource = insert_surface_resource_for_test(
+        &registries,
+        &mut state,
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(20_000),
+            TEMPERATURE,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let _ = admit_player(&registries, &mut state, position);
+    let eligibility = |state: &AppState| {
+        let drops = available_player_world_drops(state).collect::<Vec<_>>();
+        assert_eq!(drops.len(), 1);
+        assert_eq!(drops[0].resource(), resource);
+        (
+            drops[0].automatic_pickup_ready(),
+            drops[0].automatic_pickup_preflight_ready(),
+        )
+    };
+    assert_eq!(eligibility(&state), (true, true));
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    let player = state.survival().player().copied().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            player.metabolic_energy(),
+            player.hydration(),
+            Vitality::ZERO,
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+            player.thermal_comfort_ppm(),
+        ),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(eligibility(&state), (true, false));
+    let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, replay);
+    assert_eq!(eligibility(&replay), (true, false));
+
+    let _ = validate_respawn_player(&registries, &state)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = validate_respawn_player(&registries, &replay)
+        .unwrap()
+        .commit(&mut replay)
+        .unwrap();
+    assert_eq!(state, replay);
+    assert_eq!(eligibility(&state), (true, true));
+    let pickup = advance_control_tick(&registries, &mut state)
+        .unwrap()
+        .surface_drop_pickup()
+        .unwrap();
+    assert_eq!(pickup.resource(), resource);
+    assert_eq!(pickup.picked_mass(), Mass::from_milligrams(20_000));
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn player_world_drop_projection_exposes_only_exact_local_custody_after_admission_and_load() {
     let registries = build_registries();
     let mut state = AppState::new();
@@ -1090,6 +1168,17 @@ fn automatic_pickup_leaves_unsafe_hot_matter_and_collects_a_later_cool_drop() {
     }
     let carried = admit_player(&registries, &mut state, position);
     let conserved = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(
+        available_player_world_drops(&state)
+            .map(|drop| (
+                drop.resource(),
+                drop.automatic_pickup_ready(),
+                drop.automatic_pickup_preflight_ready(),
+            ))
+            .collect::<Vec<_>>(),
+        vec![(drops[0], true, false), (drops[1], true, true)],
+        "a completed cooldown does not authorize grasping a hot parcel"
+    );
     let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
     let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot)
         .unwrap()
@@ -1752,9 +1841,13 @@ fn automatic_drop_pickup_takes_only_the_mass_that_fits() {
     );
     assert_eq!(
         available_player_world_drops(&state)
-            .map(|drop| drop.mass())
+            .map(|drop| (
+                drop.mass(),
+                drop.automatic_pickup_ready(),
+                drop.automatic_pickup_preflight_ready(),
+            ))
             .collect::<Vec<_>>(),
-        vec![Mass::from_milligrams(300_000)]
+        vec![(Mass::from_milligrams(300_000), true, false)]
     );
     let matter_after = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("partial pickup matter audit failed: {error}"));
