@@ -7,7 +7,6 @@ use crate::core::time::SimulationTick;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
-use super::visibility::scout_visible_from;
 use super::{FIRST_SCOUT_TICK, KoboldColony, KoboldRole, SCOUT_STEP_TICKS};
 
 const MAX_RECENT_TRACKS: usize = 12;
@@ -247,7 +246,9 @@ pub fn available_nearby_kobold_tracks<'a>(
         .filter(move |track| {
             observer.is_some_and(|player| {
                 state.tick().value().saturating_sub(track.at.value()) <= TRACK_VISIBLE_TICKS
-                    && scout_visible_from(registries, state, track.from, player)
+                    && crate::world::player_can_see_local_cell(
+                        registries, state, player, track.from,
+                    )
             })
         })
 }

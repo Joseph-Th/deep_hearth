@@ -2,6 +2,105 @@
 
 use super::*;
 
+/// Physical sight is not player-visible identity without local illumination.
+/// Scout perception and custody stay unchanged when the player cannot see.
+#[test]
+fn generated_night_conceals_residents_until_finite_light_restores_sight() {
+    use crate::content::{
+        BLOCK_STATE_STONE, CAMPFIRE_FUEL_MASS, ENERGY_STONE_RING_CAMPFIRE, FORM_LOG, FORM_LUMP,
+        MATERIAL_STONE, MATERIAL_WOOD,
+    };
+    use crate::core::state::apply_clock_advance;
+    use crate::core::time::SimulationTick;
+    use crate::energy::{
+        assess_local_illumination, validate_assemble_energy_store, validate_combust_fuel,
+    };
+    use crate::inventory::deposit_bulk_for_test;
+    use crate::material::CommodityKey;
+    use crate::world::{
+        BlockStateId, ChunkCoord, assess_generated_skylight, validate_generate_chunk,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let seed = WorldGenerationSeed::new(0x534B_594C_4947_4854);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    // The same unobstructed surface cell used by the sky contract. The
+    // authored route fixture cannot supply generated-world light semantics.
+    let floor = (-20..=8)
+        .rev()
+        .find(|&y| state.world().block_at(VoxelCoord::new(2, y, 2)) == Some(BLOCK_STATE_STONE))
+        .unwrap();
+    let den = VoxelCoord::new(2, floor + 1, 2);
+    assert_eq!(state.world().block_at(den), Some(BlockStateId::AIR));
+    state.kobold_state_mut().apply_opening_colony([
+        den,
+        VoxelCoord::new(3, den.y(), 2),
+        VoxelCoord::new(4, den.y(), 2),
+    ]);
+    let carried = validate_admit_player(&registries, &state, den)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let observed = |state: &AppState| {
+        available_nearby_kobold_scouts(&registries, state)
+            .map(|resident| resident.role())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(assess_generated_skylight(&registries, &state, den), 9);
+    assert!(observed(&state).contains(&crate::kobolds::KoboldRole::Scout));
+    assert!(observed(&state).contains(&crate::kobolds::KoboldRole::Watchman));
+    let unchanged_colony = state.kobold_state().clone();
+    let day_ticks = registries.core().calendar().ticks_per_day();
+    apply_clock_advance(&mut state, SimulationTick::new(3 * day_ticks / 4));
+    assert_eq!(assess_generated_skylight(&registries, &state, den), 0);
+    assert_eq!(
+        assess_local_illumination(&registries, &state, den).level(),
+        0
+    );
+    assert!(
+        observed(&state).is_empty(),
+        "unlit residents must not be visible"
+    );
+    assert_eq!(state.kobold_state(), &unchanged_colony);
+
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(1_000_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            CAMPFIRE_FUEL_MASS,
+        ),
+    ] {
+        deposit_bulk_for_test(&registries, &mut state, carried, commodity, mass).unwrap();
+    }
+    let fire =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, carried)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    validate_combust_fuel(&registries, &state, fire, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(assess_local_illumination(&registries, &state, den).level() > 0);
+    assert!(observed(&state).contains(&crate::kobolds::KoboldRole::Scout));
+    assert!(observed(&state).contains(&crate::kobolds::KoboldRole::Watchman));
+    assert_eq!(state.kobold_state(), &unchanged_colony);
+}
+
 #[test]
 fn logistics_only_actor_can_inspect_local_custody_but_not_living_residents() {
     use crate::logistics::validate_initialize_player_logistics;

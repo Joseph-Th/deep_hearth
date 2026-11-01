@@ -56,38 +56,20 @@ impl AdjacentSurfaceResource {
         {
             let from = player.position();
             if state.world().has_generated_terrain_at(from) {
-                for dx in -2_i64..=2 {
-                    let remaining = 2 - dx.abs();
-                    for dy in -remaining..=remaining {
-                        let last = remaining - dy.abs();
-                        for dz in -last..=last {
-                            let (Some(x), Some(y), Some(z)) = (
-                                from.x().checked_add(dx),
-                                from.y().checked_add(dy),
-                                from.z().checked_add(dz),
-                            ) else {
-                                continue;
-                            };
-                            let to = VoxelCoord::new(x, y, z);
-                            if !crate::world::has_clear_two_step_sightline(
-                                registries, state, from, to,
-                            ) || (crate::world::assess_generated_skylight(registries, state, to)
-                                == 0
-                                && crate::energy::assess_local_illumination(registries, state, to)
-                                    .level()
-                                    == 0)
-                            {
-                                continue;
-                            }
-                            nearby.extend(state.surface().available_resources_at(Some(to)).map(
-                                |resource| AdjacentSurfaceResource {
-                                    resource: resource.id(),
-                                    commodity: resource.commodity(),
-                                    position: resource.position(),
-                                },
-                            ));
-                        }
+                for to in crate::world::nearby_two_step_cells(from) {
+                    // Sparse local cells do not need a terrain ray or two
+                    // illumination queries when no live resource occupies them.
+                    let mut resources = state.surface().available_resources_at(Some(to)).peekable();
+                    if resources.peek().is_none()
+                        || !crate::world::player_can_see_local_cell(registries, state, from, to)
+                    {
+                        continue;
                     }
+                    nearby.extend(resources.map(|resource| AdjacentSurfaceResource {
+                        resource: resource.id(),
+                        commodity: resource.commodity(),
+                        position: resource.position(),
+                    }));
                 }
             }
         }

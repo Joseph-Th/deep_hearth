@@ -161,8 +161,9 @@ pub(crate) fn apply_kobold_scout_tick(
     // A later work-slot return cannot erase drinking, feeding or den clearing
     // already committed earlier in this same physical tick. Only reveal care
     // that was actually in the living observer's sightline at its source.
-    let care_visible =
-        observer.is_some_and(|player| scout_visible_from(registries, state, from, player));
+    let care_visible = observer.is_some_and(|player| {
+        crate::world::player_can_see_local_cell(registries, state, player, from)
+    });
     let observed_meal = consumed_food.filter(|_| care_visible);
     let observed_water = drank_water.filter(|_| care_visible);
     let observed_discard = discarded_food.filter(|_| care_visible);
@@ -218,8 +219,9 @@ pub(crate) fn apply_kobold_scout_tick(
         forage_ready,
         optional_work_blocked,
     ) {
-        let visible =
-            observer.is_some_and(|player| scout_visible_from(registries, state, from, player));
+        let visible = observer.is_some_and(|player| {
+            crate::world::player_can_see_local_cell(registries, state, player, from)
+        });
         return (
             visible.then_some(KoboldScoutEvent {
                 raided_stockpile: Some((stockpile, stolen)),
@@ -379,8 +381,9 @@ pub(crate) fn apply_kobold_scout_tick(
     ]
     .contains(&true);
     let visible = had_local_activity
-        && observer
-            .is_some_and(|player| scout_visible_from(registries, state, scout_position, player));
+        && observer.is_some_and(|player| {
+            crate::world::player_can_see_local_cell(registries, state, player, scout_position)
+        });
     (
         visible.then_some(KoboldScoutEvent {
             position: scout_position,

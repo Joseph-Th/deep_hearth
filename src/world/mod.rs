@@ -57,7 +57,10 @@ pub use generation::{
     ValidatedPlayerChunkDemand, WorldGenerationSeed, assess_player_habitat,
     validate_generate_chunk, validate_generate_player_neighborhood,
 };
-pub(crate) use local_visibility::{has_clear_two_step_sightline, within_manhattan_reach};
+pub(crate) use local_visibility::{
+    has_clear_two_step_sightline, nearby_two_step_cells, player_can_see_local_cell,
+    within_manhattan_reach,
+};
 pub use sky::assess_generated_skylight;
 pub(crate) use sky::is_generated_night;
 pub use spring_sight::{VisibleWaterSource, available_visible_generated_water};

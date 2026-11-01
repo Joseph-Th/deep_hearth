@@ -15,7 +15,6 @@ use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceRecord};
 
-use super::visibility::scout_visible_from;
 use super::{
     FIRST_SCOUT_TICK, KoboldColony, SCOUT_CARRY_LIMIT, SCOUT_SAFE_SCAVENGE_TEMPERATURE,
     SCOUT_STEP_TICKS,
@@ -422,7 +421,7 @@ pub fn available_nearby_kobold_pry_work(
         return None;
     }
     let player = super::living_player_observer(state)?;
-    scout_visible_from(registries, state, colony.route[1], player).then_some(
+    crate::world::player_can_see_local_cell(registries, state, player, colony.route[1]).then_some(
         KoboldPryWorkSighting {
             position: colony.route[1],
             handle: work.handle,
@@ -496,7 +495,7 @@ pub fn available_nearby_kobold_scrap_lever(
 ) -> Option<KoboldScrapLever> {
     let colony = state.kobold_state().colony.as_ref()?;
     let player = super::living_player_observer(state)?;
-    scout_visible_from(registries, state, colony.route[1], player)
+    crate::world::player_can_see_local_cell(registries, state, player, colony.route[1])
         .then(|| current_junction_scrap_lever(state, colony))
         .flatten()
 }

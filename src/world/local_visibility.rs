@@ -68,3 +68,43 @@ pub(crate) fn has_clear_two_step_sightline(
             || toward(from.z(), to.z())
                 .is_some_and(|z| transparent(VoxelCoord::new(from.x(), from.y(), z))))
 }
+
+/// Every local visual probe uses the same 25-cell Manhattan envelope.
+/// Checked coordinates omit out-of-range neighbors rather than wrapping.
+pub(crate) fn nearby_two_step_cells(center: VoxelCoord) -> impl Iterator<Item = VoxelCoord> {
+    (-2_i64..=2).flat_map(move |dx| {
+        let remaining = 2 - dx.abs();
+        (-remaining..=remaining).flat_map(move |dy| {
+            let last = remaining - dy.abs();
+            (-last..=last).filter_map(move |dz| {
+                Some(VoxelCoord::new(
+                    center.x().checked_add(dx)?,
+                    center.y().checked_add(dy)?,
+                    center.z().checked_add(dz)?,
+                ))
+            })
+        })
+    })
+}
+
+/// One visual rule shared by player-facing water, forage, and resident observations.
+///
+/// The generated world has no automatic night vision. Physical line of sight
+/// alone cannot reveal an unlit cell. Ungenerated authored routes retain
+/// their existing geometric observation contract because they have no sky.
+pub(crate) fn player_can_see_local_cell(
+    registries: &Registries,
+    state: &AppState,
+    observer: VoxelCoord,
+    target: VoxelCoord,
+) -> bool {
+    has_clear_two_step_sightline(registries, state, observer, target)
+        && ((!state.world().has_generated_terrain_at(observer)
+            && !state.world().has_generated_terrain_at(target))
+            || super::assess_generated_skylight(registries, state, target) > 0
+            || crate::energy::assess_local_illumination(registries, state, target).level() > 0)
+}
+
+#[cfg(test)]
+#[path = "local_visibility_tests.rs"]
+mod tests;

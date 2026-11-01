@@ -566,15 +566,6 @@ impl KoboldColony {
                 .is_some_and(|elapsed| elapsed < 1_800)
         })
     }
-
-    fn is_visible_from(
-        &self,
-        registries: &Registries,
-        state: &AppState,
-        observer: VoxelCoord,
-    ) -> bool {
-        scout_visible_from(registries, state, self.scout_position(), observer)
-    }
 }
 
 /// Complete durable kobold owner. The opening creates at most one colony.
@@ -698,7 +689,14 @@ impl KoboldState {
     ) -> impl Iterator<Item = KoboldSighting> + 'a {
         self.colony
             .iter()
-            .filter(move |colony| colony.is_visible_from(registries, state, position))
+            .filter(move |colony| {
+                crate::world::player_can_see_local_cell(
+                    registries,
+                    state,
+                    position,
+                    colony.scout_position(),
+                )
+            })
             .map(move |colony| KoboldSighting {
                 role: KoboldRole::Scout,
                 position: colony.scout_position(),
@@ -716,17 +714,18 @@ impl KoboldState {
             })
             .chain(self.colony.iter().filter_map(move |colony| {
                 let guard = colony.watch_position();
-                scout_visible_from(registries, state, guard, position).then_some(KoboldSighting {
-                    role: KoboldRole::Watchman,
-                    position: guard,
-                    has_noticed_player_drop: false,
-                    is_wary: colony.watch_alarm_pending
-                        || colony.recently_shoved(KoboldRole::Watchman, state.control_tick()),
-                    is_defending: false,
-                    balance_ppm: Some(colony.watch_balance_ppm),
-                    mobilized: colony.mobilized_at.is_some(),
-                    scavenged_material: None,
-                })
+                crate::world::player_can_see_local_cell(registries, state, position, guard)
+                    .then_some(KoboldSighting {
+                        role: KoboldRole::Watchman,
+                        position: guard,
+                        has_noticed_player_drop: false,
+                        is_wary: colony.watch_alarm_pending
+                            || colony.recently_shoved(KoboldRole::Watchman, state.control_tick()),
+                        is_defending: false,
+                        balance_ppm: Some(colony.watch_balance_ppm),
+                        mobilized: colony.mobilized_at.is_some(),
+                        scavenged_material: None,
+                    })
             }))
             .chain(
                 crate::world::nearby_temple_residents(registries, state, position)
