@@ -27,6 +27,7 @@ pub struct PlayerMeleeAssessment {
     prepared_weapon_matches_selection: bool,
     ordinary_exertion_admissible: bool,
     prepared_exertion_admissible: bool,
+    owner_revisions_available: bool,
 }
 impl PlayerMeleeAssessment {
     pub const fn weapon(self) -> Option<EquipmentId> {
@@ -53,6 +54,7 @@ impl PlayerMeleeAssessment {
         self.remaining_recovery_ticks == 0
             && self.preparation_remaining_ticks.is_none()
             && self.ordinary_exertion_admissible
+            && self.owner_revisions_available
     }
 
     /// Whether a prepared blow has completed windup, pending live weapon and aim checks.
@@ -61,6 +63,7 @@ impl PlayerMeleeAssessment {
             && self.remaining_recovery_ticks == 0
             && matches!(self.preparation_remaining_ticks, Some(0))
             && self.prepared_exertion_admissible
+            && self.owner_revisions_available
     }
 }
 
@@ -133,6 +136,11 @@ pub fn assess_player_melee(
     // The survival owner decides whether an attack can spend its energy and hydration.
     // A prepared blow has a distinct, doubled cost, not the ordinary swing cost.
     let exertion = profile.map_or(SHOVE_EXERTION, MeleeWeaponProfile::exertion_per_swing);
+    // Combat history and carried equipment wear are separately revision-bound.
+    // A HUD cannot advertise an attack whose owner would reject it before
+    // tracing contact, even when recovery and survival reserves are ready.
+    let owner_revisions_available = state.combat().revision().checked_add(1).is_some()
+        && (weapon.is_none() || state.equipment().revision().checked_add(1).is_some());
     let ordinary_exertion_admissible = can_admit_melee_exertion(state, exertion);
     let prepared_weapon_matches_selection = state
         .combat()
@@ -153,6 +161,7 @@ pub fn assess_player_melee(
         prepared_weapon_matches_selection,
         ordinary_exertion_admissible,
         prepared_exertion_admissible,
+        owner_revisions_available,
         preparation_remaining_ticks: state.combat().prepared.map(|prepared| {
             let elapsed = state
                 .control_tick()

@@ -156,6 +156,74 @@ fn melee_readiness_does_not_advertise_an_unaffordable_shove() {
 }
 
 #[test]
+fn melee_hud_never_advertises_an_attack_with_exhausted_owner_revisions() {
+    use crate::content::EQUIPMENT_WOODEN_CLUB;
+    use crate::simulation::advance_control_tick;
+
+    let (registries, mut state, _, _, tip) = opening_contact_world();
+    validate_admit_player(&registries, &state, tip)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let last = state.control_tick();
+    state
+        .combat_state_mut()
+        .apply_attack(0, last, SHOVE_RECOVERY_TICKS);
+    for _ in 0..SHOVE_RECOVERY_TICKS {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    assert!(assess_player_melee(&registries, &state).unwrap().ready());
+
+    // The save admission contract permits a completed attack with an exhausted
+    // combat cursor. Such a player still has metabolic reserves, but may not
+    // authorize another strike until there is revision headroom.
+    let mut exhausted = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    exhausted["state"]["systems"]["combat"]["revision"] = serde_json::json!(u64::MAX);
+    let exhausted = serde_json::from_value::<LoadedSaveEnvelope>(exhausted)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &exhausted), Ok(()));
+    assert!(
+        !assess_player_melee(&registries, &exhausted)
+            .unwrap()
+            .ready(),
+        "unarmed readiness must agree with the rejected combat revision"
+    );
+    assert_eq!(
+        validate_primitive_shove(&registries, &exhausted, east()).err(),
+        Some(PrimitiveAttackError::RevisionExhausted)
+    );
+
+    // A carried and sound weapon has a separate owner revision reservation.
+    // Combat may be ready while tool wear cannot be committed.
+    let (registries, mut armed, _, _, tip) = opening_contact_world();
+    validate_admit_player(&registries, &armed, tip)
+        .unwrap()
+        .commit(&mut armed)
+        .unwrap();
+    arm_player(&registries, &mut armed, EQUIPMENT_WOODEN_CLUB);
+    assert!(assess_player_melee(&registries, &armed).unwrap().ready());
+    let mut exhausted = serde_json::to_value(SaveEnvelope::new(&registries, &armed)).unwrap();
+    exhausted["state"]["systems"]["equipment"]["revision"] = serde_json::json!(u64::MAX);
+    let exhausted = serde_json::from_value::<LoadedSaveEnvelope>(exhausted)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &exhausted), Ok(()));
+    assert!(
+        !assess_player_melee(&registries, &exhausted)
+            .unwrap()
+            .ready(),
+        "armed readiness must agree with the rejected tool-wear revision"
+    );
+    assert_eq!(
+        validate_primitive_strike(&registries, &exhausted, east()).err(),
+        Some(PrimitiveAttackError::EquipmentRevisionExhausted)
+    );
+}
+
+#[test]
 fn prepared_readiness_uses_doubled_exertion_not_an_ordinary_swing() {
     use crate::content::EQUIPMENT_WOODEN_CLUB;
     use crate::simulation::advance_control_tick;
