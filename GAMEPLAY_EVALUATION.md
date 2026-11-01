@@ -364,8 +364,12 @@ two ordinary body steps off-trail to avoid deterring the scout. The scout crosse
 the intermediate forage cell, visibly arrives at the camp, and returns one real
 parcel through that cell and the junction to its den. Only local sightings and
 pickup disclose the outcome; a trusted save/load halfway through yields identical
-steps and custody. In the matching guarded branch, standing on the intermediate
-trail keeps the camp cache safe without directly picking it up. Owner tests cover
+steps and custody. Kobold sightings, spoor, audible cues, rig and tool
+inspections, and patrol reports require a living player at the real local
+observation point. A corpse still physically obstructs resident movement but
+receives no live information. In the matching guarded branch, standing on the
+intermediate trail keeps the camp cache safe without directly picking it up.
+Owner tests cover
 two-edge saved topology, restoration of the original patrol, invalid goal admission
 and conserved source-local splitting of bulky remote caches. Further owner-level evidence follows actual two-edge travel to a natural fresh food patch, retains the newly generated recoverable harvest parcel on each intermediate return step, and replays deterministically across save/load. A patch expiring between discovery and arrival cancels the last edge without taking matter; a starving scout still hauls inert loot if there is no locally edible alternative. The full-den clearing regression prevents that fallback from overriding fresh food. Save schema 115 stores
 optional route goals, the caution deadline, sparse resident meal scheduling,

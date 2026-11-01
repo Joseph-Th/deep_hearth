@@ -421,7 +421,7 @@ pub fn available_nearby_kobold_pry_work(
     {
         return None;
     }
-    let player = state.logistics().player()?.position();
+    let player = super::living_player_observer(state)?;
     scout_visible_from(registries, state, colony.route[1], player).then_some(
         KoboldPryWorkSighting {
             position: colony.route[1],
@@ -495,7 +495,7 @@ pub fn available_nearby_kobold_scrap_lever(
     state: &AppState,
 ) -> Option<KoboldScrapLever> {
     let colony = state.kobold_state().colony.as_ref()?;
-    let player = state.logistics().player()?.position();
+    let player = super::living_player_observer(state)?;
     scout_visible_from(registries, state, colony.route[1], player)
         .then(|| current_junction_scrap_lever(state, colony))
         .flatten()

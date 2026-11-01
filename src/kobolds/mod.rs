@@ -53,6 +53,16 @@ use scavenging::den_cache_space;
 pub(crate) use validation::validate_loaded_kobolds;
 use visibility::scout_visible_from;
 
+/// Live local observations require a living player, not a corpse's stored position.
+/// Physical occupancy is separate: the body can still block resident movement.
+fn living_player_observer(state: &AppState) -> Option<VoxelCoord> {
+    state
+        .survival()
+        .player()
+        .filter(|player| player.vitality() != crate::survival::Vitality::ZERO)?;
+    state.logistics().player().map(|player| player.position())
+}
+
 const FIRST_SCOUT_TICK: u64 = 180;
 const SCOUT_STEP_TICKS: u64 = 5;
 /// One scout moves a portable parcel, not an arbitrarily heavy abandoned bulk pile.
@@ -214,6 +224,38 @@ pub struct KoboldScoutEvent {
 }
 
 impl KoboldScoutEvent {
+    /// Whether a previous finite water or den-care operation was visible this tick.
+    const fn has_care(self) -> bool {
+        self.consumed_food.is_some()
+            || self.drank_water.is_some()
+            || self.discarded_food.is_some()
+            || self.cleared_cache.is_some()
+    }
+
+    /// A stationary patrol work slot has no implied movement, cargo or material transfer.
+    /// Observable care, theft and defensive contact are added by the actual tick owner.
+    const fn quiet_at(position: VoxelCoord) -> Self {
+        Self {
+            position,
+            discovered_player_drop: false,
+            raided_stockpile: None,
+            relocated_drop: None,
+            fled_player: false,
+            fled_light: false,
+            turned_back_at_barrier: false,
+            cancelled_empty_cache_raid: false,
+            abandoned_drop: None,
+            foraged_food: None,
+            split_drop: None,
+            consumed_food: None,
+            drank_water: None,
+            discarded_food: None,
+            cleared_cache: None,
+            heard_junk_alarm: false,
+            defensive_contact: None,
+        }
+    }
+
     #[must_use]
     pub const fn position(self) -> VoxelCoord {
         self.position
@@ -749,7 +791,7 @@ pub fn available_nearby_kobold_scouts<'a>(
     registries: &'a Registries,
     state: &'a AppState,
 ) -> impl Iterator<Item = KoboldSighting> + 'a {
-    let observer = state.logistics().player().map(|player| player.position());
+    let observer = living_player_observer(state);
     observer.into_iter().flat_map(move |position| {
         state
             .kobold_state()

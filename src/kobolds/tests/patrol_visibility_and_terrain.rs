@@ -3,6 +3,100 @@
 use super::*;
 
 #[test]
+fn death_closes_kobold_sight_sound_and_step_reports_until_respawn() {
+    use crate::core::state::validate_loaded_state;
+    use crate::kobolds::{
+        available_nearby_kobold_footfalls, available_nearby_kobold_junk_relay,
+        available_nearby_kobold_junk_rig, available_nearby_kobold_pry_work,
+        available_nearby_kobold_scrap_lever, available_nearby_kobold_tracks,
+    };
+    use crate::player::validate_respawn_player;
+    use crate::survival::{Vitality, player_record_with_thermal_comfort};
+
+    let (registries, mut state, _) = generated_opening();
+    let den = colony(&state).route[0];
+    advance_to_tick(&registries, &mut state, 185);
+    validate_admit_player(&registries, &state, den)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(
+        available_nearby_kobold_scouts(&registries, &state)
+            .next()
+            .is_some(),
+        "a living observer must see the actual nearby resident"
+    );
+    assert!(
+        available_nearby_kobold_tracks(&registries, &state)
+            .next()
+            .is_some(),
+        "the same observer must see the real recent trail"
+    );
+
+    let before = state.survival().player().copied().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            before.metabolic_energy(),
+            before.hydration(),
+            Vitality::ZERO,
+            before.nutrition(),
+            before.vitality_recovery_remainder(),
+            before.thermal_comfort_ppm(),
+        ),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let assert_no_observation = |state: &AppState| {
+        assert_eq!(
+            available_nearby_kobold_scouts(&registries, state).count(),
+            0
+        );
+        assert_eq!(
+            available_nearby_kobold_tracks(&registries, state).count(),
+            0
+        );
+        assert!(available_nearby_kobold_footfalls(&registries, state).is_empty());
+        assert!(available_nearby_kobold_junk_rig(&registries, state).is_none());
+        assert!(available_nearby_kobold_junk_relay(&registries, state).is_none());
+        assert!(available_nearby_kobold_pry_work(&registries, state).is_none());
+        assert!(available_nearby_kobold_scrap_lever(&registries, state).is_none());
+    };
+    assert_no_observation(&state);
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_no_observation(&replay);
+    for _ in 0..5 {
+        let tick = advance_tick(&registries, &mut state).unwrap();
+        assert!(
+            tick.kobold_scout().is_none(),
+            "a dead observer must not receive the scout's subsequent step report"
+        );
+        assert_eq!(tick, advance_tick(&registries, &mut replay).unwrap());
+    }
+    assert_eq!(state, replay);
+    assert_no_observation(&state);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let _ = validate_respawn_player(&registries, &state)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(
+        available_nearby_kobold_scouts(&registries, &state)
+            .next()
+            .is_some(),
+        "resumed living observation must use the new player's physical position"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn grounded_player_fast_forward_matches_neutral_controls_across_scout_steps_and_load() {
     let (registries, mut fast, spawn) = generated_opening();
     advance_to_tick(&registries, &mut fast, 179);

@@ -139,16 +139,9 @@ pub fn available_nearby_kobold_footfalls(
     registries: &Registries,
     state: &AppState,
 ) -> Vec<KoboldFootfall> {
-    let Some(listener) = state.logistics().player().map(|player| player.position()) else {
+    let Some(listener) = super::living_player_observer(state) else {
         return Vec::new();
     };
-    if state
-        .survival()
-        .player()
-        .is_none_or(|player| player.vitality() == Vitality::ZERO)
-    {
-        return Vec::new();
-    }
     let Some(colony) = state.kobold_state().colony.as_ref() else {
         return Vec::new();
     };

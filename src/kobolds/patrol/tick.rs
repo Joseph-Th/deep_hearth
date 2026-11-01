@@ -130,6 +130,7 @@ pub(crate) fn apply_kobold_scout_tick(
         .next_forage_at
         .is_none_or(|due| next_tick >= due);
     let player_position = state.logistics().player().map(|player| player.position());
+    let observer = super::super::living_player_observer(state);
     let pressured_by_noise =
         super::super::acoustics::scout_hears_running_player(registries, state, from, next_tick);
     let pressured_by_player = living_player_deters_scout(registries, state, from);
@@ -157,6 +158,22 @@ pub(crate) fn apply_kobold_scout_tick(
         next_tick,
     );
     let (heard_junk_alarm, alarm_pulses) = apply_watchman_tick(registries, state, next_tick);
+    // A later work-slot return cannot erase drinking, feeding or den clearing
+    // already committed earlier in this same physical tick. Only reveal care
+    // that was actually in the living observer's sightline at its source.
+    let care_visible =
+        observer.is_some_and(|player| scout_visible_from(registries, state, from, player));
+    let observed_meal = consumed_food.filter(|_| care_visible);
+    let observed_water = drank_water.filter(|_| care_visible);
+    let observed_discard = discarded_food.filter(|_| care_visible);
+    let observed_clearing = cleared_cache.filter(|_| care_visible);
+    let observed_care = KoboldScoutEvent {
+        consumed_food: observed_meal,
+        drank_water: observed_water,
+        discarded_food: observed_discard,
+        cleared_cache: observed_clearing,
+        ..KoboldScoutEvent::quiet_at(from)
+    };
     let pressured = pressured || heard_junk_alarm;
     let optional_work_blocked = pressured || water_deprived;
     if let Some(contact) =
@@ -172,23 +189,9 @@ pub(crate) fn apply_kobold_scout_tick(
             .expect("worksite defense has the same bounded scout cadence");
         return (
             Some(KoboldScoutEvent {
-                position: from,
-                discovered_player_drop: false,
-                raided_stockpile: None,
-                relocated_drop: None,
-                fled_player: false,
-                fled_light: false,
-                turned_back_at_barrier: false,
-                cancelled_empty_cache_raid: false,
-                abandoned_drop: None,
-                foraged_food: None,
-                split_drop: None,
-                consumed_food: None,
-                drank_water: None,
-                discarded_food: None,
-                cleared_cache: None,
                 heard_junk_alarm,
                 defensive_contact: Some(contact),
+                ..observed_care
             }),
             alarm_pulses,
         );
@@ -196,7 +199,10 @@ pub(crate) fn apply_kobold_scout_tick(
     // Copper fitting occupies two real slow-clock work slots at the junction.
     // Player pressure, alarm warnings and absent parts interrupt unfinished work.
     if apply_pry_fitting_tick(state, next_tick, optional_work_blocked) {
-        return (None, alarm_pulses);
+        return (
+            observed_care.has_care().then_some(observed_care),
+            alarm_pulses,
+        );
     }
     // A reported industrial encounter gives the scout a reason to inspect
     // exposed *ground storage*, not only loose drops. Extraction costs this
@@ -212,27 +218,13 @@ pub(crate) fn apply_kobold_scout_tick(
         forage_ready,
         optional_work_blocked,
     ) {
-        let visible = player_position
-            .is_some_and(|player| scout_visible_from(registries, state, from, player));
+        let visible =
+            observer.is_some_and(|player| scout_visible_from(registries, state, from, player));
         return (
             visible.then_some(KoboldScoutEvent {
-                position: from,
-                discovered_player_drop: false,
                 raided_stockpile: Some((stockpile, stolen)),
-                relocated_drop: None,
-                fled_player: false,
-                fled_light: false,
-                turned_back_at_barrier: false,
-                cancelled_empty_cache_raid: false,
-                abandoned_drop: None,
-                foraged_food: None,
-                split_drop: None,
-                consumed_food: None,
-                drank_water: None,
-                discarded_food: None,
-                cleared_cache: None,
-                heard_junk_alarm: false,
-                defensive_contact: None,
+                heard_junk_alarm,
+                ..observed_care
             }),
             alarm_pulses,
         );
@@ -377,26 +369,17 @@ pub(crate) fn apply_kobold_scout_tick(
     }
     colony.noticed_player_drop |= discovered || relocated_drop.is_some() || split_drop.is_some();
     let scout_position = colony.scout_position();
-    // A scout emerging from an occluded den must not disclose the identity
-    // or mass of food eaten out of the observer's line of sight.
-    let den_visible =
-        player_position.is_some_and(|player| scout_visible_from(registries, state, from, player));
-    let observed_meal = consumed_food.filter(|_| den_visible);
-    let observed_water = drank_water.filter(|_| den_visible);
-    let observed_discard = discarded_food.filter(|_| den_visible);
-    let observed_clearing = cleared_cache.filter(|_| den_visible);
+    // The original source's sightline, captured before any movement,
+    // still governs disclosure after the scout finishes this route step.
     let had_local_activity = [
         can_move,
         heard_junk_alarm,
         abandoned_drop.is_some(),
-        observed_meal.is_some(),
-        observed_water.is_some(),
-        observed_discard.is_some(),
-        observed_clearing.is_some(),
+        observed_care.has_care(),
     ]
     .contains(&true);
     let visible = had_local_activity
-        && player_position
+        && observer
             .is_some_and(|player| scout_visible_from(registries, state, scout_position, player));
     (
         visible.then_some(KoboldScoutEvent {
@@ -415,10 +398,7 @@ pub(crate) fn apply_kobold_scout_tick(
             abandoned_drop,
             foraged_food,
             split_drop,
-            consumed_food: observed_meal,
-            drank_water: observed_water,
-            discarded_food: observed_discard,
-            cleared_cache: observed_clearing,
+            ..observed_care
         }),
         alarm_pulses,
     )

@@ -232,7 +232,7 @@ pub fn available_nearby_kobold_tracks<'a>(
     registries: &'a Registries,
     state: &'a AppState,
 ) -> impl Iterator<Item = KoboldTrack> + 'a {
-    let observer = state.logistics().player().map(|player| player.position());
+    let observer = super::living_player_observer(state);
     state
         .kobold_state()
         .colony
