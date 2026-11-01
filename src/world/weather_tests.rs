@@ -39,6 +39,53 @@ fn generated_player() -> (Registries, AppState, WorldGenerationSeed) {
 }
 
 #[test]
+fn dead_player_cannot_inspect_current_weather_but_respawned_player_can() {
+    use crate::player::validate_respawn_player;
+    use crate::survival::{Vitality, player_record_with_thermal_comfort};
+
+    let (registries, mut state, _) = generated_player();
+    let living_weather = assess_player_weather(&registries, &state).unwrap();
+    let before = *state.survival().player().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            before.metabolic_energy(),
+            before.hydration(),
+            Vitality::ZERO,
+            before.nutrition(),
+            before.vitality_recovery_remainder(),
+            before.thermal_comfort_ppm(),
+        ),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(assess_player_weather(&registries, &state), None);
+
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(assess_player_weather(&registries, &replay), None);
+    assert_eq!(state, replay);
+    let _ = validate_respawn_player(&registries, &state)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = validate_respawn_player(&registries, &replay)
+        .unwrap()
+        .commit(&mut replay)
+        .unwrap();
+    assert_eq!(state, replay);
+    assert_eq!(
+        assess_player_weather(&registries, &state),
+        Some(living_weather)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn weather_changes_with_real_time_season_and_region_without_random_mutation() {
     let (registries, state, seed) = generated_player();
     let before = state.clone();

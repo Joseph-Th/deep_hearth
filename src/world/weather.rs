@@ -146,9 +146,11 @@ impl PlayerWeather {
 }
 
 /// Only an admitted player standing in a generated column has an observable
-/// weather context. Missing world truth cannot invent conditions.
+/// weather context. A dead player receives no live environmental observation;
+/// missing world truth likewise cannot invent conditions.
 #[must_use]
 pub fn assess_player_weather(registries: &Registries, state: &AppState) -> Option<PlayerWeather> {
+    state.player_observation_position()?;
     assess_player_weather_at(registries, state, state.tick())
 }
 

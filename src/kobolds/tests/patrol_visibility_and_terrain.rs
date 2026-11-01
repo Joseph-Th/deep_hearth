@@ -3,6 +3,38 @@
 use super::*;
 
 #[test]
+fn logistics_only_actor_can_inspect_local_custody_but_not_living_residents() {
+    use crate::logistics::validate_initialize_player_logistics;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let den = VoxelCoord::new(0, 0, 0);
+    let junction = VoxelCoord::new(1, 0, 0);
+    let tip = VoxelCoord::new(2, 0, 0);
+    crate::logistics::add_traversable_edge_for_test(&mut state, den, junction);
+    crate::logistics::add_traversable_edge_for_test(&mut state, junction, tip);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    validate_initialize_player_logistics(&state, den, Mass::from_milligrams(25_000_000))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(state.player_observation_position(), Some(den));
+    assert_eq!(state.available_adjacent_traversal_destinations().count(), 1);
+    assert!(
+        available_nearby_kobold_scouts(&registries, &state)
+            .next()
+            .is_none(),
+        "logistics-only fixture cannot fabricate an alive observer of resident entities"
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
 fn death_closes_kobold_sight_sound_and_step_reports_until_respawn() {
     use crate::core::state::validate_loaded_state;
     use crate::kobolds::{

@@ -53,14 +53,15 @@ use scavenging::den_cache_space;
 pub(crate) use validation::validate_loaded_kobolds;
 use visibility::scout_visible_from;
 
-/// Live local observations require a living player, not a corpse's stored position.
-/// Physical occupancy is separate: the body can still block resident movement.
+/// Kobold sensory and event receipts require an actual living survival actor.
+/// Unlike resource projections for logistics-only capability fixtures, resident
+/// encounters must not be observable from a body without living survival state.
 fn living_player_observer(state: &AppState) -> Option<VoxelCoord> {
     state
         .survival()
         .player()
         .filter(|player| player.vitality() != crate::survival::Vitality::ZERO)?;
-    state.logistics().player().map(|player| player.position())
+    state.player_observation_position()
 }
 
 const FIRST_SCOUT_TICK: u64 = 180;

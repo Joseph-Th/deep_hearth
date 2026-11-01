@@ -955,14 +955,19 @@ fn player_world_drop_pickup_preflight_follows_death_load_and_respawn() {
     let _ = admit_player(&registries, &mut state, position);
     let eligibility = |state: &AppState| {
         let drops = available_player_world_drops(state).collect::<Vec<_>>();
-        assert_eq!(drops.len(), 1);
-        assert_eq!(drops[0].resource(), resource);
-        (
-            drops[0].automatic_pickup_ready(),
-            drops[0].automatic_pickup_preflight_ready(),
-        )
+        assert_eq!(
+            drops.len(),
+            usize::from(state.player_observation_position().is_some())
+        );
+        drops.first().map(|drop| {
+            assert_eq!(drop.resource(), resource);
+            (
+                drop.automatic_pickup_ready(),
+                drop.automatic_pickup_preflight_ready(),
+            )
+        })
     };
-    assert_eq!(eligibility(&state), (true, true));
+    assert_eq!(eligibility(&state), Some((true, true)));
     let matter = calculate_matter_accounting(&state).unwrap().total();
     let player = state.survival().player().copied().unwrap();
     let revision = state.survival().revision();
@@ -979,14 +984,14 @@ fn player_world_drop_pickup_preflight_follows_death_load_and_respawn() {
         ),
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
-    assert_eq!(eligibility(&state), (true, false));
+    assert_eq!(eligibility(&state), None);
     let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
     let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&save)
         .unwrap()
         .into_state(&registries)
         .unwrap();
     assert_eq!(state, replay);
-    assert_eq!(eligibility(&replay), (true, false));
+    assert_eq!(eligibility(&replay), None);
 
     let _ = validate_respawn_player(&registries, &state)
         .unwrap()
@@ -997,7 +1002,7 @@ fn player_world_drop_pickup_preflight_follows_death_load_and_respawn() {
         .commit(&mut replay)
         .unwrap();
     assert_eq!(state, replay);
-    assert_eq!(eligibility(&state), (true, true));
+    assert_eq!(eligibility(&state), Some((true, true)));
     let pickup = advance_control_tick(&registries, &mut state)
         .unwrap()
         .surface_drop_pickup()

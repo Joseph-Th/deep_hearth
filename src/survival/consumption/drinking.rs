@@ -23,7 +23,7 @@ use crate::labor::{
 };
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
-use crate::survival::{DirectConsumptionDefinition, DrinkDefinition, Vitality};
+use crate::survival::{DirectConsumptionDefinition, DrinkDefinition};
 
 use super::super::state::PendingDrinking;
 use super::direct_consumption_survival_revisions;
@@ -92,20 +92,9 @@ pub fn available_adjacent_drink_sources<'a>(
     // Observation is bounded by the admitted player's authored neighbors,
     // not by the total number of fluid vessels across the generated world.
     let mut nearby = state
-        .logistics()
-        .player()
-        .filter(|_| {
-            state
-                .survival()
-                .player()
-                .is_none_or(|survival| survival.vitality() != Vitality::ZERO)
-        })
+        .player_observation_position()
         .into_iter()
-        .flat_map(|player| {
-            state
-                .logistics()
-                .traversable_destinations(player.position())
-        })
+        .flat_map(|position| state.logistics().traversable_destinations(position))
         .flat_map(|position| {
             state
                 .logistics()
@@ -158,6 +147,7 @@ impl LocalDrinkSource {
 /// Empty, remote, unlocated, non-drinkable, and temperature-incompatible stores are omitted. The
 /// iterator deliberately does not apply the authored serving floor: a small but visible water
 /// remainder remains observable even when the next canonical drink action would reject it.
+/// A dead player cannot receive a fresh local-fluid observation.
 pub fn available_local_drink_sources<'a>(
     registries: &'a Registries,
     state: &'a AppState,

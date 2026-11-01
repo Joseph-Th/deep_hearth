@@ -372,6 +372,16 @@ synchronized indexes.
 
 Cross-owner operations coordinate owner APIs; they do not mutate another owner's private storage directly.
 
+Player-local resource, equipment, ground-container, nearby-tree, traversal,
+weather, and drink-source observations require a living actor when survival is
+initialized. The root locality query enforces that condition without modifying
+the authoritative logistics position: a dead body still occupies its physical
+location and its carried matter remains recoverable at respawn. Logistics-only
+capability fixtures retain resource observations, but resident sightings and
+patrol reports still require a living survival actor. Resident water eligibility
+uses the same authored drink temperature range as player drinking, while finite
+withdrawal and its structural load remain owned by the fluid system.
+
 The survival owner's thermal comfort is a finite short-horizon reserve. Open-air or
 overhead-covered exposure spends comfort on each slow tick, and local dissipated heat
 can restore it. Exactly spending the last reserve has one tick of deficit grace;

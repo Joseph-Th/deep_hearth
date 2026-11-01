@@ -59,6 +59,84 @@ fn spend_initial_reserves(registries: &Registries, state: &mut AppState) {
 }
 
 #[test]
+fn dead_player_cannot_see_corpse_location_drink_sources() {
+    use crate::player::validate_respawn_player;
+    use crate::survival::player_record_with_thermal_comfort;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let serving = minimum_drink_volume(&registries);
+    let store = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        serving,
+        FLUID_WATER,
+        serving,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_place_fluid_store(&state, store, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        available_local_drink_sources(&registries, &state)
+            .map(|source| source.store())
+            .collect::<Vec<_>>(),
+        vec![store]
+    );
+    let before = *state.survival().player().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            before.metabolic_energy(),
+            before.hydration(),
+            Vitality::ZERO,
+            before.nutrition(),
+            before.vitality_recovery_remainder(),
+            before.thermal_comfort_ppm(),
+        ),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(
+        available_local_drink_sources(&registries, &state).count(),
+        0
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(
+        available_local_drink_sources(&registries, &loaded).count(),
+        0
+    );
+    let _ = validate_respawn_player(&registries, &state)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = validate_respawn_player(&registries, &loaded)
+        .unwrap()
+        .commit(&mut loaded)
+        .unwrap();
+    assert_eq!(loaded, state);
+    assert_eq!(
+        available_local_drink_sources(&registries, &state)
+            .map(|source| source.store())
+            .collect::<Vec<_>>(),
+        vec![store]
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn local_drink_source_observation_exposes_only_currently_usable_colocated_fluid() {
     let registries = build_registries();
     let mut state = AppState::new();

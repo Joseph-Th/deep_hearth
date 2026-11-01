@@ -27,6 +27,118 @@ fn opening_water() -> (Registries, AppState, FluidStoreId, VoxelCoord) {
 }
 
 #[test]
+fn scout_uses_authored_drink_temperature_and_preserves_unusable_water() {
+    use crate::core::quantity::Temperature;
+    use crate::fluid::{GeneratedFluidStoreSpec, validate_generate_fluid_store};
+    use crate::logistics::{add_traversable_edge_for_test, validate_place_fluid_store};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let den = VoxelCoord::new(-1, 0, 0);
+    let junction = VoxelCoord::new(0, 0, 0);
+    let tip = VoxelCoord::new(1, 0, 0);
+    let water = VoxelCoord::new(0, 0, 1);
+    for (a, b) in [(den, junction), (junction, tip), (junction, water)] {
+        add_traversable_edge_for_test(&mut state, a, b);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    let place = |state: &mut AppState, temperature| {
+        let store = validate_generate_fluid_store(
+            &registries,
+            state,
+            GeneratedFluidStoreSpec::new(
+                SCOUT_DRINK_VOLUME,
+                FLUID_WATER,
+                SCOUT_DRINK_VOLUME,
+                temperature,
+            ),
+        )
+        .unwrap()
+        .commit(state)
+        .unwrap();
+        validate_place_fluid_store(state, store, water)
+            .unwrap()
+            .commit(state)
+            .unwrap();
+        store
+    };
+    // The fluid owner rejects a liquid store below water's melting point.
+    // This leaves no frozen-liquid custody for the scout to consume.
+    let before_rejected_generation = state.clone();
+    assert!(
+        validate_generate_fluid_store(
+            &registries,
+            &state,
+            GeneratedFluidStoreSpec::new(
+                SCOUT_DRINK_VOLUME,
+                FLUID_WATER,
+                SCOUT_DRINK_VOLUME,
+                Temperature::from_millikelvin(270_150),
+            ),
+        )
+        .is_err()
+    );
+    assert_eq!(state, before_rejected_generation);
+    let scalding = place(&mut state, Temperature::from_millikelvin(345_150));
+    let observer_route = |state: &AppState| {
+        reachable_water_from_junction(
+            &registries,
+            state,
+            state.kobold_state().colony.as_ref().unwrap(),
+            None,
+        )
+    };
+    assert_eq!(usable_water_at(&registries, &state, water), None);
+    assert_eq!(observer_route(&state), None);
+    let safe = place(&mut state, Temperature::from_millikelvin(293_150));
+    assert_eq!(
+        usable_water_at(&registries, &state, water),
+        Some((safe, SCOUT_DRINK_VOLUME))
+    );
+    assert_eq!(observer_route(&state), Some((water, None)));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let initial = calculate_fluid_volume_accounting(&state).unwrap();
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for _ in 0..1_400 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+        let _ = advance_tick(&registries, &mut replay).unwrap();
+        if state
+            .kobold_state()
+            .consumed_fluids
+            .contains_key(&FLUID_WATER)
+        {
+            break;
+        }
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state
+            .kobold_state()
+            .consumed_fluids
+            .get(&FLUID_WATER)
+            .copied(),
+        Some(AggregateVolume::from_volume(SCOUT_DRINK_VOLUME))
+    );
+    assert_eq!(
+        state.fluid().get_store(safe).unwrap().stored_volume(),
+        Volume::ZERO
+    );
+    assert_eq!(
+        state.fluid().get_store(scalding).unwrap().stored_volume(),
+        SCOUT_DRINK_VOLUME,
+        "undrinkable water is never silently withdrawn"
+    );
+    assert_eq!(calculate_fluid_volume_accounting(&state).unwrap(), initial);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn one_unwithdrawable_local_vessel_cannot_hide_another_real_drink() {
     use crate::content::{FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION};
     use crate::core::quantity::{Area, Length, Temperature};

@@ -14,7 +14,6 @@ use super::patrol::{scout_can_enter, scout_sees_guarded_cell};
 use super::visibility::scout_visible_from;
 use super::{
     KoboldColony, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_DRINK_INTERVAL_TICKS, SCOUT_DRINK_VOLUME,
-    SCOUT_SAFE_SCAVENGE_TEMPERATURE,
 };
 
 /// The scout's next physical water requirement responds to actual outdoor
@@ -58,24 +57,30 @@ pub(super) fn usable_water_at(
     state: &AppState,
     position: VoxelCoord,
 ) -> Option<(FluidStoreId, Volume)> {
-    usable_water_sources_at(state, position).find(|(store, _)| {
+    usable_water_sources_at(registries, state, position).find(|(store, _)| {
         validate_fluid_egress(registries, state, *store, SCOUT_DRINK_VOLUME).is_ok()
     })
 }
 
-fn usable_water_sources_at(
-    state: &AppState,
+fn usable_water_sources_at<'a>(
+    registries: &Registries,
+    state: &'a AppState,
     position: VoxelCoord,
-) -> impl Iterator<Item = (FluidStoreId, Volume)> + '_ {
+) -> impl Iterator<Item = (FluidStoreId, Volume)> + 'a {
+    let drink = registries.survival().get_drink(FLUID_WATER).copied();
     state
         .logistics()
         .fluid_stores_at(position)
-        .filter_map(|id| {
+        .filter_map(move |id| {
             let contents = state.fluid().get_store(id)?.contents()?;
             (contents.fluid() == FLUID_WATER
                 && contents.volume() >= SCOUT_DRINK_VOLUME
-                && contents.temperature() <= SCOUT_SAFE_SCAVENGE_TEMPERATURE)
-                .then_some((id, contents.volume()))
+                && drink.is_some_and(|definition| {
+                    definition
+                        .consumption_temperature()
+                        .contains(contents.temperature())
+                }))
+            .then_some((id, contents.volume()))
         })
 }
 
@@ -153,11 +158,12 @@ pub(super) fn drink_on_scout_visit(
     // The first physically visible water store may have a blocked structural
     // load change. Try the other real stores at this exact voxel before
     // leaving the resident thirsty; never bypass the fluid owner's egress.
-    let (store, withdrawal) = usable_water_sources_at(state, from).find_map(|(store, _)| {
-        validate_fluid_egress(registries, state, store, SCOUT_DRINK_VOLUME)
-            .ok()
-            .map(|withdrawal| (store, withdrawal))
-    })?;
+    let (store, withdrawal) =
+        usable_water_sources_at(registries, state, from).find_map(|(store, _)| {
+            validate_fluid_egress(registries, state, store, SCOUT_DRINK_VOLUME)
+                .ok()
+                .map(|withdrawal| (store, withdrawal))
+        })?;
     withdrawal.commit(state).ok()?;
     state
         .kobold_state_mut()

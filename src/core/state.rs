@@ -15,9 +15,10 @@ use crate::labor::PlayerWorkState;
 use crate::logistics::LogisticsState;
 use crate::mining::MiningState;
 use crate::production::ProductionState;
+use crate::spatial::VoxelCoord;
 use crate::structural::StructureState;
 use crate::surface::{SurfaceResourceRecord, SurfaceResourceState};
-use crate::survival::SurvivalState;
+use crate::survival::{SurvivalState, Vitality};
 use crate::world::WorldState;
 
 use super::time::{ControlTick, SimulationTick};
@@ -210,6 +211,25 @@ impl AppState {
         self.clock.control_tick
     }
 
+    /// One living actor's current observation point, or a logistics-only
+    /// capability fixture that has not initialized survival. A dead player
+    /// retains physical custody and collision, not live environmental sight.
+    /// World owners still use their authoritative, unfiltered locations.
+    pub(crate) fn player_observation_position(&self) -> Option<VoxelCoord> {
+        if self
+            .systems
+            .survival
+            .player()
+            .is_some_and(|player| player.vitality() == Vitality::ZERO)
+        {
+            return None;
+        }
+        self.systems
+            .logistics
+            .player()
+            .map(|player| player.position())
+    }
+
     /// Returns read-only authoritative finite-energy state.
     #[must_use]
     pub const fn energy(&self) -> &EnergyState {
@@ -222,11 +242,7 @@ impl AppState {
     /// voxel, so ordinary actor policy can rediscover local batteries, flywheels, and thermal
     /// stores without enumerating remote energy custody or retaining fixture identities.
     pub fn available_local_energy_stores(&self) -> impl Iterator<Item = &EnergyStoreRecord> {
-        let player_position = self
-            .systems
-            .logistics
-            .player()
-            .map(|player| player.position());
+        let player_position = self.player_observation_position();
         player_position
             .into_iter()
             .flat_map(move |position| self.systems.logistics.energy_stores_at(position))
@@ -256,11 +272,7 @@ impl AppState {
     /// voxel, so ordinary player policy can discover a nearby vessel without enumerating remote
     /// fluid custody or already knowing a store identity.
     pub fn available_local_fluid_stores(&self) -> impl Iterator<Item = &FluidStoreRecord> {
-        let player_position = self
-            .systems
-            .logistics
-            .player()
-            .map(|player| player.position());
+        let player_position = self.player_observation_position();
         player_position
             .into_iter()
             .flat_map(move |position| self.systems.logistics.fluid_stores_at(position))
@@ -290,9 +302,11 @@ impl AppState {
     /// voxel, so ordinary actor policy can rediscover local tools and machines without enumerating
     /// remote equipment custody or retaining setup identities.
     pub fn available_local_equipment(&self) -> impl Iterator<Item = &EquipmentRecord> {
+        let live_observer = self.player_observation_position().is_some();
         self.systems
             .logistics
             .player_local_equipment()
+            .filter(move |_| live_observer)
             .map(|equipment| {
                 self.systems
                     .equipment
@@ -329,11 +343,7 @@ impl AppState {
     /// Only trunks physically adjoining the admitted player's voxel are observable.
     /// World-wide forest records remain under the world owner.
     pub fn available_adjacent_trees(&self) -> impl Iterator<Item = &crate::world::TreeRecord> {
-        let here = self
-            .systems
-            .logistics
-            .player()
-            .map(|player| player.position());
+        let here = self.player_observation_position();
         here.into_iter()
             .flat_map(move |here| {
                 [
@@ -370,11 +380,7 @@ impl AppState {
     /// No resources are observable before logistics admission. Callers cannot supply an arbitrary
     /// voxel, so this surface cannot be used to scan remote world state.
     pub fn available_surface_resources(&self) -> impl Iterator<Item = &SurfaceResourceRecord> {
-        let player_position = self
-            .systems
-            .logistics
-            .player()
-            .map(|player| player.position());
+        let player_position = self.player_observation_position();
         self.systems.surface.available_resources_at(player_position)
     }
 
@@ -433,11 +439,7 @@ impl AppState {
     /// `assess_player_carrying`. No ground stockpiles are observable before logistics admission,
     /// and callers cannot supply an arbitrary voxel to scan remote inventory custody.
     pub fn available_local_ground_stockpiles(&self) -> impl Iterator<Item = &StockpileRecord> {
-        let player_position = self
-            .systems
-            .logistics
-            .player()
-            .map(|player| player.position());
+        let player_position = self.player_observation_position();
         player_position
             .into_iter()
             .flat_map(|position| self.systems.logistics.stockpiles_at(position))
@@ -472,15 +474,9 @@ impl AppState {
     pub fn available_adjacent_traversal_destinations(
         &self,
     ) -> impl Iterator<Item = crate::spatial::VoxelCoord> + '_ {
-        self.systems
-            .logistics
-            .player()
+        self.player_observation_position()
             .into_iter()
-            .flat_map(|player| {
-                self.systems
-                    .logistics
-                    .traversable_destinations(player.position())
-            })
+            .flat_map(|position| self.systems.logistics.traversable_destinations(position))
     }
 
     pub(crate) fn logistics_state_mut(&mut self) -> &mut LogisticsState {
@@ -554,6 +550,10 @@ impl Default for AppState {
 
 mod headroom;
 mod validation;
+
+#[cfg(test)]
+#[path = "state/observation_tests.rs"]
+mod observation_tests;
 
 pub(crate) use validation::debug_assert_runtime_invariants;
 pub use validation::{StateValidationError, validate_loaded_state};
