@@ -285,10 +285,26 @@ fn physiology_exposes_explicit_body_kinematics() {
         locomotion.walking_speed_for_load(capacity, capacity),
         Speed::from_nanometers_per_second(3_000_000_000),
     );
+    assert_eq!(
+        locomotion.sprinting_speed_for_load(Mass::ZERO, capacity),
+        locomotion.sprinting_speed(),
+    );
+    assert_eq!(
+        locomotion.sprinting_speed_for_load(Mass::from_milligrams(5), capacity),
+        Speed::from_nanometers_per_second(4_753_488_372),
+    );
+    assert_eq!(
+        locomotion.sprinting_speed_for_load(capacity, capacity),
+        Speed::from_nanometers_per_second(3_906_976_744),
+    );
     assert!(
         locomotion.sprinting_speed_for_load(capacity, capacity)
             > locomotion.walking_speed_for_load(capacity, capacity),
         "loaded sprinting should retain a speed-versus-exertion choice",
+    );
+    assert!(
+        locomotion.sprinting_speed_for_load(capacity, capacity) < locomotion.walking_speed(),
+        "a full pack must not recover unloaded walking speed through sprint input",
     );
     assert_eq!(
         locomotion.jump_speed_for_load(Mass::ZERO, Mass::from_milligrams(10)),

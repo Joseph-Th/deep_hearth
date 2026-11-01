@@ -1053,8 +1053,10 @@ Logistics does not duplicate lot contents, equipment condition, stored energy/fl
 
 Built-in physiology authors a 0.6 m body width; 1.8 m standing and 1.5 m crouching heights; 1.3/4.3/5.6 m/s
 crouch/walk/unloaded-sprint speeds; 20 m/s^2 horizontal acceleration; 5.0 m/s unloaded and 4.6 m/s fully loaded
-jump launch speeds; and a 55 m/s fall-speed cap. Full carry continuously removes the sprint bonus, reaching the
-4.3 m/s walking ceiling at capacity. `advance_control_tick_with_input` consumes normalized fixed-point world-space
+jump launch speeds; and a 55 m/s fall-speed cap. Carrying continuously slows both walking and sprinting;
+at full capacity the targets are 2.5 m/s walking and approximately 3.26 m/s sprinting. Sprinting
+retains a speed-versus-exertion choice without bypassing the carrying penalty.
+`advance_control_tick_with_input` consumes normalized fixed-point world-space
 intent, moves horizontal velocity toward the stance/load target, applies grounded jump impulses and gravity over
 the exact 50 ms interval, and sweeps the active-height body X then Z then vertically against `FullCube` collision.
 Standing up is refused when the taller envelope collides; crouching refuses a horizontal move that would remove

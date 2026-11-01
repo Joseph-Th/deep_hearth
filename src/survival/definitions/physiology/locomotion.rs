@@ -136,6 +136,32 @@ impl WalkingSpeedDefinition {
     }
 }
 
+/// Monotone load penalty shared by walking and jumping. Splitting the
+/// multiplication around the divisor preserves precision without overflowing
+/// even for the largest supported mass and speed quantities.
+fn speed_for_load(unloaded: Speed, fully_loaded: Speed, carried: Mass, capacity: Mass) -> Speed {
+    assert!(
+        !capacity.is_zero(),
+        "locomotion carrying capacity must be nonzero"
+    );
+    assert!(
+        carried <= capacity,
+        "locomotion carried mass cannot exceed body capacity"
+    );
+    let unloaded = u128::from(unloaded.nanometers_per_second());
+    let fully_loaded = u128::from(fully_loaded.nanometers_per_second());
+    let loss = unloaded
+        .checked_sub(fully_loaded)
+        .expect("authored loaded movement cannot exceed unloaded movement");
+    let numerator = u128::from(carried.milligrams());
+    let denominator = u128::from(capacity.milligrams());
+    let scaled_loss =
+        loss / denominator * numerator + (loss % denominator) * numerator / denominator;
+    Speed::from_nanometers_per_second(
+        u64::try_from(unloaded - scaled_loss).expect("authored movement speed fits u64"),
+    )
+}
+
 /// Authored speed envelope for direct-control locomotion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LocomotionSpeedDefinition {
@@ -489,83 +515,38 @@ impl LocomotionDefinition {
     /// hauling distance compete with trip count rather than making a full pack free.
     #[must_use]
     pub fn walking_speed_for_load(self, carried: Mass, capacity: Mass) -> Speed {
-        assert!(
-            !capacity.is_zero(),
-            "locomotion carrying capacity must be nonzero"
-        );
-        assert!(
-            carried <= capacity,
-            "locomotion carried mass cannot exceed body capacity"
-        );
-        let unloaded = u128::from(self.walking_speed().nanometers_per_second());
-        let loaded = u128::from(
-            self.body_kinematics
-                .speeds
-                .fully_loaded_walking_speed()
-                .nanometers_per_second(),
-        );
-        let loss = unloaded - loaded;
-        let numerator = u128::from(carried.milligrams());
-        let denominator = u128::from(capacity.milligrams());
-        let scaled_loss =
-            loss / denominator * numerator + (loss % denominator) * numerator / denominator;
-        Speed::from_nanometers_per_second(
-            u64::try_from(unloaded - scaled_loss)
-                .unwrap_or_else(|_| unreachable!("authored walking speed fits u64")),
+        speed_for_load(
+            self.walking_speed(),
+            self.body_kinematics.speeds.fully_loaded_walking_speed(),
+            carried,
+            capacity,
         )
     }
 
     #[must_use]
     pub fn sprinting_speed_for_load(self, carried: Mass, capacity: Mass) -> Speed {
-        assert!(
-            !capacity.is_zero(),
-            "locomotion carrying capacity must be nonzero"
+        // Sprinting must retain the same encumbrance penalty as walking.
+        // Using unloaded walking as the baseline restores that lost speed
+        // at full capacity, making sprinting an unintended load bypass.
+        let loaded_walking = u128::from(
+            self.walking_speed_for_load(carried, capacity)
+                .nanometers_per_second(),
         );
-        assert!(
-            carried <= capacity,
-            "locomotion carried mass cannot exceed body capacity"
-        );
-        let walking = u128::from(self.walking_speed().nanometers_per_second());
+        let unloaded_walking = u128::from(self.walking_speed().nanometers_per_second());
         let sprinting = u128::from(self.sprinting_speed().nanometers_per_second());
-        let bonus = sprinting - walking;
-        let remaining = u128::from(capacity.milligrams() - carried.milligrams());
-        let denominator = u128::from(capacity.milligrams());
-        let scaled_bonus =
-            bonus / denominator * remaining + (bonus % denominator) * remaining / denominator;
         Speed::from_nanometers_per_second(
-            u64::try_from(walking + scaled_bonus)
+            u64::try_from(sprinting * loaded_walking / unloaded_walking)
                 .unwrap_or_else(|_| unreachable!("authored sprint speed fits u64")),
         )
     }
 
     #[must_use]
     pub fn jump_speed_for_load(self, carried: Mass, capacity: Mass) -> Speed {
-        assert!(
-            !capacity.is_zero(),
-            "locomotion carrying capacity must be nonzero"
-        );
-        assert!(
-            carried <= capacity,
-            "locomotion carried mass cannot exceed body capacity"
-        );
-        let unloaded = u128::from(
-            self.body_kinematics
-                .unloaded_jump_speed()
-                .nanometers_per_second(),
-        );
-        let loaded = u128::from(
-            self.body_kinematics
-                .fully_loaded_jump_speed()
-                .nanometers_per_second(),
-        );
-        let loss = unloaded - loaded;
-        let numerator = u128::from(carried.milligrams());
-        let denominator = u128::from(capacity.milligrams());
-        let scaled_loss =
-            loss / denominator * numerator + (loss % denominator) * numerator / denominator;
-        Speed::from_nanometers_per_second(
-            u64::try_from(unloaded - scaled_loss)
-                .unwrap_or_else(|_| unreachable!("authored jump speed fits u64")),
+        speed_for_load(
+            self.body_kinematics.unloaded_jump_speed(),
+            self.body_kinematics.fully_loaded_jump_speed(),
+            carried,
+            capacity,
         )
     }
 

@@ -721,7 +721,11 @@ fn sprint_and_crouch_use_distinct_authored_speeds_and_persist_stance() {
     );
     assert_eq!(
         loaded_body.horizontal_velocity().x_nanometers_per_second(),
-        4_300_000_000
+        3_255_813_953
+    );
+    assert!(
+        loaded_body.foot_position().x_nanometers() < sprinting_body.foot_position().x_nanometers(),
+        "carrying a full pack must reduce realized sprint distance"
     );
     assert_eq!(crouching_body.stance(), PlayerStance::Crouching);
     assert_eq!(
