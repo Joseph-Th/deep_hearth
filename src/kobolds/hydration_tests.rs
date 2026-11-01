@@ -27,6 +27,131 @@ fn opening_water() -> (Registries, AppState, FluidStoreId, VoxelCoord) {
 }
 
 #[test]
+fn one_unwithdrawable_local_vessel_cannot_hide_another_real_drink() {
+    use crate::content::{FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION};
+    use crate::core::quantity::{Area, Length, Temperature};
+    use crate::fluid::{
+        GeneratedFluidStoreSpec, validate_fluid_egress, validate_generate_fluid_store,
+        validate_mount_fluid_store,
+    };
+    use crate::logistics::{add_traversable_edge_for_test, validate_place_fluid_store};
+    use crate::spatial::VoxelBounds;
+    use crate::structural::{
+        add_structural_element, make_test_structural_geometry,
+        materialize_structural_element_for_test, validate_activate_structural_element,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let den = VoxelCoord::new(-1, 0, 0);
+    add_traversable_edge_for_test(&mut state, den, VoxelCoord::new(0, 0, 0));
+    add_traversable_edge_for_test(
+        &mut state,
+        VoxelCoord::new(0, 0, 0),
+        VoxelCoord::new(1, 0, 0),
+    );
+    state.kobold_state_mut().apply_opening_colony([
+        den,
+        VoxelCoord::new(0, 0, 0),
+        VoxelCoord::new(1, 0, 0),
+    ]);
+    let frame = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        make_test_structural_geometry(
+            VoxelBounds::new(den, VoxelCoord::new(0, 1, 1)).unwrap(),
+            Length::from_micrometers(1),
+            Area::from_square_millimeters(1_000),
+        ),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, frame, FORM_LOG);
+    let _ = validate_activate_structural_element(&registries, &state, frame)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let add_water = |state: &mut AppState| {
+        let store = validate_generate_fluid_store(
+            &registries,
+            state,
+            GeneratedFluidStoreSpec::new(
+                SCOUT_DRINK_VOLUME,
+                FLUID_WATER,
+                SCOUT_DRINK_VOLUME,
+                Temperature::from_millikelvin(293_150),
+            ),
+        )
+        .unwrap()
+        .commit(state)
+        .unwrap();
+        validate_place_fluid_store(state, store, den)
+            .unwrap()
+            .commit(state)
+            .unwrap();
+        store
+    };
+    let blocked = add_water(&mut state);
+    let available = add_water(&mut state);
+    let _ = validate_mount_fluid_store(&registries, &state, blocked, frame)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    encoded["state"]["systems"]["structures"]["revision"] = serde_json::json!(u64::MAX);
+    let mut state = serde_json::from_value::<LoadedSaveEnvelope>(encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert!(validate_fluid_egress(&registries, &state, blocked, SCOUT_DRINK_VOLUME).is_err());
+    assert!(validate_fluid_egress(&registries, &state, available, SCOUT_DRINK_VOLUME).is_ok());
+    let before = calculate_fluid_volume_accounting(&state).unwrap();
+    for _ in 0..1_550 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+        if state
+            .kobold_state()
+            .consumed_fluids
+            .contains_key(&FLUID_WATER)
+        {
+            break;
+        }
+    }
+    assert_eq!(
+        state
+            .kobold_state()
+            .consumed_fluids
+            .get(&FLUID_WATER)
+            .copied(),
+        Some(AggregateVolume::from_volume(SCOUT_DRINK_VOLUME)),
+        "a failed withdrawal at the first vessel must not conceal the usable neighbor"
+    );
+    assert_eq!(
+        state.fluid().get_store(blocked).unwrap().stored_volume(),
+        SCOUT_DRINK_VOLUME
+    );
+    assert_eq!(
+        state.fluid().get_store(available).unwrap().stored_volume(),
+        Volume::ZERO
+    );
+    assert_eq!(calculate_fluid_volume_accounting(&state).unwrap(), before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for _ in 0..100 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+        let _ = advance_tick(&registries, &mut replay).unwrap();
+    }
+    assert_eq!(state, replay);
+    assert_eq!(calculate_fluid_volume_accounting(&state).unwrap(), before);
+}
+
+#[test]
 fn junction_water_search_prefers_a_real_nearby_source_over_far_detours() {
     use crate::core::quantity::Temperature;
     use crate::fluid::{GeneratedFluidStoreSpec, validate_generate_fluid_store};

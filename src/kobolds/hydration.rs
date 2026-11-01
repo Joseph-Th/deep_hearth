@@ -56,13 +56,23 @@ pub(super) fn usable_water_at(
     state: &AppState,
     position: VoxelCoord,
 ) -> Option<(FluidStoreId, Volume)> {
-    state.logistics().fluid_stores_at(position).find_map(|id| {
-        let contents = state.fluid().get_store(id)?.contents()?;
-        (contents.fluid() == FLUID_WATER
-            && contents.volume() >= SCOUT_DRINK_VOLUME
-            && contents.temperature() <= SCOUT_SAFE_SCAVENGE_TEMPERATURE)
-            .then_some((id, contents.volume()))
-    })
+    usable_water_sources_at(state, position).next()
+}
+
+fn usable_water_sources_at(
+    state: &AppState,
+    position: VoxelCoord,
+) -> impl Iterator<Item = (FluidStoreId, Volume)> + '_ {
+    state
+        .logistics()
+        .fluid_stores_at(position)
+        .filter_map(|id| {
+            let contents = state.fluid().get_store(id)?.contents()?;
+            (contents.fluid() == FLUID_WATER
+                && contents.volume() >= SCOUT_DRINK_VOLUME
+                && contents.temperature() <= SCOUT_SAFE_SCAVENGE_TEMPERATURE)
+                .then_some((id, contents.volume()))
+        })
 }
 
 /// A scout standing at the junction can see adjacent water and, when the
@@ -127,7 +137,6 @@ pub(super) fn drink_on_scout_visit(
     if at < colony.next_drink_at || colony.scavenged_drop.is_some() {
         return None;
     }
-    let (store, _) = usable_water_at(state, from)?;
     let interval = drink_interval_at(registries, state, from, at);
     let next_due = at.checked_add_span(TickSpan::new(interval))?;
     let next_total = state
@@ -137,7 +146,14 @@ pub(super) fn drink_on_scout_visit(
         .copied()
         .unwrap_or(AggregateVolume::ZERO)
         .checked_add(AggregateVolume::from_volume(SCOUT_DRINK_VOLUME))?;
-    let withdrawal = validate_fluid_egress(registries, state, store, SCOUT_DRINK_VOLUME).ok()?;
+    // The first physically visible water store may have a blocked structural
+    // load change. Try the other real stores at this exact voxel before
+    // leaving the resident thirsty; never bypass the fluid owner's egress.
+    let (store, withdrawal) = usable_water_sources_at(state, from).find_map(|(store, _)| {
+        validate_fluid_egress(registries, state, store, SCOUT_DRINK_VOLUME)
+            .ok()
+            .map(|withdrawal| (store, withdrawal))
+    })?;
     withdrawal.commit(state).ok()?;
     state
         .kobold_state_mut()
