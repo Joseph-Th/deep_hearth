@@ -23,7 +23,7 @@ use crate::labor::{
 };
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
-use crate::survival::{DirectConsumptionDefinition, DrinkDefinition};
+use crate::survival::{DirectConsumptionDefinition, DrinkDefinition, Vitality};
 
 use super::super::state::PendingDrinking;
 use super::direct_consumption_survival_revisions;
@@ -82,7 +82,9 @@ pub struct LocalDrinkSource {
 /// Iterates drinkable sources located exactly one face-adjacent voxel from the admitted player.
 ///
 /// Empty, inaccessible, non-drinkable, temperature-incompatible, local, diagonal, and more distant
-/// stores are omitted. Callers cannot supply an arbitrary observation coordinate.
+/// stores are omitted. Dead players cannot observe adjacent sources; controlled logistics-only
+/// fixtures preserve their existing capability observation. Callers cannot supply an arbitrary
+/// observation coordinate.
 pub fn available_adjacent_drink_sources<'a>(
     registries: &'a Registries,
     state: &'a AppState,
@@ -92,6 +94,12 @@ pub fn available_adjacent_drink_sources<'a>(
     let mut nearby = state
         .logistics()
         .player()
+        .filter(|_| {
+            state
+                .survival()
+                .player()
+                .is_none_or(|survival| survival.vitality() != Vitality::ZERO)
+        })
         .into_iter()
         .flat_map(|player| {
             state

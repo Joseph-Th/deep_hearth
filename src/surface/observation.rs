@@ -99,7 +99,9 @@ impl AdjacentSurfaceResource {
 /// Iterates available loose resources on traversal-authorized face-neighbors of the player.
 ///
 /// Callers cannot provide an arbitrary observer coordinate, and inaccessible adjacent voxels are
-/// omitted. This is immediate orientation only, not remote scanning or line-of-sight.
+/// omitted. Death suppresses adjacent sightings; capability fixtures with no survival actor
+/// retain their explicit logistics-only observation contract. This is immediate orientation only,
+/// not remote scanning or line-of-sight.
 pub fn available_adjacent_surface_resources(
     state: &AppState,
 ) -> impl Iterator<Item = AdjacentSurfaceResource> + '_ {
@@ -109,6 +111,12 @@ pub fn available_adjacent_surface_resources(
     let mut nearby = state
         .logistics()
         .player()
+        .filter(|_| {
+            state
+                .survival()
+                .player()
+                .is_none_or(|survival| survival.vitality() != Vitality::ZERO)
+        })
         .into_iter()
         .flat_map(|player| {
             state

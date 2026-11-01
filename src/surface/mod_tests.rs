@@ -4118,6 +4118,109 @@ fn adjacent_surface_observation_requires_persisted_access_and_hides_exact_state(
 }
 
 #[test]
+fn adjacent_resource_and_water_sight_end_at_death_and_resume_after_respawn() {
+    use crate::player::validate_respawn_player;
+    use crate::survival::{available_adjacent_drink_sources, player_record_with_thermal_comfort};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let home = VoxelCoord::new(0, 0, 0);
+    let east = VoxelCoord::new(1, 0, 0);
+    let berry = seed_surface(
+        &registries,
+        &mut state,
+        east,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(250_000),
+    );
+    let serving = Volume::from_microliters(750_000);
+    let water = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        serving,
+        FLUID_WATER,
+        serving,
+        TEMPERATURE,
+    )
+    .unwrap();
+    validate_place_fluid_store(&state, water, east)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = admit_player(&registries, &mut state, home);
+    add_traversable_edge_for_test(&mut state, home, east);
+    let sight = |state: &AppState| {
+        (
+            available_adjacent_surface_resources(state)
+                .map(|resource| resource.resource())
+                .collect::<Vec<_>>(),
+            available_adjacent_drink_sources(&registries, state)
+                .map(|source| source.store())
+                .collect::<Vec<_>>(),
+        )
+    };
+    assert_eq!(sight(&state), (vec![berry], vec![water]));
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    let fluid = crate::fluid::calculate_fluid_volume_accounting(&state)
+        .unwrap()
+        .total();
+
+    let player = state.survival().player().copied().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            player.metabolic_energy(),
+            player.hydration(),
+            Vitality::ZERO,
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+            player.thermal_comfort_ppm(),
+        ),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(
+        sight(&state),
+        (vec![], vec![]),
+        "terminal vitality must block both neighboring resource identity projections"
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+    assert_eq!(
+        crate::fluid::calculate_fluid_volume_accounting(&state)
+            .unwrap()
+            .total(),
+        fluid
+    );
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(replay, state);
+    assert_eq!(sight(&replay), (vec![], vec![]));
+    let _ = validate_respawn_player(&registries, &state)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = validate_respawn_player(&registries, &replay)
+        .unwrap()
+        .commit(&mut replay)
+        .unwrap();
+    assert_eq!(state, replay);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(sight(&state), (vec![berry], vec![water]));
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+    assert_eq!(
+        crate::fluid::calculate_fluid_volume_accounting(&state)
+            .unwrap()
+            .total(),
+        fluid
+    );
+}
+
+#[test]
 fn adjacent_surface_observation_preserves_global_identity_order_across_neighbor_indexes() {
     let registries = build_registries();
     let mut state = AppState::new();
