@@ -154,7 +154,7 @@ fn advance_simulation_tick_unstaged(
     )?;
     let passive_energy_plan = decide_passive_energy_dissipation(registries, state);
     let passive_energy_revision_steps = passive_energy_plan.energy_revision_steps();
-    let transmission_plan = decide_mechanical_transmission(
+    let mut transmission_plan = decide_mechanical_transmission(
         registries,
         state,
         &passive_energy_plan,
@@ -162,15 +162,26 @@ fn advance_simulation_tick_unstaged(
             .as_ref()
             .map(|plan| plan.element()),
     );
-    let transmission_revision_steps = transmission_plan.energy_revision_steps();
-    // Production releases and manual-power completion already own future energy revisions through
-    // durable resident state. Passive loss is an incidental same-tick mutation, so it must fit in
-    // addition to those obligations rather than consuming capacity promised to them.
+    // Passive dissipation is unavoidable, so its incidental mutation must fit
+    // beyond all outstanding production and manual-power completion reservations.
     if passive_energy_revision_steps != 0
         && !state.can_spend_energy_revisions(passive_energy_revision_steps)
     {
         return Err(TickError::EnergyRevisionExhausted);
     }
+    // Shafts, unlike passive losses, can defer a transfer. A future job owns
+    // its promised revision even if an idle shaft has more stored work to send.
+    // Skipping only the optional transfer lets that job progress to completion
+    // instead of trapping the entire world on an unadvanceable tick.
+    let transmission_revision_steps = transmission_plan.energy_revision_steps();
+    if transmission_revision_steps != 0
+        && !passive_energy_revision_steps
+            .checked_add(transmission_revision_steps)
+            .is_some_and(|steps| state.can_spend_energy_revisions(steps))
+    {
+        transmission_plan = Default::default();
+    }
+    let transmission_revision_steps = transmission_plan.energy_revision_steps();
     require_revision_capacity(
         state.energy().revision(),
         [

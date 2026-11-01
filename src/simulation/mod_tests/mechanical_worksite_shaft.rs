@@ -195,6 +195,185 @@ fn three_segment_timber_shaft_transmits_with_cumulative_friction_and_disconnects
 }
 
 #[test]
+fn shaft_transfer_cannot_spend_energy_revision_reserved_for_pending_manual_power() {
+    use crate::content::MATERIAL_WOOD;
+    use crate::structural::{
+        add_structural_element, materialize_structural_element_for_test,
+        validate_activate_structural_element,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let source = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_MECHANICAL_SMALL_DRIVE,
+        Energy::from_nanojoules(100_000_000_000),
+    )
+    .unwrap();
+    let destination = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_MECHANICAL_LARGE_DRIVE,
+        Energy::ZERO,
+    )
+    .unwrap();
+    let work_store = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_MECHANICAL_SMALL_DRIVE,
+        Energy::ZERO,
+    )
+    .unwrap();
+    let crank = assemble_crank(&registries, &mut state);
+    let work_position = VoxelCoord::new(0, 0, 2);
+    place_energy_store_for_fixture(&mut state, source, VoxelCoord::new(0, 0, 0));
+    place_energy_store_for_fixture(&mut state, destination, VoxelCoord::new(2, 0, 0));
+    place_energy_store_for_fixture(&mut state, work_store, work_position);
+    crate::logistics::place_equipment_for_fixture(&mut state, crank, work_position);
+    let roller = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_TIMBER_DRIVE_COUPLING,
+        MATERIAL_WOOD,
+        crate::structural::make_test_structural_geometry(
+            VoxelBounds::new(VoxelCoord::new(1, 0, 0), VoxelCoord::new(2, 1, 1)).unwrap(),
+            Length::from_micrometers(1_000_000),
+            Area::from_square_millimeters(300),
+        ),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, roller, FORM_HANDLE);
+    let _ = validate_activate_structural_element(&registries, &state, roller)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_admit_player(&registries, &state, work_position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+
+    // A real shaft transfers while its unrelated manual-power job is not
+    // underway, but must not spend that job's reserved completion revision.
+    let mut unreserved = state.clone();
+    let work = validate_start_manual_power(
+        &registries,
+        &state,
+        ManualPowerRequest::new(
+            MANUAL_POWER_HAND_CRANK,
+            crank,
+            work_store,
+            Energy::from_nanojoules(400_000_000_000),
+        ),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert!(work.completes_at().value() > state.tick().value() + 1);
+    assert_eq!(state.checked_future_energy_revision_demand(), Some(1));
+    assert!(state.energy().get_store(source).unwrap().stored() > Energy::ZERO);
+    assert_eq!(
+        state.energy().get_store(destination).unwrap().stored(),
+        Energy::ZERO
+    );
+
+    let constrain = |state: &AppState| {
+        let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, state)).unwrap();
+        encoded["state"]["systems"]["energy"]["revision"] = serde_json::json!(u64::MAX - 1);
+        serde_json::from_value::<LoadedSaveEnvelope>(encoded)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap()
+    };
+    unreserved = constrain(&unreserved);
+    let mut reserved = constrain(&state);
+    assert!(unreserved.can_spend_energy_revisions(1));
+    assert!(reserved.can_spend_energy_revisions(0));
+    assert!(!reserved.can_spend_energy_revisions(1));
+
+    let unreserved_tick = advance_tick(&registries, &mut unreserved).unwrap();
+    assert_eq!(unreserved_tick.mechanical_transmissions().len(), 1);
+    assert_eq!(unreserved.energy().revision(), u64::MAX);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &unreserved),
+        Ok(())
+    );
+
+    // With two revisions available, one shaft transfer can settle while the
+    // remaining revision stays reserved for the later manual-power completion.
+    let mut sufficient_save = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    sufficient_save["state"]["systems"]["energy"]["revision"] = serde_json::json!(u64::MAX - 2);
+    let mut sufficient = serde_json::from_value::<LoadedSaveEnvelope>(sufficient_save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let replay_bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &sufficient)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&replay_bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert!(sufficient.can_spend_energy_revisions(1));
+    let expected_tick = advance_tick(&registries, &mut sufficient).unwrap();
+    assert_eq!(
+        expected_tick,
+        advance_tick(&registries, &mut replay).unwrap()
+    );
+    assert_eq!(expected_tick.mechanical_transmissions().len(), 1);
+    assert_eq!(sufficient, replay);
+    assert_eq!(sufficient.energy().revision(), u64::MAX - 1);
+    assert_eq!(sufficient.checked_future_energy_revision_demand(), Some(1));
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &sufficient),
+        Ok(())
+    );
+
+    // With only the promised revision left, the shaft waits without
+    // consuming work, energy or a revision. The pending manual-power job
+    // must still advance and complete, including across a save/load replay.
+    let snapshot = serde_json::to_vec(&SaveEnvelope::new(&registries, &reserved)).unwrap();
+    let mut reserved_replay = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let energy_before = reserved.energy().get_store(source).unwrap().stored();
+    let first = advance_tick(&registries, &mut reserved).unwrap();
+    assert_eq!(
+        first,
+        advance_tick(&registries, &mut reserved_replay).unwrap()
+    );
+    assert!(first.mechanical_transmissions().is_empty());
+    assert_eq!(reserved.energy().revision(), u64::MAX - 1);
+    assert_eq!(
+        reserved.energy().get_store(source).unwrap().stored(),
+        energy_before
+    );
+    assert_eq!(reserved.checked_future_energy_revision_demand(), Some(1));
+    assert_eq!(reserved, reserved_replay);
+
+    while reserved.player_work().active().is_some() {
+        let tick = advance_tick(&registries, &mut reserved).unwrap();
+        assert_eq!(
+            tick,
+            advance_tick(&registries, &mut reserved_replay).unwrap()
+        );
+        assert!(tick.mechanical_transmissions().is_empty());
+    }
+    assert_eq!(reserved, reserved_replay);
+    assert_eq!(reserved.energy().revision(), u64::MAX);
+    assert!(reserved.energy().get_store(work_store).unwrap().stored() > Energy::ZERO);
+    assert_eq!(reserved.checked_future_energy_revision_demand(), Some(0));
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &reserved),
+        Ok(())
+    );
+}
+
+#[test]
 fn built_roller_fills_nearly_full_drive_with_friction_adjusted_custody_and_replay() {
     let authored = build_registries();
     let source_capacity = authored

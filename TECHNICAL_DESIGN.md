@@ -921,6 +921,11 @@ survival reserves + PlayerWorkState -> timed direct labor -> physical operation 
 survival + logistics + carried inventory -> atomic ordinary player admission
 ```
 
+Slow-tick shaft transmission spends an energy-owner revision only after accounting for future
+production and manual-power completion reservations and unavoidable same-tick passive loss.
+If no incidental revision remains, the optional shaft transfer waits without moving energy;
+scheduled player work continues toward its completion instead of blocking the entire tick.
+
 These are control paths as well as accounting paths. Planning code inspects the canonical projection at
 each edge when the owner exposes one and invokes the canonical transition rather than reaching through to a
 later owner.
