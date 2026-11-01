@@ -54,6 +54,102 @@ fn generated_plant() -> (Registries, AppState, crate::surface::SurfaceResourceId
     (registries, state, id)
 }
 
+#[test]
+fn due_gathering_and_senescence_near_surface_revision_exhaustion_are_atomic() {
+    use crate::simulation::TickError;
+    use crate::surface::{
+        SurfaceResourceState, player_surface_gathering_options,
+        validate_start_player_surface_gathering_option,
+    };
+
+    let (registries, mut state, plant) = generated_plant();
+    let position = state.surface().get(plant).unwrap().position();
+    crate::logistics::relocate_player_for_test(&mut state, position);
+    let batch = Mass::from_milligrams(25_000);
+    let option = player_surface_gathering_options(&registries, &state)
+        .unwrap()
+        .into_iter()
+        .find(|option| option.resource() == plant)
+        .expect("a generated perennial must offer ordinary gathering");
+    let duration = option.duration_for_mass(batch).unwrap().value();
+    let due = SimulationTick::new(FRUIT_SENESCENCE_TICKS);
+    assert!(duration > 0 && duration < due.value());
+    crate::core::state::apply_clock_advance(
+        &mut state,
+        SimulationTick::new(due.value() - duration),
+    );
+    let option = player_surface_gathering_options(&registries, &state)
+        .unwrap()
+        .into_iter()
+        .find(|option| option.resource() == plant)
+        .unwrap();
+    validate_start_player_surface_gathering_option(&registries, &state, option, batch)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(matches!(
+        state.player_work().active(),
+        Some(crate::labor::PlayerWork::SurfaceGathering { work })
+            if work.completes_at() == due
+    ));
+    while state.tick().value() < due.value() - 1 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    let saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut persisted = saved["state"]["systems"]["surface"].clone();
+    persisted["revision"] = serde_json::json!(u64::MAX - 1);
+    let mut near_exhausted: SurfaceResourceState = serde_json::from_value(persisted).unwrap();
+    near_exhausted.rebuild_derived_indexes();
+    *state.surface_state_mut() = near_exhausted;
+    assert!(
+        !state.can_spend_surface_revisions(1),
+        "the existing gathering reservation also consumes the final surface revision"
+    );
+
+    let mut with_two_revisions = state.clone();
+    let mut enough = saved["state"]["systems"]["surface"].clone();
+    enough["revision"] = serde_json::json!(u64::MAX - 2);
+    let mut enough_surface: SurfaceResourceState = serde_json::from_value(enough).unwrap();
+    enough_surface.rebuild_derived_indexes();
+    *with_two_revisions.surface_state_mut() = enough_surface;
+    assert!(with_two_revisions.can_spend_surface_revisions(1));
+    assert!(
+        with_two_revisions
+            .surface()
+            .get(plant)
+            .unwrap()
+            .remaining_mass()
+            > batch
+    );
+    let successful = advance_tick(&registries, &mut with_two_revisions).unwrap();
+    assert_eq!(
+        successful
+            .surface_gathering()
+            .map(|gathering| gathering.resource()),
+        Some(plant)
+    );
+    assert_eq!(with_two_revisions.surface().revision(), u64::MAX);
+    assert_eq!(
+        with_two_revisions.surface().get(plant).unwrap().lifecycle(),
+        SurfaceResourceLifecycle::Depleted,
+        "the post-harvest senescence must actually spend the second revision"
+    );
+    assert_eq!(
+        validate_loaded_state(&registries, &with_two_revisions),
+        Ok(())
+    );
+
+    let before = state.clone();
+    assert_eq!(
+        advance_tick(&registries, &mut state),
+        Err(TickError::SurfaceRevisionExhausted)
+    );
+    assert_eq!(
+        state, before,
+        "a completed harvest and natural senescence must reject as one atomic slow tick"
+    );
+}
+
 fn strip_plant(state: &mut AppState, id: crate::surface::SurfaceResourceId) {
     let mass = state.surface().get(id).unwrap().remaining_mass();
     let next = state.surface().revision() + 1;
