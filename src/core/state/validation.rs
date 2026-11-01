@@ -111,6 +111,14 @@ pub fn validate_loaded_state(
     // mass. This keeps malformed decoded trace sums on the validation-error path rather than the
     // runtime-invariant panic path used by already trusted state.
     validate_inventory_references(registries, state)?;
+    if let Some(position) = state
+        .surface()
+        .perennial_resources()
+        .map(|source| source.position())
+        .find(|position| state.has_enclosed_stockpile_at(*position))
+    {
+        return Err(StateValidationError::EnclosureOverlapsRootedForage { position });
+    }
     validate_structural_integrations(registries, state)?;
     validate_loaded_geology(registries.materials(), &state.systems.geology, state.tick())
         .map_err(StateValidationError::Geology)?;

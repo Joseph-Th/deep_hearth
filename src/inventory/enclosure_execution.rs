@@ -159,6 +159,9 @@ pub(crate) fn validate_place_player_storage_at(
     if enclosure_position_is_solid(registries, state, position) {
         return Err(PlayerStoragePlacementError::GeneratedSolidTerrain { position });
     }
+    if rooted_foraging_at(state, position) {
+        return Err(PlayerStoragePlacementError::RootedVegetationOccupiesSite { position });
+    }
     // Ordinary pointed placement already excludes residents. The owner-level
     // placement capability must enforce the same physical clearance so that
     // direct callers cannot construct persistent matter around a living actor.
@@ -476,12 +479,29 @@ fn validate_world_location(
             position: target_position,
         });
     }
+    if rooted_foraging_at(state, target_position) {
+        return Err(
+            StorageEnclosureConstructionError::RootedVegetationOccupiesSite {
+                position: target_position,
+            },
+        );
+    }
     if !generated_enclosure_has_ground_support(registries, state, target_position) {
         return Err(StorageEnclosureConstructionError::UnsupportedFloor {
             position: target_position,
         });
     }
     Ok(())
+}
+
+/// A harvested perennial still has live roots at its site. An enclosure may
+/// not be built over them and later contain fruit regrown inside its body.
+/// Placement is rare, so query the perennial index instead of all surface drops.
+fn rooted_foraging_at(state: &AppState, position: VoxelCoord) -> bool {
+    state
+        .surface()
+        .perennial_resources()
+        .any(|resource| resource.position() == position)
 }
 
 fn enclosure_position_is_solid(

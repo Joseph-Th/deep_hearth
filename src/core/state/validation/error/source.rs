@@ -23,6 +23,7 @@ impl Error for StateValidationError {
             Self::Inventory(error) => Some(error),
             Self::Logistics(error) => Some(error),
             Self::StorageEnclosure(error) => Some(error),
+            Self::EnclosureOverlapsRootedForage { .. } => None,
             Self::Production(error) => Some(error),
             Self::Mining(error) => Some(error),
             Self::MiningJob(error) => Some(error),

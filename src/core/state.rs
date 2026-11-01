@@ -466,6 +466,19 @@ impl AppState {
         &self.systems.logistics
     }
 
+    /// A built enclosure occupies storage floor space and blocks scout traversal.
+    /// It is not an opaque full-cell wall: worksite fires and players may share
+    /// its voxel. This read resolves the inventory owner through local custody.
+    #[must_use]
+    pub(crate) fn has_enclosed_stockpile_at(&self, position: VoxelCoord) -> bool {
+        self.systems.logistics.stockpiles_at(position).any(|id| {
+            self.systems
+                .inventory
+                .get_stockpile(id)
+                .is_some_and(|store| store.enclosure().is_some())
+        })
+    }
+
     /// Iterates actor-visible adjacent destinations from the persisted opening-access graph.
     ///
     /// Callers cannot query an arbitrary origin, so this exposes only persisted traversal

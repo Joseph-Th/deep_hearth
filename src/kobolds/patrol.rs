@@ -89,12 +89,7 @@ pub(super) fn scout_can_enter(
                 // A physical enclosure obstructs passage. Co-located loose
                 // equipment and energy/fluid stores are locality markers,
                 // not full-cube terrain; illumination owns fire deterrence.
-                && !state.logistics().stockpiles_at(cell).any(|id| {
-                    state
-                        .inventory()
-                        .get_stockpile(id)
-                        .is_some_and(|stockpile| stockpile.enclosure().is_some())
-                })
+                && !state.has_enclosed_stockpile_at(cell)
                 && !state.structures().blocks_full_cell(cell)
         })
 }

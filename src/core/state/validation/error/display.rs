@@ -58,6 +58,13 @@ impl Display for StateValidationError {
             Self::StorageEnclosure(error) => {
                 write!(formatter, "invalid storage enclosure state: {error}")
             }
+            Self::EnclosureOverlapsRootedForage { position } => write!(
+                formatter,
+                "built storage enclosure occupies living forage roots at ({},{},{})",
+                position.x(),
+                position.y(),
+                position.z()
+            ),
             Self::Production(error) => write!(formatter, "invalid production state: {error}"),
             Self::Mining(error) => write!(formatter, "invalid mining state: {error}"),
             Self::MiningJob(error) => write!(formatter, "invalid mining job: {error}"),

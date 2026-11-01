@@ -143,6 +143,9 @@ pub(crate) fn apply_natural_forage_cycle(
                 || plant.root_reserve.is_zero()
                 || !state.world().has_generated_terrain_at(source.position())
                 || state.structures().blocks_full_cell(source.position())
+                // An enclosure is inventory-owned physical volume, not a structural
+                // member. It cannot hide a rooted patch and still admit fresh fruit.
+                || state.has_enclosed_stockpile_at(source.position())
                 || !has_open_sky(registries, state, source.position())
             {
                 return None;

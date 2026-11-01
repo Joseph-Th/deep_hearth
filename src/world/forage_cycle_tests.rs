@@ -150,6 +150,122 @@ fn due_gathering_and_senescence_near_surface_revision_exhaustion_are_atomic() {
     );
 }
 
+#[test]
+fn storage_enclosures_cannot_cover_living_roots_even_after_the_fruit_is_harvested() {
+    use crate::content::STORAGE_ROUGH_TIMBER_FIELD_BOX;
+    use crate::inventory::{
+        PlayerStoragePlacementError, StorageEnclosureConstructionError,
+        add_solid_stockpile_for_test, validate_build_storage_enclosure,
+        validate_place_player_storage_at,
+    };
+    use crate::logistics::{relocate_player_for_test, validate_place_ground_stockpile};
+
+    let (registries, mut state, plant) = generated_plant();
+    let position = state.surface().get(plant).unwrap().position();
+    relocate_player_for_test(&mut state, position);
+
+    // A fruiting patch and the living roots left after harvesting must both
+    // obstruct a full-cell enclosure, not merely a construction blueprint.
+    for harvested in [false, true] {
+        if harvested {
+            strip_plant(&mut state, plant);
+            assert_eq!(
+                state.surface().get(plant).unwrap().lifecycle(),
+                SurfaceResourceLifecycle::Depleted
+            );
+        }
+        let before = state.clone();
+        assert_eq!(
+            validate_place_player_storage_at(
+                &registries,
+                &state,
+                STORAGE_ROUGH_TIMBER_FIELD_BOX,
+                position,
+            )
+            .err(),
+            Some(PlayerStoragePlacementError::RootedVegetationOccupiesSite { position })
+        );
+        assert_eq!(state, before);
+    }
+
+    // Enclosing an existing loose ground stockpile is a separate, public
+    // construction path and must enforce the identical root-footprint rule.
+    let stockpile =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000)).unwrap();
+    validate_place_ground_stockpile(&state, stockpile, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let before = state.clone();
+    assert_eq!(
+        validate_build_storage_enclosure(
+            &registries,
+            &state,
+            STORAGE_ROUGH_TIMBER_FIELD_BOX,
+            stockpile,
+            stockpile,
+        )
+        .err(),
+        Some(StorageEnclosureConstructionError::RootedVegetationOccupiesSite { position })
+    );
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap(),
+        state,
+    );
+}
+
+#[test]
+fn trusted_load_rejects_enclosures_relocated_onto_rooted_food() {
+    use crate::content::{FORM_ROUGH_BOX_BODY, MATERIAL_WOOD, STORAGE_ROUGH_TIMBER_FIELD_BOX};
+    use crate::core::state::StateValidationError;
+    use crate::inventory::{deposit_bulk_for_test, validate_place_player_storage};
+    use crate::material::CommodityKey;
+    use crate::persistence::LoadError;
+
+    let (registries, mut state, plant) = generated_plant();
+    let root = state.surface().get(plant).unwrap().position();
+    let spawn = state.logistics().player().unwrap().position();
+    assert_ne!(
+        spawn, root,
+        "the generated opening must have distinct forage and camp sites"
+    );
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
+        Mass::from_milligrams(1_600_000),
+    )
+    .unwrap();
+    let enclosure =
+        validate_place_player_storage(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    // Alter only persisted location custody, as a malformed save might. The
+    // derived spatial index is rebuilt during promotion, never trusted blindly.
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    encoded["state"]["systems"]["logistics"]["stockpile_locations"]
+        [enclosure.value().to_string()] =
+        serde_json::json!({"x": root.x(), "y": root.y(), "z": root.z()});
+    let decoded = serde_json::from_value::<LoadedSaveEnvelope>(encoded).unwrap();
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::EnclosureOverlapsRootedForage { position: root }
+        ))
+    );
+}
+
 fn strip_plant(state: &mut AppState, id: crate::surface::SurfaceResourceId) {
     let mass = state.surface().get(id).unwrap().remaining_mass();
     let next = state.surface().revision() + 1;

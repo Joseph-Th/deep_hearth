@@ -58,6 +58,9 @@ pub enum StorageEnclosureConstructionError {
     GeneratedSolidTerrain {
         position: VoxelCoord,
     },
+    RootedVegetationOccupiesSite {
+        position: VoxelCoord,
+    },
     ResidentOccupiesSite {
         position: VoxelCoord,
     },
@@ -113,6 +116,9 @@ pub enum PlayerStoragePlacementError {
     GeneratedSolidTerrain {
         position: VoxelCoord,
     },
+    RootedVegetationOccupiesSite {
+        position: VoxelCoord,
+    },
     ResidentOccupiesSite {
         position: VoxelCoord,
     },
@@ -137,6 +143,13 @@ impl Display for PlayerStoragePlacementError {
             Self::GeneratedSolidTerrain { position } => write!(
                 formatter,
                 "storage placement at ({},{},{}) intersects solid terrain",
+                position.x(),
+                position.y(),
+                position.z()
+            ),
+            Self::RootedVegetationOccupiesSite { position } => write!(
+                formatter,
+                "storage placement at ({},{},{}) would enclose a living rooted food patch",
                 position.x(),
                 position.y(),
                 position.z()
@@ -172,6 +185,7 @@ impl Error for PlayerStoragePlacementError {
             Self::Construction(error) => Some(error),
             Self::LooseResidueFooting { .. }
             | Self::GeneratedSolidTerrain { .. }
+            | Self::RootedVegetationOccupiesSite { .. }
             | Self::ResidentOccupiesSite { .. } => None,
         }
     }
@@ -331,6 +345,13 @@ impl Display for StorageEnclosureConstructionError {
                 position.y(),
                 position.z()
             ),
+            Self::RootedVegetationOccupiesSite { position } => write!(
+                formatter,
+                "storage enclosure at ({},{},{}) would enclose a living rooted food patch",
+                position.x(),
+                position.y(),
+                position.z()
+            ),
             Self::ResidentOccupiesSite { position } => write!(
                 formatter,
                 "storage enclosure at ({},{},{}) intersects an opening or temple resident",
@@ -426,6 +447,7 @@ impl Error for StorageEnclosureConstructionError {
             | Self::LocatedTargetSourceUnlocated { .. }
             | Self::LocatedTargetSourceRemote { .. }
             | Self::GeneratedSolidTerrain { .. }
+            | Self::RootedVegetationOccupiesSite { .. }
             | Self::ResidentOccupiesSite { .. }
             | Self::UnsupportedFloor { .. }
             | Self::TargetBusyStorageDismantling { .. }

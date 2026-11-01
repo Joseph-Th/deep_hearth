@@ -64,6 +64,9 @@ pub enum StateValidationError {
     Inventory(InventoryValidationError),
     Logistics(LogisticsValidationError),
     StorageEnclosure(StorageEnclosureValidationError),
+    EnclosureOverlapsRootedForage {
+        position: VoxelCoord,
+    },
     Production(ProductionValidationError),
     Mining(MiningValidationError),
     MiningJob(MiningJobValidationError),
