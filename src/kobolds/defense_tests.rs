@@ -122,10 +122,20 @@ fn drop_part(
 fn prepared_worksite(
     reported: bool,
 ) -> (Registries, AppState, SurfaceResourceId, SurfaceResourceId) {
+    prepared_worksite_with_approach_edge(reported, true)
+}
+
+fn prepared_worksite_with_approach_edge(
+    reported: bool,
+    approach_edge: bool,
+) -> (Registries, AppState, SurfaceResourceId, SurfaceResourceId) {
     let registries = build_registries();
     let mut state = AppState::new();
-    for (a, b) in [(DEN, WORKSITE), (WORKSITE, TIP), (WORKSITE, APPROACH)] {
+    for (a, b) in [(DEN, WORKSITE), (WORKSITE, TIP)] {
         add_traversable_edge_for_test(&mut state, a, b);
+    }
+    if approach_edge {
+        add_traversable_edge_for_test(&mut state, WORKSITE, APPROACH);
     }
     state
         .kobold_state_mut()
@@ -159,6 +169,134 @@ fn prepared_worksite(
         Mass::from_milligrams(50_000),
     );
     (registries, state, handle, head)
+}
+
+#[test]
+fn generated_unrouted_neighbor_can_receive_a_real_worksite_counterstroke() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{
+        BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
+        validate_generate_chunk,
+    };
+
+    let (registries, mut opening, _, head) = prepared_worksite_with_approach_edge(true, false);
+    to_tick(&registries, &mut opening, 210);
+    assert!(!opening.logistics().has_traversal_edge(WORKSITE, APPROACH));
+    assert_eq!(
+        opening
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        WORKSITE
+    );
+    assert_eq!(validate_loaded_state(&registries, &opening), Ok(()));
+
+    // The old authored opening needs a real access graph to establish safe
+    // contact where no physical block-world geometry has yet been generated.
+    let mut authored = opening.clone();
+    validate_admit_player(&registries, &authored, APPROACH)
+        .unwrap()
+        .commit(&mut authored)
+        .unwrap();
+    assert!(to_tick(&registries, &mut authored, 215).is_empty());
+    assert_eq!(
+        authored
+            .survival()
+            .player()
+            .unwrap()
+            .vitality()
+            .parts_per_million(),
+        1_000_000
+    );
+
+    // The player is physically beside the fixed scout worksite in generated
+    // terrain, but that side cell was never a kobold patrol destination.
+    let mut generated = opening;
+    for chunk in [
+        ChunkCoord::containing(DEN),
+        ChunkCoord::containing(WORKSITE),
+    ] {
+        validate_generate_chunk(
+            &registries,
+            &generated,
+            WorldGenerationSeed::new(7),
+            chunk,
+            BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(&mut generated)
+        .unwrap();
+    }
+    for voxel in [DEN, WORKSITE, TIP, APPROACH] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut generated,
+            VoxelCoord::new(voxel.x(), -1, voxel.z()),
+            BLOCK_STATE_STONE,
+        );
+        for y in 0..=2 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut generated,
+                VoxelCoord::new(voxel.x(), y, voxel.z()),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    assert!(crate::world::has_clear_two_step_sightline(
+        &registries,
+        &generated,
+        WORKSITE,
+        APPROACH,
+    ));
+    assert!(!generated.logistics().has_traversal_edge(WORKSITE, APPROACH));
+    validate_admit_player(&registries, &generated, APPROACH)
+        .unwrap()
+        .commit(&mut generated)
+        .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &generated), Ok(()));
+
+    let original_matter = calculate_matter_accounting(&generated).unwrap().total();
+    let mut away = generated.clone();
+    crate::logistics::relocate_player_for_test(&mut away, VoxelCoord::new(0, 0, 2));
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &generated)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(generated, replay);
+
+    let contact = to_tick(&registries, &mut generated, 215);
+    assert_eq!(
+        contact,
+        [(head, 12_000)],
+        "physical adjacent contact in generated air must not need an unrelated route edge"
+    );
+    assert_eq!(contact, to_tick(&registries, &mut replay, 215));
+    assert_eq!(generated, replay);
+    assert!(to_tick(&registries, &mut away, 215).is_empty());
+    assert_eq!(
+        generated
+            .survival()
+            .player()
+            .unwrap()
+            .vitality()
+            .parts_per_million(),
+        988_000
+    );
+    assert_eq!(
+        generated.surface().get(head).unwrap().remaining_mass(),
+        Mass::from_milligrams(48_000)
+    );
+    for state in [&generated, &away] {
+        assert_eq!(
+            calculate_matter_accounting(state).unwrap().total(),
+            original_matter
+        );
+        assert_eq!(validate_loaded_state(&registries, state), Ok(()));
+    }
 }
 
 #[test]

@@ -61,8 +61,15 @@ pub(super) fn attempt_worksite_counterstroke(
     let colony = state.kobold_state().colony.as_ref()?;
     let player = state.logistics().player()?.position();
     let resident = colony.scout_position();
+    // The opening's authored traversal edge supplies adjacency authority before
+    // terrain exists. In generated land the actual neighboring air cells and
+    // unobstructed sight are sufficient: a player can walk alongside this
+    // stationary worksite without following the scout's patrol graph.
+    let contact_accessible = state.logistics().has_traversal_edge(resident, player)
+        || (state.world().has_generated_terrain_at(resident)
+            && state.world().has_generated_terrain_at(player));
     if !resident.is_face_adjacent_to(player)
-        || !state.logistics().has_traversal_edge(resident, player)
+        || !contact_accessible
         || !super::visibility::scout_visible_from(registries, state, resident, player)
         || assess_local_illumination(registries, state, resident).level()
             >= SCOUT_DETERRENT_LIGHT_LEVEL

@@ -487,8 +487,11 @@ may observe active unfinished work via
 Fitting consumes scout time, not an invented assembly mass or equipment record.
 The lever is not a portable tool. A scout that has actually reported machinery
 can defend this **stationary** fitted-metal worksite while standing at the
-junction. A living player must occupy a visible, directly traversable face-adjacent
-cell; mere sight beyond that edge, a diagonal, a stone fallback or unfinished
+junction. A living player must occupy a visible, unobstructed face-adjacent
+cell. In an authored opening without generated terrain, contact also requires
+an existing traversal edge; in generated terrain, real world sight and physical
+adjacency suffice without inventing a patrol edge for the player. Mere sight
+beyond reach, a diagonal, a stone fallback or unfinished
 fitting cannot cause contact. A staggered, contact-shaken or wary scout and
 bright local illumination prevent the counterstroke. The attack occupies the
 normal five-simulation-tick patrol work slot and emits one locally visible
