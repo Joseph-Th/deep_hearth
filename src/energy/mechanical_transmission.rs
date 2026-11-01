@@ -5,13 +5,16 @@
 //! per roller. No free global bus or invisible persistent cable topology exists.
 
 use std::cmp::Ordering;
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::content::{
     BASIC_TIMBER_DRIVE_COUPLING_CROSS_SECTION, BASIC_TIMBER_DRIVE_COUPLING_LENGTH, MATERIAL_WOOD,
     STRUCTURAL_PROFILE_TIMBER_DRIVE_COUPLING,
 };
-use crate::core::arithmetic::{checked_mul_div_with_remainder, scale_u128_fraction_floor};
+use crate::core::arithmetic::{
+    checked_mul_div_ceil, checked_mul_div_with_remainder, scale_u128_fraction_floor,
+};
 use crate::core::quantity::{Energy, Power};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
@@ -108,10 +111,26 @@ fn delivered_after_rollers(mut drawn: u128, segments: u32) -> u128 {
     drawn
 }
 
-/// Return an exact nonzero draw and delivery bounded by the sink's physical capacity.
-/// Usually the source/power/equalization ceiling already fits. Only when friction-adjusted
-/// delivery exceeds sink headroom do we search for the smallest draw that fills it,
-/// avoiding both overflow and unnecessary work lost to fractional rounding.
+/// Invert each lossy stage in reverse order to find the smallest physical
+/// input producing at least the chosen whole-nanojoule delivery. The ceiling
+/// is the exact inverse of a stage's floored efficiency. This avoids spending
+/// source energy that integer quantization would only dissipate without
+/// increasing the sink's received work.
+fn minimum_draw_for_delivery(mut delivered: u128, segments: u32) -> u128 {
+    for _ in 0..segments {
+        delivered = checked_mul_div_ceil(
+            delivered,
+            1_000_000,
+            u128::from(WOODEN_TRANSMISSION_EFFICIENCY_PPM),
+        )
+        .expect("reachable output has a representable minimum input at every roller");
+    }
+    delivered
+}
+
+/// Return the smallest physical draw that delivers the greatest whole work
+/// allowed by the input and sink headroom. Inverting each roller's floored
+/// efficiency avoids a full-width binary search and cannot overfill the sink.
 fn bounded_shaft_transfer(
     maximum_draw: u128,
     headroom: u128,
@@ -124,23 +143,11 @@ fn bounded_shaft_transfer(
     if maximum_delivery == 0 {
         return None;
     }
-    if maximum_delivery <= headroom {
-        return Some((maximum_draw, maximum_delivery));
-    }
-    // Efficiency is below unity at every roller. An extra unit of input can raise
-    // output by at most one unit, so all positive deliveries up to the maximum
-    // are reachable. This search cannot overflow even at the full u128 width.
-    let (mut insufficient, mut sufficient) = (0_u128, maximum_draw);
-    while sufficient - insufficient > 1 {
-        let middle = insufficient + (sufficient - insufficient) / 2;
-        if delivered_after_rollers(middle, segments) >= headroom {
-            sufficient = middle;
-        } else {
-            insufficient = middle;
-        }
-    }
-    debug_assert_eq!(delivered_after_rollers(sufficient, segments), headroom);
-    Some((sufficient, headroom))
+    let delivery = maximum_delivery.min(headroom);
+    let draw = minimum_draw_for_delivery(delivery, segments);
+    debug_assert!(draw <= maximum_draw);
+    debug_assert_eq!(delivered_after_rollers(draw, segments), delivery);
+    Some((draw, delivery))
 }
 
 /// The source may not end less charged than the destination. Roller friction
@@ -187,7 +194,15 @@ fn equalizing_shaft_draw(
         permissible
     };
     let delivered = delivered_after_rollers(draw, segments);
-    (delivered != 0).then_some((draw, delivered))
+    (delivered != 0).then(|| {
+        // The equalization search finds the greatest *permissible* draw, not
+        // necessarily the cheapest draw that delivers the same whole energy.
+        // Reducing input within the final output plateau preserves the charge
+        // gradient and delivered work while avoiding unnecessary friction loss.
+        let minimum_draw = minimum_draw_for_delivery(delivered, segments);
+        debug_assert!(minimum_draw <= draw);
+        (minimum_draw, delivered)
+    })
 }
 
 fn plan_pair(
@@ -290,6 +305,32 @@ fn is_usable_roller(
         && member.lifecycle() == StructuralLifecycle::Active
         && !member.is_cracked()
         && !member.embodied_material().is_empty()
+}
+
+/// Narrow embodied structural members may legitimately overlap in one voxel.
+/// Without an authored shaft axis or separate bearing positions, two rollers
+/// in the same cell cannot establish one unambiguous continuous drive. Do not
+/// silently select whichever ID happened to be inserted last.
+fn unique_roller_cells(
+    rollers: impl IntoIterator<Item = (VoxelCoord, StructuralElementId)>,
+) -> BTreeMap<VoxelCoord, StructuralElementId> {
+    let mut unique = BTreeMap::new();
+    let mut disputed = BTreeSet::new();
+    for (position, id) in rollers {
+        if disputed.contains(&position) {
+            continue;
+        }
+        match unique.entry(position) {
+            Entry::Vacant(slot) => {
+                slot.insert(id);
+            }
+            Entry::Occupied(slot) => {
+                slot.remove();
+                disputed.insert(position);
+            }
+        }
+    }
+    unique
 }
 
 /// A straight shaft can advance through a new cell only when that cell is
@@ -396,12 +437,13 @@ pub(crate) fn decide_mechanical_transmission(
     passive: &PassiveEnergyDissipationPlan,
     dismantled_this_tick: Option<StructuralElementId>,
 ) -> MechanicalTransmissionPlan {
-    let rollers = state
-        .structures()
-        .elements()
-        .filter(|member| is_usable_roller(member, dismantled_this_tick))
-        .map(|member| (member.bounds().min(), member.id()))
-        .collect::<BTreeMap<_, _>>();
+    let rollers = unique_roller_cells(
+        state
+            .structures()
+            .elements()
+            .filter(|member| is_usable_roller(member, dismantled_this_tick))
+            .map(|member| (member.bounds().min(), member.id())),
+    );
     let mut planner = MechanicalTransmissionPlanner {
         registries,
         state,

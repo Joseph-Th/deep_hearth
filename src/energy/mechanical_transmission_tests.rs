@@ -16,6 +16,27 @@ fn roller_set(cells: &[(i64, i64)]) -> BTreeMap<VoxelCoord, StructuralElementId>
 }
 
 #[test]
+fn overlapping_narrow_rollers_cannot_become_an_arbitrary_transmission_path() {
+    let disputed = VoxelCoord::new(2, 5, 2);
+    let first = VoxelCoord::new(1, 5, 2);
+    let last = VoxelCoord::new(3, 5, 2);
+    let rollers = unique_roller_cells([
+        (first, StructuralElementId::new(1)),
+        (disputed, StructuralElementId::new(2)),
+        (disputed, StructuralElementId::new(3)),
+        (disputed, StructuralElementId::new(4)),
+        (last, StructuralElementId::new(5)),
+    ]);
+    assert!(!rollers.contains_key(&disputed));
+    assert_eq!(rollers.len(), 2);
+    assert_eq!(
+        discover_shaft_run(&rollers, first, 1, 0).unwrap().0.len(),
+        1
+    );
+    assert_eq!(discover_shaft_run(&rollers, last, 1, 0).unwrap().0.len(), 1);
+}
+
+#[test]
 fn only_an_externally_bounded_contiguous_straight_run_has_endpoint_cells() {
     let rollers = roller_set(&[(1, 2), (2, 2), (3, 2)]);
     let (path, low, high) = discover_shaft_run(&rollers, VoxelCoord::new(1, 5, 2), 1, 0)
@@ -85,6 +106,7 @@ fn finite_sink_headroom_bounds_delivery_after_physical_roller_losses() {
     assert_eq!(bounded_shaft_transfer(500, 1, 3), Some((4, 1)));
     assert_eq!(bounded_shaft_transfer(500, 2, 1), Some((3, 2)));
     assert_eq!(bounded_shaft_transfer(200, 200, 1), Some((200, 160)));
+    assert_eq!(bounded_shaft_transfer(10, 10, 3), Some((9, 4)));
     assert_eq!(bounded_shaft_transfer(2, 100, 3), None);
     assert_eq!(bounded_shaft_transfer(500, 0, 1), None);
     assert_eq!(bounded_shaft_transfer(0, 100, 1), None);
@@ -93,6 +115,51 @@ fn finite_sink_headroom_bounds_delivery_after_physical_roller_losses() {
         Some((2, 1)),
         "full-width energy arithmetic must not overflow when the sink is nearly full"
     );
+}
+
+#[test]
+fn quantized_roller_delivery_never_consumes_an_equivalent_but_wasteful_extra_draw() {
+    // Three rollers transmit four nanojoules from either nine or ten input
+    // nanojoules. Only nine must leave the finite source.
+    assert_eq!(delivered_after_rollers(9, 3), 4);
+    assert_eq!(delivered_after_rollers(10, 3), 4);
+    assert_eq!(equalizing_shaft_draw(10, 3, 100, 100, 0, 100), Some((9, 4)));
+
+    for segments in 1..=5 {
+        for draw in 1..=500_u128 {
+            let delivered = delivered_after_rollers(draw, segments);
+            if delivered == 0 {
+                continue;
+            }
+            let minimum = minimum_draw_for_delivery(delivered, segments);
+            assert!(minimum <= draw);
+            assert_eq!(delivered_after_rollers(minimum, segments), delivered);
+            assert!(
+                minimum == 1 || delivered_after_rollers(minimum - 1, segments) < delivered,
+                "a smaller draw must never produce the same work"
+            );
+
+            for headroom in 1..=10_u128 {
+                let (bounded_draw, bounded_delivery) =
+                    bounded_shaft_transfer(draw, headroom, segments).unwrap();
+                assert!(bounded_draw <= draw && bounded_delivery <= headroom);
+                assert_eq!(
+                    bounded_delivery,
+                    delivered.min(headroom),
+                    "a bounded sink must receive all the representable permitted work"
+                );
+                assert_eq!(
+                    delivered_after_rollers(bounded_draw, segments),
+                    bounded_delivery
+                );
+                assert!(
+                    bounded_draw == 1
+                        || delivered_after_rollers(bounded_draw - 1, segments) < bounded_delivery,
+                    "no smaller intake can deliver the same requested work"
+                );
+            }
+        }
+    }
 }
 
 #[test]
