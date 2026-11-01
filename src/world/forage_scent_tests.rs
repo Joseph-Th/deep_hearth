@@ -73,6 +73,70 @@ fn single_real_berry_patch() -> (Registries, AppState, VoxelCoord) {
 }
 
 #[test]
+fn dead_player_cannot_observe_generated_surface_resources_until_respawn() {
+    use crate::player::validate_respawn_player;
+    use crate::survival::{Vitality, player_record_with_thermal_comfort};
+
+    let (registries, mut state, site) = single_real_berry_patch();
+    let sighted = AdjacentSurfaceResource::visible_in_generated_world(&registries, &state)
+        .collect::<Vec<_>>();
+    assert_eq!(sighted.len(), 1);
+    assert_eq!(sighted[0].position(), site);
+    assert!(!assess_player_forage_scents(&registries, &state).is_empty());
+
+    let before = state.survival().player().copied().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            before.metabolic_energy(),
+            before.hydration(),
+            Vitality::ZERO,
+            before.nutrition(),
+            before.vitality_recovery_remainder(),
+            before.thermal_comfort_ppm(),
+        ),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert!(assess_player_forage_scents(&registries, &state).is_empty());
+    assert!(
+        AdjacentSurfaceResource::visible_in_generated_world(&registries, &state)
+            .next()
+            .is_none(),
+        "dead player must not receive live sight of generated resources"
+    );
+
+    let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(replay, state);
+    assert!(
+        AdjacentSurfaceResource::visible_in_generated_world(&registries, &replay)
+            .next()
+            .is_none()
+    );
+
+    let _ = validate_respawn_player(&registries, &state)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = validate_respawn_player(&registries, &replay)
+        .unwrap()
+        .commit(&mut replay)
+        .unwrap();
+    assert_eq!(state, replay);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert!(
+        AdjacentSurfaceResource::visible_in_generated_world(&registries, &state)
+            .any(|resource| resource.position() == site),
+        "live player sight is restored at the real respawn location"
+    );
+}
+
+#[test]
 fn indexed_scent_absence_preserves_envelope_edges_and_excludes_drops() {
     let (registries, mut state, site) = single_real_berry_patch();
     let before = state.clone();

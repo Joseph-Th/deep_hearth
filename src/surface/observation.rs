@@ -3,6 +3,7 @@
 use crate::core::state::AppState;
 use crate::material::CommodityKey;
 use crate::spatial::VoxelCoord;
+use crate::survival::Vitality;
 
 use super::SurfaceResourceId;
 
@@ -34,7 +35,7 @@ impl AdjacentSurfaceResource {
         self.position
     }
 
-    /// Player-local view of loose matter within two physical voxel steps in
+    /// Living-player view of loose matter within two physical voxel steps in
     /// generated terrain. Every returned cell has a short, unoccluded sightline
     /// through authoritative blocks, trees and embodied structures. This is a
     /// coarse orientation read: exact mass and freshness still require the player
@@ -47,7 +48,12 @@ impl AdjacentSurfaceResource {
         state: &AppState,
     ) -> impl Iterator<Item = Self> {
         let mut nearby = Vec::new();
-        if let Some(player) = state.logistics().player() {
+        if let Some(player) = state.logistics().player()
+            && state
+                .survival()
+                .player()
+                .is_some_and(|survival| survival.vitality() != Vitality::ZERO)
+        {
             let from = player.position();
             if state.world().has_generated_terrain_at(from) {
                 for dx in -2_i64..=2 {
