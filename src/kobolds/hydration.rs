@@ -51,12 +51,16 @@ pub(super) fn prolonged_water_deprivation(colony: &KoboldColony, at: SimulationT
 }
 
 /// No distant fluid census. Only fluid whose real spatial index lies at
-/// this reached location can satisfy the resident.
+/// this reached location and whose withdrawal is currently admissible can
+/// satisfy the resident. Route choice must agree with the eventual drink.
 pub(super) fn usable_water_at(
+    registries: &Registries,
     state: &AppState,
     position: VoxelCoord,
 ) -> Option<(FluidStoreId, Volume)> {
-    usable_water_sources_at(state, position).next()
+    usable_water_sources_at(state, position).find(|(store, _)| {
+        validate_fluid_egress(registries, state, *store, SCOUT_DRINK_VOLUME).is_ok()
+    })
 }
 
 fn usable_water_sources_at(
@@ -102,7 +106,7 @@ pub(super) fn reachable_water_from_junction(
         {
             continue;
         }
-        if usable_water_at(state, first).is_some() {
+        if usable_water_at(registries, state, first).is_some() {
             let route = (0_u8, first, None);
             best_route = Some(best_route.map_or(route, |best| route.min(best)));
         }
@@ -110,7 +114,7 @@ pub(super) fn reachable_water_from_junction(
             if goal == junction
                 || goal == colony.route[0]
                 || goal == colony.route[2]
-                || usable_water_at(state, goal).is_none()
+                || usable_water_at(registries, state, goal).is_none()
                 || !safe(first, goal)
                 || !scout_visible_from(registries, state, junction, goal)
             {

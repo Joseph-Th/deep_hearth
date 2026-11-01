@@ -153,9 +153,18 @@ fn one_unwithdrawable_local_vessel_cannot_hide_another_real_drink() {
 
 #[test]
 fn junction_water_search_prefers_a_real_nearby_source_over_far_detours() {
-    use crate::core::quantity::Temperature;
-    use crate::fluid::{GeneratedFluidStoreSpec, validate_generate_fluid_store};
+    use crate::content::{FORM_LOG, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION};
+    use crate::core::quantity::{Area, Length, Temperature};
+    use crate::fluid::{
+        GeneratedFluidStoreSpec, validate_fluid_egress, validate_generate_fluid_store,
+        validate_mount_fluid_store,
+    };
     use crate::logistics::{add_traversable_edge_for_test, validate_place_fluid_store};
+    use crate::spatial::VoxelBounds;
+    use crate::structural::{
+        add_structural_element, make_test_structural_geometry,
+        materialize_structural_element_for_test, validate_activate_structural_element,
+    };
 
     let registries = build_registries();
     let mut state = AppState::new();
@@ -196,6 +205,7 @@ fn junction_water_search_prefers_a_real_nearby_source_over_far_detours() {
             .unwrap()
             .commit(state)
             .unwrap();
+        store
     };
     let observed = |state: &AppState| {
         reachable_water_from_junction(
@@ -206,9 +216,9 @@ fn junction_water_search_prefers_a_real_nearby_source_over_far_detours() {
         )
     };
     assert_eq!(observed(&state), None, "empty passages are not water");
-    place(&mut state, far);
+    let far_store = place(&mut state, far);
     assert_eq!(observed(&state), Some((via, Some(far))));
-    place(&mut state, near);
+    let near_store = place(&mut state, near);
     assert_eq!(observed(&state), Some((near, None)));
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
@@ -218,6 +228,86 @@ fn junction_water_search_prefers_a_real_nearby_source_over_far_detours() {
         .unwrap();
     assert_eq!(state, replay);
     assert_eq!(observed(&replay), Some((near, None)));
+
+    // A nearby source with an unavailable structural-load revision cannot
+    // satisfy a real drink. The scout must choose the still-reachable farther
+    // water rather than repeatedly visiting the unusable nearer vessel.
+    let support = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        make_test_structural_geometry(
+            VoxelBounds::new(near, VoxelCoord::new(near.x() + 1, 1, near.z() + 1)).unwrap(),
+            Length::from_micrometers(1),
+            Area::from_square_millimeters(1_000),
+        ),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, support, FORM_LOG);
+    let _ = validate_activate_structural_element(&registries, &state, support)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = validate_mount_fluid_store(&registries, &state, near_store, support)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    encoded["state"]["systems"]["structures"]["revision"] = serde_json::json!(u64::MAX);
+    let mut blocked = serde_json::from_value::<LoadedSaveEnvelope>(encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &blocked), Ok(()));
+    assert!(validate_fluid_egress(&registries, &blocked, near_store, SCOUT_DRINK_VOLUME).is_err());
+    assert_eq!(
+        observed(&blocked),
+        Some((via, Some(far))),
+        "the water-search decision must consider actual withdrawal feasibility"
+    );
+    let water_before = calculate_fluid_volume_accounting(&blocked).unwrap();
+    for _ in 0..1_550 {
+        let _ = advance_tick(&registries, &mut blocked).unwrap();
+        if blocked
+            .kobold_state()
+            .consumed_fluids
+            .contains_key(&FLUID_WATER)
+        {
+            break;
+        }
+    }
+    assert_eq!(
+        blocked
+            .kobold_state()
+            .consumed_fluids
+            .get(&FLUID_WATER)
+            .copied(),
+        Some(AggregateVolume::from_volume(SCOUT_DRINK_VOLUME)),
+        "the patrol must reach and actually drink from its farther viable goal"
+    );
+    assert_eq!(
+        blocked
+            .fluid()
+            .get_store(near_store)
+            .unwrap()
+            .stored_volume(),
+        SCOUT_DRINK_VOLUME
+    );
+    assert_eq!(
+        blocked
+            .fluid()
+            .get_store(far_store)
+            .unwrap()
+            .stored_volume(),
+        Volume::ZERO
+    );
+    assert_eq!(
+        calculate_fluid_volume_accounting(&blocked).unwrap(),
+        water_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &blocked), Ok(()));
 }
 
 #[test]

@@ -293,7 +293,7 @@ fn continue_to_planned_far_raid(
         return false;
     };
     if context.at >= colony.next_drink_at
-        && super::super::hydration::usable_water_at(state, goal).is_some()
+        && super::super::hydration::usable_water_at(registries, state, goal).is_some()
     {
         return scout_visible_from(registries, state, context.from, goal)
             && scout_can_enter(registries, state, goal, context.player_position)

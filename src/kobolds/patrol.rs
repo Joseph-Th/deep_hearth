@@ -218,7 +218,7 @@ fn plan_scout_move(
     let cancelled_empty_cache_raid = proposed_step == 3
         && !proposed_returning
         && !(next_tick >= colony.next_drink_at
-            && super::hydration::usable_water_at(state, proposed_position).is_some())
+            && super::hydration::usable_water_at(registries, state, proposed_position).is_some())
         && !scout_goal_has_supplies(
             registries,
             state,

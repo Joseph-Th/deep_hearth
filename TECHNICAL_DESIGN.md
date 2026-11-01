@@ -285,9 +285,12 @@ recoverable alternative to combat. The scout
 uses the existing five-tick patrol clock and real local traversal graph to
 seek a source one or two edges from its junction. Sight, solid walls,
 guarding players, artificial light, resident occupancy, and standing
-clearance gate both the journey and its last physical step. The scout checks
-a sufficient, temperature-safe supply again *at the actual source* and takes
-one serving through canonical fluid egress. Its terminal water ledger is
+clearance gate both the journey and its last physical step. Route choice and
+mid-route continuation require a sufficient, temperature-safe source whose
+canonical fluid egress is currently admissible; a physically present but
+unwithdrawable nearer vessel does not conceal farther usable water. At the
+actual source, the scout retries local eligible vessels in stable identity
+order and takes one serving through canonical fluid egress. Its terminal water ledger is
 separate from material consumption and included in whole-world fluid volume
 accounting. Trusted load checks the water identity, exact portion multiples,
 the most recent actual drink tick, its weather-conditioned interval, the
