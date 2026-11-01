@@ -423,7 +423,6 @@ impl TickOutcome {
     }
 
     /// Exact mechanical work transmitted and lost through built timber couplings.
-    #[must_use]
     pub fn mechanical_transmissions(&self) -> &[MechanicalTransmissionReceipt] {
         &self.mechanical_transmissions
     }

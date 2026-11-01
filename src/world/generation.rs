@@ -672,7 +672,14 @@ fn validate_springs_for_chunks(
             FluidGenerationError::RevisionExhausted => {
                 ChunkGenerationError::SpringRevisionExhausted
             }
-            _ => ChunkGenerationError::InvalidSpringWater,
+            FluidGenerationError::ZeroCapacity
+            | FluidGenerationError::UnknownDefinition { .. }
+            | FluidGenerationError::ZeroVolume
+            | FluidGenerationError::ZeroTemperature
+            | FluidGenerationError::VolumeExceedsCapacity { .. }
+            | FluidGenerationError::BelowMeltingPoint { .. } => {
+                ChunkGenerationError::InvalidSpringWater
+            }
         })?;
     Ok(Some((batch, positions, next_logistics_revision)))
 }

@@ -151,11 +151,10 @@ fn regional_spring_is_real_finite_water_and_drinking_preserves_total_volume() {
         &mut state,
         VoxelCoord::new(0, terrain_height(seed, 0, 0) + 1, 0),
     );
-    assert_eq!(
+    assert!(
         validate_generate_player_neighborhood(&registries, &state)
             .unwrap()
             .is_none(),
-        true,
         "revisiting generated land cannot refill its water"
     );
 }

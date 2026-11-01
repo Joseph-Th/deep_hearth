@@ -181,6 +181,26 @@ fn night_hides_real_surface_food_from_player_sight_without_erasing_custody() {
     );
 }
 
+#[test]
+fn crown_shade_falls_toward_the_perimeter_and_daylight_budget_matches_sky_levels() {
+    assert_eq!(
+        (0..=4)
+            .map(|distance| crown_shade_at_distance(3, distance))
+            .collect::<Vec<_>>(),
+        vec![6, 6, 4, 2, 0]
+    );
+    assert_eq!(crown_shade_at_distance(1, 0), 2);
+    assert_eq!(crown_shade_at_distance(1, 1), 2);
+    assert_eq!(crown_shade_at_distance(0, 0), 0);
+    assert_eq!(
+        daylight_exposure_after_canopy(0),
+        OPEN_DAYLIGHT_EXPOSURE_SUM
+    );
+    assert_eq!(daylight_exposure_after_canopy(8), 7);
+    assert_eq!(daylight_exposure_after_canopy(12), 2);
+    assert_eq!(daylight_exposure_after_canopy(14), 0);
+}
+
 /// A real seed-rooted deciduous tree changes the understory as atmospheric
 /// carbon becomes wood. It casts no solid voxel, so the same food can still
 /// be seen, but the light read must track crown size and calendar season.
@@ -262,7 +282,10 @@ fn seed_rooted_tree_growth_and_season_change_real_canopy_daylight() {
     assert!(sapling_radius >= 1);
     let sapling_summer = assess_generated_skylight(&registries, &state, position);
     assert!(sapling_summer < juvenile_summer);
-    assert_eq!(sapling_summer, 9 - sapling_radius * 2);
+    assert_eq!(
+        sapling_summer,
+        9 - crown_shade_at_distance(sapling_radius, 1)
+    );
 
     let after_forty_eight_years = year_ticks * 48 + season_ticks;
     apply_clock_advance(&mut state, SimulationTick::new(after_forty_eight_years));
@@ -272,7 +295,7 @@ fn seed_rooted_tree_growth_and_season_change_real_canopy_daylight() {
         "time alone enlarges the same rooted crown"
     );
     let grown_summer = assess_generated_skylight(&registries, &state, position);
-    assert_eq!(grown_summer, 9 - grown_radius * 2);
+    assert_eq!(grown_summer, 9 - crown_shade_at_distance(grown_radius, 1));
     assert!(grown_summer < sapling_summer);
 
     // With the same mature tree still rooted, leafless winter admits the
@@ -378,11 +401,32 @@ fn transplanted_overlapping_crowns_compound_actual_skylight_and_survive_load() {
         .canopy_radius_voxels(state.tick());
     assert_eq!((left_radius, right_radius), (3, 3));
     assert!(has_open_sky(&registries, &state, site));
+    let local_shade = |root: VoxelCoord| {
+        let distance = root.x().abs_diff(site.x()).max(root.z().abs_diff(site.z()));
+        crown_shade_at_distance(3, distance)
+    };
+    let left_shade = local_shade(to);
+    let right_shade = local_shade(other);
+    let overlap_shade = left_shade + right_shade;
+    assert!(left_shade > 0 && right_shade > 0);
+    assert!(overlap_shade > left_shade.max(right_shade));
     assert_eq!(
         living_canopy_shade_at(&registries, &state, site, state.tick()),
-        12
+        overlap_shade
     );
-    assert_eq!(assess_generated_skylight(&registries, &state, site), 0);
+    assert_eq!(
+        assess_generated_skylight(&registries, &state, site),
+        9_u8.saturating_sub(overlap_shade)
+    );
+    apply_clock_advance(
+        &mut state,
+        SimulationTick::new(matured_summer + calendar.ticks_per_day() / 4),
+    );
+    assert_eq!(
+        assess_generated_skylight(&registries, &state, site),
+        14_u8.saturating_sub(overlap_shade),
+        "overlapping canopy shade must use the same physical daylight scale"
+    );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 
     let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
@@ -391,7 +435,10 @@ fn transplanted_overlapping_crowns_compound_actual_skylight_and_survive_load() {
         .into_state(&registries)
         .unwrap();
     assert_eq!(restored, state);
-    assert_eq!(assess_generated_skylight(&registries, &restored, site), 0);
+    assert_eq!(
+        assess_generated_skylight(&registries, &restored, site),
+        14_u8.saturating_sub(overlap_shade)
+    );
 }
 
 #[test]

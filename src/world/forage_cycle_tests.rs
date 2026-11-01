@@ -69,10 +69,11 @@ fn canopy_darkness_and_sub_milligram_yields_leave_root_matter_intact() {
     let fruit = Mass::from_milligrams(800);
     assert_eq!(
         ripened_crop(roots, fruit, RootMoisture::NoBasin, 8),
-        Mass::ZERO
+        Mass::from_milligrams(48),
+        "midday skylight still reaches a canopy with shade eight"
     );
     assert_eq!(
-        ripened_crop(roots, fruit, RootMoisture::NoBasin, 15),
+        ripened_crop(roots, fruit, RootMoisture::NoBasin, 14),
         Mass::ZERO
     );
     assert_eq!(
@@ -87,7 +88,7 @@ fn canopy_darkness_and_sub_milligram_yields_leave_root_matter_intact() {
     );
     assert_eq!(
         ripened_crop(roots, fruit, RootMoisture::NoBasin, 6),
-        Mass::from_milligrams(50)
+        Mass::from_milligrams(75)
     );
     assert_eq!(
         ripened_crop(roots, fruit, RootMoisture::NoBasin, 0),

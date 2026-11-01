@@ -90,9 +90,11 @@ impl MechanicalTransmissionPlan {
 fn compare_charge(left: u128, left_capacity: u128, right: u128, right_capacity: u128) -> Ordering {
     let (whole, remainder) = checked_mul_div_with_remainder(left, right_capacity, left_capacity, 0)
         .expect("validated stores have nonzero capacity and bounded charge");
-    match whole.cmp(&right) {
-        Ordering::Equal if remainder != 0 => Ordering::Greater,
-        ordering => ordering,
+    let ordering = whole.cmp(&right);
+    if ordering == Ordering::Equal && remainder != 0 {
+        Ordering::Greater
+    } else {
+        ordering
     }
 }
 
@@ -328,46 +330,58 @@ fn discover_shaft_run(
     }
 }
 
-/// Binds one transfer to one physical run. A roller cannot simultaneously
-/// serve two powered crosses, and a store cannot participate in two transfers
-/// in a tick. Stable endpoint identity determines one eligible pair.
-fn plan_coupling_axis(
-    registries: &Registries,
-    state: &AppState,
-    passive: &PassiveEnergyDissipationPlan,
-    rollers: &BTreeMap<VoxelCoord, StructuralElementId>,
-    first: VoxelCoord,
-    dx: i64,
-    dz: i64,
-    used_stores: &mut BTreeSet<EnergyStoreId>,
-    used_rollers: &mut BTreeSet<StructuralElementId>,
-    plan: &mut MechanicalTransmissionPlan,
-) {
-    let Some((path, low, high)) = discover_shaft_run(rollers, first, dx, dz) else {
-        return;
-    };
-    if path.iter().any(|id| used_rollers.contains(id)) {
-        return;
-    }
-    let Ok(segments) = u32::try_from(path.len()) else {
-        return;
-    };
-    for left in state.logistics().energy_stores_at(low) {
-        if used_stores.contains(&left) {
-            continue;
+/// One tick-local transmission search. The consumed endpoint and roller sets
+/// belong to the same planning transaction, so no shaft or store can feed
+/// multiple transfers even when runs intersect.
+struct MechanicalTransmissionPlanner<'a> {
+    registries: &'a Registries,
+    state: &'a AppState,
+    passive: &'a PassiveEnergyDissipationPlan,
+    used_stores: BTreeSet<EnergyStoreId>,
+    used_rollers: BTreeSet<StructuralElementId>,
+    plan: MechanicalTransmissionPlan,
+}
+
+impl MechanicalTransmissionPlanner<'_> {
+    /// Binds one transfer to one physical run in stable endpoint order.
+    fn plan_coupling_axis(
+        &mut self,
+        rollers: &BTreeMap<VoxelCoord, StructuralElementId>,
+        first: VoxelCoord,
+        (dx, dz): (i64, i64),
+    ) {
+        let Some((path, low, high)) = discover_shaft_run(rollers, first, dx, dz) else {
+            return;
+        };
+        if path.iter().any(|id| self.used_rollers.contains(id)) {
+            return;
         }
-        for right in state.logistics().energy_stores_at(high) {
-            if used_stores.contains(&right) {
+        let Ok(segments) = u32::try_from(path.len()) else {
+            return;
+        };
+        for left in self.state.logistics().energy_stores_at(low) {
+            if self.used_stores.contains(&left) {
                 continue;
             }
-            if let Some(transfer) =
-                plan_pair(registries, state, passive, path[0], segments, left, right)
-            {
-                used_stores.insert(left);
-                used_stores.insert(right);
-                used_rollers.extend(path);
-                plan.transfers.push(transfer);
-                return;
+            for right in self.state.logistics().energy_stores_at(high) {
+                if self.used_stores.contains(&right) {
+                    continue;
+                }
+                if let Some(transfer) = plan_pair(
+                    self.registries,
+                    self.state,
+                    self.passive,
+                    path[0],
+                    segments,
+                    left,
+                    right,
+                ) {
+                    self.used_stores.insert(left);
+                    self.used_stores.insert(right);
+                    self.used_rollers.extend(path);
+                    self.plan.transfers.push(transfer);
+                    return;
+                }
             }
         }
     }
@@ -388,26 +402,20 @@ pub(crate) fn decide_mechanical_transmission(
         .filter(|member| is_usable_roller(member, dismantled_this_tick))
         .map(|member| (member.bounds().min(), member.id()))
         .collect::<BTreeMap<_, _>>();
-    let mut plan = MechanicalTransmissionPlan::default();
-    let mut used_stores = BTreeSet::new();
-    let mut used_rollers = BTreeSet::new();
+    let mut planner = MechanicalTransmissionPlanner {
+        registries,
+        state,
+        passive,
+        used_stores: BTreeSet::new(),
+        used_rollers: BTreeSet::new(),
+        plan: MechanicalTransmissionPlan::default(),
+    };
     for position in rollers.keys().copied() {
-        for (dx, dz) in [(1_i64, 0_i64), (0, 1)] {
-            plan_coupling_axis(
-                registries,
-                state,
-                passive,
-                &rollers,
-                position,
-                dx,
-                dz,
-                &mut used_stores,
-                &mut used_rollers,
-                &mut plan,
-            );
+        for direction in [(1_i64, 0_i64), (0, 1)] {
+            planner.plan_coupling_axis(&rollers, position, direction);
         }
     }
-    plan
+    planner.plan
 }
 
 pub(crate) fn apply_mechanical_transmission(

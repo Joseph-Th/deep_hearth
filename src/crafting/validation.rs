@@ -322,15 +322,15 @@ pub(crate) fn validate_loaded_crafting_job(
         })?;
     // A powered machine owns heat handling; an in-flight manual job must satisfy the
     // same input-contact rule as newly admitted player work.
-    if required_duration.is_none() {
-        if let Some(trace) = super::batch::first_unsafe_hand_input(job.consumed_inputs()) {
-            return Err(CraftingJobValidationError::InputTooHot {
-                job: job.id(),
-                commodity: trace.profile().commodity(),
-                temperature: trace.profile().temperature(),
-                maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
-            });
-        }
+    if required_duration.is_none()
+        && let Some(trace) = super::batch::first_unsafe_hand_input(job.consumed_inputs())
+    {
+        return Err(CraftingJobValidationError::InputTooHot {
+            job: job.id(),
+            commodity: trace.profile().commodity(),
+            temperature: trace.profile().temperature(),
+            maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+        });
     }
     let batches = batch.batches();
     let required_duration = match required_duration {

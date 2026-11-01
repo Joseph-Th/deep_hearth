@@ -321,8 +321,7 @@ fn thirsty_scout_seeks_real_water_and_its_drink_survives_replay() {
         if state
             .kobold_state()
             .consumed_fluids
-            .get(&FLUID_WATER)
-            .is_some()
+            .contains_key(&FLUID_WATER)
         {
             drank = true;
             break;

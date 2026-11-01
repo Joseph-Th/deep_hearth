@@ -164,8 +164,13 @@ sapling, seed, log parcel or inventory item. Both admission and commit check loc
 obstructions, actor position, time, combat and owner revisions. No ordinary planting input, digging,
 nutrient response or timed uprooting work is modeled. The canopy radius
 attenuates direct skylight but does not create a leaf collision body. Overlapping
-crowns accumulate diffuse shade up to the full 15-level skylight scale. Rooted
-forage retains its finite underground reserve under full shade or when the
+crowns accumulate diffuse shade up to the full 15-level skylight scale.
+Attenuation remains strongest in the trunk's nearest ring, concealing adjacent
+understory food at dusk under a mature crown, then decreases toward its rim. Rooted
+forage scales the finite next crop with the daylight surviving crown shade
+across all four phases of the modeled day; available midday sun can support a
+small understory crop even when dim morning and evening light is blocked.
+The root reserve remains intact when no phase admits light or when the
 projected fruit batch is below one milligram.
 Ordinary primary-break control pointing at a standing trunk starts exclusive tree-felling work
 with a selected carried stone or copper woodworking adze. A slow-tick schedule scales with

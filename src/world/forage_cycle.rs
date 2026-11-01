@@ -13,7 +13,10 @@ use crate::registry::Registries;
 use crate::surface::SurfaceResourceLifecycle;
 
 use super::generation::{HabitatKind, habitat_at};
-use super::sky::{has_open_sky, living_canopy_shade_at};
+use super::sky::{
+    OPEN_DAYLIGHT_EXPOSURE_SUM, daylight_exposure_after_canopy, has_open_sky,
+    living_canopy_shade_at,
+};
 use super::weather::weather_at;
 
 mod moisture;
@@ -56,14 +59,16 @@ fn ripened_crop(
     moisture: RootMoisture,
     shade: u8,
 ) -> Mass {
-    let light_fraction = 8_u64.saturating_sub(u64::from(shade).min(8));
-    if light_fraction == 0 || root_reserve.is_zero() {
+    let daylight = daylight_exposure_after_canopy(shade);
+    if daylight == 0 || root_reserve.is_zero() {
         return Mass::ZERO;
     }
     let open_batch = (original_fruit.milligrams() / 4).max(1);
     let watered_batch = moisture_adjusted_crop(open_batch, moisture);
-    let lit_batch = u64::try_from(u128::from(watered_batch) * u128::from(light_fraction) / 8)
-        .unwrap_or(u64::MAX);
+    let lit_batch = u64::try_from(
+        u128::from(watered_batch) * u128::from(daylight) / u128::from(OPEN_DAYLIGHT_EXPOSURE_SUM),
+    )
+    .unwrap_or(u64::MAX);
     Mass::from_milligrams(root_reserve.milligrams().min(lit_batch))
 }
 
@@ -156,7 +161,7 @@ pub(crate) fn apply_natural_forage_cycle(
             // leave their unspent mass in its actual root reserve; no water,
             // organic matter or food is silently removed or manufactured.
             let shade = living_canopy_shade_at(registries, state, source.position(), at);
-            if shade >= 8 {
+            if daylight_exposure_after_canopy(shade) == 0 {
                 return None;
             }
             let moisture = moisture.get_or_init(|| RootMoistureSurvey::observe(state));

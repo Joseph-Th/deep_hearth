@@ -67,7 +67,7 @@ pub(crate) fn decide_natural_water_cycle(
                         .ok()?,
                         None => incoming_temperature,
                     };
-                    let contents = (!visible.is_zero()).then(|| FluidContents {
+                    let contents = (!visible.is_zero()).then_some(FluidContents {
                         fluid: FLUID_WATER,
                         volume: visible,
                         temperature: incoming_temperature,

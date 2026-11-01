@@ -15,6 +15,34 @@ const MAX_CANOPY_RADIUS: i64 = 3;
 const CANOPY_VERTICAL_REACH_ABOVE_ROOT: i64 = 5;
 const CANOPY_VERTICAL_REACH_BELOW_ROOT: i64 = 1;
 
+/// Quarter-day direct-sky brightness. The same levels drive both visible
+/// skylight and the daylight budget supporting a rooted plant's next crop.
+const SKY_PHASE_BRIGHTNESS: [u8; 4] = [9, 14, 6, 0];
+pub(super) const OPEN_DAYLIGHT_EXPOSURE_SUM: u64 = SKY_PHASE_BRIGHTNESS[0] as u64
+    + SKY_PHASE_BRIGHTNESS[1] as u64
+    + SKY_PHASE_BRIGHTNESS[2] as u64
+    + SKY_PHASE_BRIGHTNESS[3] as u64;
+
+/// Total represented daylight received over the four equal day phases.
+/// This is an exposure potential, independent of the ripening front's hour.
+pub(super) fn daylight_exposure_after_canopy(shade: u8) -> u64 {
+    SKY_PHASE_BRIGHTNESS
+        .into_iter()
+        .map(|level| u64::from(level.saturating_sub(shade)))
+        .sum()
+}
+
+/// The crown core extends to neighboring cells; farther rings receive
+/// progressively more light without undoing the mature tree's proven
+/// dusk concealment immediately beside the trunk.
+fn crown_shade_at_distance(radius: u8, horizontal: u64) -> u8 {
+    if radius == 0 || horizontal > u64::from(radius) {
+        return 0;
+    }
+    u8::try_from((u64::from(radius) * 2).saturating_sub(horizontal.saturating_sub(1) * 2))
+        .expect("bounded radius cannot exceed the 15-level shade scale")
+}
+
 /// Grown crowns cast cumulative diffuse shade, not solid-block shadows.
 /// Trunk opacity remains separate. A deciduous crown has little
 /// leaf area in winter, and spring/autumn attenuate less than summer. Multiple
@@ -47,11 +75,11 @@ pub(crate) fn living_canopy_shade_at(
             {
                 return None;
             }
-            let full = radius * 2;
+            let attenuated = crown_shade_at_distance(radius, horizontal);
             Some(if season == Season::Summer {
-                full
+                attenuated
             } else {
-                full.div_ceil(2)
+                attenuated.div_ceil(2)
             })
         })
         .fold(0_u8, u8::saturating_add)
@@ -64,12 +92,7 @@ fn sky_brightness(registries: &Registries, at: SimulationTick) -> u8 {
     let calendar = registries.core().calendar();
     let day = calendar.date_at(at).day_tick();
     let phase = u128::from(day) * 4 / u128::from(calendar.ticks_per_day());
-    match phase {
-        0 => 9,
-        1 => 14,
-        2 => 6,
-        _ => 0,
-    }
+    SKY_PHASE_BRIGHTNESS[usize::try_from(phase).expect("four sky phases fit usize")]
 }
 
 /// Outdoor day/night applies to inhabitants only in actually generated land;

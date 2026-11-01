@@ -227,7 +227,7 @@ fn woodland_and_scrub_create_different_real_daylight_not_just_different_labels()
                 HabitatKind::DryScrub if tree.initial_wood().milligrams() == 8_000_000 => {
                     scrub.get_or_insert((coord, tree));
                 }
-                _ => {}
+                HabitatKind::DampGrove | HabitatKind::MixedWoodland | HabitatKind::DryScrub => {}
             }
             if grove.is_some() && scrub.is_some() {
                 break;

@@ -31,7 +31,7 @@ const _: () = {
     let mut index = 0;
     while index < GROWTH_STAGES.len() {
         assert!(
-            GROWTH_TIME_UNITS_PER_TICK % GROWTH_STAGES[index].1 as u128 == 0,
+            GROWTH_TIME_UNITS_PER_TICK.is_multiple_of(GROWTH_STAGES[index].1 as u128),
             "every growth stage must divide the exact time scale"
         );
         index += 1;
@@ -258,8 +258,16 @@ pub(super) fn seeded_tree_identity(
         }
         super::generation::HabitatKind::DryScrub if mixed & 3 != 0 => 8_000_000,
         super::generation::HabitatKind::DryScrub => 150_000_000 + (mixed >> 24) % 110_000_000,
-        _ if mixed & 3 == 0 => 8_000_000,
-        _ => 280_000_000 + (mixed >> 24) % 180_000_000,
+        super::generation::HabitatKind::DampGrove
+        | super::generation::HabitatKind::MixedWoodland
+            if mixed & 3 == 0 =>
+        {
+            8_000_000
+        }
+        super::generation::HabitatKind::DampGrove
+        | super::generation::HabitatKind::MixedWoodland => {
+            280_000_000 + (mixed >> 24) % 180_000_000
+        }
     };
     Some(TreeRecord::new(
         VoxelCoord::new(x, root_y, z),
