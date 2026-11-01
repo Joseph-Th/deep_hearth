@@ -251,6 +251,81 @@ fn hungry_scout_seeks_a_full_visible_ration_instead_of_a_junction_crumb() {
 }
 
 #[test]
+fn hungry_scout_compares_side_forage_with_side_food_when_junction_is_empty() {
+    let (registries, mut state, route) = setup();
+    let wild_side = VoxelCoord::new(0, 0, -1);
+    add_traversable_edge_for_test(&mut state, route.junction, wild_side);
+    let small_drop = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        route.side,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(1_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_BERRIES),
+    )
+    .unwrap();
+    let sources = seed(
+        &registries,
+        &mut state,
+        [
+            small_drop,
+            forage_spec(
+                &registries,
+                wild_side,
+                MATERIAL_WILD_NUTS,
+                Mass::from_milligrams(300_000),
+                None,
+            ),
+        ],
+    );
+    assert!(
+        state
+            .surface()
+            .available_resources_at(Some(route.junction))
+            .next()
+            .is_none(),
+        "this decision must compare routes without a junction ration"
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    advance_to(&registries, &mut state, 585);
+    advance_to(&registries, &mut replay, 585);
+    assert_eq!(state, replay);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        wild_side,
+        "a full reachable forage ration must defeat a competing one-gram food cache"
+    );
+    advance_to(&registries, &mut state, 600);
+    advance_to(&registries, &mut replay, 600);
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(sources[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_000)
+    );
+    assert_eq!(
+        state.surface().get(sources[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(200_000)
+    );
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn hungry_scout_prefers_splittable_junction_food_to_a_distant_forage_patch() {
     let (registries, mut state, route) = setup();
     let bulk_food = SurfaceResourceSpec::new(

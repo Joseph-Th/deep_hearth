@@ -285,8 +285,10 @@ technology a scout has never observed or components it has not physically recove
 may reclaim the loose materials from a den, disabling its contraption without deleting matter.
 After recovering a copper core, a scout should seek the missing striker on actual visible
 routes, even passing a nearer worthless stone pile when sufficiently provisioned. A
-fully assembled rig should survive routine cache rearrangement unless the player deliberately
-intercepts one of its finite, recoverable components.
+fully assembled rig should survive routine cache rearrangement while expendable cargo can
+satisfy the den's food-storage needs. When no other parcel can make room for a necessary
+meal, survival takes priority over the rig's recoverable components. The player can also
+deliberately intercept those components.
 
 Improvisation is a practical craft, not merely a visual style. Low castes should physically
 assemble rough digging implements, pry bars, cutting edges, shields, traps, and eventually

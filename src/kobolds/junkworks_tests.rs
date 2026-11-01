@@ -149,6 +149,84 @@ fn two_hop_alarm_fixture() -> (Registries, AppState, SurfaceResourceId) {
 }
 
 #[test]
+fn hungry_den_keeps_its_working_alarm_when_expendable_cargo_can_fit_food() {
+    let (registries, mut state) = mobilized_den();
+    advance_to(&registries, &mut state, 579);
+    let den_drop = |material, form, mass| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            DEN,
+            CommodityKey::new(material, form),
+            Mass::from_milligrams(mass),
+            TEMPERATURE,
+            MaterialComposition::pure(material),
+        )
+        .unwrap()
+    };
+    let food = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Opportunity,
+        JUNCTION,
+        CommodityKey::new(
+            crate::content::MATERIAL_WILD_NUTS,
+            crate::content::FORM_FOOD,
+        ),
+        Mass::from_milligrams(300_000),
+        TEMPERATURE,
+        MaterialComposition::pure(crate::content::MATERIAL_WILD_NUTS),
+    )
+    .unwrap();
+    let plan = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            den_drop(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING, 455_000),
+            den_drop(crate::content::MATERIAL_WOOD, FORM_HANDLE, 20_000),
+            den_drop(
+                crate::content::MATERIAL_STONE,
+                crate::content::FORM_CHIP,
+                25_000,
+            ),
+            food,
+        ],
+    )
+    .unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut state).unwrap();
+    let rig = current_den_rig(&state, state.kobold_state().colony.as_ref().unwrap()).unwrap();
+    assert_eq!((rig.core(), rig.striker()), (ids[0], ids[1]));
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    for _ in 0..25 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(ids[2]).unwrap().position(),
+        JUNCTION,
+        "the scout must eject expendable stone instead of disassembling its alarm"
+    );
+    assert_eq!(state.surface().get(ids[1]).unwrap().position(), DEN);
+    assert_eq!(
+        current_den_rig(&state, state.kobold_state().colony.as_ref().unwrap())
+            .map(|device| (device.core(), device.striker())),
+        Some((ids[0], ids[1]))
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn hot_salvaged_parts_do_not_assemble_a_warning_device() {
     let (registries, mut state) = mobilized_den();
     for (material, form) in [

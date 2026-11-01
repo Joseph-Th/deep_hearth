@@ -394,6 +394,13 @@ zero-tick warning even when the current weather entails no additional cooling.
 Actual roof availability remains separately visible, so missing terrain truth
 is distinguishable from a physically stable warmth reserve.
 
+A hungry scout at the junction compares the actual transferable mass of local food
+with visible one- or two-edge forage before choosing a food detour. No junction food
+is zero local yield, not a reason to skip that comparison: a reachable wild serving
+can outrank a tiny edible drop on a competing side route. An intact portable drop
+that completes the ration still avoids an unnecessary forage cooldown. Both
+choices retain normal sight, deterrence, route, den-space and material constraints.
+
 Kobold junkworks use existing surface custody rather than minting an equipment instance: after a
 physical industrial sighting has reached the den, co-located precision-copper salvage plus
 stone-chip, shaped-timber, or recovered iron-scrap striker forms an improvised mechanical
@@ -402,9 +409,12 @@ alarm. The player-local
 visible den. `apply_watchman_tick` relays a witnessed warning only across the den-to-junction
 traversal edge to an actually adjacent scout. Timber-braced mechanisms sound every third scout
 clock opportunity; crude stone clappers every fifth, and more reliable iron chimes every second.
-Missed beats retain the warning. Removing the copper core disables the device; removing
-a striker either exposes a weaker substitute or disables it if none remains. A successful
-warning makes the scout retreat
+Missed beats retain the warning. Food-driven den-cache eviction prefers an expendable
+parcel over the selected operational copper core or striker when either choice can make
+room for the required meal. If no expendable parcel suffices, the finite alarm parts can
+still be sacrificed for food; neither an extra reserve nor a machine ledger is invented.
+Removing the copper core disables the device; removing a striker either exposes a weaker
+substitute or disables it if none remains. A successful warning makes the scout retreat
 through its ordinary route; it does not create a radio, energy source, or duplicate material.
 For a scout two edges out at the authored tip, `relay_watch_alarm` requires both current
 traversal edges and a second physically co-located copper-and-striker rig at the junction;

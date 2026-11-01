@@ -1,5 +1,6 @@
 //! Read-only planning of the scout's local interest and bounded side raids.
 
+use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::energy::assess_local_illumination;
 use crate::registry::Registries;
@@ -94,11 +95,14 @@ fn preferred_hungry_forage(
             .min(colony.salvage_batch())
             .min(den_space)
     });
+    // Absence of junction food is zero recoverable ration, not a reason to
+    // skip the competing forage route. Other side caches may hold only crumbs.
     let nearby = local_forage
         .into_iter()
         .chain(local_portable)
         .chain(local_split)
-        .max()?;
+        .max()
+        .unwrap_or(Mass::ZERO);
     let shortage = SCOUT_MEAL_MASS
         .checked_sub(colony.partial_meal)
         .expect("trusted resident's partial meal is below one serving");

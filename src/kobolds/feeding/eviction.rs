@@ -129,6 +129,14 @@ pub(super) fn clear_inert_cache_for_food(
         return None;
     }
     let missing = wanted.milligrams() - free.milligrams();
+    // A working warning rig is real den infrastructure, even though its parts
+    // remain loose recoverable parcels. Spend expendable cargo first, but let
+    // an essential meal displace a rig component if nothing else can fit it.
+    let active_rig = state
+        .kobold_state()
+        .colony
+        .as_ref()
+        .and_then(|colony| current_den_rig(state, colony));
     let source = state
         .surface()
         .available_resources_at(Some(den))
@@ -138,14 +146,18 @@ pub(super) fn clear_inert_cache_for_food(
                 && resource.commodity().form() != crate::content::FORM_FOOD
         })
         // Prefer a whole portable parcel: it frees space without allocating a
-        // new identity. Among those, preserve precision salvage and release
-        // the least raw mass that fills the shortage. If only oversized inert
-        // cargo remains, split a real portion instead of starving beside food.
+        // new identity. Among those able to fit the meal, preserve working
+        // alarm components and precision salvage before minimizing discarded
+        // mass. If only oversized inert cargo remains, split a real portion.
         .min_by_key(|resource| {
             let mass = resource.remaining_mass().milligrams();
+            let supports_alarm = active_rig.is_some_and(|rig| {
+                resource.id() == rig.core() || resource.id() == rig.striker()
+            });
             (
                 resource.remaining_mass() > SCOUT_CARRY_LIMIT,
                 mass < missing,
+                supports_alarm,
                 is_servant_era_salvage(resource),
                 if mass < missing { u64::MAX - mass } else { mass },
                 resource.id(),
