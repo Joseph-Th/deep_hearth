@@ -1915,6 +1915,34 @@ fn extend_worksite_with_shelter(
     }
 }
 
+// The actor cannot know the weather at an unfinished camp, but it can budget
+// a fire recovery against the full physically possible warmth debt at the
+// currently observable exposure. Recheck the smaller live debt once fueled.
+const CAMPFIRE_RECOVERY_SLACK_TICKS: u64 = 20;
+
+fn projected_campfire_recovery_ticks(
+    registries: &Registries,
+    state: &AppState,
+    comfort_ppm: u32,
+) -> u64 {
+    let thermal = registries.survival().physiology().thermal_comfort();
+    let exposure = deep_hearth::world::assess_player_weather(registries, state).map_or(
+        deep_hearth::survival::ThermalExposure::Open,
+        |weather| deep_hearth::survival::ThermalExposure::GeneratedOpen {
+            cooling_multiplier_ppm: weather.cooling_multiplier_ppm(),
+        },
+    );
+    let maximum_gain = thermal.local_heat_gain_ppm(thermal.local_heat_for_maximum_gain());
+    let net_warming = maximum_gain
+        .checked_sub(thermal.exposure_loss_ppm_per_tick(exposure))
+        .filter(|gain| *gain > 0)
+        .expect("an authored fueled campfire must overcome observable outdoor cooling");
+    let warmth_debt = thermal.warning_below_ppm().saturating_sub(comfort_ppm);
+    u64::from(warmth_debt.div_ceil(net_warming))
+        .checked_add(CAMPFIRE_RECOVERY_SLACK_TICKS)
+        .expect("bounded campfire recovery projection overflowed")
+}
+
 pub(super) fn evaluate_generated_wilderness_opening(
     seed: WorldGenerationSeed,
     start_profile: WildernessStartProfile,
@@ -2362,7 +2390,7 @@ fn evaluate_generated_wilderness_opening_internal(
         .duration_for_mass(campfire_stone_mass)
         .unwrap_or_else(|| panic!("wilderness campfire stone gathering cannot schedule"))
         .value();
-    const CAMPFIRE_RECOVERY_BUDGET_TICKS: u64 = 20;
+    let campfire_recovery_budget_ticks = projected_campfire_recovery_ticks(&registries, &state, 0);
     let (worksite_support_mass, worksite_support_duration) =
         worksite_support_projection(&registries);
     let worksite_second_trip_timber = worksite_staged_timber
@@ -2464,7 +2492,7 @@ fn evaluate_generated_wilderness_opening_internal(
         .and_then(|budget| {
             budget.checked_add(projected_budget(
                 SurvivalExertion::REST,
-                TickSpan::new(CAMPFIRE_RECOVERY_BUDGET_TICKS),
+                TickSpan::new(campfire_recovery_budget_ticks),
                 "campfire warmth recovery",
             ))
         })
@@ -3533,30 +3561,14 @@ fn evaluate_generated_wilderness_opening_internal(
                 "one kilogram campfire charge should provide at least one authored physical hour of usable fire"
             );
 
-            // Once weather becomes physically relevant, a worksite may be colder
-            // than the old fixed twenty-tick recovery assumption. Budget from
-            // actual warmth debt and the authoritative local thermal exchange,
-            // retaining twenty ticks of slack for the finite fire's decay.
-            let thermal = physiology.thermal_comfort();
+            // The fire is now lit, so refresh the forecast from the actual
+            // thermal debt and observed weather rather than the earlier
+            // conservative project reserve.
             let current_comfort = assess_survival(&registries, &state)
                 .unwrap_or_else(|| panic!("wilderness campfire lost its living player"))
                 .thermal_comfort_ppm();
-            let ambient = deep_hearth::world::assess_player_weather(&registries, &state);
-            let exposure =
-                ambient.map_or(deep_hearth::survival::ThermalExposure::Open, |weather| {
-                    deep_hearth::survival::ThermalExposure::GeneratedOpen {
-                        cooling_multiplier_ppm: weather.cooling_multiplier_ppm(),
-                    }
-                });
-            let maximum_gain = thermal.local_heat_gain_ppm(thermal.local_heat_for_maximum_gain());
-            let net_warming = maximum_gain
-                .checked_sub(thermal.exposure_loss_ppm_per_tick(exposure))
-                .filter(|gain| *gain > 0)
-                .expect("a fueled campfire must be able to overcome observed outdoor cooling");
-            let warmth_debt = thermal.warning_below_ppm().saturating_sub(current_comfort);
-            let recovery_budget = u64::from(warmth_debt.div_ceil(net_warming))
-                .checked_add(CAMPFIRE_RECOVERY_BUDGET_TICKS)
-                .unwrap_or_else(|| panic!("bounded campfire recovery budget overflowed"));
+            let recovery_budget =
+                projected_campfire_recovery_ticks(&registries, &state, current_comfort);
             assert!(
                 recovery_budget < campfire_single_charge_runway_ticks,
                 "restoring comfort must fit within one finite fire charge even in observed weather"
@@ -4096,7 +4108,15 @@ fn evaluate_generated_wilderness_opening_internal(
         && final_survival.hydration() > physiology.thirsty_below();
     assert!(
         final_warning_safe,
-        "the first camp should finish with retained provisions and the player still above hunger/thirst warnings"
+        "first camp reserve fell below warning: seed={} start={start_profile:?} goal={camp_goal:?} elapsed={}t energy={}nJ hungry={}nJ hydration={}uL thirsty={}uL meal={}mg drink={}uL",
+        seed.value(),
+        elapsed_ticks,
+        final_survival.metabolic_energy().nanojoules(),
+        physiology.hungry_below().nanojoules(),
+        final_survival.hydration().microliters(),
+        physiology.thirsty_below().microliters(),
+        meal_consumed_mg,
+        water_consumed_ul
     );
 
     WildernessOpeningReview {

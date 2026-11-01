@@ -44,13 +44,9 @@ pub(crate) fn spring_moisture_flux(
     position: VoxelCoord,
     at: SimulationTick,
 ) -> SpringMoistureFlux {
-    let Some(profile) = state.world().generation_profile() else {
+    let Some(weather) = exposed_air_at(registries, state, position, at) else {
         return SpringMoistureFlux::Balanced;
     };
-    if !super::sky::has_open_sky(registries, state, position) {
-        return SpringMoistureFlux::Balanced;
-    }
-    let weather = weather_at(registries, profile.seed().value(), position, at);
     let temperature = weather.ambient_temperature().millikelvin();
     if weather.wind() == WindCondition::Gusting || temperature >= 295_150 {
         SpringMoistureFlux::Drying
@@ -267,11 +263,7 @@ pub(crate) fn wind_at_generated_position(
     position: VoxelCoord,
     at: SimulationTick,
 ) -> Option<WindCondition> {
-    let profile = state.world().generation_profile()?;
-    if !super::sky::has_open_sky(registries, state, position) {
-        return None;
-    }
-    Some(weather_at(registries, profile.seed().value(), position, at).wind())
+    exposed_air_at(registries, state, position, at).map(PlayerWeather::wind)
 }
 
 #[cfg(test)]
