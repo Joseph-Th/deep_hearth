@@ -8,12 +8,40 @@ use crate::inventory::{
 };
 use crate::material::CommodityKey;
 use crate::registry::Registries;
+use crate::surface::SurfaceResourceRecord;
 
 /// Read-only perishability state for one food lot in its current storage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FoodFreshness {
     Fresh { age: TickSpan, remaining: TickSpan },
     Spoiled { age: TickSpan },
+}
+
+/// Edibility of one physically exposed food parcel at the action tick.
+/// Temperature, composition, and ambient age are all required; a fresh
+/// but unsafe or contaminated portion is not an edible opportunity.
+/// Both resident feeding and the player's distant scent use this single
+/// survival-owned assessment instead of deriving conflicting rules.
+pub(crate) fn assess_surface_food_freshness(
+    registries: &Registries,
+    resource: &SurfaceResourceRecord,
+    at: SimulationTick,
+) -> Option<FoodFreshness> {
+    let food = registries.survival().get_food(resource.commodity())?;
+    if resource.composition().pure_material() != Some(resource.commodity().material())
+        || !food
+            .consumption_temperature()
+            .contains(resource.temperature())
+    {
+        return None;
+    }
+    freshness_from_history(
+        resource.ambient_storage_history_at(at)?,
+        crate::inventory::AMBIENT_PRESERVATION_MULTIPLIER_PPM,
+        at,
+        food.shelf_life(),
+    )
+    .ok()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

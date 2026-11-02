@@ -10,7 +10,7 @@ use crate::core::state::AppState;
 use crate::registry::Registries;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::surface::SurfaceResourceKind;
-use crate::survival::{FoodFreshness, Vitality, freshness_from_history};
+use crate::survival::{FoodFreshness, Vitality, assess_surface_food_freshness};
 
 use super::weather::{REGION_SIDE_VOXELS, weather_at};
 use super::{BlockCollisionShape, WindCondition, WindDirection, assess_player_weather};
@@ -151,16 +151,9 @@ fn live_food_scent(
                 MATERIAL_WILD_NUTS => ForageScentKind::WildNuts,
                 _ => return None,
             };
-            let food = registries.survival().get_food(resource.commodity())?;
-            let history = resource.ambient_storage_history_at(state.tick())?;
             if !matches!(
-                freshness_from_history(
-                    history,
-                    crate::inventory::AMBIENT_PRESERVATION_MULTIPLIER_PPM,
-                    state.tick(),
-                    food.shelf_life(),
-                ),
-                Ok(FoodFreshness::Fresh { .. })
+                assess_surface_food_freshness(registries, resource, state.tick()),
+                Some(FoodFreshness::Fresh { .. })
             ) {
                 return None;
             }

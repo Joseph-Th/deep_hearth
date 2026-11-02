@@ -10,9 +10,9 @@ use crate::surface::{
     SurfaceResourceId, SurfaceResourceKind, relocate_scavenged_drop_step,
     split_bulk_scavenged_drop_step,
 };
-use crate::survival::FoodFreshness;
+use crate::survival::{FoodFreshness, assess_surface_food_freshness};
 
-use super::{food_condition, scout_wants_food_opportunity};
+use super::scout_wants_food_opportunity;
 use crate::kobolds::junkworks::{current_den_rig, den_or_relay_needs_striker};
 use crate::kobolds::patrol::{scout_can_enter, scout_sees_guarded_cell};
 use crate::kobolds::scavenging::{
@@ -46,7 +46,7 @@ pub(super) fn discard_unfit_den_food(
                 && resource.kind() == SurfaceResourceKind::Drop
                 && resource.commodity().form() == crate::content::FORM_FOOD
                 && !matches!(
-                    food_condition(registries, resource, at),
+                    assess_surface_food_freshness(registries, resource, at),
                     Some(FoodFreshness::Fresh { .. })
                 )
         })
@@ -118,7 +118,7 @@ pub(super) fn clear_inert_cache_for_food(
                 resource.commodity().form() == crate::content::FORM_FOOD
                     && is_contestable_drop(resource, SCOUT_MEAL_MASS)
                     && matches!(
-                        food_condition(registries, resource, at),
+                        assess_surface_food_freshness(registries, resource, at),
                         Some(FoodFreshness::Fresh { .. })
                     )
             }

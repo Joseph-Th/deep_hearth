@@ -6,7 +6,7 @@ use crate::content::{BLOCK_STATE_STONE, FORM_FOOD, build_registries};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::{AppState, apply_clock_advance, validate_loaded_state};
 use crate::core::time::SimulationTick;
-use crate::material::{CommodityKey, MaterialComposition};
+use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
@@ -20,7 +20,10 @@ use crate::world::{
     set_generated_block_for_test, validate_generate_chunk,
 };
 
-fn single_real_berry_patch() -> (Registries, AppState, VoxelCoord) {
+fn berry_patch_with_profile(
+    temperature: Temperature,
+    composition: MaterialComposition,
+) -> (Registries, AppState, VoxelCoord) {
     let registries = build_registries();
     let mut state = AppState::new();
     validate_generate_chunk(
@@ -60,8 +63,8 @@ fn single_real_berry_patch() -> (Registries, AppState, VoxelCoord) {
         site,
         CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
         Mass::from_milligrams(300_000),
-        Temperature::from_millikelvin(293_150),
-        MaterialComposition::pure(MATERIAL_BERRIES),
+        temperature,
+        composition,
     )
     .unwrap();
     validate_create_surface_resources(&registries, &state, [spec])
@@ -70,6 +73,60 @@ fn single_real_berry_patch() -> (Registries, AppState, VoxelCoord) {
         .unwrap();
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     (registries, state, site)
+}
+
+fn single_real_berry_patch() -> (Registries, AppState, VoxelCoord) {
+    berry_patch_with_profile(
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_BERRIES),
+    )
+}
+
+#[test]
+fn unsafe_or_contaminated_food_cannot_emit_an_edible_forage_scent() {
+    use crate::content::MATERIAL_STONE;
+
+    let (registries, ordinary, site) = single_real_berry_patch();
+    let (witness, observer) = find_downwind_witness(&registries, &ordinary, site);
+    assert_eq!(
+        assess_player_forage_scents(&registries, &witness)
+            .into_iter()
+            .map(ForageScent::kind)
+            .collect::<Vec<_>>(),
+        vec![ForageScentKind::SweetFruit]
+    );
+
+    let contaminated = MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_BERRIES, 900_000),
+        CompositionComponent::new(MATERIAL_STONE, 100_000),
+    ])
+    .unwrap();
+    for (temperature, composition) in [
+        (
+            Temperature::from_millikelvin(333_151),
+            MaterialComposition::pure(MATERIAL_BERRIES),
+        ),
+        (Temperature::from_millikelvin(293_150), contaminated),
+    ] {
+        let (_, mut inedible, actual_site) = berry_patch_with_profile(temperature, composition);
+        assert_eq!(actual_site, site);
+        crate::logistics::relocate_player_for_test(&mut inedible, observer);
+        apply_clock_advance(&mut inedible, witness.tick());
+        assert_eq!(validate_loaded_state(&registries, &inedible), Ok(()));
+        let before = inedible.clone();
+        assert!(
+            assess_player_forage_scents(&registries, &inedible).is_empty(),
+            "inedible local forage must not advertise an actionable food scent"
+        );
+        assert_eq!(inedible, before);
+        let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &inedible)).unwrap();
+        let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        assert_eq!(loaded, inedible);
+        assert!(assess_player_forage_scents(&registries, &loaded).is_empty());
+    }
 }
 
 #[test]

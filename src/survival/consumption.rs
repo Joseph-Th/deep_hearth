@@ -27,12 +27,12 @@ pub use eating::{
     MinimumMealMetabolicProjection, NutritionGain, ValidatedEat,
     project_minimum_meal_to_metabolic_target, validate_eat,
 };
-pub(crate) use freshness::freshness_from_history;
 pub use freshness::{
     FoodFreshness, FoodFreshnessError, FoodFreshnessProjectionError, FoodStackFreshnessError,
     assess_food_freshness, assess_food_stack_freshness,
     project_food_freshness_after_storage_transition,
 };
+pub(crate) use freshness::{assess_surface_food_freshness, freshness_from_history};
 
 pub(crate) use absorption::{DirectConsumptionInstallment, direct_consumption_installment};
 pub(crate) use direct_use::assess_drink_store_to_full_admission;

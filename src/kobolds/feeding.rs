@@ -6,11 +6,10 @@ use std::collections::BTreeMap;
 use crate::core::quantity::{AggregateMass, Mass};
 use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
-use crate::inventory::AMBIENT_PRESERVATION_MULTIPLIER_PPM;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceRecord};
-use crate::survival::{FoodFreshness, freshness_from_history};
+use crate::survival::{FoodFreshness, assess_surface_food_freshness};
 
 mod eviction;
 
@@ -18,30 +17,6 @@ use super::{SCOUT_MEAL_INTERVAL_TICKS, SCOUT_MEAL_MASS};
 use eviction::{
     clear_inert_cache_for_food, clear_inert_cache_for_industry, discard_unfit_den_food,
 };
-
-/// A food parcel is evaluated from its actual aging history, not its form alone.
-/// Unfit or spoiled food cannot be collected as edible scout loot.
-pub(super) fn food_condition(
-    registries: &Registries,
-    resource: &SurfaceResourceRecord,
-    at: SimulationTick,
-) -> Option<FoodFreshness> {
-    let food = registries.survival().get_food(resource.commodity())?;
-    if resource.composition().pure_material() != Some(resource.commodity().material())
-        || !food
-            .consumption_temperature()
-            .contains(resource.temperature())
-    {
-        return None;
-    }
-    freshness_from_history(
-        resource.ambient_storage_history_at(at)?,
-        AMBIENT_PRESERVATION_MULTIPLIER_PPM,
-        at,
-        food.shelf_life(),
-    )
-    .ok()
-}
 
 /// A wild forage source must remain edible at the authoritative action tick.
 /// Expired patches stay in world custody without blocking fresh neighboring food.
@@ -52,7 +27,7 @@ pub(super) fn scout_wants_food_opportunity(
 ) -> bool {
     resource.kind() == SurfaceResourceKind::Opportunity
         && matches!(
-            food_condition(registries, resource, at),
+            assess_surface_food_freshness(registries, resource, at),
             Some(FoodFreshness::Fresh { .. })
         )
 }
@@ -64,7 +39,7 @@ pub(super) fn scout_wants_drop(
 ) -> bool {
     resource.commodity().form() != crate::content::FORM_FOOD
         || matches!(
-            food_condition(registries, resource, at),
+            assess_surface_food_freshness(registries, resource, at),
             Some(FoodFreshness::Fresh { .. })
         )
 }
@@ -183,7 +158,7 @@ pub(super) fn consume_den_meal(
                 return None;
             }
             if !matches!(
-                food_condition(registries, resource, at),
+                assess_surface_food_freshness(registries, resource, at),
                 Some(FoodFreshness::Fresh { .. })
             ) {
                 return None;
@@ -257,7 +232,7 @@ pub(super) fn consume_complete_den_ration(
         .filter(|resource| {
             resource.kind() == SurfaceResourceKind::Drop
                 && matches!(
-                    food_condition(registries, resource, at),
+                    assess_surface_food_freshness(registries, resource, at),
                     Some(FoodFreshness::Fresh { .. })
                 )
         })

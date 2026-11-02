@@ -1115,7 +1115,7 @@ fn temperature_unfit_den_food_only_frees_the_den_when_hand_safe() {
         let ids = creation.resource_ids().collect::<Vec<_>>();
         creation.commit(&mut state).unwrap();
         assert_eq!(
-            crate::kobolds::feeding::food_condition(
+            crate::survival::assess_surface_food_freshness(
                 &registries,
                 state.surface().get(ids[0]).unwrap(),
                 state.tick(),
