@@ -104,6 +104,27 @@ fn equipped_young_tree() -> (crate::registry::Registries, AppState, VoxelCoord) 
 }
 
 #[test]
+fn remote_felling_rejects_reach_before_revealing_tree_presence() {
+    let (registries, state, root) = equipped_young_tree();
+    let player = state.logistics().player().unwrap().position();
+    let missing_remote = VoxelCoord::new(root.x() + 3, root.y(), root.z());
+    assert!(state.world().tree_at(root).is_some());
+    assert!(state.world().tree_at(missing_remote).is_none());
+    let before = state.clone();
+
+    assert_eq!(
+        validate_start_player_tree_felling(&registries, &state, missing_remote).err(),
+        Some(TreeFellingStartError::Tree(TreeFellingError::TooFar {
+            root: missing_remote,
+            player,
+        }))
+    );
+    assert_eq!(state, before);
+    assert!(validate_start_player_tree_felling(&registries, &state, root).is_ok());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn retargeted_tree_chop_replaces_queued_structural_break_without_later_ghost_action() {
     use crate::content::{FORM_LOG, STRUCTURAL_PROFILE_AXIAL_COMPRESSION};
     use crate::core::quantity::{Area, Length};

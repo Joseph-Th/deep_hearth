@@ -450,10 +450,6 @@ fn validate_fell_tree_at(
         validate_player_equipment_access(state, work.equipment())
             .map_err(|_| TreeFellingError::PlayerBusy)?;
     }
-    let tree = state
-        .world()
-        .tree_at(root)
-        .ok_or(TreeFellingError::TreeUnavailable { root })?;
     let position = player.position();
     if !(position.y() == root.y()
         && position
@@ -467,6 +463,12 @@ fn validate_fell_tree_at(
             player: position,
         });
     }
+    // Distance authorizes inspection of world-owned standing woodland.
+    // A remote coordinate must not disclose a tree's existence or biomass.
+    let tree = state
+        .world()
+        .tree_at(root)
+        .ok_or(TreeFellingError::TreeUnavailable { root })?;
     if state.world().assimilated_wood_at(at).is_none() {
         return Err(TreeFellingError::AtmosphericInputOverflow);
     }

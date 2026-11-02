@@ -164,6 +164,31 @@ fn sapling_transplant_prechecks_blockers_and_stale_revisions_without_mutating() 
 }
 
 #[test]
+fn remote_sapling_queries_reject_reach_before_disclosing_tree_presence_or_age() {
+    let (registries, state, from, to) = sapling_fixture();
+    let missing_remote = VoxelCoord::new(from.x() + 3, from.y(), from.z());
+    assert!(state.world().tree_at(missing_remote).is_none());
+    let before = state.clone();
+    assert_eq!(
+        validate_transplant_juvenile(&registries, &state, missing_remote, to).err(),
+        Some(SaplingTransplantError::SourceRemote {
+            root: missing_remote,
+        })
+    );
+    assert_eq!(state, before);
+
+    let (registries, state, mature, to) = tree_fixture(false);
+    let distant_destination = VoxelCoord::new(to.x() - 1, to.y(), to.z());
+    assert_eq!(
+        validate_transplant_juvenile(&registries, &state, mature, distant_destination).err(),
+        Some(SaplingTransplantError::DestinationRemote {
+            root: distant_destination,
+        })
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn trusted_load_rejects_forged_transplant_origin_and_duplicate_biomass() {
     let (registries, mut state, from, to) = sapling_fixture();
     let _ = validate_transplant_juvenile(&registries, &state, from, to)

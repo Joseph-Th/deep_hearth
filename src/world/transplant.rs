@@ -206,6 +206,14 @@ pub fn validate_transplant_juvenile(
     {
         return Err(SaplingTransplantError::PlayerMoving);
     }
+    // Reach must authorize observation before exposing existence or age
+    // of world-owned woodland at the requested source coordinate.
+    if !beside(player.position(), from) {
+        return Err(SaplingTransplantError::SourceRemote { root: from });
+    }
+    if !beside(player.position(), to) {
+        return Err(SaplingTransplantError::DestinationRemote { root: to });
+    }
     let tree = state
         .world()
         .tree_at(from)
@@ -213,12 +221,6 @@ pub fn validate_transplant_juvenile(
     let wood = tree.wood_at(state.tick());
     if wood.milligrams() >= 10_000_000 {
         return Err(SaplingTransplantError::TooMature { root: from });
-    }
-    if !beside(player.position(), from) {
-        return Err(SaplingTransplantError::SourceRemote { root: from });
-    }
-    if !beside(player.position(), to) {
-        return Err(SaplingTransplantError::DestinationRemote { root: to });
     }
     if !destination_clear(registries, state, to) {
         return Err(SaplingTransplantError::DestinationBlocked { root: to });
