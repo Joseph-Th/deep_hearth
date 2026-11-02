@@ -592,6 +592,10 @@ available surface parcels, depleted but still-living perennial roots, and locate
 stockpile enclosures instead of scanning remote or inert historical custody for
 every new column. Seeded forage and natural-water sites likewise skip living
 root footprints, even when their previous fruit crop has been harvested.
+A district's single seed-derived perennial allocation is never rerolled if an
+earlier shrub record already exists, even after complete depletion. Trusted
+load also rejects duplicate individually seed-plausible perennial records in
+the same district rather than accepting manufactured extra biological mass.
 If several objects conflict,
 the earliest resource or stockpile identity still determines the reported cell.
 Chunk-column lookup remains valid at the extreme representable voxel boundary.

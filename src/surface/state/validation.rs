@@ -1,5 +1,6 @@
 //! Trusted-load validation for finite loose surface-resource state.
 
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -12,7 +13,7 @@ use crate::material::{
 use crate::spatial::VoxelCoord;
 use crate::structural::StructureState;
 use crate::surface::material_drop::PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS;
-use crate::world::{BlockCollisionShape, WorldRegistry, WorldState};
+use crate::world::{BlockCollisionShape, ChunkCoord, WorldRegistry, WorldState};
 
 use super::{
     SurfaceResourceId, SurfaceResourceLifecycle, SurfaceResourceRecord, SurfaceResourceState,
@@ -23,6 +24,11 @@ pub enum SurfaceResourceValidationError {
     InvalidLocationIndex,
     InvalidPerennialBudget {
         resource: SurfaceResourceId,
+    },
+    DuplicateSeededPerennial {
+        resource: SurfaceResourceId,
+        previous: SurfaceResourceId,
+        chunk: ChunkCoord,
     },
     EmbeddedInSolidWorld {
         resource: SurfaceResourceId,
@@ -132,6 +138,18 @@ impl Display for SurfaceResourceValidationError {
                 formatter,
                 "perennial {} has invalid finite root, crop age or initial biomass budget",
                 resource.value()
+            ),
+            Self::DuplicateSeededPerennial {
+                resource,
+                previous,
+                chunk,
+            } => write!(
+                formatter,
+                "perennial {} duplicates seeded patch {} in chunk ({},{})",
+                resource.value(),
+                previous.value(),
+                chunk.x(),
+                chunk.z()
             ),
             Self::InvalidLocationIndex => formatter.write_str(
                 "surface resource position index does not match available parcel custody",
@@ -314,6 +332,7 @@ impl Error for SurfaceResourceValidationError {
             Self::InvalidParticleSizeState { error, .. } => Some(error),
             Self::InvalidLocationIndex
             | Self::InvalidPerennialBudget { .. }
+            | Self::DuplicateSeededPerennial { .. }
             | Self::EmbeddedInSolidWorld { .. }
             | Self::EmbeddedInSolidStructure { .. }
             | Self::ZeroNextResourceId
@@ -622,19 +641,33 @@ pub(crate) fn validate_loaded_surface_resources(
             highest,
         });
     }
+    // The world generator admits at most one perennial patch per selected
+    // two-by-two district. Candidate provenance is not sufficient by itself:
+    // two individually seed-plausible alternate sites must not both be loaded.
+    let mut perennial_by_chunk = BTreeMap::<ChunkCoord, SurfaceResourceId>::new();
     for (key, record) in &state.resources {
         validate_surface_resource_record(materials, *key, record, current, current_control)?;
-        if let Some(plant) = record.perennial
-            && !world.generation_profile().is_some_and(|profile| {
+        if let Some(plant) = record.perennial {
+            if !world.generation_profile().is_some_and(|profile| {
                 crate::world::seeded_perennial_matches(
                     profile,
                     record.position(),
                     record.commodity(),
                     plant.original_fruit,
                 )
-            })
-        {
-            return Err(SurfaceResourceValidationError::InvalidPerennialBudget { resource: *key });
+            }) {
+                return Err(SurfaceResourceValidationError::InvalidPerennialBudget {
+                    resource: *key,
+                });
+            }
+            let chunk = ChunkCoord::containing(record.position());
+            if let Some(previous) = perennial_by_chunk.insert(chunk, *key) {
+                return Err(SurfaceResourceValidationError::DuplicateSeededPerennial {
+                    resource: *key,
+                    previous,
+                    chunk,
+                });
+            }
         }
         validate_surface_resource_physical_position(
             world_registry,

@@ -364,9 +364,9 @@ fn a_depleted_seeded_patch_with_live_roots_cannot_spawn_duplicate_forage() {
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     let next_forage = seeded_forage_spec(&registries, &state, profile, &chunk);
-    assert_ne!(
-        next_forage.as_ref().map(|patch| patch.position()),
-        Some(root)
+    assert!(
+        next_forage.is_none(),
+        "a prior seeded shrub consumes the district's allocation"
     );
 
     // Reuse the actual neighborhood generation path to prove the saved root
@@ -401,4 +401,62 @@ fn a_depleted_seeded_patch_with_live_roots_cannot_spawn_duplicate_forage() {
         .into_state(&registries)
         .unwrap();
     assert_eq!(restored, state, "load must rebuild the same root occupancy");
+
+    // Each alternate candidate is individually consistent with the seed,
+    // but the generator may choose only one for the entire district. Forging
+    // another persisted root cannot duplicate that finite initial biomass.
+    let hash = district_hash(profile, chunk.coord());
+    let base_x = chunk.coord().world_min_x().unwrap() + 3 + ((hash >> 12) % 10) as i64;
+    let base_z = chunk.coord().world_min_z().unwrap() + 3 + ((hash >> 26) % 10) as i64;
+    let (other, commodity, original_fruit, duplicate) = [(0, 0), (2, 0), (0, 2), (-2, 0), (0, -2)]
+        .into_iter()
+        .find_map(|(dx, dz)| {
+            let x = base_x + dx;
+            let z = base_z + dz;
+            let position = VoxelCoord::new(x, super::super::terrain_height(seed, x, z) + 1, z);
+            if position == root || state.world().block_at(position) != Some(BlockStateId::AIR) {
+                return None;
+            }
+            let (commodity, mass) = seeded_food(profile, hash, x, z);
+            let spec = SurfaceResourceSpec::new(
+                SurfaceResourceKind::Opportunity,
+                position,
+                commodity,
+                mass,
+                crate::core::quantity::Temperature::from_millikelvin(293_150),
+                crate::material::MaterialComposition::pure(commodity.material()),
+            )
+            .unwrap()
+            .with_perennial_reserve(Mass::from_milligrams(mass.milligrams() / 2));
+            crate::surface::validate_create_surface_resources(&registries, &state, [spec])
+                .ok()
+                .map(|plan| (position, commodity, mass, plan))
+        })
+        .expect("seeded shrub has a second physically clear candidate");
+    assert!(seeded_perennial_matches(
+        profile,
+        other,
+        commodity,
+        original_fruit
+    ));
+    let duplicate_id = crate::surface::SurfaceResourceId::new(state.surface().next_resource_id());
+    let mut forged = state.clone();
+    duplicate.commit(&mut forged).unwrap();
+    let expected = crate::core::state::StateValidationError::Surface(
+        crate::surface::SurfaceResourceValidationError::DuplicateSeededPerennial {
+            resource: duplicate_id,
+            previous: id,
+            chunk: chunk.coord(),
+        },
+    );
+    assert_eq!(
+        validate_loaded_state(&registries, &forged),
+        Err(expected.clone())
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &forged)).unwrap();
+    let decoded = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes).unwrap();
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(crate::persistence::LoadError::InvalidState(expected))
+    );
 }

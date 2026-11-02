@@ -109,6 +109,17 @@ pub(super) fn seeded_forage_spec(
     {
         return None;
     }
+    // The district has already received its single seeded shrub if even a
+    // depleted perennial record survives. Do not reroll alternate sites or
+    // mint new biomass on expansion after that patch was harvested.
+    if state
+        .surface()
+        .perennial_resources_in_chunk(coord)
+        .next()
+        .is_some()
+    {
+        return None;
+    }
     let min_x = coord.world_min_x()?;
     let min_z = coord.world_min_z()?;
     // A small number of alternate rooted sites prevents a single tree or
@@ -133,13 +144,6 @@ pub(super) fn seeded_forage_spec(
                 .available_resources_at(Some(position))
                 .next()
                 .is_some()
-            // Depleted fruit is not an empty site when its perennial roots
-            // still contain physical biomass. Do not generate a second plant
-            // into that occupied voxel during an ungenerated-column admission.
-            || state
-                .surface()
-                .perennial_resources_in_chunk(coord)
-                .any(|root| root.position() == position && root.rooted_biomass_occupies_site())
         {
             continue;
         }
