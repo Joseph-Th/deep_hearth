@@ -410,7 +410,7 @@ fn authored_combustion_conserves_fuel_matter_and_creates_finite_heat() {
 }
 
 #[test]
-fn passive_campfire_heat_warms_only_a_colocated_player() {
+fn passive_campfire_heat_reaches_a_neighbor_but_not_a_distant_player() {
     let (registries, mut state, carried, fire) = campfire_fixture();
     validate_combust_fuel(&registries, &state, fire, carried)
         .unwrap_or_else(|error| panic!("campfire fuel validation failed: {error}"))
@@ -446,22 +446,34 @@ fn passive_campfire_heat_warms_only_a_colocated_player() {
         "one local fire tick should gain 7,500 ppm and pay 1,000 ppm unsheltered loss"
     );
 
-    let remote = VoxelCoord::new(1, 0, 0);
-    relocate_player_for_test(&mut state, remote);
-    let remote_before = state
+    let adjacent = VoxelCoord::new(1, 0, 0);
+    relocate_player_for_test(&mut state, adjacent);
+    let adjacent_before = state
         .survival()
         .player()
         .map(|player| player.thermal_comfort_ppm())
         .unwrap_or(0);
     let _ = advance_tick(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("remote exposure tick failed: {error}"));
+        .unwrap_or_else(|error| panic!("adjacent exposure tick failed: {error}"));
     assert_eq!(
         state
             .survival()
             .player()
             .map(|player| player.thermal_comfort_ppm()),
-        remote_before.checked_sub(1_000),
-        "a remote burning campfire must not warm the player"
+        adjacent_before.checked_add(2_750),
+        "a player one voxel from the fire should receive half its dissipated warmth"
+    );
+    relocate_player_for_test(&mut state, VoxelCoord::new(2, 0, 0));
+    let distant_before = state.survival().player().unwrap().thermal_comfort_ppm();
+    let _ = advance_tick(&registries, &mut state)
+        .unwrap_or_else(|error| panic!("distant exposure tick failed: {error}"));
+    assert_eq!(
+        state
+            .survival()
+            .player()
+            .map(|player| player.thermal_comfort_ppm()),
+        distant_before.checked_sub(1_000),
+        "a fire two voxels away must not heat the player"
     );
     assert!(
         state

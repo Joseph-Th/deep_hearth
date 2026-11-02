@@ -262,7 +262,11 @@ fn propagated_light_level(
     0
 }
 
-fn voxel_transmits_light(registries: &Registries, state: &AppState, position: VoxelCoord) -> bool {
+pub(super) fn voxel_transmits_light(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+) -> bool {
     voxel_transmits_light_on_route(registries, state, position, false)
 }
 

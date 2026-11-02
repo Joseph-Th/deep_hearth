@@ -10,6 +10,7 @@ mod disassembly_execution;
 mod fixture_execution;
 mod illumination;
 mod integration;
+mod local_warmth;
 mod mechanical_transmission;
 mod passive_dissipation;
 mod player_upgrade;
@@ -48,6 +49,7 @@ pub use integration::{
     calculate_mass_specific_energy, calculate_mass_specific_energy_capacity,
     calculate_power_duration_ceiling, integrate_power,
 };
+pub(crate) use local_warmth::assess_player_local_warmth;
 pub use mechanical_transmission::MechanicalTransmissionReceipt;
 pub(crate) use mechanical_transmission::{
     apply_mechanical_transmission, decide_mechanical_transmission,

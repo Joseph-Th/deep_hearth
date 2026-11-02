@@ -12,7 +12,7 @@ use super::{TickError, TickOutcome, map_block_excavation_tick_error};
 use crate::core::state::{AppState, apply_clock_advance, debug_assert_runtime_invariants};
 use crate::core::time::SimulationTick;
 use crate::energy::{
-    apply_mechanical_transmission, apply_passive_energy_dissipation,
+    apply_mechanical_transmission, apply_passive_energy_dissipation, assess_player_local_warmth,
     decide_mechanical_transmission, decide_passive_energy_dissipation,
 };
 use crate::equipment::{apply_equipment_maintenance_tick, decide_equipment_maintenance_tick};
@@ -194,27 +194,16 @@ fn advance_simulation_tick_unstaged(
         ],
         TickError::EnergyRevisionExhausted,
     )?;
-    let maximum_relevant_warmth = registries
-        .survival()
-        .physiology()
-        .thermal_comfort()
-        .local_heat_for_maximum_gain();
-    let mut local_warmth = crate::core::quantity::Energy::ZERO;
-    for store in state.available_local_energy_stores().filter(|store| {
+    let local_warmth = assess_player_local_warmth(
+        registries,
+        state,
+        &passive_energy_plan,
         registries
-            .energy()
-            .get_store(store.definition())
-            .is_some_and(|definition| definition.is_local_warmth_source())
-    }) {
-        if local_warmth == maximum_relevant_warmth {
-            break;
-        }
-        local_warmth = accumulate_relevant_local_warmth(
-            local_warmth,
-            passive_energy_plan.dissipated_for_store(store.id()),
-            maximum_relevant_warmth,
-        );
-    }
+            .survival()
+            .physiology()
+            .thermal_comfort()
+            .local_heat_for_maximum_gain(),
+    );
     let work_exertion =
         player_work_exertion(registries, state, completion_plan.availability_changes());
     let exertion = SurvivalExertion::new(
@@ -399,23 +388,3 @@ fn advance_simulation_tick_unstaged(
         survival,
     })
 }
-
-fn accumulate_relevant_local_warmth(
-    total: crate::core::quantity::Energy,
-    contribution: crate::core::quantity::Energy,
-    maximum_relevant: crate::core::quantity::Energy,
-) -> crate::core::quantity::Energy {
-    if total >= maximum_relevant {
-        return maximum_relevant;
-    }
-    let remaining = maximum_relevant
-        .checked_sub(total)
-        .unwrap_or_else(|| unreachable!("sub-maximum local warmth leaves positive headroom"));
-    total
-        .checked_add(contribution.min(remaining))
-        .unwrap_or_else(|| unreachable!("local warmth capped to represented energy range"))
-}
-
-#[cfg(test)]
-#[path = "slow_tick_tests.rs"]
-mod tests;
