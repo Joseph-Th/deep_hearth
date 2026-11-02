@@ -2,6 +2,12 @@
 
 use super::*;
 
+mod care;
+mod ground_raid;
+
+use care::{ScoutVisitCare, settle_scout_visit_care};
+use ground_raid::execute_ground_raid;
+
 fn prioritize_food_cargo(
     registries: &Registries,
     state: &AppState,
@@ -22,69 +28,6 @@ fn prioritize_food_cargo(
             at,
             colony.hungry,
         )
-}
-
-/// An industrial raid needs both real capacity and a resident fit to work.
-fn planned_ground_raid(
-    registries: &Registries,
-    state: &AppState,
-    from: VoxelCoord,
-    at: SimulationTick,
-    forage_ready: bool,
-    optional_work_blocked: bool,
-) -> Option<(
-    crate::inventory::StockpileId,
-    ScavengedGroundStockpileRequest,
-)> {
-    let colony = state.kobold_state().colony.as_ref()?;
-    let space = den_cache_space(state, colony.route[0]);
-    if colony.mobilized_at.is_none()
-        || colony.scout_step == 0
-        || colony.returning
-        || colony.scavenged_drop.is_some()
-        || colony.hungry
-        || optional_work_blocked
-        || space.is_zero()
-        || has_local_scout_interest(registries, state, from, space, forage_ready, at, false)
-    {
-        return None;
-    }
-    let (stockpile, lot) = local_unenclosed_stockpile_target(registries, state, from, at)?;
-    Some((
-        stockpile,
-        ScavengedGroundStockpileRequest::new(
-            stockpile,
-            lot,
-            from,
-            at,
-            colony.salvage_batch().min(space),
-            SCOUT_SAFE_SCAVENGE_TEMPERATURE,
-        ),
-    ))
-}
-
-/// One canonical extraction occupies the scout's work slot and settles
-/// finite stockpile custody, never material created from a target sighting.
-fn execute_ground_raid(
-    registries: &Registries,
-    state: &mut AppState,
-    from: VoxelCoord,
-    at: SimulationTick,
-    forage_ready: bool,
-    blocked: bool,
-) -> Option<(crate::inventory::StockpileId, Mass)> {
-    let (stockpile, request) =
-        planned_ground_raid(registries, state, from, at, forage_ready, blocked)?;
-    let (_, stolen) = scavenge_unenclosed_ground_stockpile_material(registries, state, request)?;
-    state
-        .kobold_state_mut()
-        .colony
-        .as_mut()
-        .expect("ground raid retains its resident scout")
-        .next_step_at = at
-        .checked_add_span(TickSpan::new(SCOUT_STEP_TICKS))
-        .expect("bounded ground raid cannot overflow its scout clock");
-    Some((stockpile, stolen))
 }
 
 /// Deterministic slow-tick patrol with finite, interruptible return-trip scavenging.
@@ -142,39 +85,15 @@ pub(crate) fn apply_kobold_scout_tick(
         colony.recently_shoved(super::super::KoboldRole::Scout, state.control_tick())
     });
     let pressured = pressured_by_player || pressured_by_noise || pressured_by_light || recently_hit;
-    let drank_water = (!pressured)
-        .then(|| super::super::hydration::drink_on_scout_visit(registries, state, from, next_tick))
-        .flatten();
-    // Meals use the existing sparse scout schedule, never a per-control-tick AI update.
-    // Den resources remain physically recoverable until they are actually eaten.
-    let (consumed_food, discarded_food, cleared_cache) =
-        apply_scheduled_den_care(registries, state, from, next_tick, pressured);
-    let water_deprived = super::super::hydration::prolonged_water_deprivation(
-        state
-            .kobold_state()
-            .colony
-            .as_ref()
-            .expect("active scout exists"),
-        next_tick,
-    );
-    let (heard_junk_alarm, alarm_pulses) = apply_watchman_tick(registries, state, next_tick);
-    // A later work-slot return cannot erase drinking, feeding or den clearing
-    // already committed earlier in this same physical tick. Only reveal care
-    // that was actually in the living observer's sightline at its source.
-    let care_visible = observer.is_some_and(|player| {
-        crate::world::player_can_see_local_cell(registries, state, player, from)
-    });
-    let observed_meal = consumed_food.filter(|_| care_visible);
-    let observed_water = drank_water.filter(|_| care_visible);
-    let observed_discard = discarded_food.filter(|_| care_visible);
-    let observed_clearing = cleared_cache.filter(|_| care_visible);
-    let observed_care = KoboldScoutEvent {
-        consumed_food: observed_meal,
-        drank_water: observed_water,
-        discarded_food: observed_discard,
-        cleared_cache: observed_clearing,
-        ..KoboldScoutEvent::quiet_at(from)
-    };
+    let ScoutVisitCare {
+        drank_water,
+        discarded_food,
+        cleared_cache,
+        observed_care,
+        heard_junk_alarm,
+        alarm_pulses,
+        water_deprived,
+    } = settle_scout_visit_care(registries, state, from, next_tick, observer, pressured);
     let pressured = pressured || heard_junk_alarm;
     let optional_work_blocked = pressured || water_deprived;
     if let Some(contact) =
