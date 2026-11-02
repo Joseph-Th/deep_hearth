@@ -264,6 +264,13 @@ fn empty_hand_secondary_use_refuses_water_and_surface_context_ambiguity() {
         .unwrap_or_else(|error| panic!("ambiguous-context water placement failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("ambiguous-context water placement commit failed: {error}"));
+    // The original full-reserve fixture had no executable drinking choice.
+    // Establish a genuine water requirement before testing contextual ambiguity.
+    let _ = crate::simulation::advance_tick(&registries, &mut state).unwrap();
+    assert!(
+        state.survival().player().unwrap().hydration()
+            < registries.survival().physiology().maximum_hydration()
+    );
     let input = PlayerDirectControlInput::NEUTRAL
         .with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
 

@@ -4,6 +4,7 @@ use crate::content::{FORM_BOARD, FORM_LOG, MATERIAL_WOOD};
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::energy::{validate_assemble_energy_store, validate_combust_selected_fuel};
+use crate::fluid::validate_fluid_egress;
 use crate::inventory::project_material_stacks;
 use crate::logistics::PlayerActiveSelection;
 use crate::material::CommodityKey;
@@ -71,7 +72,26 @@ pub(super) fn attempt_empty_hand_secondary_action(
     registries: &Registries,
     state: &mut AppState,
 ) -> SecondaryActionOutcome {
-    let drink_sources = available_local_drink_sources(registries, state).collect::<Vec<_>>();
+    let observed_drink_sources =
+        available_local_drink_sources(registries, state).collect::<Vec<_>>();
+    let physiology = registries.survival().physiology();
+    let needs_hydration = state
+        .survival()
+        .player()
+        .is_some_and(|player| player.hydration() < physiology.maximum_hydration());
+    // Local observation must still report finite, too-small water remainders.
+    // The default gesture, however, cannot let an impossible or unnecessary
+    // drink mask an otherwise actionable local gathering opportunity.
+    let minimum_drink = physiology.direct_consumption().minimum_drink_volume();
+    let actionable_drink_sources = observed_drink_sources
+        .iter()
+        .copied()
+        .filter(|source| {
+            needs_hydration
+                && source.available_volume() >= minimum_drink
+                && validate_fluid_egress(registries, state, source.store(), minimum_drink).is_ok()
+        })
+        .collect::<Vec<_>>();
     let gathering = resolve_direct_surface_gathering(registries, state);
     let surface_resources = match gathering {
         DirectSurfaceGatheringResolution::AmbiguousResources { count } => count,
@@ -79,9 +99,9 @@ pub(super) fn attempt_empty_hand_secondary_action(
         | DirectSurfaceGatheringResolution::AmbiguousMethods { .. } => 1,
         DirectSurfaceGatheringResolution::None => 0,
     };
-    if surface_resources != 0 && !drink_sources.is_empty() {
+    if surface_resources != 0 && !actionable_drink_sources.is_empty() {
         return SecondaryActionOutcome::AmbiguousEmptyHandContext {
-            drink_sources: drink_sources.len(),
+            drink_sources: actionable_drink_sources.len(),
             surface_resources,
         };
     }
@@ -96,6 +116,14 @@ pub(super) fn attempt_empty_hand_secondary_action(
     if let DirectSurfaceGatheringResolution::One(target) = gathering {
         return attempt_direct_surface_gathering(registries, state, target);
     }
+    // With no gathering choice, keep the original source-specific rejection
+    // (or already-satisfied response) instead of pretending observed water
+    // vanished just because the current player cannot consume it.
+    let drink_sources = if actionable_drink_sources.is_empty() {
+        &observed_drink_sources
+    } else {
+        &actionable_drink_sources
+    };
     match drink_sources.as_slice() {
         [] => SecondaryActionOutcome::NoActiveSelection,
         [source] => attempt_direct_drinking(registries, state, source.store()),

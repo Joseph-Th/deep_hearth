@@ -127,6 +127,12 @@ buffering. Invalid aims and missing materials reject immediately; a feasible
 construction still waits for canonical slow-tick admission and revalidation.
 Selected food use likewise resolves the actual carried stack before queuing;
 durable hotbar bindings to depleted food cannot reserve a doomed meal.
+The empty-hand contextual action does not let visible but sub-minimum water
+remainders, an inadmissible local withdrawal, or a full hydration reserve block
+otherwise valid local gathering.
+Those stores remain observable; without gathering, the direct drinking path
+still reports its specific insufficiency or already-satisfied outcome. A real
+drink serving and a gatherable source remain explicitly ambiguous.
 At a simultaneous voxel-face crossing, physical tree trunks take occlusion priority over
 otherwise selectable adjacent air targets, as do solid blocks and embodied full-cell panels.
 Material-backed storage enclosure construction checks live opening and temple resident occupancy
