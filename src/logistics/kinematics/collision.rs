@@ -37,15 +37,24 @@ pub(crate) fn player_body_is_grounded(registries: &Registries, state: &AppState)
     let Some(player) = state.logistics().player().copied() else {
         return false;
     };
+    player_body_is_grounded_at(registries, state, player.body())
+}
+
+/// Evaluate a proposed body using the same generated-world floor geometry as
+/// live gravity. Respawn validates its candidate anchor, not the current corpse.
+pub(crate) fn player_body_is_grounded_at(
+    registries: &Registries,
+    state: &AppState,
+    body: PlayerBodyState,
+) -> bool {
     let locomotion = registries.survival().physiology().locomotion();
-    let Some(bounds) = horizontal_voxel_bounds(player.body(), locomotion) else {
+    let Some(bounds) = horizontal_voxel_bounds(body, locomotion) else {
         return false;
     };
     if !horizontal_chunks_generated(state.world(), bounds) {
         return false;
     }
-    supporting_floor_y(registries, state, player.body(), bounds)
-        == Some(player.body().foot_position().y_nanometers())
+    supporting_floor_y(registries, state, body, bounds) == Some(body.foot_position().y_nanometers())
 }
 
 /// A materialized full-cell member beneath any part of the player's horizontal

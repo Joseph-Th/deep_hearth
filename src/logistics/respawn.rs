@@ -17,7 +17,7 @@ use crate::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord};
 use super::{
     PlayerBodyState, PlayerLogisticsRecord, first_player_body_collision,
     first_player_structure_collision, first_player_temple_caste_collision,
-    player_body_fits_continuous_world,
+    player_body_fits_continuous_world, player_body_is_grounded_at,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -252,7 +252,16 @@ pub(crate) fn validate_player_logistics_respawn(
         })
         .filter(|body| first_player_temple_caste_collision(registries, state, *body).is_none());
     let spawn_body = spawn_body
-        .filter(|body| first_player_structure_collision(registries, state, *body).is_none());
+        .filter(|body| first_player_structure_collision(registries, state, *body).is_none())
+        // A clear anchor with its supporting floor mined away is no longer a
+        // viable recovery site. Ungenerated opening space has no terrain floor
+        // authority; retain its established authored spawn semantics.
+        .filter(|body| {
+            !state
+                .world()
+                .has_generated_terrain_at(player.respawn_position())
+                || player_body_is_grounded_at(registries, state, *body)
+        });
     let (respawn_body, used_spawn_anchor) = spawn_body.map_or_else(
         || {
             let body = player.body();

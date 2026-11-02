@@ -29,8 +29,8 @@ pub use gathering::{
 pub(crate) use gathering::{
     SurfaceGatheringCancellationPlan, SurfaceGatheringTickError, SurfaceGatheringTickPlan,
     apply_surface_gathering_cancellation, apply_surface_gathering_tick,
-    assess_player_surface_gathering_reservation, decide_surface_gathering_cancellation,
-    decide_surface_gathering_tick,
+    assess_player_surface_gathering_option_admission, assess_player_surface_gathering_reservation,
+    decide_surface_gathering_cancellation, decide_surface_gathering_tick,
 };
 pub(crate) use ground_stockpile_raid::{
     ScavengedGroundStockpileRequest, scavenge_unenclosed_ground_stockpile_material,

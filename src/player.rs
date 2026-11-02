@@ -546,9 +546,10 @@ fn map_logistics_error(error: InitializePlayerLogisticsError) -> PlayerAdmission
 ///
 /// Exact carried matter remains in the old inventory stockpile, which becomes a local death cache;
 /// carried equipment becomes stationary at the death voxel. The player receives a fresh empty
-/// body-sized carried stockpile and returns to the original admitted spawn when it remains clear.
-/// If that anchor is obstructed, respawn falls back to the valid death-body location rather than
-/// soft-locking the dead player.
+/// body-sized carried stockpile and returns to the original admitted spawn when it remains clear
+/// and, in generated terrain, supported by the same floor geometry as continuous body motion.
+/// An obstructed or unsupported generated anchor instead falls back to the death-body location.
+/// Ungenerated authored opening positions have no terrain floor authority.
 pub fn validate_respawn_player(
     registries: &Registries,
     state: &AppState,

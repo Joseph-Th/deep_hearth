@@ -296,6 +296,99 @@ fn contextual_drinking_ignores_empty_servings_but_preserves_actual_ambiguity() {
 }
 
 #[test]
+fn gathering_without_surface_revision_headroom_cannot_mask_drinking() {
+    use crate::core::state::validate_loaded_state;
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+    use crate::simulation::{
+        PlayerDirectControlInput, SecondaryControlIntent, advance_control_tick,
+        advance_control_tick_with_direct_input,
+    };
+
+    let minimum = build_registries()
+        .survival()
+        .physiology()
+        .direct_consumption()
+        .minimum_drink_volume();
+    let (registries, state, stores) = water_and_gathering_context(&[minimum], true, true);
+    let mut saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    saved["state"]["systems"]["surface"]["revision"] = serde_json::json!(u64::MAX);
+    let mut exhausted = serde_json::from_value::<LoadedSaveEnvelope>(saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let option = player_surface_gathering_options(&registries, &exhausted)
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+    let amount = option.direct_batch_mass().min(option.source_mass());
+    assert_eq!(
+        assess_player_surface_gathering_reservation(&exhausted, amount),
+        Ok(())
+    );
+    assert!(matches!(
+        validate_start_player_surface_gathering_option(&registries, &exhausted, option, amount),
+        Err(SurfaceGatheringError::SurfaceRevisionExhausted)
+    ));
+    assert_eq!(validate_loaded_state(&registries, &exhausted), Ok(()));
+    let mut via_input = exhausted.clone();
+    assert!(matches!(
+        attempt_empty_hand_secondary_action(&registries, &mut exhausted),
+        SecondaryActionOutcome::DrinkingStarted(ref drink) if drink.store() == stores[0]
+    ));
+    assert_eq!(exhausted.surface().revision(), u64::MAX);
+    assert_eq!(
+        exhausted
+            .surface()
+            .get(option.resource())
+            .unwrap()
+            .remaining_mass(),
+        option.source_mass()
+    );
+    assert_eq!(validate_loaded_state(&registries, &exhausted), Ok(()));
+
+    // The ordinary held-use input must buffer across 20 Hz control samples,
+    // then choose the same viable drink at the slow boundary after revalidation.
+    let direction = ViewDirection::new(1_000_000, 0, 0).unwrap();
+    let queued = advance_control_tick_with_direct_input(
+        &registries,
+        &mut via_input,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(direction)),
+    )
+    .unwrap();
+    assert_eq!(
+        queued.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &via_input)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let mut started = false;
+    for _ in 0..crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK {
+        let current = advance_control_tick(&registries, &mut via_input).unwrap();
+        let restored = advance_control_tick(&registries, &mut replay).unwrap();
+        assert_eq!(current, restored);
+        assert_eq!(via_input, replay);
+        if matches!(
+            current.secondary_action(),
+            Some(SecondaryActionOutcome::DrinkingStarted(drink)) if drink.store() == stores[0]
+        ) {
+            started = true;
+            break;
+        }
+    }
+    assert!(
+        started,
+        "buffered use must start drinking on its next slow boundary"
+    );
+    assert_eq!(via_input.surface().revision(), u64::MAX);
+    assert_eq!(validate_loaded_state(&registries, &via_input), Ok(()));
+}
+
+#[test]
 fn unavailable_water_egress_cannot_mask_local_gathering() {
     use crate::fluid::validate_fluid_egress;
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};

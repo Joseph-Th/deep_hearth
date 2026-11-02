@@ -13,8 +13,8 @@ use crate::registry::Registries;
 use crate::spatial::ViewDirection;
 use crate::surface::{
     PlayerSurfaceGatheringOption, SurfaceGatheringError, SurfaceResourceId,
-    assess_player_surface_gathering_reservation, player_surface_gathering_options,
-    validate_start_player_surface_gathering_option,
+    assess_player_surface_gathering_option_admission, assess_player_surface_gathering_reservation,
+    player_surface_gathering_options, validate_start_player_surface_gathering_option,
 };
 use crate::survival::{
     available_local_drink_sources, validate_drink_store_to_full, validate_eat_stack_to_full,
@@ -43,16 +43,18 @@ fn resolve_direct_surface_gathering(
         panic!("runtime invariant broken: direct gathering option projection failed: {error}")
     });
     if require_actionable {
-        // A hot or uncarryable resource is still observable and explicitly gatherable
-        // (with a typed rejection), but it is not a competing default action when
-        // the same gesture can actually drink from a local water source.
+        // A visible source is not a competing default action unless its owner
+        // can actually admit gathering now. This includes thermal, inventory
+        // profile, reserved revision, material identity, and work-budget checks.
+        // Explicit gathering still reports the precise rejection for each source.
         options.retain(|option| {
-            option.hand_handling_blocker().is_none()
-                && assess_player_surface_gathering_reservation(
-                    state,
-                    direct_gathering_request_mass(state, *option),
-                )
-                .is_ok()
+            assess_player_surface_gathering_option_admission(
+                registries,
+                state,
+                *option,
+                direct_gathering_request_mass(state, *option),
+            )
+            .is_ok()
         });
     }
     classify_direct_surface_gathering_options(&options)

@@ -24,7 +24,7 @@ use crate::inventory::{
 use crate::labor::{
     PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, SurfaceGatheringDefinition,
     SurfaceGatheringMethodId, SurfaceGatheringWork, ValidatedPlayerWorkStart,
-    validate_player_work_start,
+    validate_player_work_start, validate_player_work_start_control_rate,
 };
 use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
 use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE};
@@ -527,6 +527,28 @@ pub fn validate_start_player_surface_gathering_option(
     option: PlayerSurfaceGatheringOption,
     mass: Mass,
 ) -> Result<ValidatedSurfaceGatheringStart, SurfaceGatheringError> {
+    validate_player_gathering_option_with_mode(registries, state, option, mass, false)
+}
+
+/// Read-only feasibility for contextual use before the next slow boundary.
+/// Reuse all canonical gathering and labor prechecks, but never return an
+/// executable authorization from an off-boundary control sample.
+pub(crate) fn assess_player_surface_gathering_option_admission(
+    registries: &Registries,
+    state: &AppState,
+    option: PlayerSurfaceGatheringOption,
+    mass: Mass,
+) -> Result<(), SurfaceGatheringError> {
+    validate_player_gathering_option_with_mode(registries, state, option, mass, true).map(|_| ())
+}
+
+fn validate_player_gathering_option_with_mode(
+    registries: &Registries,
+    state: &AppState,
+    option: PlayerSurfaceGatheringOption,
+    mass: Mass,
+    preview_off_boundary: bool,
+) -> Result<ValidatedSurfaceGatheringStart, SurfaceGatheringError> {
     let actual_surface_revision = state.surface().revision();
     if actual_surface_revision != option.expected_surface_revision {
         return Err(SurfaceGatheringError::StalePlayerOption {
@@ -534,12 +556,13 @@ pub fn validate_start_player_surface_gathering_option(
             actual_surface_revision,
         });
     }
-    validate_start_player_surface_gathering(
+    validate_player_gathering_with_mode(
         registries,
         state,
         option.definition.id(),
         option.resource,
         mass,
+        preview_off_boundary,
     )
 }
 
@@ -687,6 +710,15 @@ pub fn validate_start_surface_gathering(
     state: &AppState,
     request: SurfaceGatheringRequest,
 ) -> Result<ValidatedSurfaceGatheringStart, SurfaceGatheringError> {
+    validate_start_surface_gathering_with_mode(registries, state, request, false)
+}
+
+fn validate_start_surface_gathering_with_mode(
+    registries: &Registries,
+    state: &AppState,
+    request: SurfaceGatheringRequest,
+    preview_off_boundary: bool,
+) -> Result<ValidatedSurfaceGatheringStart, SurfaceGatheringError> {
     let method = registries
         .labor()
         .get_surface_gathering(request.method)
@@ -791,13 +823,24 @@ pub fn validate_start_surface_gathering(
         state.tick(),
         completes_at,
     );
-    let player_work = validate_player_work_start(
-        registries,
-        state,
-        PlayerWork::SurfaceGathering { work },
-        duration,
-        method.exertion(),
-    )
+    let proposed_work = PlayerWork::SurfaceGathering { work };
+    let player_work = if preview_off_boundary && !state.control_tick().is_simulation_boundary() {
+        validate_player_work_start_control_rate(
+            registries,
+            state,
+            proposed_work,
+            duration,
+            method.exertion(),
+        )
+    } else {
+        validate_player_work_start(
+            registries,
+            state,
+            proposed_work,
+            duration,
+            method.exertion(),
+        )
+    }
     .map_err(SurfaceGatheringError::PlayerWork)?;
     Ok(ValidatedSurfaceGatheringStart {
         expected_surface_revision: state.surface().revision(),
@@ -821,14 +864,26 @@ pub fn validate_start_player_surface_gathering(
     resource: SurfaceResourceId,
     mass: Mass,
 ) -> Result<ValidatedSurfaceGatheringStart, SurfaceGatheringError> {
+    validate_player_gathering_with_mode(registries, state, method, resource, mass, false)
+}
+
+fn validate_player_gathering_with_mode(
+    registries: &Registries,
+    state: &AppState,
+    method: SurfaceGatheringMethodId,
+    resource: SurfaceResourceId,
+    mass: Mass,
+    preview_off_boundary: bool,
+) -> Result<ValidatedSurfaceGatheringStart, SurfaceGatheringError> {
     let destination = state
         .logistics()
         .player()
         .map(|player| player.carried_stockpile())
         .ok_or(SurfaceGatheringError::PlayerNotLocated)?;
-    validate_start_surface_gathering(
+    validate_start_surface_gathering_with_mode(
         registries,
         state,
         SurfaceGatheringRequest::new(method, resource, destination, mass),
+        preview_off_boundary,
     )
 }

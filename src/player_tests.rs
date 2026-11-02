@@ -128,7 +128,13 @@ fn respawn_clearance_expires_after_a_simulation_tick() {
 }
 
 #[test]
-fn respawn_falls_back_to_death_location_when_spawn_anchor_becomes_solid() {
+fn respawn_falls_back_to_death_location_when_spawn_anchor_is_blocked_or_unsupported() {
+    for obstruct_with_stone in [true, false] {
+        respawn_fallback_after_spawn_damage(obstruct_with_stone);
+    }
+}
+
+fn respawn_fallback_after_spawn_damage(obstruct_with_stone: bool) {
     let registries = build_registries();
     let mut state = AppState::new();
     validate_generate_chunk(
@@ -198,8 +204,48 @@ fn respawn_falls_back_to_death_location_when_spawn_anchor_becomes_solid() {
         let _ = advance_control_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("respawn fallback braking failed: {error}"));
     }
-    set_generated_block_for_test(registries.world(), &mut state, spawn, BLOCK_STATE_STONE);
     mark_player_dead(&mut state);
+    let mut supported_anchor = state.clone();
+    let return_to_spawn = validate_respawn_player(&registries, &supported_anchor)
+        .unwrap()
+        .commit(&mut supported_anchor)
+        .unwrap();
+    assert!(return_to_spawn.used_spawn_anchor());
+    assert_eq!(return_to_spawn.position(), spawn);
+    assert_eq!(return_to_spawn.death_position(), death);
+
+    let stale_clearance = validate_respawn_player(&registries, &state).unwrap();
+    let expected_world_revision = state.world().revision();
+    if obstruct_with_stone {
+        set_generated_block_for_test(registries.world(), &mut state, spawn, BLOCK_STATE_STONE);
+    } else {
+        // The original spawn is still clear but its entire supporting floor
+        // has been excavated. Returning here would start an avoidable fall,
+        // despite a supported, collision-free death location.
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(spawn.x(), spawn.y() - 1, spawn.z()),
+            BlockStateId::AIR,
+        );
+        assert_eq!(state.world().block_at(spawn), Some(BlockStateId::AIR));
+    }
+    let actual_world_revision = state.world().revision();
+    let before_stale = state.clone();
+    assert_eq!(
+        stale_clearance.commit(&mut state),
+        Err(PlayerRespawnCommitError::StaleWorldRevision {
+            expected: expected_world_revision,
+            actual: actual_world_revision,
+        })
+    );
+    assert_eq!(state, before_stale);
+    let original_matter = calculate_matter_accounting(&state).unwrap().total();
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
 
     let outcome = validate_respawn_player(&registries, &state)
         .unwrap_or_else(|error| panic!("respawn fallback validation failed: {error}"))
@@ -208,6 +254,23 @@ fn respawn_falls_back_to_death_location_when_spawn_anchor_becomes_solid() {
     assert!(!outcome.used_spawn_anchor());
     assert_eq!(outcome.position(), death);
     assert_eq!(outcome.death_position(), death);
+    assert_eq!(
+        validate_respawn_player(&registries, &replay)
+            .unwrap()
+            .commit(&mut replay)
+            .unwrap(),
+        outcome,
+        "respawn choice must survive a save/load boundary"
+    );
+    assert_eq!(state, replay);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        original_matter
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
 }
 
 #[test]
