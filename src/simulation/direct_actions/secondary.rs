@@ -4,7 +4,6 @@ use crate::content::{FORM_BOARD, FORM_LOG, MATERIAL_WOOD};
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::energy::{validate_assemble_energy_store, validate_combust_selected_fuel};
-use crate::fluid::validate_fluid_egress;
 use crate::inventory::project_material_stacks;
 use crate::logistics::PlayerActiveSelection;
 use crate::material::CommodityKey;
@@ -17,7 +16,8 @@ use crate::surface::{
     player_surface_gathering_options, validate_start_player_surface_gathering_option,
 };
 use crate::survival::{
-    available_local_drink_sources, validate_drink_store_to_full, validate_eat_stack_to_full,
+    assess_drink_store_to_full_admission, available_local_drink_sources,
+    validate_drink_store_to_full, validate_eat_stack_to_full,
 };
 use crate::world::raycast_player_block;
 
@@ -105,7 +105,7 @@ pub(super) fn attempt_empty_hand_secondary_action(
         .filter(|source| {
             needs_hydration
                 && source.available_volume() >= minimum_drink
-                && validate_fluid_egress(registries, state, source.store(), minimum_drink).is_ok()
+                && assess_drink_store_to_full_admission(registries, state, source.store())
         })
         .collect::<Vec<_>>();
     let gathering =

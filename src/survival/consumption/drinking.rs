@@ -313,7 +313,23 @@ pub fn validate_drink(
     store: FluidStoreId,
     volume: Volume,
 ) -> Result<ValidatedDrink, DrinkError> {
-    require_simulation_boundary(state.control_tick()).map_err(DrinkError::SimulationBoundary)?;
+    validate_drink_with_mode(registries, state, store, volume, false)
+}
+
+/// The read-only contextual preview reuses every admission precheck but
+/// discards its off-boundary token. Executable drinking still requires the
+/// slow boundary, where the entire transaction is validated again.
+pub(super) fn validate_drink_with_mode(
+    registries: &Registries,
+    state: &AppState,
+    store: FluidStoreId,
+    volume: Volume,
+    preview_off_boundary: bool,
+) -> Result<ValidatedDrink, DrinkError> {
+    if !preview_off_boundary {
+        require_simulation_boundary(state.control_tick())
+            .map_err(DrinkError::SimulationBoundary)?;
+    }
     let attention = validate_player_attention(state).map_err(map_player_attention_error)?;
     validate_player_fluid_store_access(state, store).map_err(DrinkError::Access)?;
     let source = resolve_drink_source(registries, state, store)?;

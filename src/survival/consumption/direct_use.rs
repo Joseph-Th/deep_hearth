@@ -14,10 +14,11 @@ use crate::logistics::{validate_player_fluid_store_access, validate_player_stock
 use crate::material::CommodityKey;
 use crate::registry::Registries;
 
+use super::drinking::validate_drink_with_mode;
 use super::{
     DrinkError, DrinkHydrationProjectionError, EatError, MealMetabolicProjectionError,
     ValidatedDrink, ValidatedEat, project_minimum_drink_to_hydration_target,
-    project_minimum_meal_to_metabolic_target, validate_drink, validate_eat,
+    project_minimum_meal_to_metabolic_target, validate_eat,
 };
 
 /// Failure while composing a selected food stack into the exact eating transaction.
@@ -571,20 +572,49 @@ pub fn validate_drink_store_to_full(
     state: &AppState,
     store: FluidStoreId,
 ) -> Result<Option<ValidatedDrink>, DrinkStoreToTargetError> {
-    let result = validate_drink_store_to_hydration_target(
+    validate_drink_store_to_full_with_mode(registries, state, store, false)
+}
+
+/// A water source competes with gathering only if the full-use gesture can
+/// actually be admitted. Preview tokens never escape this read-only check.
+pub(crate) fn assess_drink_store_to_full_admission(
+    registries: &Registries,
+    state: &AppState,
+    store: FluidStoreId,
+) -> bool {
+    matches!(
+        validate_drink_store_to_full_with_mode(registries, state, store, true),
+        Ok(Some(_))
+    )
+}
+
+fn validate_drink_store_to_full_with_mode(
+    registries: &Registries,
+    state: &AppState,
+    store: FluidStoreId,
+    preview_off_boundary: bool,
+) -> Result<Option<ValidatedDrink>, DrinkStoreToTargetError> {
+    let result = validate_drink_store_to_hydration_target_with_mode(
         registries,
         state,
         store,
         registries.survival().physiology().maximum_hydration(),
+        preview_off_boundary,
     );
     match result {
         Err(DrinkStoreToTargetError::Projection(
             DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
                 maximum_drink_volume,
             },
-        )) => validate_drink_store_up_to(registries, state, store, maximum_drink_volume),
+        )) => validate_drink_store_up_to(
+            registries,
+            state,
+            store,
+            maximum_drink_volume,
+            preview_off_boundary,
+        ),
         Err(DrinkStoreToTargetError::InsufficientVolume { available, .. }) => {
-            validate_drink_store_up_to(registries, state, store, available)
+            validate_drink_store_up_to(registries, state, store, available, preview_off_boundary)
         }
         result => result,
     }
@@ -628,6 +658,7 @@ fn validate_drink_store_up_to(
     state: &AppState,
     store: FluidStoreId,
     desired: Volume,
+    preview_off_boundary: bool,
 ) -> Result<Option<ValidatedDrink>, DrinkStoreToTargetError> {
     validate_player_fluid_store_access(state, store)
         .map_err(|error| DrinkStoreToTargetError::Drink(DrinkError::Access(error)))?;
@@ -648,7 +679,7 @@ fn validate_drink_store_up_to(
             required: direct.minimum_drink_volume(),
         });
     }
-    validate_drink(registries, state, store, portion)
+    validate_drink_with_mode(registries, state, store, portion, preview_off_boundary)
         .map(Some)
         .map_err(DrinkStoreToTargetError::Drink)
 }
@@ -722,6 +753,16 @@ pub fn validate_drink_store_to_hydration_target(
     store: FluidStoreId,
     target: Volume,
 ) -> Result<Option<ValidatedDrink>, DrinkStoreToTargetError> {
+    validate_drink_store_to_hydration_target_with_mode(registries, state, store, target, false)
+}
+
+fn validate_drink_store_to_hydration_target_with_mode(
+    registries: &Registries,
+    state: &AppState,
+    store: FluidStoreId,
+    target: Volume,
+    preview_off_boundary: bool,
+) -> Result<Option<ValidatedDrink>, DrinkStoreToTargetError> {
     let player = state
         .survival()
         .player()
@@ -759,7 +800,7 @@ pub fn validate_drink_store_to_hydration_target(
             required,
         });
     }
-    validate_drink(registries, state, store, required)
+    validate_drink_with_mode(registries, state, store, required, preview_off_boundary)
         .map(Some)
         .map_err(DrinkStoreToTargetError::Drink)
 }

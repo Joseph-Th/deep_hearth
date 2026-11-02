@@ -389,6 +389,171 @@ fn gathering_without_surface_revision_headroom_cannot_mask_drinking() {
 }
 
 #[test]
+fn drinking_without_survival_revision_headroom_cannot_mask_short_gathering() {
+    use crate::core::state::validate_loaded_state;
+    use crate::matter::calculate_matter_accounting;
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+    use crate::simulation::{
+        PlayerDirectControlInput, SecondaryControlIntent, advance_control_tick,
+        advance_control_tick_with_direct_input,
+    };
+    use crate::survival::{DrinkError, DrinkStoreToTargetError};
+
+    let minimum = build_registries()
+        .survival()
+        .physiology()
+        .direct_consumption()
+        .minimum_drink_volume();
+    let (registries, mut state, stores) = water_and_gathering_context(&[minimum], false, true);
+    let position = state.logistics().player().unwrap().position();
+    let option = validate_create_surface_resources(
+        &registries,
+        &state,
+        [SurfaceResourceSpec::new(
+            SurfaceResourceKind::Opportunity,
+            position,
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(1),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap()],
+    )
+    .unwrap();
+    option.commit(&mut state).unwrap();
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    encoded["state"]["systems"]["survival"]["revision"] = serde_json::json!(u64::MAX - 3);
+    let mut state = serde_json::from_value::<LoadedSaveEnvelope>(encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let option = player_surface_gathering_options(&registries, &state)
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+    assert_eq!(
+        assess_player_surface_gathering_option_admission(
+            &registries,
+            &state,
+            option,
+            Mass::from_milligrams(1),
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        validate_drink_store_to_full(&registries, &state, stores[0]).err(),
+        Some(DrinkStoreToTargetError::Drink(
+            DrinkError::SurvivalRevisionExhausted
+        )),
+    );
+    let mut off_boundary = state.clone();
+    let _ = crate::simulation::advance_control_tick(&registries, &mut off_boundary).unwrap();
+    assert!(!off_boundary.control_tick().is_simulation_boundary());
+    assert!(matches!(
+        validate_drink_store_to_full(&registries, &off_boundary, stores[0]),
+        Err(DrinkStoreToTargetError::Drink(
+            DrinkError::SimulationBoundary(_)
+        ))
+    ));
+    assert_eq!(
+        attempt_empty_hand_secondary_action(&registries, &mut off_boundary),
+        SecondaryActionOutcome::DeferredUntilSimulationBoundary,
+        "off-boundary admission preview must not make an impossible drink compete with gathering"
+    );
+    assert!(
+        matches!(
+            attempt_empty_hand_secondary_action(&registries, &mut state),
+            SecondaryActionOutcome::SurfaceGatheringStarted(_)
+        ),
+        "a drink that cannot reserve its uptake revisions must not create fake contextual ambiguity"
+    );
+    assert_eq!(
+        state.fluid().get_store(stores[0]).unwrap().stored_volume(),
+        minimum
+    );
+    // Buffered use replays across the slow boundary and never touches the
+    // unspendable local water.
+    let mut via_input = off_boundary;
+    let conserved = calculate_matter_accounting(&via_input).unwrap().total();
+    let direction = ViewDirection::new(1_000_000, 0, 0).unwrap();
+    let queued = advance_control_tick_with_direct_input(
+        &registries,
+        &mut via_input,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(direction)),
+    )
+    .unwrap();
+    assert_eq!(
+        queued.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &via_input)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let mut started = false;
+    for _ in 0..crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK {
+        let outcome = advance_control_tick(&registries, &mut via_input).unwrap();
+        let restored = advance_control_tick(&registries, &mut replay).unwrap();
+        assert_eq!(outcome, restored);
+        assert_eq!(via_input, replay);
+        if matches!(
+            outcome.secondary_action(),
+            Some(SecondaryActionOutcome::SurfaceGatheringStarted(work))
+                if work.resource() == option.resource()
+        ) {
+            started = true;
+            break;
+        }
+    }
+    assert!(
+        started,
+        "buffered use must start gathering instead of impossible drinking"
+    );
+    assert_eq!(
+        via_input
+            .fluid()
+            .get_store(stores[0])
+            .unwrap()
+            .stored_volume(),
+        minimum
+    );
+    assert_eq!(
+        calculate_matter_accounting(&via_input).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &via_input), Ok(()));
+}
+
+#[test]
+fn off_boundary_feasibility_preview_preserves_real_water_and_gathering_ambiguity() {
+    let minimum = build_registries()
+        .survival()
+        .physiology()
+        .direct_consumption()
+        .minimum_drink_volume();
+    let (registries, mut state, stores) = water_and_gathering_context(&[minimum], true, true);
+    let _ = crate::simulation::advance_control_tick(&registries, &mut state).unwrap();
+    assert!(!state.control_tick().is_simulation_boundary());
+    assert_eq!(
+        assess_drink_store_to_full_admission(&registries, &state, stores[0]),
+        true
+    );
+    let snapshot = state.clone();
+    assert_eq!(
+        attempt_empty_hand_secondary_action(&registries, &mut state),
+        SecondaryActionOutcome::AmbiguousEmptyHandContext {
+            drink_sources: 1,
+            surface_resources: 1,
+        }
+    );
+    assert_eq!(state, snapshot);
+}
+
+#[test]
 fn unavailable_water_egress_cannot_mask_local_gathering() {
     use crate::fluid::validate_fluid_egress;
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};

@@ -8,6 +8,7 @@ mod resource_cost;
 mod state;
 mod validation;
 
+pub(crate) use consumption::assess_drink_store_to_full_admission;
 pub(crate) use consumption::freshness_from_history;
 
 pub use assessment::{
