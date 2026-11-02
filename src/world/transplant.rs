@@ -167,6 +167,7 @@ fn destination_clear(registries: &Registries, state: &AppState, root: VoxelCoord
                     .available_resources_at(Some(voxel))
                     .next()
                     .is_none()
+                && !state.surface().rooted_biomass_occupies_voxel(voxel)
                 && !crate::logistics::player_body_occupies_voxel(registries, state, voxel)
                 && !crate::kobolds::opening_kobold_occupies_voxel(state, voxel)
                 && !crate::kobolds::temple_caste_occupies_voxel(registries, state, voxel)

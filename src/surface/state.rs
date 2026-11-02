@@ -382,6 +382,23 @@ impl SurfaceResourceState {
             })
     }
 
+    /// A harvested perennial may retain buried biomass after its last visible
+    /// fruit was gathered. Point occupancy uses the derived local root index.
+    pub(crate) fn rooted_biomass_occupies_voxel(&self, position: VoxelCoord) -> bool {
+        self.perennial_by_position
+            .get(&position)
+            .is_some_and(|ids| {
+                ids.iter().any(|id| {
+                    self.resources
+                        .get(id)
+                        .unwrap_or_else(|| {
+                            unreachable!("perennial location index references missing resource")
+                        })
+                        .rooted_biomass_occupies_site()
+                })
+            })
+    }
+
     /// Reads live surface custody within physical bounds using the local position index.
     /// Restricting the B-tree range by X avoids a scan over remote and depleted resources;
     /// Y and Z are checked against the full half-open bounds before resolving each identity.

@@ -184,7 +184,10 @@ between two floor-supported, collision-free locations adjacent to the same livin
 grounded, motionless player with no active work or prepared strike. Transplanting preserves the complete tree's wood, original seed-derived identity,
 sprouting timestamp and growth clock, with one atomic world revision; it creates no new
 sapling, seed, log parcel or inventory item. Both admission and commit check local
-obstructions, actor position, time, combat and owner revisions. No ordinary planting input, digging,
+obstructions, including harvested-but-living perennial roots, actor position, time,
+combat and owner revisions. The surface root-position index makes that check
+local even when the surface retains many depleted historical parcels.
+No ordinary planting input, digging,
 nutrient response or timed uprooting work is modeled. The canopy radius
 attenuates direct skylight but does not create a leaf collision body. Overlapping
 crowns accumulate diffuse shade up to the full 15-level skylight scale.

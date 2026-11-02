@@ -460,3 +460,134 @@ fn a_depleted_seeded_patch_with_live_roots_cannot_spawn_duplicate_forage() {
         Err(crate::persistence::LoadError::InvalidState(expected))
     );
 }
+
+#[test]
+fn juvenile_transplant_cannot_replace_harvested_seeded_roots() {
+    use crate::core::state::StateValidationError;
+    use crate::surface::{
+        SurfaceResourceLifecycle, SurfaceResourceSpec, SurfaceResourceValidationError,
+        validate_create_surface_resources,
+    };
+    use crate::world::{
+        SaplingTransplantCommitError, SaplingTransplantError, validate_transplant_juvenile,
+    };
+
+    let registries = build_registries();
+    let chunk = super::super::ChunkCoord::new(1, 0);
+    // Find a real juvenile and a seed-plausible shrub two steps away on
+    // supported level ground; no fabricated tree or terrain is required.
+    let (seed, from, to, player_at) =
+        (1..100_000_u64)
+            .find_map(|number| {
+                let seed = super::super::WorldGenerationSeed::new(number);
+                let profile = super::super::WorldGenerationProfile::new(seed, BLOCK_STATE_STONE);
+                let tree = crate::world::trees::seeded_tree_identity(profile, chunk)?;
+                if tree.initial_wood().milligrams() != 8_000_000 {
+                    return None;
+                }
+                let hash = district_hash(profile, chunk);
+                if chunk.x().rem_euclid(2) as u64 != hash & 1
+                    || chunk.z().rem_euclid(2) as u64 != (hash >> 1) & 1
+                {
+                    return None;
+                }
+                let from = tree.root();
+                let base_x = chunk.world_min_x()? + 3 + ((hash >> 12) % 10) as i64;
+                let base_z = chunk.world_min_z()? + 3 + ((hash >> 26) % 10) as i64;
+                [(0, 0), (2, 0), (0, 2), (-2, 0), (0, -2)]
+                    .into_iter()
+                    .find_map(|(dx, dz)| {
+                        let x = base_x + dx;
+                        let z = base_z + dz;
+                        let two_steps = (from.x().abs_diff(x) == 2 && from.z() == z)
+                            || (from.x() == x && from.z().abs_diff(z) == 2);
+                        if !two_steps || terrain_height(seed, x, z) + 1 != from.y() {
+                            return None;
+                        }
+                        let halfway =
+                            VoxelCoord::new((from.x() + x) / 2, from.y(), (from.z() + z) / 2);
+                        (terrain_height(seed, halfway.x(), halfway.z()) + 1 == from.y())
+                            .then_some((seed, from, VoxelCoord::new(x, from.y(), z), halfway))
+                    })
+            })
+            .expect("seeded grove has a juvenile beside a rooted site");
+
+    let mut state = AppState::new();
+    validate_generate_chunk(&registries, &state, seed, chunk, BLOCK_STATE_STONE)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_admit_player(&registries, &state, player_at)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let pending = validate_transplant_juvenile(&registries, &state, from, to).unwrap();
+    let profile = state.world().generation_profile().unwrap();
+    let (commodity, mass) = seeded_food(profile, district_hash(profile, chunk), to.x(), to.z());
+    let source = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Opportunity,
+        to,
+        commodity,
+        mass,
+        crate::core::quantity::Temperature::from_millikelvin(293_150),
+        crate::material::MaterialComposition::pure(commodity.material()),
+    )
+    .unwrap()
+    .with_perennial_reserve(Mass::from_milligrams(mass.milligrams() / 2));
+    assert!(seeded_perennial_matches(profile, to, commodity, mass));
+    let id = crate::surface::SurfaceResourceId::new(state.surface().next_resource_id());
+    validate_create_surface_resources(&registries, &state, [source])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let revision = state.surface().revision() + 1;
+    state
+        .surface_state_mut()
+        .apply_gathering(id, mass, SimulationTick::ZERO, revision);
+    assert_eq!(
+        state.surface().get(id).unwrap().lifecycle(),
+        SurfaceResourceLifecycle::Depleted
+    );
+    assert!(state.surface().rooted_biomass_occupies_voxel(to));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_transplant_juvenile(&registries, &state, from, to).err(),
+        Some(SaplingTransplantError::DestinationBlocked { root: to })
+    );
+    assert_eq!(state, before);
+    let mut stale = state.clone();
+    assert_eq!(
+        pending.commit(&registries, &mut stale),
+        Err(SaplingTransplantCommitError::SurfaceChanged),
+        "a newly claimed root must invalidate an older transplant token"
+    );
+    assert_eq!(stale, state);
+
+    // Surface/world trusted-load clearance already detects a solid tree
+    // planted through these living roots. Runtime admission must agree.
+    let mut forged = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let world = &mut forged["state"]["systems"]["world"];
+    world["trees"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|record| record["root"] == serde_json::to_value(from).unwrap())
+        .unwrap()["root"] = serde_json::to_value(to).unwrap();
+    world["transplants"] = serde_json::json!([{
+        "origin": from, "from": from, "to": to,
+        "transplanted_at": state.tick(),
+    }]);
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(forged)
+            .unwrap()
+            .into_state(&registries),
+        Err(crate::persistence::LoadError::InvalidState(
+            StateValidationError::Surface(SurfaceResourceValidationError::EmbeddedInSolidWorld {
+                resource: id,
+                voxel: to
+            })
+        ))
+    );
+}
