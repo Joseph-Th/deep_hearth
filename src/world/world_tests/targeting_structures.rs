@@ -11,6 +11,75 @@ use crate::structural::{
 };
 
 #[test]
+fn dead_player_cannot_raycast_world_blocks_or_contact_targets() {
+    use crate::player::validate_respawn_player;
+    use crate::survival::{Vitality, player_record_with_thermal_comfort};
+
+    let (registries, mut state, _) = generated_targeting_player_at(0, 0);
+    let direction = positive_x_view();
+    assert!(raycast_player_block(&registries, &state, direction).is_ok());
+    assert!(
+        raycast_player_air_voxel(&registries, &state, direction, |voxel, _| Some(voxel),).is_ok()
+    );
+
+    let before = *state.survival().player().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            before.metabolic_energy(),
+            before.hydration(),
+            Vitality::ZERO,
+            before.nutrition(),
+            before.vitality_recovery_remainder(),
+            before.thermal_comfort_ppm(),
+        ),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let snapshot = state.clone();
+    assert_eq!(
+        raycast_player_block(&registries, &state, direction),
+        Err(PlayerBlockTargetError::PlayerDead),
+    );
+    assert_eq!(
+        raycast_player_air_voxel(&registries, &state, direction, |voxel, _| Some(voxel)),
+        Err(PlayerBlockTargetError::PlayerDead),
+    );
+    assert_eq!(
+        raycast_player_air_voxel_with_reach(
+            &registries,
+            &state,
+            direction,
+            1_000,
+            |voxel, _| Some(voxel)
+        ),
+        Err(PlayerBlockTargetError::PlayerDead),
+    );
+    assert_eq!(
+        state, snapshot,
+        "denied targeting must not mutate the world"
+    );
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+    assert_eq!(
+        raycast_player_block(&registries, &restored, direction),
+        Err(PlayerBlockTargetError::PlayerDead),
+    );
+    let _ = validate_respawn_player(&registries, &state)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(raycast_player_block(&registries, &state, direction).is_ok());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn built_panel_occludes_terrain_and_distant_structural_air_targets() {
     let (registries, mut state, floor_y) = generated_targeting_player_at(0, 0);
     let y = floor_y + 1;

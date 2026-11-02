@@ -6,7 +6,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
 use crate::logistics::PlayerStance;
-use crate::player::{PlayerAdmissionState, player_admission_state};
+use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
 use crate::spatial::{
     Axis, CubeFace, NANOMETERS_PER_VOXEL, VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection,
@@ -18,6 +18,7 @@ use super::{BlockCollisionShape, BlockStateId};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerBlockTargetError {
     PlayerNotAdmitted,
+    PlayerDead,
     EyeCoordinateOverflow,
     WorldAuthorityUnavailable { voxel: VoxelCoord },
     EyeInsideSolid { voxel: VoxelCoord },
@@ -29,6 +30,7 @@ impl Display for PlayerBlockTargetError {
             Self::PlayerNotAdmitted => {
                 formatter.write_str("block targeting requires an admitted player")
             }
+            Self::PlayerDead => formatter.write_str("dead player cannot target the world"),
             Self::EyeCoordinateOverflow => formatter
                 .write_str("player eye or interaction reach exceeded continuous world coordinates"),
             Self::WorldAuthorityUnavailable { voxel } => write!(
@@ -205,9 +207,10 @@ fn player_view_origin_and_reach(
     registries: &Registries,
     state: &AppState,
 ) -> Result<(WorldPoint, i64), PlayerBlockTargetError> {
-    if player_admission_state(state) != PlayerAdmissionState::Admitted {
-        return Err(PlayerBlockTargetError::PlayerNotAdmitted);
-    }
+    validate_player_action(state).map_err(|error| match error {
+        PlayerActionValidationError::PlayerNotAdmitted => PlayerBlockTargetError::PlayerNotAdmitted,
+        PlayerActionValidationError::PlayerDead => PlayerBlockTargetError::PlayerDead,
+    })?;
     let player = state
         .logistics()
         .player()
