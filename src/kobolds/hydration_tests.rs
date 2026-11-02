@@ -27,6 +27,113 @@ fn opening_water() -> (Registries, AppState, FluidStoreId, VoxelCoord) {
 }
 
 #[test]
+fn thirsty_scout_can_drink_at_reached_water_without_abandoning_carried_cargo() {
+    use crate::content::{FORM_FOOD, MATERIAL_BERRIES};
+    use crate::core::quantity::{Mass, Temperature};
+    use crate::fluid::{GeneratedFluidStoreSpec, validate_generate_fluid_store};
+    use crate::kobolds::SCOUT_STEP_TICKS;
+    use crate::logistics::{add_traversable_edge_for_test, validate_place_fluid_store};
+    use crate::material::{CommodityKey, MaterialComposition};
+    use crate::surface::{
+        SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let den = VoxelCoord::new(-1, 0, 0);
+    let water_position = VoxelCoord::new(0, 0, 0);
+    let tip = VoxelCoord::new(1, 0, 0);
+    add_traversable_edge_for_test(&mut state, den, water_position);
+    add_traversable_edge_for_test(&mut state, water_position, tip);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, water_position, tip]);
+
+    let drink_due = state.kobold_state().colony.as_ref().unwrap().next_drink_at;
+    while state.tick().value() + SCOUT_STEP_TICKS < drink_due.value() {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    // Create loot on the actual outer patrol stop, not in the scout's hand.
+    // The resident must retrieve it and carry it back through the water cell.
+    let cargo = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        tip,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(100_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_BERRIES),
+    )
+    .unwrap();
+    let planned = validate_create_surface_resources(&registries, &state, [cargo]).unwrap();
+    let cargo_id = planned.first_resource_id();
+    planned.commit(&mut state).unwrap();
+    while state.tick().value() < drink_due.value() + SCOUT_STEP_TICKS * 2 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    let scout = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(scout.scout_position(), water_position);
+    assert_eq!(scout.scavenged_drop, Some(cargo_id));
+    assert!(scout.returning);
+
+    // Water appears locally while the scout is returning with a real parcel.
+    let water = validate_generate_fluid_store(
+        &registries,
+        &state,
+        GeneratedFluidStoreSpec::new(
+            SCOUT_DRINK_VOLUME,
+            FLUID_WATER,
+            SCOUT_DRINK_VOLUME,
+            Temperature::from_millikelvin(293_150),
+        ),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    validate_place_fluid_store(&state, water, water_position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let water_before = calculate_fluid_volume_accounting(&state).unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    while state.tick().value() < drink_due.value() + SCOUT_STEP_TICKS * 3 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state
+            .kobold_state()
+            .consumed_fluids
+            .get(&FLUID_WATER)
+            .copied(),
+        Some(AggregateVolume::from_volume(SCOUT_DRINK_VOLUME)),
+        "a recoverable parcel must not prohibit a local water visit"
+    );
+    assert_eq!(
+        state.fluid().get_store(water).unwrap().stored_volume(),
+        Volume::ZERO
+    );
+    assert_eq!(
+        state.surface().get(cargo_id).unwrap().position(),
+        den,
+        "the same real parcel must return to the den after the water visit"
+    );
+    assert_eq!(
+        calculate_fluid_volume_accounting(&state).unwrap(),
+        water_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn scout_uses_authored_drink_temperature_and_preserves_unusable_water() {
     use crate::core::quantity::Temperature;
     use crate::fluid::{GeneratedFluidStoreSpec, validate_generate_fluid_store};

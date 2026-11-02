@@ -143,7 +143,9 @@ pub(super) fn drink_on_scout_visit(
     at: SimulationTick,
 ) -> Option<(FluidStoreId, Volume)> {
     let colony = state.kobold_state().colony.as_ref()?;
-    if at < colony.next_drink_at || colony.scavenged_drop.is_some() {
+    // Carrying a parcel does not prevent drinking from water reached on the patrol.
+    // The carried drop remains at this voxel until its separate custody transfer.
+    if at < colony.next_drink_at {
         return None;
     }
     let interval = drink_interval_at(registries, state, from, at);
