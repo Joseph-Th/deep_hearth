@@ -41,12 +41,12 @@ fn moisture_adjusted_crop(open_crop: u64, moisture: RootMoisture) -> u64 {
     match moisture {
         RootMoisture::NoBasin => open_crop,
         RootMoisture::Basin { fraction_ppm } => {
-            // An exhausted basin supports half the normal fruit; a full
-            // basin supplies 125%. Intermediate water depletion changes
-            // yield proportionally, without consuming this fluid.
-            let multiplier_ppm = 500_000 + u64::from(fraction_ppm) * 3 / 4;
+            // Empty natural water custody provides no additional moisture,
+            // just like having no basin. Retained water can increase the
+            // otherwise available fruit by up to 25% without being consumed.
+            let multiplier_ppm = 1_000_000 + u64::from(fraction_ppm) / 4;
             u64::try_from(u128::from(open_crop) * u128::from(multiplier_ppm) / 1_000_000)
-                .unwrap_or(u64::MAX)
+                .expect("a quarter-crop with at most 25% moisture gain fits u64")
         }
     }
 }
@@ -68,7 +68,7 @@ fn ripened_crop(
     let lit_batch = u64::try_from(
         u128::from(watered_batch) * u128::from(daylight) / u128::from(OPEN_DAYLIGHT_EXPOSURE_SUM),
     )
-    .unwrap_or(u64::MAX);
+    .expect("daylight cannot increase a bounded moisture-adjusted crop");
     Mass::from_milligrams(root_reserve.milligrams().min(lit_batch))
 }
 

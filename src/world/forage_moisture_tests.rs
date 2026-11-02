@@ -26,7 +26,8 @@ fn spring_survey_selects_the_wettest_reachable_basin_at_spatial_boundaries() {
             (VoxelCoord::new(13, 0, 0), 900_000),
             (VoxelCoord::new(0, 0, 13), 900_000),
             (VoxelCoord::new(0, 4, 0), 900_000),
-            (VoxelCoord::new(12, 0, 3), 700_000),
+            (VoxelCoord::new(12, 0, 12), 990_000),
+            (VoxelCoord::new(12, 0, 0), 700_000),
             (VoxelCoord::new(-12, 0, 0), 100_000),
             (VoxelCoord::new(0, 0, 0), 400_000),
             (VoxelCoord::new(i64::MIN, 0, 0), 300_000),
@@ -41,7 +42,7 @@ fn spring_survey_selects_the_wettest_reachable_basin_at_spatial_boundaries() {
         RootMoisture::Basin {
             fraction_ppm: 700_000
         },
-        "the reach includes exactly twelve horizontal cells but not thirteen or four vertical cells"
+        "a twelve-cell root radius excludes farther diagonals and vertical separation"
     );
     assert_eq!(
         survey.at(VoxelCoord::new(0, 4, 0)),
@@ -62,6 +63,37 @@ fn spring_survey_selects_the_wettest_reachable_basin_at_spatial_boundaries() {
         },
     );
     assert_eq!(survey.at(VoxelCoord::new(50, 0, 0)), RootMoisture::NoBasin);
+}
+
+#[test]
+fn exhausted_basin_does_not_make_a_rooted_crop_worse_than_no_basin() {
+    let roots = Mass::from_milligrams(200_000_000);
+    let original_fruit = Mass::from_milligrams(100_000_000);
+    let crop = |moisture| ripened_crop(roots, original_fruit, moisture, 0);
+
+    let no_basin = crop(RootMoisture::NoBasin);
+    let empty_basin = crop(RootMoisture::Basin { fraction_ppm: 0 });
+    let half_full = crop(RootMoisture::Basin {
+        fraction_ppm: 500_000,
+    });
+    let full = crop(RootMoisture::Basin {
+        fraction_ppm: 1_000_000,
+    });
+
+    assert_eq!(empty_basin, no_basin);
+    assert!(no_basin < half_full && half_full < full);
+    assert!(full <= roots);
+
+    let maximum = Mass::from_milligrams(u64::MAX);
+    let maximum_crop = ripened_crop(
+        maximum,
+        maximum,
+        RootMoisture::Basin {
+            fraction_ppm: 1_000_000,
+        },
+        0,
+    );
+    assert!(maximum_crop <= maximum);
 }
 
 fn rooted_basin() -> (

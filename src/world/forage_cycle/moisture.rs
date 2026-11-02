@@ -61,11 +61,15 @@ impl RootMoistureSurvey {
         let first = self
             .springs
             .partition_point(|(spring, _)| spring.x() < first_x);
+        let horizontal_reach_squared = BASIN_ROOT_REACH_VOXELS * BASIN_ROOT_REACH_VOXELS;
         let wettest = self.springs[first..]
             .iter()
             .take_while(|(spring, _)| spring.x() <= last_x)
             .filter(|(spring, _)| {
-                position.z().abs_diff(spring.z()) <= BASIN_ROOT_REACH_VOXELS
+                let dx = position.x().abs_diff(spring.x());
+                let dz = position.z().abs_diff(spring.z());
+                dz <= BASIN_ROOT_REACH_VOXELS
+                    && dx * dx + dz * dz <= horizontal_reach_squared
                     && position.y().abs_diff(spring.y()) <= BASIN_ROOT_VERTICAL_REACH_VOXELS
             })
             .map(|(_, fraction_ppm)| *fraction_ppm)
