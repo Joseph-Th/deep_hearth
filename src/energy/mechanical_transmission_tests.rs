@@ -299,6 +299,107 @@ fn near_full_mechanical_store_equalizes_without_reversing_or_creating_work() {
 }
 
 #[test]
+fn receiver_power_limit_applies_to_delivered_shaft_work_not_pre_loss_draw() {
+    use crate::content::make_test_registries_with_energy_store;
+    use crate::core::quantity::Power;
+    use crate::energy::{
+        EnergyStoreDefinition, EnergyStoreDefinitionId, add_energy_store_with_initial_for_fixture,
+    };
+
+    let definition = EnergyStoreDefinitionId::new(990_681);
+    let registries =
+        make_test_registries_with_energy_store(EnergyStoreDefinition::new_with_transfer_limits(
+            definition,
+            "mechanical store with restricted input power",
+            EnergyCarrier::Mechanical,
+            Energy::from_nanojoules(1_000_000_000_000),
+            Power::from_microwatts(10_000_000),
+            Power::from_microwatts(50_000_000),
+        ));
+    let mut state = AppState::new();
+    let source_energy = registries
+        .energy()
+        .get_store(definition)
+        .unwrap()
+        .capacity();
+    let source = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        definition,
+        source_energy,
+    )
+    .unwrap();
+    let destination = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        definition,
+        Energy::ZERO,
+    )
+    .unwrap();
+    let passive =
+        crate::energy::passive_dissipation::decide_passive_energy_dissipation(&registries, &state);
+    let transfer = plan_pair(
+        &registries,
+        &state,
+        &passive,
+        StructuralElementId::new(1),
+        1,
+        source,
+        destination,
+    )
+    .expect("shaft can supply the receiver's complete 10 W input rating");
+
+    // One 3.6-second tick delivers 36 J after a single 80%-efficient roller.
+    // The source must actually supply 45 J, not the former incorrect 36 J cap.
+    assert_eq!(transfer.drawn(), Energy::from_nanojoules(45_000_000_000));
+    assert_eq!(
+        transfer.delivered(),
+        Energy::from_nanojoules(36_000_000_000)
+    );
+    assert_eq!(transfer.lost(), Energy::from_nanojoules(9_000_000_000));
+    let two_roller_transfer = plan_pair(
+        &registries,
+        &state,
+        &passive,
+        StructuralElementId::new(2),
+        2,
+        source,
+        destination,
+    )
+    .expect("the source also supports the receiver's full input through two rollers");
+    assert_eq!(
+        two_roller_transfer.drawn(),
+        Energy::from_nanojoules(56_250_000_000)
+    );
+    assert_eq!(
+        two_roller_transfer.delivered(),
+        Energy::from_nanojoules(36_000_000_000)
+    );
+    assert_eq!(
+        two_roller_transfer.lost(),
+        Energy::from_nanojoules(20_250_000_000)
+    );
+    apply_mechanical_transmission(
+        &mut state,
+        MechanicalTransmissionPlan {
+            transfers: vec![transfer],
+        },
+    );
+    assert_eq!(
+        state.energy().get_store(source).unwrap().stored(),
+        source_energy.checked_sub(transfer.drawn()).unwrap()
+    );
+    assert_eq!(
+        state.energy().get_store(destination).unwrap().stored(),
+        transfer.delivered()
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
 fn one_nanojoule_charge_difference_does_not_start_a_lossy_oscillation() {
     use crate::content::make_test_registries_with_energy_store;
     use crate::core::quantity::Power;

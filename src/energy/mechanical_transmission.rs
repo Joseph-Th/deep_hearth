@@ -248,26 +248,36 @@ fn plan_pair(
         } else {
             return None;
         };
-    let power = [
-        WOODEN_TRANSMISSION_POWER,
-        source_def.max_output_power(),
-        dest_def.max_input_power(),
-    ]
-    .into_iter()
-    .min()?;
-    if power.is_zero() {
+    // Shaft and source power limit work drawn before friction; the receiver's
+    // input power limits useful work delivered after the rollers' losses.
+    let draw_power = WOODEN_TRANSMISSION_POWER.min(source_def.max_output_power());
+    let delivery_power = dest_def.max_input_power();
+    if draw_power.is_zero() || delivery_power.is_zero() {
         return None;
     }
-    let per_tick = integrate_power(
-        power,
+    let maximum_draw_per_tick = integrate_power(
+        draw_power,
         TickSpan::new(1),
         registries.core().physical_tick_duration(),
         PowerRemainder::ZERO,
     )
     .ok()?
     .energy();
-    let headroom = dest_def.capacity().checked_sub(dest_stored)?;
-    let maximum_draw = per_tick.nanojoules().min(source_stored.nanojoules());
+    let maximum_delivery_per_tick = integrate_power(
+        delivery_power,
+        TickSpan::new(1),
+        registries.core().physical_tick_duration(),
+        PowerRemainder::ZERO,
+    )
+    .ok()?
+    .energy();
+    let headroom = dest_def
+        .capacity()
+        .checked_sub(dest_stored)?
+        .min(maximum_delivery_per_tick);
+    let maximum_draw = maximum_draw_per_tick
+        .nanojoules()
+        .min(source_stored.nanojoules());
     // Each embodied roller loses real work. Headroom bounds the resulting
     // delivery, not the larger draw before friction.
     let (capacity_limited_draw, _) =
