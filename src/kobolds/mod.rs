@@ -202,7 +202,8 @@ impl KoboldSighting {
     }
 }
 
-/// A committed patrol step, reported only when the scout is locally observable.
+/// Locally witnessed scout activity. An observed care action survives an unseen departure,
+/// but its event contains only facts witnessed at the original location.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct KoboldScoutEvent {
     position: VoxelCoord,
@@ -257,6 +258,7 @@ impl KoboldScoutEvent {
         }
     }
 
+    /// Location of the reported activity, not necessarily the scout's unseen new position.
     #[must_use]
     pub const fn position(self) -> VoxelCoord {
         self.position

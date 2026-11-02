@@ -27,6 +27,117 @@ fn opening_water() -> (Registries, AppState, FluidStoreId, VoxelCoord) {
 }
 
 #[test]
+fn witnessed_outer_patrol_drink_survives_unseen_return_without_disclosing_destination() {
+    use crate::core::quantity::Temperature;
+    use crate::fluid::{GeneratedFluidStoreSpec, validate_generate_fluid_store};
+    use crate::logistics::{add_traversable_edge_for_test, validate_place_fluid_store};
+    use crate::player::validate_admit_player;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let den = VoxelCoord::new(-1, 0, 0);
+    let junction = VoxelCoord::new(0, 0, 0);
+    let tip = VoxelCoord::new(1, 0, 0);
+    add_traversable_edge_for_test(&mut state, den, junction);
+    add_traversable_edge_for_test(&mut state, junction, tip);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    while state.tick().value() < 989 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        tip
+    );
+    let water = validate_generate_fluid_store(
+        &registries,
+        &state,
+        GeneratedFluidStoreSpec::new(
+            SCOUT_DRINK_VOLUME,
+            FLUID_WATER,
+            SCOUT_DRINK_VOLUME,
+            Temperature::from_millikelvin(293_150),
+        ),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    validate_place_fluid_store(&state, water, tip)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    // The player sees the outer water visit from two cells away, but
+    // the scout's next return cell is outside local sight. The den guard
+    // is also too distant to witness the player or warn the scout.
+    let observer = VoxelCoord::new(3, 0, 0);
+    validate_admit_player(&registries, &state, observer)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(crate::world::player_can_see_local_cell(
+        &registries,
+        &state,
+        observer,
+        tip
+    ));
+    assert!(!crate::world::player_can_see_local_cell(
+        &registries,
+        &state,
+        observer,
+        junction
+    ));
+    assert!(!crate::kobolds::patrol::living_player_deters_scout(
+        &registries,
+        &state,
+        tip
+    ));
+    let fluid_before = calculate_fluid_volume_accounting(&state).unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let outcome = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(outcome, advance_tick(&registries, &mut replay).unwrap());
+    assert_eq!(state, replay);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        junction
+    );
+    let event = outcome
+        .kobold_scout()
+        .expect("a witnessed water visit remains observable when the scout leaves sight");
+    assert_eq!(
+        event.position(),
+        tip,
+        "unseen return destination must stay concealed"
+    );
+    assert_eq!(event.drank_water(), Some((water, SCOUT_DRINK_VOLUME)));
+    assert_eq!(event.relocated_drop(), None);
+    assert_eq!(
+        state.fluid().get_store(water).unwrap().stored_volume(),
+        Volume::ZERO
+    );
+    assert_eq!(
+        calculate_fluid_volume_accounting(&state).unwrap(),
+        fluid_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn thirsty_scout_can_drink_at_reached_water_without_abandoning_carried_cargo() {
     use crate::content::{FORM_FOOD, MATERIAL_BERRIES};
     use crate::core::quantity::{Mass, Temperature};

@@ -371,8 +371,8 @@ pub(crate) fn apply_kobold_scout_tick(
     }
     colony.noticed_player_drop |= discovered || relocated_drop.is_some() || split_drop.is_some();
     let scout_position = colony.scout_position();
-    // The original source's sightline, captured before any movement,
-    // still governs disclosure after the scout finishes this route step.
+    // Only a visible destination authorizes reporting the scout's movement.
+    // Source-visible care remains reportable even if the scout departs unseen.
     let had_local_activity = [
         can_move,
         heard_junk_alarm,
@@ -384,8 +384,8 @@ pub(crate) fn apply_kobold_scout_tick(
         && observer.is_some_and(|player| {
             crate::world::player_can_see_local_cell(registries, state, player, scout_position)
         });
-    (
-        visible.then_some(KoboldScoutEvent {
+    let reported = visible
+        .then_some(KoboldScoutEvent {
             position: scout_position,
             heard_junk_alarm,
             defensive_contact: None,
@@ -402,7 +402,9 @@ pub(crate) fn apply_kobold_scout_tick(
             foraged_food,
             split_drop,
             ..observed_care
-        }),
-        alarm_pulses,
-    )
+        })
+        // Keep the witnessed action at its actual source location; do not
+        // disclose the new position, cargo route, or unseen patrol decision.
+        .or_else(|| observed_care.has_care().then_some(observed_care));
+    (reported, alarm_pulses)
 }
