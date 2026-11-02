@@ -368,6 +368,21 @@ fn validate_structural_construction_world(
                 voxel,
             });
         }
+        // Harvested perennial fruit is no longer surface custody, but its
+        // finite living roots still physically occupy the construction site.
+        // Inspect the sparse perennial index so inert, fully spent history
+        // never prevents rebuilding and unrelated drops are not scanned.
+        if let Some(voxel) = state
+            .surface()
+            .perennial_resources_in_bounds(record.bounds())
+            .find(|resource| resource.rooted_biomass_occupies_site())
+            .map(|resource| resource.position())
+        {
+            return Err(StructuralConstructionError::RootedVegetationOccupied {
+                element: record.id(),
+                voxel,
+            });
+        }
     }
     if let Some(voxel) = crate::kobolds::first_kobold_member_overlap(
         registries,

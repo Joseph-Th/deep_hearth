@@ -138,7 +138,7 @@ impl Display for SurfaceResourceValidationError {
             ),
             Self::EmbeddedInSolidWorld { resource, voxel } => write!(
                 formatter,
-                "available surface resource {} is embedded in solid generated terrain at ({},{},{})",
+                "surface resource {} has physical biomass embedded in solid generated terrain at ({},{},{})",
                 resource.value(),
                 voxel.x(),
                 voxel.y(),
@@ -146,7 +146,7 @@ impl Display for SurfaceResourceValidationError {
             ),
             Self::EmbeddedInSolidStructure { resource, voxel } => write!(
                 formatter,
-                "available surface resource {} is embedded in a full-cell structural member at ({},{},{})",
+                "surface resource {} has physical biomass embedded in a full-cell structural member at ({},{},{})",
                 resource.value(),
                 voxel.x(),
                 voxel.y(),
@@ -576,7 +576,8 @@ pub(in crate::surface) fn validate_surface_resource_physical_position(
     record: &SurfaceResourceRecord,
     felled_root: Option<VoxelCoord>,
 ) -> Result<(), SurfaceResourceValidationError> {
-    if record.lifecycle() == SurfaceResourceLifecycle::Available
+    if (record.lifecycle() == SurfaceResourceLifecycle::Available
+        || record.rooted_biomass_occupies_site())
         && surface_position_has_solid_world_after_felling(
             world_registry,
             world,
@@ -589,7 +590,8 @@ pub(in crate::surface) fn validate_surface_resource_physical_position(
             voxel: record.position(),
         });
     }
-    if record.lifecycle() == SurfaceResourceLifecycle::Available
+    if (record.lifecycle() == SurfaceResourceLifecycle::Available
+        || record.rooted_biomass_occupies_site())
         && structures.blocks_full_cell(record.position())
     {
         return Err(SurfaceResourceValidationError::EmbeddedInSolidStructure {

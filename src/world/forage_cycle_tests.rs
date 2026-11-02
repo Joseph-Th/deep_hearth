@@ -276,6 +276,130 @@ fn strip_plant(state: &mut AppState, id: crate::surface::SurfaceResourceId) {
 }
 
 #[test]
+fn depleted_living_roots_cannot_be_buried_in_loaded_terrain() {
+    use crate::core::state::StateValidationError;
+    use crate::surface::SurfaceResourceValidationError;
+
+    let (registries, mut state, plant) = generated_plant();
+    let position = state.surface().get(plant).unwrap().position();
+    strip_plant(&mut state, plant);
+    assert!(
+        state
+            .surface()
+            .get(plant)
+            .unwrap()
+            .rooted_biomass_occupies_site()
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    crate::world::set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        position,
+        BLOCK_STATE_STONE,
+    );
+    assert_eq!(
+        validate_loaded_state(&registries, &state),
+        Err(StateValidationError::Surface(
+            SurfaceResourceValidationError::EmbeddedInSolidWorld {
+                resource: plant,
+                voxel: position,
+            }
+        ))
+    );
+}
+
+#[test]
+fn full_footprint_construction_cannot_embody_member_over_harvested_roots() {
+    use crate::content::{
+        BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS, FORM_LOG, MATERIAL_WOOD,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    };
+    use crate::core::quantity::Temperature;
+    use crate::inventory::{MaterialLotSelection, deposit_lot_for_test};
+    use crate::logistics::relocate_player_for_test;
+    use crate::material::CommodityKey;
+    use crate::spatial::VoxelBounds;
+    use crate::structural::{
+        GroundedStructuralElementPlan, PlayerStructuralConstructionError,
+        StructuralConstructionError, StructuralElementGeometry,
+        validate_plan_player_grounded_structural_element,
+        validate_start_player_structural_construction,
+    };
+
+    let (registries, mut state, plant) = generated_plant();
+    let root = state.surface().get(plant).unwrap().position();
+    strip_plant(&mut state, plant);
+    let neighbor = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        .into_iter()
+        .map(|(dx, dz)| VoxelCoord::new(root.x() + dx, root.y(), root.z() + dz))
+        .find(|position| {
+            state
+                .world()
+                .has_standing_clearance(registries.world(), *position)
+        })
+        .expect("seeded forage has a traversable neighboring construction position");
+    relocate_player_for_test(&mut state, neighbor);
+    let bounds = VoxelBounds::new(
+        root,
+        VoxelCoord::new(root.x() + 1, root.y() + 1, root.z() + 1),
+    )
+    .unwrap();
+    let geometry = StructuralElementGeometry::new(
+        bounds,
+        BASIC_TIMBER_COVER_PANEL_THICKNESS,
+        BASIC_TIMBER_COVER_PANEL_AREA,
+    )
+    .unwrap();
+    assert!(geometry.covers_horizontal_footprint());
+    let element = validate_plan_player_grounded_structural_element(
+        &registries,
+        &state,
+        GroundedStructuralElementPlan::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            geometry,
+        ),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let mass = Mass::from_milligrams(6_500_000);
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_start_player_structural_construction(
+            &registries,
+            &state,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+            element,
+            &[MaterialLotSelection::new(lot, mass)],
+        )
+        .err(),
+        Some(PlayerStructuralConstructionError::Material(
+            StructuralConstructionError::RootedVegetationOccupied {
+                element,
+                voxel: root,
+            }
+        ))
+    );
+    assert_eq!(
+        state, before,
+        "rejected materialization cannot consume timber"
+    );
+}
+
+#[test]
 fn spent_perennial_provenance_does_not_permanently_reserve_building_land() {
     let (_, mut state, plant) = generated_plant();
     let mut fruiting = state.surface().get(plant).unwrap().clone();

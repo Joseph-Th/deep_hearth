@@ -137,6 +137,12 @@ A material-backed storage enclosure cannot be placed or assembled on a living ro
 forage patch, even after harvesting depletes its fruit, while its underground
 reserve remains nonzero. A final unharvested fruit crop still occupies its site;
 a provenance-only perennial with neither fruit nor living roots does not.
+Generating full-cube terrain into an unloaded column also refuses depleted
+perennials with live root biomass; trusted-load validation rejects such buried
+roots rather than treating them as physically absent historical parcels.
+Materializing a full-footprint structural member also refuses the physical
+roots after fruit depletion; otherwise an ordinary construction would create
+an impossible overlapping-matter state that cannot survive trusted loading.
 Natural regrowth checks actual enclosure occupancy. Trusted-load promotion rejects
 a saved enclosure relocated onto living roots or remaining fruit after rebuilding
 the derived location index. The local inventory/logistics occupancy projection

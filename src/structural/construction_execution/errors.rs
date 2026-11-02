@@ -38,6 +38,10 @@ pub enum StructuralConstructionError {
         element: StructuralElementId,
         voxel: VoxelCoord,
     },
+    RootedVegetationOccupied {
+        element: StructuralElementId,
+        voxel: VoxelCoord,
+    },
     OverlappingEmbodiedMember {
         element: StructuralElementId,
         existing: StructuralElementId,
@@ -151,6 +155,14 @@ impl Display for StructuralConstructionError {
                 voxel.y(),
                 voxel.z()
             ),
+            Self::RootedVegetationOccupied { element, voxel } => write!(
+                formatter,
+                "structural element {} cannot receive matter over living rooted vegetation at ({},{},{})",
+                element.value(),
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
             Self::OverlappingEmbodiedMember {
                 element,
                 existing,
@@ -226,6 +238,9 @@ impl Error for StructuralConstructionError {
                 element: _element, ..
             }
             | Self::ExposedSurfaceMatter {
+                element: _element, ..
+            }
+            | Self::RootedVegetationOccupied {
                 element: _element, ..
             }
             | Self::OverlappingEmbodiedMember {

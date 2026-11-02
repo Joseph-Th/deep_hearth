@@ -247,6 +247,9 @@ pub struct SurfaceResourceState {
     /// Rooted patches remain indexed even while depleted. Rebuilt from records on load.
     #[serde(skip)]
     perennial_ids: BTreeSet<SurfaceResourceId>,
+    /// Local root footprints, including harvest-depleted shrubs. Derived, never serialized.
+    #[serde(skip)]
+    perennial_by_position: BTreeMap<VoxelCoord, BTreeSet<SurfaceResourceId>>,
 }
 
 /// Keeps ordinary diagnostics from becoming a global world-resource oracle.
@@ -291,6 +294,7 @@ impl SurfaceResourceState {
             resources: self.resources.clone(),
             available_by_position: self.available_by_position.clone(),
             perennial_ids: self.perennial_ids.clone(),
+            perennial_by_position: self.perennial_by_position.clone(),
         }
     }
 
@@ -302,15 +306,21 @@ impl SurfaceResourceState {
             resources: BTreeMap::new(),
             available_by_position: BTreeMap::new(),
             perennial_ids: BTreeSet::new(),
+            perennial_by_position: BTreeMap::new(),
         }
     }
 
     pub(crate) fn rebuild_derived_indexes(&mut self) {
         self.available_by_position.clear();
         self.perennial_ids.clear();
+        self.perennial_by_position.clear();
         for (id, record) in &self.resources {
             if record.perennial.is_some() {
                 self.perennial_ids.insert(*id);
+                self.perennial_by_position
+                    .entry(record.position)
+                    .or_default()
+                    .insert(*id);
             }
             if record.lifecycle == SurfaceResourceLifecycle::Available
                 && !record.remaining_mass.is_zero()
@@ -326,9 +336,14 @@ impl SurfaceResourceState {
     pub(super) fn has_valid_derived_indexes(&self) -> bool {
         let mut expected = BTreeMap::<VoxelCoord, BTreeSet<SurfaceResourceId>>::new();
         let mut perennial = BTreeSet::new();
+        let mut perennial_positions = BTreeMap::<VoxelCoord, BTreeSet<SurfaceResourceId>>::new();
         for (id, record) in &self.resources {
             if record.perennial.is_some() {
                 perennial.insert(*id);
+                perennial_positions
+                    .entry(record.position)
+                    .or_default()
+                    .insert(*id);
             }
             if record.lifecycle == SurfaceResourceLifecycle::Available
                 && !record.remaining_mass.is_zero()
@@ -336,7 +351,9 @@ impl SurfaceResourceState {
                 expected.entry(record.position).or_default().insert(*id);
             }
         }
-        expected == self.available_by_position && perennial == self.perennial_ids
+        expected == self.available_by_position
+            && perennial == self.perennial_ids
+            && perennial_positions == self.perennial_by_position
     }
 
     #[must_use]
@@ -372,9 +389,25 @@ impl SurfaceResourceState {
         &self,
         bounds: VoxelBounds,
     ) -> impl Iterator<Item = &SurfaceResourceRecord> {
+        self.indexed_resources_in_bounds(&self.available_by_position, bounds)
+    }
+
+    /// Local living-or-depleted root history without scanning all world plants.
+    pub(crate) fn perennial_resources_in_bounds(
+        &self,
+        bounds: VoxelBounds,
+    ) -> impl Iterator<Item = &SurfaceResourceRecord> {
+        self.indexed_resources_in_bounds(&self.perennial_by_position, bounds)
+    }
+
+    fn indexed_resources_in_bounds<'a>(
+        &'a self,
+        index: &'a BTreeMap<VoxelCoord, BTreeSet<SurfaceResourceId>>,
+        bounds: VoxelBounds,
+    ) -> impl Iterator<Item = &'a SurfaceResourceRecord> + 'a {
         let start = VoxelCoord::new(bounds.min().x(), i64::MIN, i64::MIN);
         let end = VoxelCoord::new(bounds.max_exclusive().x(), i64::MIN, i64::MIN);
-        self.available_by_position
+        index
             .range(start..end)
             .filter(move |(position, _)| bounds.has_voxel(**position))
             .flat_map(|(_, ids)| {
@@ -392,6 +425,22 @@ impl SurfaceResourceState {
         &self,
         chunk: crate::world::ChunkCoord,
     ) -> impl Iterator<Item = &SurfaceResourceRecord> {
+        self.indexed_resources_in_chunk(&self.available_by_position, chunk)
+    }
+
+    /// Rooted biomass in one generated column, including still-living depleted sites.
+    pub(crate) fn perennial_resources_in_chunk(
+        &self,
+        chunk: crate::world::ChunkCoord,
+    ) -> impl Iterator<Item = &SurfaceResourceRecord> {
+        self.indexed_resources_in_chunk(&self.perennial_by_position, chunk)
+    }
+
+    fn indexed_resources_in_chunk<'a>(
+        &'a self,
+        index: &'a BTreeMap<VoxelCoord, BTreeSet<SurfaceResourceId>>,
+        chunk: crate::world::ChunkCoord,
+    ) -> impl Iterator<Item = &'a SurfaceResourceRecord> + 'a {
         let x_span = chunk.world_min_x().map(|min| {
             (
                 VoxelCoord::new(min, i64::MIN, i64::MIN),
@@ -404,7 +453,7 @@ impl SurfaceResourceState {
         });
         x_span
             .into_iter()
-            .flat_map(move |(low, high)| self.available_by_position.range(low..=high))
+            .flat_map(move |(low, high)| index.range(low..=high))
             .filter(move |(position, _)| crate::world::ChunkCoord::containing(**position) == chunk)
             .flat_map(|(_, ids)| {
                 ids.iter().map(|id| {
@@ -462,6 +511,12 @@ impl SurfaceResourceState {
             assert!(!record.remaining_mass.is_zero());
             if record.perennial.is_some() {
                 assert!(self.perennial_ids.insert(record.id));
+                assert!(
+                    self.perennial_by_position
+                        .entry(record.position)
+                        .or_default()
+                        .insert(record.id)
+                );
             }
             assert!(
                 self.available_by_position
