@@ -27,7 +27,6 @@ use super::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerWalkProjectionError {
     PathEmpty,
-    ProjectedCapacityZero,
     ProjectedLoadExceedsCapacity {
         carried: Mass,
         capacity: Mass,
@@ -60,9 +59,6 @@ impl Display for PlayerWalkProjectionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PathEmpty => formatter.write_str("walk projection path is empty"),
-            Self::ProjectedCapacityZero => {
-                formatter.write_str("walk projection carrying capacity is zero")
-            }
             Self::ProjectedLoadExceedsCapacity { carried, capacity } => write!(
                 formatter,
                 "walk projection carried mass {} mg exceeds capacity {} mg",
@@ -179,7 +175,7 @@ pub fn project_player_walk_path(
 ) -> Result<PlayerWalkProjection, PlayerWalkProjectionError> {
     let carrying =
         assess_player_carrying(state).ok_or(PlayerWalkProjectionError::PlayerNotAdmitted)?;
-    project_player_walk_path_for_load(
+    project_walk_path_with_load(
         registries,
         state,
         destinations,
@@ -191,18 +187,33 @@ pub fn project_player_walk_path(
 /// Projects an explicit walk path using a hypothetical future carried load.
 ///
 /// Both walking speed and locomotion exertion use the projected mass, so the caller can compare
-/// planned return hauls without manufacturing inventory custody. The requested load must fit
-/// the supplied body-carrying capacity. Route discovery remains caller-owned.
+/// planned return hauls without manufacturing inventory custody. Physical capacity
+/// is always read from the admitted body's authoritative carrying assessment,
+/// rather than trusted as an arbitrary caller-supplied hypothetical. Route
+/// discovery remains caller-owned.
 pub fn project_player_walk_path_for_load(
+    registries: &Registries,
+    state: &AppState,
+    destinations: &[VoxelCoord],
+    carried: Mass,
+) -> Result<PlayerWalkProjection, PlayerWalkProjectionError> {
+    let capacity = assess_player_carrying(state)
+        .ok_or(PlayerWalkProjectionError::PlayerNotAdmitted)?
+        .capacity();
+    project_walk_path_with_load(registries, state, destinations, carried, capacity)
+}
+
+/// The two public planning forms share one exact body, timing, and survival
+/// projection without recomputing carried equipment for the current-load form.
+fn project_walk_path_with_load(
     registries: &Registries,
     state: &AppState,
     destinations: &[VoxelCoord],
     carried: Mass,
     capacity: Mass,
 ) -> Result<PlayerWalkProjection, PlayerWalkProjectionError> {
-    if capacity.is_zero() {
-        return Err(PlayerWalkProjectionError::ProjectedCapacityZero);
-    }
+    // The admitted physiology owns a strictly positive body envelope. Portable
+    // equipment reduces free material space, not total body carrying capacity.
     if carried > capacity {
         return Err(PlayerWalkProjectionError::ProjectedLoadExceedsCapacity { carried, capacity });
     }

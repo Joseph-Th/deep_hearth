@@ -134,10 +134,7 @@ fn project_continuous_body_path_budget_for_load(
     carried: Mass,
     context: &str,
 ) -> SurvivalResourceBudget {
-    let capacity = assess_player_carrying(state)
-        .unwrap_or_else(|| panic!("wilderness {context} lost carrying assessment"))
-        .capacity();
-    project_player_walk_path_for_load(registries, state, destinations, carried, capacity)
+    project_player_walk_path_for_load(registries, state, destinations, carried)
         .unwrap_or_else(|error| panic!("wilderness {context} walk projection failed: {error}"))
         .resource_budget()
 }

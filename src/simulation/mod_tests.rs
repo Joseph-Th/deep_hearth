@@ -356,14 +356,8 @@ fn walk_path_projection_prices_future_load_without_mutating_custody() {
     let unloaded = project_player_walk_path(&registries, &state, &path)
         .unwrap_or_else(|error| panic!("unloaded walk projection failed: {error}"));
     let future_load = carrying.capacity();
-    let loaded = project_player_walk_path_for_load(
-        &registries,
-        &state,
-        &path,
-        future_load,
-        carrying.capacity(),
-    )
-    .unwrap_or_else(|error| panic!("future loaded walk projection failed: {error}"));
+    let loaded = project_player_walk_path_for_load(&registries, &state, &path, future_load)
+        .unwrap_or_else(|error| panic!("future loaded walk projection failed: {error}"));
     // Stop-and-go routes include neutral braking: the slower pack can sometimes stop in fewer
     // control samples. Sustained travel is checked independently below.
     assert!(unloaded.control_ticks() > 0 && loaded.control_ticks() > 0);
@@ -383,17 +377,54 @@ fn walk_path_projection_prices_future_load_without_mutating_custody() {
         .checked_add(Mass::from_milligrams(1))
         .unwrap_or_else(|| panic!("future-haul over-capacity fixture overflowed"));
     assert_eq!(
-        project_player_walk_path_for_load(
-            &registries,
-            &state,
-            &path,
-            over_capacity,
-            carrying.capacity(),
-        ),
+        project_player_walk_path_for_load(&registries, &state, &path, over_capacity),
         Err(PlayerWalkProjectionError::ProjectedLoadExceedsCapacity {
             carried: over_capacity,
             capacity: carrying.capacity(),
         })
+    );
+    // The caller can project different future hauls, but it cannot invent
+    // a larger body carrying limit to underprice an impossible return trip.
+    let larger_hypothetical_load = carrying
+        .capacity()
+        .checked_add(carrying.capacity())
+        .unwrap();
+    assert_eq!(
+        project_player_walk_path_for_load(&registries, &state, &path, larger_hypothetical_load),
+        Err(PlayerWalkProjectionError::ProjectedLoadExceedsCapacity {
+            carried: larger_hypothetical_load,
+            capacity: carrying.capacity(),
+        })
+    );
+    let mut physically_loaded = state.clone();
+    let carried_stockpile = physically_loaded
+        .logistics()
+        .player()
+        .unwrap()
+        .carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut physically_loaded,
+        carried_stockpile,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        future_load,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    assert_eq!(
+        project_player_walk_path(&registries, &physically_loaded, &path),
+        Ok(loaded),
+        "a hypothetical body load must price the same path as the real loaded body"
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &physically_loaded)).unwrap();
+    let replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(replay, physically_loaded);
+    assert_eq!(
+        project_player_walk_path(&registries, &replay, &path),
+        Ok(loaded)
     );
 }
 
