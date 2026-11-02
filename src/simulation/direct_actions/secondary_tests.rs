@@ -60,6 +60,107 @@ fn contextual_gathering_counts_physical_sources_before_method_choices() {
     ));
 }
 
+#[test]
+fn unusable_gathering_does_not_obstruct_a_real_local_drink() {
+    use crate::core::state::validate_loaded_state;
+    use crate::inventory::deposit_lot_for_test;
+    use crate::matter::calculate_matter_accounting;
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+
+    let minimum = build_registries()
+        .survival()
+        .physiology()
+        .direct_consumption()
+        .minimum_drink_volume();
+    for hot in [true, false] {
+        let (registries, mut state, stores) = water_and_gathering_context(&[minimum], false, true);
+        let position = state.logistics().player().unwrap().position();
+        let commodity = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
+        let temperature = Temperature::from_millikelvin(if hot { 423_150 } else { 293_150 });
+        let source = validate_create_surface_resources(
+            &registries,
+            &state,
+            [SurfaceResourceSpec::new(
+                SurfaceResourceKind::Opportunity,
+                position,
+                commodity,
+                Mass::from_milligrams(500_000),
+                temperature,
+                MaterialComposition::pure(MATERIAL_STONE),
+            )
+            .unwrap()],
+        )
+        .unwrap();
+        let resource = source.first_resource_id();
+        source.commit(&mut state).unwrap();
+        if !hot {
+            // The viable stone option cannot start work when the carried
+            // stockpile has no space. It must not prevent drinking either.
+            let carried = state.logistics().player().unwrap().carried_stockpile();
+            deposit_lot_for_test(
+                &registries,
+                &mut state,
+                carried,
+                commodity,
+                registries.survival().physiology().carried_mass_capacity(),
+                Temperature::from_millikelvin(293_150),
+            )
+            .unwrap();
+        }
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        let matter = calculate_matter_accounting(&state).unwrap().total();
+        let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        let outcome = attempt_empty_hand_secondary_action(&registries, &mut state);
+        let replay_outcome = attempt_empty_hand_secondary_action(&registries, &mut replay);
+        assert_eq!(outcome, replay_outcome);
+        assert!(matches!(
+            outcome,
+            SecondaryActionOutcome::DrinkingStarted(ref drink) if drink.store() == stores[0]
+        ));
+        assert_eq!(state, replay);
+        assert_eq!(
+            state.surface().get(resource).unwrap().remaining_mass(),
+            Mass::from_milligrams(500_000)
+        );
+        assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+}
+
+#[test]
+fn unavailable_gathering_without_drink_retains_its_specific_rejection() {
+    let (registries, mut state, _) = water_and_gathering_context(&[], false, true);
+    let position = state.logistics().player().unwrap().position();
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
+    let source = validate_create_surface_resources(
+        &registries,
+        &state,
+        [SurfaceResourceSpec::new(
+            SurfaceResourceKind::Opportunity,
+            position,
+            commodity,
+            Mass::from_milligrams(500_000),
+            Temperature::from_millikelvin(423_150),
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap()],
+    )
+    .unwrap();
+    let resource = source.first_resource_id();
+    source.commit(&mut state).unwrap();
+    assert!(matches!(
+        attempt_empty_hand_secondary_action(&registries, &mut state),
+        SecondaryActionOutcome::SurfaceGatheringRejected(SurfaceGatheringError::ResourceTooHot {
+            resource: blocked,
+            ..
+        }) if blocked == resource
+    ));
+}
+
 fn water_and_gathering_context(
     water_volumes: &[crate::core::quantity::Volume],
     forage: bool,

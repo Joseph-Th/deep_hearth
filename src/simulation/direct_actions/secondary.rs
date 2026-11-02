@@ -37,10 +37,24 @@ enum DirectSurfaceGatheringResolution {
 fn resolve_direct_surface_gathering(
     registries: &Registries,
     state: &AppState,
+    require_actionable: bool,
 ) -> DirectSurfaceGatheringResolution {
-    let options = player_surface_gathering_options(registries, state).unwrap_or_else(|error| {
+    let mut options = player_surface_gathering_options(registries, state).unwrap_or_else(|error| {
         panic!("runtime invariant broken: direct gathering option projection failed: {error}")
     });
+    if require_actionable {
+        // A hot or uncarryable resource is still observable and explicitly gatherable
+        // (with a typed rejection), but it is not a competing default action when
+        // the same gesture can actually drink from a local water source.
+        options.retain(|option| {
+            option.hand_handling_blocker().is_none()
+                && assess_player_surface_gathering_reservation(
+                    state,
+                    direct_gathering_request_mass(state, *option),
+                )
+                .is_ok()
+        });
+    }
     classify_direct_surface_gathering_options(&options)
 }
 
@@ -92,7 +106,8 @@ pub(super) fn attempt_empty_hand_secondary_action(
                 && validate_fluid_egress(registries, state, source.store(), minimum_drink).is_ok()
         })
         .collect::<Vec<_>>();
-    let gathering = resolve_direct_surface_gathering(registries, state);
+    let gathering =
+        resolve_direct_surface_gathering(registries, state, !actionable_drink_sources.is_empty());
     let surface_resources = match gathering {
         DirectSurfaceGatheringResolution::AmbiguousResources { count } => count,
         DirectSurfaceGatheringResolution::One(_)
@@ -133,14 +148,7 @@ pub(super) fn attempt_empty_hand_secondary_action(
     }
 }
 
-fn attempt_direct_surface_gathering(
-    registries: &Registries,
-    state: &mut AppState,
-    option: PlayerSurfaceGatheringOption,
-) -> SecondaryActionOutcome {
-    if let Some(blocker) = option.hand_handling_blocker() {
-        return SecondaryActionOutcome::SurfaceGatheringRejected(blocker);
-    }
+fn direct_gathering_request_mass(state: &AppState, option: PlayerSurfaceGatheringOption) -> Mass {
     let carried = state
         .logistics()
         .player()
@@ -157,11 +165,22 @@ fn attempt_direct_surface_gathering(
         });
     let desired = option.source_mass().min(option.direct_batch_mass());
     let gathered_mass = desired.min(available_capacity);
-    let request_mass = if gathered_mass.is_zero() {
+    if gathered_mass.is_zero() {
         desired
     } else {
         gathered_mass
-    };
+    }
+}
+
+fn attempt_direct_surface_gathering(
+    registries: &Registries,
+    state: &mut AppState,
+    option: PlayerSurfaceGatheringOption,
+) -> SecondaryActionOutcome {
+    if let Some(blocker) = option.hand_handling_blocker() {
+        return SecondaryActionOutcome::SurfaceGatheringRejected(blocker);
+    }
+    let request_mass = direct_gathering_request_mass(state, option);
     if let Err(error) = assess_player_surface_gathering_reservation(state, request_mass) {
         return SecondaryActionOutcome::SurfaceGatheringRejected(error);
     }
