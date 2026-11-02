@@ -258,3 +258,93 @@ fn competing_fluid_allocation_cannot_partially_commit_a_spring_neighborhood() {
     );
     assert_eq!(state.world().chunks().len(), 1);
 }
+
+#[test]
+fn candidate_springs_do_not_flood_depleted_living_roots() {
+    use crate::content::{FORM_FOOD, MATERIAL_BERRIES};
+    use crate::core::quantity::Mass;
+    use crate::core::time::SimulationTick;
+    use crate::material::{CommodityKey, MaterialComposition};
+    use crate::surface::{
+        SurfaceResourceKind, SurfaceResourceLifecycle, SurfaceResourceSpec,
+        validate_create_surface_resources,
+    };
+
+    let registries = build_registries();
+    let pristine = AppState::new();
+    let (profile, chunk, position) = (0..64_u64)
+        .find_map(|value| {
+            let profile = WorldGenerationProfile::new(
+                super::super::WorldGenerationSeed::new(value),
+                BLOCK_STATE_STONE,
+            );
+            let chunk = super::super::build_generated_chunk(
+                registries.world(),
+                profile,
+                ChunkCoord::new(1, 0),
+            )
+            .ok()?;
+            seeded_spring_spec(&pristine, profile, &chunk, &[])
+                .map(|(position, _)| (profile, chunk, position))
+        })
+        .expect("bounded seeds expose a natural spring candidate");
+
+    let mut occupied = AppState::new();
+    let berry_mass = Mass::from_milligrams(200_000);
+    let source = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Opportunity,
+        position,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        berry_mass,
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_BERRIES),
+    )
+    .unwrap()
+    .with_perennial_reserve(Mass::from_milligrams(berry_mass.milligrams() / 2));
+    validate_create_surface_resources(&registries, &occupied, [source])
+        .unwrap()
+        .commit(&mut occupied)
+        .unwrap();
+    let (id, mut plant, visible) = occupied
+        .surface()
+        .resources()
+        .map(|record| {
+            (
+                record.id(),
+                record.perennial.unwrap(),
+                record.remaining_mass(),
+            )
+        })
+        .next()
+        .unwrap();
+    plant.root_reserve = plant.root_reserve.checked_add(visible).unwrap();
+    let next = occupied.surface().revision() + 1;
+    occupied.surface_state_mut().apply_perennial_cycle(
+        vec![(
+            id,
+            plant,
+            Mass::ZERO,
+            SurfaceResourceLifecycle::Depleted,
+            Some(SimulationTick::ZERO),
+        )],
+        next,
+    );
+    assert_eq!(
+        occupied.surface().get(id).unwrap().remaining_mass(),
+        Mass::ZERO
+    );
+    assert!(
+        occupied
+            .surface()
+            .get(id)
+            .unwrap()
+            .rooted_biomass_occupies_site()
+    );
+    let before = occupied.clone();
+    let displaced = seeded_spring_spec(&occupied, profile, &chunk, &[]);
+    assert_ne!(displaced.map(|(position, _)| position), Some(position));
+    assert_eq!(
+        occupied, before,
+        "natural water candidate selection must be read-only"
+    );
+}

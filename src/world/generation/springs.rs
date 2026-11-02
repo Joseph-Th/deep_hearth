@@ -62,6 +62,12 @@ pub(super) fn seeded_spring_spec(
                 .available_resources_at(Some(position))
                 .next()
                 .is_some()
+            // Historical depletion does not remove living roots. Natural
+            // water cannot be introduced in the same physical plant cell.
+            || state
+                .surface()
+                .perennial_resources_in_chunk(coord)
+                .any(|root| root.position() == position && root.rooted_biomass_occupies_site())
             || forage_sites.contains(&position)
         {
             continue;

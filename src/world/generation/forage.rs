@@ -133,6 +133,13 @@ pub(super) fn seeded_forage_spec(
                 .available_resources_at(Some(position))
                 .next()
                 .is_some()
+            // Depleted fruit is not an empty site when its perennial roots
+            // still contain physical biomass. Do not generate a second plant
+            // into that occupied voxel during an ungenerated-column admission.
+            || state
+                .surface()
+                .perennial_resources_in_chunk(coord)
+                .any(|root| root.position() == position && root.rooted_biomass_occupies_site())
         {
             continue;
         }

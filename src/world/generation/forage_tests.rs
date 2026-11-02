@@ -298,3 +298,107 @@ fn competing_surface_custody_invalidates_entire_neighborhood_generation() {
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
+
+#[test]
+fn a_depleted_seeded_patch_with_live_roots_cannot_spawn_duplicate_forage() {
+    use crate::surface::{SurfaceResourceLifecycle, validate_create_surface_resources};
+
+    let registries = build_registries();
+    let seed = super::super::WorldGenerationSeed::new(0x464F_5241_4745_434F);
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        super::super::ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let profile = state.world().generation_profile().unwrap();
+    let (chunk, spec) = (-1..=1)
+        .flat_map(|x| (-1..=1).map(move |z| super::super::ChunkCoord::new(x, z)))
+        .filter(|coord| *coord != super::super::ChunkCoord::new(0, 0))
+        .find_map(|coord| {
+            let chunk =
+                super::super::build_generated_chunk(registries.world(), profile, coord).unwrap();
+            seeded_forage_spec(&registries, &state, profile, &chunk).map(|spec| (chunk, spec))
+        })
+        .expect("seeded neighborhood contains a candidate perennial site");
+    let root = spec.position();
+    validate_create_surface_resources(&registries, &state, [spec])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let (id, mut plant, visible) = state
+        .surface()
+        .resources()
+        .map(|record| {
+            (
+                record.id(),
+                record.perennial.unwrap(),
+                record.remaining_mass(),
+            )
+        })
+        .next()
+        .unwrap();
+    plant.root_reserve = plant.root_reserve.checked_add(visible).unwrap();
+    let next = state.surface().revision() + 1;
+    state.surface_state_mut().apply_perennial_cycle(
+        vec![(
+            id,
+            plant,
+            Mass::ZERO,
+            SurfaceResourceLifecycle::Depleted,
+            Some(SimulationTick::ZERO),
+        )],
+        next,
+    );
+    assert!(
+        state
+            .surface()
+            .get(id)
+            .unwrap()
+            .rooted_biomass_occupies_site()
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let next_forage = seeded_forage_spec(&registries, &state, profile, &chunk);
+    assert_ne!(
+        next_forage.as_ref().map(|patch| patch.position()),
+        Some(root)
+    );
+
+    // Reuse the actual neighborhood generation path to prove the saved root
+    // and the newly admitted seed-derived crop never share one voxel.
+    let spawn = VoxelCoord::new(0, super::super::terrain_height(seed, 0, 0) + 1, 0);
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let demand = super::super::validate_generate_player_neighborhood(&registries, &state)
+        .unwrap()
+        .unwrap();
+    let _ = demand.commit(&mut state).unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(
+        state.surface().get(id).unwrap().position(),
+        root,
+        "the original rooted plant retains its identity"
+    );
+    assert_eq!(
+        state
+            .surface()
+            .perennial_resources_in_chunk(chunk.coord())
+            .filter(|patch| patch.position() == root)
+            .count(),
+        1,
+        "expansion must not double-create a rooted plant at a depleted site"
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state, "load must rebuild the same root occupancy");
+}

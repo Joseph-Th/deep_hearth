@@ -588,8 +588,11 @@ The stockpile position index also serves exact-local player ground-inventory
 presentation and opening-scout clearance; only stockpiles with a finished
 enclosure obstruct the small scout's body.
 Prospective terrain generation checks the candidate chunk against indexed
-available surface parcels and located stockpile enclosures instead of scanning
-remote or depleted custody for every new column. If several objects conflict,
+available surface parcels, depleted but still-living perennial roots, and located
+stockpile enclosures instead of scanning remote or inert historical custody for
+every new column. Seeded forage and natural-water sites likewise skip living
+root footprints, even when their previous fruit crop has been harvested.
+If several objects conflict,
 the earliest resource or stockpile identity still determines the reported cell.
 Chunk-column lookup remains valid at the extreme representable voxel boundary.
 Trusted-load enclosure burial checks instead visit located enclosure custody
