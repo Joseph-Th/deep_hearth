@@ -105,6 +105,109 @@ fn unsupported_scout_retains_exact_stolen_cargo_until_its_real_return_edge_is_re
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
+#[test]
+fn undermined_generated_den_cannot_discard_food_across_an_unwalkable_exit() {
+    use crate::content::{BLOCK_STATE_STONE, FORM_FOOD, MATERIAL_BERRIES};
+    use crate::core::quantity::Temperature;
+    use crate::core::state::validate_loaded_state;
+    use crate::material::{CommodityKey, MaterialComposition};
+    use crate::surface::{
+        SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources,
+    };
+    use crate::world::{BlockStateId, set_generated_block_for_test};
+
+    let (registries, mut state, _) = generated_terrain_scout_opening();
+    let [den, junction, _] = colony(&state).route;
+    let den_floor = VoxelCoord::new(den.x(), den.y() - 1, den.z());
+    let junction_floor = VoxelCoord::new(junction.x(), junction.y() - 1, junction.z());
+    assert!(
+        state
+            .world()
+            .has_standing_clearance(registries.world(), den)
+    );
+    assert!(
+        state
+            .world()
+            .has_standing_clearance(registries.world(), junction)
+    );
+    // Cold, inedible berries are finite den custody. Den care will physically
+    // discard them toward the junction on the first missed meal deadline.
+    let food = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        den,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(30_000),
+        Temperature::from_millikelvin(270_000),
+        MaterialComposition::pure(MATERIAL_BERRIES),
+    )
+    .unwrap();
+    let plan = validate_create_surface_resources(&registries, &state, [food]).unwrap();
+    let parcel = plan.first_resource_id();
+    plan.commit(&mut state).unwrap();
+
+    // Keep the scout at home until care is due, then uncover its walking exit
+    // while undermining only the den. The destination is entirely passable.
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        junction_floor,
+        BlockStateId::AIR,
+    );
+    assert_eq!(colony(&state).next_meal_at.value(), 580);
+    advance_to_tick(&registries, &mut state, 579);
+    assert_eq!(colony(&state).scout_position(), den);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        junction_floor,
+        BLOCK_STATE_STONE,
+    );
+    let mut supported = state.clone();
+    advance_to_tick(&registries, &mut supported, 580);
+    assert_eq!(
+        supported.surface().get(parcel).unwrap().position(),
+        junction,
+        "ordinary den care should discard the real inedible parcel over its clear exit"
+    );
+
+    set_generated_block_for_test(registries.world(), &mut state, den_floor, BlockStateId::AIR);
+    assert!(
+        !state
+            .world()
+            .has_standing_clearance(registries.world(), den)
+    );
+    let stranded_mass = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 580);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(
+        state.surface().get(parcel).unwrap().position(),
+        den,
+        "unsupported scout must not discard matter through an exit it cannot walk"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        stranded_mass
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for actor in [&mut state, &mut replay] {
+        set_generated_block_for_test(registries.world(), actor, den_floor, BLOCK_STATE_STONE);
+        advance_to_tick(&registries, actor, 585);
+    }
+    assert_eq!(replay, state);
+    assert_eq!(
+        state.surface().get(parcel).unwrap().position(),
+        junction,
+        "restoring the den floor must permit the same physical food discard"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
 /// Physical sight is not player-visible identity without local illumination.
 /// Scout perception and custody stay unchanged when the player cannot see.
 #[test]
