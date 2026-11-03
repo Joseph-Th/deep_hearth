@@ -3,6 +3,228 @@
 use super::*;
 
 #[test]
+fn undermined_generated_junction_cannot_fit_a_pry_tool_until_footing_returns() {
+    use crate::content::{
+        BLOCK_STATE_STONE, FORM_HANDLE, FORM_INGOT, MATERIAL_COPPER, MATERIAL_WOOD,
+    };
+    use crate::core::quantity::Temperature;
+    use crate::core::state::validate_loaded_state;
+    use crate::material::{CommodityKey, MaterialComposition};
+    use crate::surface::{
+        SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources,
+    };
+    use crate::world::{BlockStateId, set_generated_block_for_test};
+
+    let (registries, mut state, _) = generated_terrain_scout_opening();
+    advance_to_tick(&registries, &mut state, 180);
+    assert_eq!(colony(&state).scout_step, 1);
+    let junction = colony(&state).route[1];
+    let floor = VoxelCoord::new(junction.x(), junction.y() - 1, junction.z());
+    assert!(
+        state
+            .world()
+            .has_standing_clearance(registries.world(), junction)
+    );
+    let parts =
+        [(MATERIAL_WOOD, FORM_HANDLE), (MATERIAL_COPPER, FORM_INGOT)].map(|(material, form)| {
+            SurfaceResourceSpec::new(
+                SurfaceResourceKind::Drop,
+                junction,
+                CommodityKey::new(material, form),
+                Mass::from_milligrams(50_000),
+                Temperature::from_millikelvin(293_150),
+                MaterialComposition::pure(material),
+            )
+            .unwrap()
+        });
+    validate_create_surface_resources(&registries, &state, parts)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    let mut supported = state.clone();
+    advance_to_tick(&registries, &mut supported, 185);
+    assert!(
+        colony(&supported).pry_fitting.is_some(),
+        "an actual grounded junction work visit starts the tool fitting"
+    );
+
+    set_generated_block_for_test(registries.world(), &mut state, floor, BlockStateId::AIR);
+    assert!(
+        !state
+            .world()
+            .has_standing_clearance(registries.world(), junction)
+    );
+    let matter_stranded = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(colony(&state).scout_position(), junction);
+    assert_eq!(
+        colony(&state).pry_fitting,
+        None,
+        "a scout stranded without floor cannot perform a new physical fitting work slot"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_stranded
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for actor in [&mut state, &mut replay] {
+        set_generated_block_for_test(registries.world(), actor, floor, BLOCK_STATE_STONE);
+        advance_to_tick(&registries, actor, 190);
+        assert!(colony(actor).pry_fitting.is_some());
+        assert!(
+            crate::kobolds::scrap_tools::current_junction_scrap_lever(actor, colony(actor))
+                .is_none(),
+            "an unfinished metal fitting is not a functional tool"
+        );
+        advance_to_tick(&registries, actor, 195);
+        assert!(
+            crate::kobolds::scrap_tools::current_junction_scrap_lever(actor, colony(actor))
+                .is_some(),
+            "two grounded fitting visits finish the original metal tool"
+        );
+    }
+    assert_eq!(replay, state);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn undermined_generated_worksite_cannot_raid_exposed_inventory_until_supported() {
+    use crate::content::{
+        BLOCK_STATE_STONE, ENERGY_ELECTRICAL_BUFFER, FORM_REINFORCEMENT, MATERIAL_COPPER,
+        STORAGE_ROUGH_TIMBER_FIELD_BOX,
+    };
+    use crate::core::quantity::{Energy, Temperature};
+    use crate::core::state::validate_loaded_state;
+    use crate::energy::add_energy_store_with_initial_for_fixture;
+    use crate::inventory::deposit_lot_for_test;
+    use crate::logistics::{place_energy_store_for_fixture, validate_allocate_ground_stockpile};
+    use crate::material::CommodityKey;
+    use crate::world::{BlockStateId, set_generated_block_for_test};
+
+    let (registries, mut state, _) = generated_terrain_scout_opening();
+    let [den, junction, _] = colony(&state).route;
+    let source = validate_allocate_ground_stockpile(
+        &state,
+        junction,
+        registries
+            .storage()
+            .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+            .unwrap()
+            .maximum_stockpile_capacity(),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let commodity = CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT);
+    let total = Mass::from_milligrams(600_000);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        commodity,
+        total,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let machine = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_ELECTRICAL_BUFFER,
+        Energy::ZERO,
+    )
+    .unwrap();
+    place_energy_store_for_fixture(&mut state, machine, junction);
+    advance_to_tick(&registries, &mut state, 195);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert!(colony(&state).mobilized_at.is_some());
+    // A provisioned watchman or a raid detour can delay this return trip.
+    // Set the test boundary at the scout's actual unladen junction arrival.
+    let arrived_at = (200..=300)
+        .step_by(5)
+        .find(|&tick| {
+            advance_to_tick(&registries, &mut state, tick);
+            let resident = colony(&state);
+            resident.scout_position() == junction
+                && !resident.returning
+                && resident.scavenged_drop.is_none()
+        })
+        .expect("an informed scout eventually returns to the clear work junction");
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(source)
+            .unwrap()
+            .get_mass(commodity),
+        total
+    );
+    let raid_tick = arrived_at + 5;
+    let mut grounded = state.clone();
+    advance_to_tick(&registries, &mut grounded, raid_tick);
+    assert!(
+        grounded
+            .inventory()
+            .get_stockpile(source)
+            .unwrap()
+            .get_mass(commodity)
+            < total,
+        "a mobilized scout at a grounded exposed worksite can extract real inventory"
+    );
+
+    let floor = VoxelCoord::new(junction.x(), junction.y() - 1, junction.z());
+    set_generated_block_for_test(registries.world(), &mut state, floor, BlockStateId::AIR);
+    assert!(
+        !state
+            .world()
+            .has_standing_clearance(registries.world(), junction)
+    );
+    let matter_stranded = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, raid_tick);
+    assert_eq!(colony(&state).scout_position(), junction);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(source)
+            .unwrap()
+            .get_mass(commodity),
+        total,
+        "an unsupported scavenger cannot extract material from the ground stockpile"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_stranded
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for actor in [&mut state, &mut replay] {
+        set_generated_block_for_test(registries.world(), actor, floor, BLOCK_STATE_STONE);
+        advance_to_tick(&registries, actor, raid_tick + 5);
+        assert!(
+            actor
+                .inventory()
+                .get_stockpile(source)
+                .unwrap()
+                .get_mass(commodity)
+                < total,
+            "restoring physical footing resumes real stockpile theft"
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn opening_scout_cannot_walk_from_an_excavated_unsupported_floor() {
     use crate::content::BLOCK_STATE_STONE;
     use crate::core::state::validate_loaded_state;

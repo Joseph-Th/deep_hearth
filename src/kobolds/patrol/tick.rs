@@ -95,7 +95,11 @@ pub(crate) fn apply_kobold_scout_tick(
         water_deprived,
     } = settle_scout_visit_care(registries, state, from, next_tick, observer, pressured);
     let pressured = pressured || heard_junk_alarm;
-    let optional_work_blocked = pressured || water_deprived;
+    // Metal fitting and inventory raids occupy real grounded work slots at the
+    // scout's current cell. A mined-out source floor cannot authorize those
+    // actions just because ordinary patrol movement already stays put.
+    let optional_work_blocked =
+        pressured || water_deprived || !opening_resident_can_depart(registries, state, from);
     if let Some(contact) =
         super::super::defense::attempt_worksite_counterstroke(registries, state, next_tick)
     {
