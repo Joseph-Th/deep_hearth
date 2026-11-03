@@ -292,7 +292,7 @@ fn ungenerated_full_cell_wall_forces_actual_bounded_sound_detour() {
 }
 
 #[test]
-fn a_generated_stone_corner_hides_the_origin_of_a_real_two_hop_warning() {
+fn a_generated_unlit_stone_corner_conceals_both_alarm_origins_but_not_sound() {
     let (registries, mut state) = solid_generated_chunk();
     let den = VoxelCoord::new(8, -10, 8);
     let junction = VoxelCoord::new(9, -10, 8);
@@ -385,8 +385,8 @@ fn a_generated_stone_corner_hides_the_origin_of_a_real_two_hop_warning() {
             .iter()
             .map(|pulse| pulse.position())
             .collect::<Vec<_>>(),
-        vec![None, Some(junction)],
-        "the hidden den clatters around rock, but only the visible junction can be located"
+        vec![None, None],
+        "the den clatters around rock, but an unlit junction is not identified merely by hearing it"
     );
     assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));

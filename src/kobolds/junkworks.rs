@@ -15,7 +15,6 @@ use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceRecord};
 
 use super::scavenging::is_servant_era_salvage;
-use super::visibility::scout_visible_from;
 use super::{FIRST_SCOUT_TICK, KoboldColony, SCOUT_SAFE_SCAVENGE_TEMPERATURE, SCOUT_STEP_TICKS};
 
 const CORE_MINIMUM: Mass = Mass::from_milligrams(10_000);
@@ -327,8 +326,13 @@ pub(super) fn locally_audible_alarm_pulses(
     let mut pulses = Vec::new();
     if super::acoustics::can_hear_junk_rig(registries, state, source, player) {
         pulses.push(KoboldAlarmPulse {
-            position: scout_visible_from(registries, state, source.position(), player)
-                .then_some(source.position()),
+            position: crate::world::player_can_see_local_cell(
+                registries,
+                state,
+                player,
+                source.position(),
+            )
+            .then_some(source.position()),
             kind: source.kind(),
         });
     }
@@ -337,8 +341,13 @@ pub(super) fn locally_audible_alarm_pulses(
         && super::acoustics::can_hear_junk_rig(registries, state, relay, player)
     {
         pulses.push(KoboldAlarmPulse {
-            position: scout_visible_from(registries, state, relay.position(), player)
-                .then_some(relay.position()),
+            position: crate::world::player_can_see_local_cell(
+                registries,
+                state,
+                player,
+                relay.position(),
+            )
+            .then_some(relay.position()),
             kind: relay.kind(),
         });
     }

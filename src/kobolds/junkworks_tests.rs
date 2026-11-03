@@ -542,6 +542,112 @@ fn scavenger_rebuilds_player_sabotaged_repeater_using_real_spare_parcels() {
 }
 
 #[test]
+fn unlit_generated_den_alarm_remains_audible_without_disclosing_its_exact_origin() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{
+        BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
+        validate_generate_chunk,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x4143_4F55_5354_4943),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+
+    // A roofed stone corridor contains two real loose-parts resonators and
+    // a player at the den's side. Geometry permits a visual ray to the den,
+    // but no skylight or powered illumination reaches either apparatus.
+    let den = VoxelCoord::new(7, -10, 8);
+    let junction = VoxelCoord::new(8, -10, 8);
+    let tip = VoxelCoord::new(9, -10, 8);
+    let listener = VoxelCoord::new(7, -10, 9);
+    for cell in [den, junction, tip, listener] {
+        for y in [cell.y(), cell.y() + 1] {
+            let voxel = VoxelCoord::new(cell.x(), y, cell.z());
+            assert_eq!(state.world().block_at(voxel), Some(BLOCK_STATE_STONE));
+            set_generated_block_for_test(registries.world(), &mut state, voxel, BlockStateId::AIR);
+        }
+    }
+    for (from, to) in [(den, junction), (junction, tip)] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    let machinery = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_ELECTRICAL_BUFFER,
+        Energy::ZERO,
+    )
+    .unwrap();
+    place_energy_store_for_fixture(&mut state, machinery, junction);
+    advance_to(&registries, &mut state, 205);
+    assert_eq!(
+        state.kobold_state().colony.as_ref().unwrap().mobilized_at,
+        Some(SimulationTick::new(195))
+    );
+    assert_eq!(state.kobold_state().colony.as_ref().unwrap().scout_step, 2);
+    for position in [den, junction] {
+        for commodity in [
+            CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+        ] {
+            put_drop_at(&registries, &mut state, position, commodity);
+        }
+    }
+    validate_admit_player(&registries, &state, listener)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(crate::kobolds::visibility::scout_visible_from(
+        &registries,
+        &state,
+        den,
+        listener,
+    ));
+    assert!(!crate::world::player_can_see_local_cell(
+        &registries,
+        &state,
+        listener,
+        den,
+    ));
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    let (pulses, scout, count) = advance_to_with_pulses(&registries, &mut state, 210);
+    let replayed = advance_to_with_pulses(&registries, &mut replay, 210);
+    assert_eq!(
+        (&pulses, &scout, count),
+        (&replayed.0, &replayed.1, replayed.2)
+    );
+    assert_eq!(state, replay);
+    assert!(
+        !pulses.is_empty(),
+        "real den percussion remains audible in darkness"
+    );
+    assert!(
+        pulses.iter().all(|pulse| pulse.position().is_none()),
+        "hearing a den alarm must not grant exact coordinates through unlit rock"
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn percussion_reports_its_real_local_source_without_revealing_the_distant_scout() {
     let (registries, mut near, _) = two_hop_alarm_fixture();
     let baseline = calculate_matter_accounting(&near).unwrap().total();
