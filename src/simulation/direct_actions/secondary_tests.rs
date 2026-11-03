@@ -4,7 +4,10 @@
 mod food_preview;
 
 use super::*;
-use crate::content::{FORM_FOOD, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, build_registries};
+use crate::content::{
+    FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
+    build_registries,
+};
 use crate::core::quantity::Temperature;
 use crate::material::MaterialComposition;
 use crate::player::validate_admit_player;
@@ -14,6 +17,40 @@ use crate::surface::{
     validate_start_player_surface_gathering_option,
 };
 use crate::survival::validate_drink_store_to_full;
+
+#[test]
+fn distinct_timber_stacks_still_require_explicit_cohort_selection() {
+    use crate::core::state::validate_loaded_state;
+    use crate::inventory::deposit_lot_for_test;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let carried = validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let timber = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    for temperature in [293_150, 303_150] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            timber,
+            Mass::from_milligrams(500_000),
+            Temperature::from_millikelvin(temperature),
+        )
+        .unwrap();
+    }
+    let before = state.clone();
+    let aim = ViewDirection::new(1_000_000, 0, 0).unwrap();
+    assert_eq!(
+        attempt_selected_timber_placement(&registries, &mut state, timber, aim),
+        Some(SecondaryActionOutcome::AmbiguousMaterialStacks { count: 2 })
+    );
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
 
 #[test]
 fn contextual_gathering_counts_physical_sources_before_method_choices() {
