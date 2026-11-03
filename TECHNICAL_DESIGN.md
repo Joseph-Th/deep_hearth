@@ -135,7 +135,10 @@ Durable hotbar bindings to depleted food do not authorize a meal.
 When carried food has multiple physical freshness cohorts, a selected-use
 gesture chooses the sole cohort currently admitted by the eating validator;
 multiple viable cohorts remain ambiguous and require an explicit stack choice.
-One observed but inadmissible cohort still reports its canonical rejection.
+An already-satisfied reserve creates no executable meal, even if several
+fresh stacks are present; it reports the canonical no-op rather than a false
+physical-choice ambiguity. One observed but inadmissible cohort still reports
+its canonical rejection.
 When selected fuel is usable by multiple co-located combustion stores, direct
 use selects a store only if the canonical fuel validator admits exactly one.
 Full or occupied stores cannot mask that sole usable destination; multiple
@@ -144,6 +147,10 @@ its specific rejection.
 The empty-hand contextual action does not let visible but sub-minimum water
 remainders, an inadmissible local withdrawal, a full hydration reserve, or
 an unusable gathering source block an otherwise valid local gather.
+When the admitted player's hydration is full and gathering offers no action,
+multiple local water stores yield the same no-op rather than a false source
+ambiguity. A surviving logistics-only fixture without a survival actor does
+not acquire that satisfaction state.
 Those stores remain observable; without gathering, the direct drinking path
 still reports its specific insufficiency or already-satisfied outcome. A real
 drink serving and a gatherable source remain explicitly ambiguous.

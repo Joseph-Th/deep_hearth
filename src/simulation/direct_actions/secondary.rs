@@ -139,9 +139,16 @@ pub(super) fn attempt_empty_hand_secondary_action(
     if let DirectSurfaceGatheringResolution::One(target) = gathering {
         return attempt_direct_surface_gathering(registries, state, target);
     }
+    // A fully hydrated player has no drink to select. Multiple water stores
+    // cannot create a physical-choice ambiguity between equivalent no-ops;
+    // retain gathering priority above, and leave all water custody unchanged.
+    if !needs_hydration && state.survival().player().is_some() && !observed_drink_sources.is_empty()
+    {
+        return SecondaryActionOutcome::AlreadySatisfied;
+    }
     // With no gathering choice, keep the original source-specific rejection
-    // (or already-satisfied response) instead of pretending observed water
-    // vanished just because the current player cannot consume it.
+    // instead of pretending observed water vanished just because the current
+    // player cannot consume it.
     let drink_sources = if actionable_drink_sources.is_empty() {
         &observed_drink_sources
     } else {
@@ -353,23 +360,40 @@ pub(super) fn resolve_unique_carried_stack(
         });
     }
     let mut observed = 0;
-    let mut admissible = 0;
-    let mut sole_admissible = None;
+    let mut available_meals = 0;
+    let mut sole_meal = None;
+    let mut satisfied = None;
     for stack in [first, second].into_iter().chain(matches) {
         observed += 1;
-        if validate_eat_stack_to_full_control_rate(registries, state, &stack).is_ok() {
-            admissible += 1;
-            sole_admissible = Some(stack);
+        match validate_eat_stack_to_full_control_rate(registries, state, &stack) {
+            Ok(Some(_)) => {
+                available_meals += 1;
+                sole_meal = Some(stack);
+            }
+            Ok(None) => satisfied = Some(stack),
+            Err(_) => {}
         }
     }
-    if admissible == 1 {
+    if available_meals == 1 {
         // Current meal validation, not commodity equality or private lot ID,
         // chooses the one usable physical cohort. Multiple viable cohorts
         // still demand an explicit stack choice.
-        return Ok(sole_admissible.expect("one admitted cohort was retained"));
+        return Ok(sole_meal.expect("one admitted meal was retained"));
+    }
+    if available_meals == 0
+        && let Some(stack) = satisfied
+    {
+        // Ok(None) means the reserve is already full, not that a meal can
+        // compete for attention. Preserve the owner's AlreadySatisfied result
+        // instead of inventing an ambiguous choice between no-op stacks.
+        return Ok(stack);
     }
     Err(SecondaryActionOutcome::AmbiguousMaterialStacks {
-        count: if admissible > 1 { admissible } else { observed },
+        count: if available_meals > 1 {
+            available_meals
+        } else {
+            observed
+        },
     })
 }
 

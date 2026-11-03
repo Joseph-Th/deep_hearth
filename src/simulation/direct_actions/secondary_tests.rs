@@ -53,6 +53,87 @@ fn distinct_timber_stacks_still_require_explicit_cohort_selection() {
 }
 
 #[test]
+fn satisfied_player_with_two_fresh_food_stacks_reports_no_meal_needed() {
+    use crate::core::state::validate_loaded_state;
+    use crate::inventory::{deposit_lot_for_test, project_material_stacks};
+    use crate::logistics::{PlayerActiveSelection, validate_set_active_selection};
+    use crate::matter::calculate_matter_accounting;
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+    use crate::simulation::{
+        PlayerDirectControlInput, SecondaryControlIntent, advance_control_tick_with_direct_input,
+    };
+    use crate::survival::validate_eat_stack_to_full;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let carried = validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let berries = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    for temperature in [290_000, 300_000] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            berries,
+            Mass::from_milligrams(250_000),
+            Temperature::from_millikelvin(temperature),
+        )
+        .unwrap();
+    }
+    let cohorts = project_material_stacks(&registries, &state, carried)
+        .unwrap()
+        .into_iter()
+        .filter(|stack| stack.commodity() == berries)
+        .collect::<Vec<_>>();
+    assert_eq!(cohorts.len(), 2);
+    for cohort in &cohorts {
+        assert!(matches!(
+            validate_eat_stack_to_full(&registries, &state, cohort),
+            Ok(None)
+        ));
+    }
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(berries)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    let inventory_before = state.inventory().clone();
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let direction = ViewDirection::new(1_000_000, 0, 0).unwrap();
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_secondary(SecondaryControlIntent::use_active(direction));
+    let outcome = advance_control_tick_with_direct_input(&registries, &mut state, input).unwrap();
+    assert_eq!(
+        outcome.secondary_action(),
+        Some(&SecondaryActionOutcome::AlreadySatisfied)
+    );
+    assert_eq!(
+        outcome,
+        advance_control_tick_with_direct_input(&registries, &mut replay, input).unwrap()
+    );
+    assert_eq!(state, replay);
+    assert_eq!(state.inventory(), &inventory_before);
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn contextual_gathering_counts_physical_sources_before_method_choices() {
     let registries = build_registries();
     let mut state = AppState::new();
@@ -328,6 +409,67 @@ fn water_and_gathering_context(
         Ok(())
     );
     (registries, state, stores)
+}
+
+#[test]
+fn hydrated_player_with_two_local_water_sources_has_no_drink_choice_to_make() {
+    use crate::core::quantity::Volume;
+    use crate::core::state::validate_loaded_state;
+    use crate::fluid::calculate_fluid_volume_accounting;
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+    use crate::simulation::{
+        PlayerDirectControlInput, SecondaryControlIntent, advance_control_tick_with_direct_input,
+    };
+
+    let minimum = build_registries()
+        .survival()
+        .physiology()
+        .direct_consumption()
+        .minimum_drink_volume();
+    let (registries, mut state, stores) =
+        water_and_gathering_context(&[minimum, minimum], false, false);
+    assert_eq!(stores.len(), 2);
+    assert_eq!(
+        state.survival().player().unwrap().hydration(),
+        registries.survival().physiology().maximum_hydration()
+    );
+    let volumes_before = stores
+        .iter()
+        .map(|&id| state.fluid().get_store(id).unwrap().stored_volume())
+        .collect::<Vec<_>>();
+    assert_eq!(volumes_before, vec![minimum; 2]);
+    let fluid_before = calculate_fluid_volume_accounting(&state).unwrap();
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let input = PlayerDirectControlInput::NEUTRAL.with_secondary(
+        SecondaryControlIntent::use_active(ViewDirection::new(1_000_000, 0, 0).unwrap()),
+    );
+    let outcome = advance_control_tick_with_direct_input(&registries, &mut state, input).unwrap();
+    assert_eq!(
+        outcome.secondary_action(),
+        Some(&SecondaryActionOutcome::AlreadySatisfied)
+    );
+    assert_eq!(
+        outcome,
+        advance_control_tick_with_direct_input(&registries, &mut replay, input).unwrap()
+    );
+    assert_eq!(state, replay);
+    assert_eq!(
+        stores
+            .iter()
+            .map(|&id| state.fluid().get_store(id).unwrap().stored_volume())
+            .collect::<Vec<Volume>>(),
+        volumes_before
+    );
+    assert_eq!(
+        calculate_fluid_volume_accounting(&state).unwrap(),
+        fluid_before
+    );
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

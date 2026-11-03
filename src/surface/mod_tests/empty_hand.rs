@@ -88,6 +88,13 @@ fn empty_hand_secondary_use_refuses_ambiguous_local_drink_sources() {
                 panic!("ambiguous direct-drink water placement commit failed: {error}")
             });
     }
+    // A real choice exists only when a drink can replenish hydration.
+    // With full reserves, every water store is the same AlreadySatisfied no-op.
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    assert!(
+        state.survival().player().unwrap().hydration()
+            < registries.survival().physiology().maximum_hydration()
+    );
     let before = state.clone();
     let input = PlayerDirectControlInput::NEUTRAL
         .with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
