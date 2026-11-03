@@ -9,12 +9,28 @@ use crate::inventory::{
 use crate::material::CommodityKey;
 use crate::registry::Registries;
 use crate::surface::SurfaceResourceRecord;
+use crate::survival::FoodDefinition;
 
 /// Read-only perishability state for one food lot in its current storage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FoodFreshness {
     Fresh { age: TickSpan, remaining: TickSpan },
     Spoiled { age: TickSpan },
+}
+
+/// The same source-local food identity, purity, and safe eating-temperature
+/// test governs distant forage cues, resident meals, and the player's local
+/// gathering value. Physical gathering itself may still move inedible matter.
+pub(crate) fn edible_surface_food_definition<'a>(
+    registries: &'a Registries,
+    resource: &SurfaceResourceRecord,
+) -> Option<&'a FoodDefinition> {
+    let food = registries.survival().get_food(resource.commodity())?;
+    (resource.composition().pure_material() == Some(resource.commodity().material())
+        && food
+            .consumption_temperature()
+            .contains(resource.temperature()))
+    .then_some(food)
 }
 
 /// Edibility of one physically exposed food parcel at the action tick.
@@ -27,14 +43,7 @@ pub(crate) fn assess_surface_food_freshness(
     resource: &SurfaceResourceRecord,
     at: SimulationTick,
 ) -> Option<FoodFreshness> {
-    let food = registries.survival().get_food(resource.commodity())?;
-    if resource.composition().pure_material() != Some(resource.commodity().material())
-        || !food
-            .consumption_temperature()
-            .contains(resource.temperature())
-    {
-        return None;
-    }
+    let food = edible_surface_food_definition(registries, resource)?;
     freshness_from_history(
         resource.ambient_storage_history_at(at)?,
         crate::inventory::AMBIENT_PRESERVATION_MULTIPLIER_PPM,

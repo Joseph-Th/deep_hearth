@@ -9,7 +9,9 @@ mod state;
 mod validation;
 
 pub(crate) use consumption::assess_drink_store_to_full_admission;
-pub(crate) use consumption::{assess_surface_food_freshness, freshness_from_history};
+pub(crate) use consumption::{
+    assess_surface_food_freshness, edible_surface_food_definition, freshness_from_history,
+};
 
 pub use assessment::{
     HungerState, HydrationState, PlayerRestingProvisionRunway, PlayerUnheatedComfortRunway,

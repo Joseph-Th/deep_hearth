@@ -30,7 +30,8 @@ use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_acc
 use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE};
 use crate::registry::Registries;
 use crate::survival::{
-    FoodCategory, FoodFreshness, FoodFreshnessError, SurvivalExertion, freshness_from_history,
+    FoodCategory, FoodFreshness, FoodFreshnessError, SurvivalExertion,
+    edible_surface_food_definition, freshness_from_history,
 };
 
 use super::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle};
@@ -133,7 +134,7 @@ impl PlayerSurfaceGatheringOption {
             .ok_or(SurfaceGatheringError::ResourceUnavailableAtPlayer {
                 resource: self.resource,
             })?;
-        let Some(food) = registries.survival().get_food(self.commodity()) else {
+        let Some(food) = edible_surface_food_definition(registries, resource) else {
             return Ok(None);
         };
         let batch_mass = self.source_mass.min(self.definition.direct_batch_mass());

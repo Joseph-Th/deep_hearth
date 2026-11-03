@@ -88,6 +88,15 @@ fn unsafe_or_contaminated_food_cannot_emit_an_edible_forage_scent() {
 
     let (registries, ordinary, site) = single_real_berry_patch();
     let (witness, observer) = find_downwind_witness(&registries, &ordinary, site);
+    let ordinary_option = player_surface_gathering_options(&registries, &ordinary)
+        .unwrap()
+        .into_iter()
+        .next()
+        .expect("the actual berry patch has an ordinary gathering option");
+    assert!(matches!(
+        ordinary_option.food_value(&registries, &ordinary),
+        Ok(Some(value)) if matches!(value.current_freshness(), FoodFreshness::Fresh { .. })
+    ));
     assert_eq!(
         assess_player_forage_scents(&registries, &witness)
             .into_iter()
@@ -103,6 +112,10 @@ fn unsafe_or_contaminated_food_cannot_emit_an_edible_forage_scent() {
     .unwrap();
     for (temperature, composition) in [
         (
+            Temperature::from_millikelvin(273_149),
+            MaterialComposition::pure(MATERIAL_BERRIES),
+        ),
+        (
             Temperature::from_millikelvin(333_151),
             MaterialComposition::pure(MATERIAL_BERRIES),
         ),
@@ -110,6 +123,16 @@ fn unsafe_or_contaminated_food_cannot_emit_an_edible_forage_scent() {
     ] {
         let (_, mut inedible, actual_site) = berry_patch_with_profile(temperature, composition);
         assert_eq!(actual_site, site);
+        let option = player_surface_gathering_options(&registries, &inedible)
+            .unwrap()
+            .into_iter()
+            .next()
+            .expect("physical gathering can still describe unsafe or impure berries");
+        assert_eq!(
+            option.food_value(&registries, &inedible),
+            Ok(None),
+            "the player's food planner must agree with actual consumption and the scout's scent"
+        );
         crate::logistics::relocate_player_for_test(&mut inedible, observer);
         apply_clock_advance(&mut inedible, witness.tick());
         assert_eq!(validate_loaded_state(&registries, &inedible), Ok(()));

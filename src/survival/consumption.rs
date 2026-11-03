@@ -32,7 +32,9 @@ pub use freshness::{
     assess_food_freshness, assess_food_stack_freshness,
     project_food_freshness_after_storage_transition,
 };
-pub(crate) use freshness::{assess_surface_food_freshness, freshness_from_history};
+pub(crate) use freshness::{
+    assess_surface_food_freshness, edible_surface_food_definition, freshness_from_history,
+};
 
 pub(crate) use absorption::{DirectConsumptionInstallment, direct_consumption_installment};
 pub(crate) use direct_use::assess_drink_store_to_full_admission;
