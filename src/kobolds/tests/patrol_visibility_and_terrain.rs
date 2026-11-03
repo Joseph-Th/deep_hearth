@@ -3,6 +3,208 @@
 use super::*;
 
 #[test]
+fn undermined_generated_den_preserves_fresh_ration_until_scout_has_footing() {
+    use crate::content::{BLOCK_STATE_STONE, FORM_FOOD, MATERIAL_BERRIES};
+    use crate::core::quantity::Temperature;
+    use crate::core::state::validate_loaded_state;
+    use crate::material::{CommodityKey, MaterialComposition};
+    use crate::surface::{
+        SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources,
+    };
+    use crate::world::{BlockStateId, set_generated_block_for_test};
+
+    let (registries, mut state, _) = generated_terrain_scout_opening();
+    let [den, junction, _] = colony(&state).route;
+    let den_floor = VoxelCoord::new(den.x(), den.y() - 1, den.z());
+    let junction_floor = VoxelCoord::new(junction.x(), junction.y() - 1, junction.z());
+    assert!(
+        state
+            .world()
+            .has_standing_clearance(registries.world(), den)
+    );
+    // Keep the scout home until the first scheduled meal by blocking its
+    // departure at the junction, without changing the den's own footing.
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        junction_floor,
+        BlockStateId::AIR,
+    );
+    advance_to_tick(&registries, &mut state, 579);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(colony(&state).next_meal_at.value(), 580);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        junction_floor,
+        BLOCK_STATE_STONE,
+    );
+    let ration = Mass::from_milligrams(20_000);
+    let food = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        den,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        ration,
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_BERRIES),
+    )
+    .unwrap();
+    let creation = validate_create_surface_resources(&registries, &state, [food]).unwrap();
+    let parcel = creation.first_resource_id();
+    creation.commit(&mut state).unwrap();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+
+    let mut supported = state.clone();
+    advance_to_tick(&registries, &mut supported, 580);
+    assert_eq!(
+        supported.surface().get(parcel).unwrap().remaining_mass(),
+        Mass::ZERO,
+        "standing scout can consume its actual scheduled 20 g ration"
+    );
+    assert!(!colony(&supported).hungry);
+    assert_eq!(
+        calculate_matter_accounting(&supported).unwrap().total(),
+        total
+    );
+
+    set_generated_block_for_test(registries.world(), &mut state, den_floor, BlockStateId::AIR);
+    assert!(
+        !state
+            .world()
+            .has_standing_clearance(registries.world(), den)
+    );
+    let unsupported_total = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 580);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(
+        state.surface().get(parcel).unwrap().remaining_mass(),
+        ration,
+        "no food may disappear into the den consumption ledger from an unsupported worksite"
+    );
+    assert!(colony(&state).hungry);
+    assert_eq!(colony(&state).next_meal_at.value(), 980);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        unsupported_total
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for actor in [&mut state, &mut replay] {
+        set_generated_block_for_test(registries.world(), actor, den_floor, BLOCK_STATE_STONE);
+        advance_to_tick(&registries, actor, 585);
+        assert_eq!(
+            actor.surface().get(parcel).unwrap().remaining_mass(),
+            Mass::ZERO
+        );
+        assert!(!colony(actor).hungry);
+    }
+    assert_eq!(state, replay);
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn undermined_generated_scout_cannot_consume_local_water_until_footing_returns() {
+    use crate::content::{BLOCK_STATE_STONE, FLUID_WATER};
+    use crate::core::quantity::{Temperature, Volume};
+    use crate::core::state::validate_loaded_state;
+    use crate::fluid::{
+        GeneratedFluidStoreSpec, calculate_fluid_volume_accounting, validate_generate_fluid_store,
+    };
+    use crate::kobolds::SCOUT_DRINK_VOLUME;
+    use crate::logistics::validate_place_fluid_store;
+    use crate::world::{BlockStateId, set_generated_block_for_test};
+
+    let (registries, mut state, _) = generated_terrain_scout_opening();
+    advance_to_tick(&registries, &mut state, 975);
+    let current = colony(&state).scout_position();
+    assert_eq!(colony(&state).next_drink_at.value(), 980);
+    assert_eq!(colony(&state).next_step_at.value(), 980);
+    assert!(
+        state
+            .world()
+            .has_standing_clearance(registries.world(), current)
+    );
+    let water = validate_generate_fluid_store(
+        &registries,
+        &state,
+        GeneratedFluidStoreSpec::new(
+            SCOUT_DRINK_VOLUME,
+            FLUID_WATER,
+            SCOUT_DRINK_VOLUME,
+            Temperature::from_millikelvin(293_150),
+        ),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    validate_place_fluid_store(&state, water, current)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    let fluid_before = calculate_fluid_volume_accounting(&state).unwrap();
+    let mut grounded = state.clone();
+    advance_to_tick(&registries, &mut grounded, 980);
+    assert_eq!(
+        grounded.fluid().get_store(water).unwrap().stored_volume(),
+        Volume::ZERO,
+        "a supported resident drinks its due 60 mL from the actual local vessel"
+    );
+    let floor = VoxelCoord::new(current.x(), current.y() - 1, current.z());
+    set_generated_block_for_test(registries.world(), &mut state, floor, BlockStateId::AIR);
+    assert!(
+        !state
+            .world()
+            .has_standing_clearance(registries.world(), current)
+    );
+    let stranded_matter = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 980);
+    assert_eq!(colony(&state).scout_position(), current);
+    assert_eq!(
+        state.fluid().get_store(water).unwrap().stored_volume(),
+        SCOUT_DRINK_VOLUME,
+        "the unsupported scout cannot withdraw real water while suspended over an empty floor"
+    );
+    assert_eq!(colony(&state).next_drink_at.value(), 980);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        stranded_matter
+    );
+    assert_eq!(
+        calculate_fluid_volume_accounting(&state).unwrap(),
+        fluid_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for actor in [&mut state, &mut replay] {
+        set_generated_block_for_test(registries.world(), actor, floor, BLOCK_STATE_STONE);
+        advance_to_tick(&registries, actor, 985);
+        assert_eq!(
+            actor.fluid().get_store(water).unwrap().stored_volume(),
+            Volume::ZERO,
+            "repairing the scout's floor permits the previously due physical water visit"
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        calculate_fluid_volume_accounting(&state).unwrap(),
+        fluid_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn undermined_generated_junction_cannot_fit_a_pry_tool_until_footing_returns() {
     use crate::content::{
         BLOCK_STATE_STONE, FORM_HANDLE, FORM_INGOT, MATERIAL_COPPER, MATERIAL_WOOD,

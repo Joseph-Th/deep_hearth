@@ -13,6 +13,7 @@ use crate::survival::{FoodFreshness, assess_surface_food_freshness};
 
 mod eviction;
 
+use super::patrol::opening_resident_can_depart;
 use super::{SCOUT_MEAL_INTERVAL_TICKS, SCOUT_MEAL_MASS};
 use eviction::{
     clear_inert_cache_for_food, clear_inert_cache_for_industry, discard_unfit_den_food,
@@ -76,7 +77,10 @@ pub(super) fn apply_scheduled_den_care(
     let at_den = colony.scout_step == 0;
     let wary_at_den = colony.wary_until.is_some_and(|until| at < until);
     let junction = colony.route[1];
-    let eaten = if at_den && !pressured {
+    // A mine-out may strand the scout in the den before this early care tick.
+    // Keep the meal deadline and hunger state progressing, but no food can
+    // leave finite custody until the resident can physically stand to eat.
+    let eaten = if at_den && !pressured && opening_resident_can_depart(registries, state, from) {
         // A local serving that finishes the remaining ration takes priority
         // over smaller fragments. Every consumed scrap remains credited toward
         // that same meal across actual den visits.

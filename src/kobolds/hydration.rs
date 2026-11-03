@@ -10,7 +10,7 @@ use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::world::{WindCondition, exposed_air_at};
 
-use super::patrol::{scout_can_enter, scout_sees_guarded_cell};
+use super::patrol::{opening_resident_can_depart, scout_can_enter, scout_sees_guarded_cell};
 use super::visibility::scout_visible_from;
 use super::{
     KoboldColony, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_DRINK_INTERVAL_TICKS, SCOUT_DRINK_VOLUME,
@@ -145,7 +145,10 @@ pub(super) fn drink_on_scout_visit(
     let colony = state.kobold_state().colony.as_ref()?;
     // Carrying a parcel does not prevent drinking from water reached on the patrol.
     // The carried drop remains at this voxel until its separate custody transfer.
-    if at < colony.next_drink_at {
+    // Hydration precedes ordinary patrol planning. A mined-out generated floor
+    // must not permit a stranded resident to extract water before movement's
+    // independent source-footing gate runs.
+    if at < colony.next_drink_at || !opening_resident_can_depart(registries, state, from) {
         return None;
     }
     let interval = drink_interval_at(registries, state, from, at);
