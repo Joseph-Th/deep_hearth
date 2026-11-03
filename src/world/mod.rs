@@ -8,6 +8,7 @@ mod forage_scent;
 mod generation;
 mod local_visibility;
 mod sky;
+mod spring_identity;
 mod spring_sight;
 mod state;
 mod targeting;
@@ -63,6 +64,7 @@ pub(crate) use local_visibility::{
 };
 pub use sky::assess_generated_skylight;
 pub(crate) use sky::is_generated_night;
+pub(crate) use spring_identity::seeded_spring_matches;
 pub use spring_sight::{VisibleWaterSource, available_visible_generated_water};
 #[cfg(test)]
 pub(crate) use state::set_generated_block_for_test;

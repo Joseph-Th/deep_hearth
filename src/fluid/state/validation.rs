@@ -1,11 +1,14 @@
 //! Validates persisted fluid stores, contents, support indexes, authored references, and cursors.
 
+use std::collections::BTreeSet;
+
 use crate::content::FLUID_WATER;
 use crate::core::quantity::Temperature;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::material::MaterialRegistry;
 use crate::structural::{SupportIndexValidationFault, validate_support_index};
+use crate::world::{ChunkCoord, seeded_spring_matches};
 
 use super::super::definitions::FluidRegistry;
 use super::{FluidState, FluidStoreId, FluidStoreRecord};
@@ -48,14 +51,28 @@ pub(crate) fn validate_loaded_fluid(
     validate_fluid_support_index(state)
 }
 
-/// Natural pools are static world locations even while their visible water is
-/// exhausted. Their source coordinates must stay present and generated.
+/// A spring persists at one seed-derived site with its original finite basin capacity,
+/// even when its water is exhausted. A district cannot gain a second spring through a
+/// forged record: generation chooses at most one candidate for each two-by-two district.
 pub(crate) fn validate_loaded_natural_spring_locations(
     state: &AppState,
 ) -> Result<(), FluidValidationError> {
+    let mut districts = BTreeSet::new();
     for (id, soil) in state.fluid().spring_soil() {
+        let chunk = ChunkCoord::containing(soil.position);
+        let district = (chunk.x().div_euclid(2), chunk.z().div_euclid(2));
+        let seeded = state.world().generation_profile().is_some_and(|profile| {
+            state.fluid().get_store(id).is_some_and(|store| {
+                seeded_spring_matches(profile, soil.position, store.capacity())
+                    && store
+                        .contents()
+                        .is_none_or(|water| water.fluid() == FLUID_WATER)
+            })
+        });
         if state.logistics().fluid_store_position(id) != Some(soil.position)
             || !state.world().has_generated_terrain_at(soil.position)
+            || !seeded
+            || !districts.insert(district)
         {
             return Err(FluidValidationError::InvalidNaturalSpring { store: id });
         }

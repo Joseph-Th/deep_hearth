@@ -377,18 +377,14 @@ or whether the caller is crossing an ownership boundary it does not control.
 - The slow transaction decides all fallible phase work against one pre-tick snapshot. Its application stage
   prechecks shared-owner revisions before mutation; after the completion transaction succeeds, remaining
   phase applies are infallible and assertion-backed before the clock advances.
-- `CURRENT_SAVE_SCHEMA_VERSION` is the only accepted runtime payload shape; `RegistrySchemaVersion` identifies
-  authored identity and physical-definition compatibility. Seed-verifiable initial
-  woodland mass depends on habitat since schema 125. Schema 126 persists
-  the opening scout drinking schedule and terminal water ledger. Schema 127
-  adds finite per-spring shallow-catchment custody. Schema 128 adds perennial
-  forage root/fruit records. Schema 129 adds scout drink-visit
-  provenance and weather-conditioned demand. Schema 130 retains exact
-  temperature for water held in finite shallow catchments; natural spring
-  seepage and return conserve both water volume and explicitly modeled heat.
-  Earlier saves, including
-  schema 124 worlds with the prior uniform initial-wood distribution, require
-  an explicit migration before loading; no implicit compatibility fallback exists.
+- `CURRENT_SAVE_SCHEMA_VERSION` is the only accepted runtime payload shape; `RegistrySchemaVersion`
+  binds authored identities and physical definitions. The current schema persists seed-verifiable
+  woodland biomass, scout drinking history and consumed-water custody, perennial root and fruit
+  budgets, and finite spring catchment water with its exact temperature. Natural spring surface-to-soil
+  exchange conserves water volume and explicitly modeled heat. A persisted spring must occupy one
+  generator-derived candidate site at its immutable authored capacity, with no second spring in the
+  same two-by-two chunk district; subsequent drainage, refill, and terrain changes do not alter its
+  original identity. Earlier save schemas are rejected rather than implicitly migrated.
 - Untrusted save data enters through `LoadedSaveEnvelope::into_state`; the [Trusted load](#trusted-load)
   section owns the promotion and validation contract. Raw `AppState` has no public `Deserialize` path.
 - Save encoding and storage are adapter concerns.

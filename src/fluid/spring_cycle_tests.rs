@@ -274,6 +274,66 @@ fn tampered_catchment_coordinates_and_impossible_storage_are_rejected() {
 }
 
 #[test]
+fn trusted_load_rejects_changed_seeded_spring_capacity() {
+    use crate::core::state::StateValidationError;
+    use crate::fluid::FluidValidationError;
+    use crate::persistence::LoadError;
+
+    let (registries, state, pool, position) = actual_natural_pool();
+    let record = state.fluid().get_store(pool).unwrap();
+    assert!(crate::world::seeded_spring_matches(
+        state.world().generation_profile().unwrap(),
+        position,
+        record.capacity(),
+    ));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let mut forged = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let key = pool.value().to_string();
+    forged["state"]["systems"]["fluid"]["records"][&key]["capacity"] =
+        serde_json::json!(record.capacity().microliters() + 1);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(forged).unwrap();
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Fluid(
+            FluidValidationError::InvalidNaturalSpring { store: pool }
+        )))
+    );
+}
+
+#[test]
+fn trusted_load_rejects_second_natural_spring_in_same_seeded_district() {
+    use crate::core::state::StateValidationError;
+    use crate::fluid::{FluidValidationError, add_fluid_store};
+    use crate::logistics::validate_place_fluid_store;
+    use crate::persistence::LoadError;
+
+    let (registries, mut state, pool, position) = actual_natural_pool();
+    let capacity = state.fluid().get_store(pool).unwrap().capacity();
+    let ordinary_vessel = add_fluid_store(&mut state, capacity).unwrap();
+    validate_place_fluid_store(&state, ordinary_vessel, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let mut forged = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let spring_key = pool.value().to_string();
+    let ordinary_key = ordinary_vessel.value().to_string();
+    let copied_soil = forged["state"]["systems"]["fluid"]["spring_soil"][&spring_key].clone();
+    forged["state"]["systems"]["fluid"]["spring_soil"][&ordinary_key] = copied_soil;
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(forged).unwrap();
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Fluid(
+            FluidValidationError::InvalidNaturalSpring {
+                store: ordinary_vessel,
+            }
+        )))
+    );
+}
+
+#[test]
 fn a_built_roof_stops_weather_exchange_without_erasing_the_water() {
     let (registries, mut state, id, position) = actual_natural_pool();
     let roof = VoxelCoord::new(position.x(), position.y() + 3, position.z());

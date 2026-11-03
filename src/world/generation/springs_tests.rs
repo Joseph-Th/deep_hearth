@@ -1,5 +1,6 @@
 //! Actual nearby water, not a label, infinite refill, or remote hydration oracle.
 
+use super::super::{HabitatKind, habitat_at, terrain_height};
 use super::*;
 
 use crate::content::{FLUID_WATER, build_registries};

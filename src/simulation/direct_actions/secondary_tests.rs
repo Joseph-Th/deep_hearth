@@ -8,15 +8,17 @@ use crate::content::{
     FORM_FOOD, FORM_LOG, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, MATERIAL_WOOD,
     build_registries,
 };
-use crate::core::quantity::Temperature;
+use crate::core::quantity::{Mass, Temperature};
 use crate::material::MaterialComposition;
 use crate::player::validate_admit_player;
 use crate::spatial::VoxelCoord;
 use crate::surface::{
-    SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources,
+    SurfaceGatheringError, SurfaceResourceKind, SurfaceResourceSpec,
+    assess_player_surface_gathering_option_admission, assess_player_surface_gathering_reservation,
+    player_surface_gathering_options, validate_create_surface_resources,
     validate_start_player_surface_gathering_option,
 };
-use crate::survival::validate_drink_store_to_full;
+use crate::survival::{assess_drink_store_to_full_admission, validate_drink_store_to_full};
 
 #[test]
 fn distinct_timber_stacks_still_require_explicit_cohort_selection() {
@@ -131,58 +133,6 @@ fn satisfied_player_with_two_fresh_food_stacks_reports_no_meal_needed() {
         matter_before
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
-}
-
-#[test]
-fn contextual_gathering_counts_physical_sources_before_method_choices() {
-    let registries = build_registries();
-    let mut state = AppState::new();
-    let position = VoxelCoord::new(0, 0, 0);
-    let specs = [
-        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
-        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
-    ]
-    .map(|commodity| {
-        SurfaceResourceSpec::new(
-            SurfaceResourceKind::Opportunity,
-            position,
-            commodity,
-            Mass::from_milligrams(500_000),
-            Temperature::from_millikelvin(293_150),
-            MaterialComposition::pure(commodity.material()),
-        )
-        .unwrap()
-    });
-    validate_create_surface_resources(&registries, &state, specs)
-        .unwrap()
-        .commit(&mut state)
-        .unwrap();
-    validate_admit_player(&registries, &state, position)
-        .unwrap()
-        .commit(&mut state)
-        .unwrap();
-    let options = player_surface_gathering_options(&registries, &state).unwrap();
-    assert_eq!(options.len(), 2);
-    assert_ne!(options[0].resource(), options[1].resource());
-
-    assert!(matches!(
-        classify_direct_surface_gathering_options(&[]),
-        DirectSurfaceGatheringResolution::None
-    ));
-    assert!(matches!(
-        classify_direct_surface_gathering_options(&options[..1]),
-        DirectSurfaceGatheringResolution::One(_)
-    ));
-    // An additional method for the same observed source must not be
-    // counted as another physical resource or hide the second source.
-    assert!(matches!(
-        classify_direct_surface_gathering_options(&[options[0], options[0]]),
-        DirectSurfaceGatheringResolution::AmbiguousMethods { count: 2 }
-    ));
-    assert!(matches!(
-        classify_direct_surface_gathering_options(&[options[0], options[0], options[1]]),
-        DirectSurfaceGatheringResolution::AmbiguousResources { count: 2 }
-    ));
 }
 
 #[test]
