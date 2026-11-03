@@ -212,15 +212,17 @@ fn project_walk_path_with_load(
     carried: Mass,
     capacity: Mass,
 ) -> Result<PlayerWalkProjection, PlayerWalkProjectionError> {
+    let destination = *destinations
+        .last()
+        .ok_or(PlayerWalkProjectionError::PathEmpty)?;
+    // Actor liveness, footing, and work readiness precede a hypothetical
+    // hauling limit: a dead or occupied actor cannot request a walk forecast.
+    let player = validate_walk_projection_start(registries, state)?;
     // The admitted physiology owns a strictly positive body envelope. Portable
     // equipment reduces free material space, not total body carrying capacity.
     if carried > capacity {
         return Err(PlayerWalkProjectionError::ProjectedLoadExceedsCapacity { carried, capacity });
     }
-    let destination = *destinations
-        .last()
-        .ok_or(PlayerWalkProjectionError::PathEmpty)?;
-    let player = validate_walk_projection_start(registries, state)?;
     let origin = player.position();
     let mut projection = WalkProjectionCursor {
         registries,
@@ -515,3 +517,7 @@ fn adjacent_walk_input(origin: VoxelCoord, destination: VoxelCoord) -> PlayerCon
         .unwrap_or_else(|_| unreachable!("horizontal adjacent walk input is normalized"));
     PlayerControlInput::new(horizontal)
 }
+
+#[cfg(test)]
+#[path = "walk_projection_tests.rs"]
+mod tests;

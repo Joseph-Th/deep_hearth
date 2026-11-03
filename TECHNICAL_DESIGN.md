@@ -943,7 +943,7 @@ explicit fresh-world seed + spawn voxel -> finite optional-branch water + five t
 explicit fresh-world seed + chunk coordinate + authored solid block state + material density -> deterministic mass-backed terrain chunk -> WorldState
 player-eye target + carried tool + mining physics -> timed block excavation -> reduced cell mass + carried inventory lot or local loose surface matter
 pointed face + selected finished storage body -> validated adjacent generated-air placement -> located ground storage; exact-local pickup/drop <-> player-carried inventory lot
-derived player voxel + persisted opening-access edge -> actor-visible adjacent opening destination/source orientation; generated world + control input + carried load + physiology -> 20 Hz collision-resolved logistics body motion + settled locomotion exertion
+derived player voxel + persisted opening-access edge -> actor-visible adjacent opening destination/source orientation; generated world + control input + carried load + physiology -> 20 Hz collision-resolved logistics body motion + settled locomotion exertion. Read-only local walk and hypothetical-haul projections check living actor, grounded stance, motion, work, and control-boundary readiness before disclosing a hypothetical load-capacity blocker; a dead player receives `PlayerDead` rather than a misleading overload forecast
 generated chunk truth + persisted player body + gravity -> 20 Hz vertical sweep/contact -> logistics body + pending fall impact -> survival vitality
 inventory traces -> equipment @ player voxel -> optional structural support
 exact-local equipment observation -> player tool/machine selection -> canonical owner action
