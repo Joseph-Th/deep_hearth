@@ -259,6 +259,86 @@ fn generated_unrouted_neighbor_can_receive_a_real_worksite_counterstroke() {
     assert_eq!(validate_loaded_state(&registries, &generated), Ok(()));
 
     let original_matter = calculate_matter_accounting(&generated).unwrap().total();
+    // A scout stranded at its actual worksite retains the fitted head, but
+    // cannot swing it at a neighboring player through an excavated floor.
+    // Both the player-facing defending cue and authoritative contact must
+    // agree. The old tool/ingot identities remain available after repair.
+    let mut undermined = generated.clone();
+    let floor = VoxelCoord::new(WORKSITE.x(), WORKSITE.y() - 1, WORKSITE.z());
+    set_generated_block_for_test(
+        registries.world(),
+        &mut undermined,
+        floor,
+        BlockStateId::AIR,
+    );
+    assert!(
+        !undermined
+            .world()
+            .has_standing_clearance(registries.world(), WORKSITE)
+    );
+    let unsupported_matter = calculate_matter_accounting(&undermined).unwrap().total();
+    assert!(
+        !crate::kobolds::available_nearby_kobold_scouts(&registries, &undermined)
+            .any(|sighting| sighting.role() == KoboldRole::Scout && sighting.is_defending()),
+        "unsupported weapon work must not advertise an active counterstroke"
+    );
+    let undermined_save = serde_json::to_vec(&SaveEnvelope::new(&registries, &undermined)).unwrap();
+    let mut undermined_replay = serde_json::from_slice::<LoadedSaveEnvelope>(&undermined_save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    // Restoring floor support before the threatened encounter restores the
+    // actual blow. Once the unsupported encounter has already happened,
+    // ordinary close-contact caution still applies independently of footing.
+    let mut repaired_before_contact = undermined_replay.clone();
+    set_generated_block_for_test(
+        registries.world(),
+        &mut repaired_before_contact,
+        floor,
+        BLOCK_STATE_STONE,
+    );
+    assert_eq!(
+        to_tick(&registries, &mut repaired_before_contact, 215),
+        [(head, 12_000)]
+    );
+    assert_eq!(
+        calculate_matter_accounting(&repaired_before_contact)
+            .unwrap()
+            .total(),
+        original_matter
+    );
+    assert_eq!(
+        validate_loaded_state(&registries, &repaired_before_contact),
+        Ok(())
+    );
+    assert_eq!(
+        to_tick(&registries, &mut undermined, 215),
+        Vec::<(SurfaceResourceId, u32)>::new(),
+        "an unsupported scout cannot deliver a damaging counterstroke"
+    );
+    assert!(to_tick(&registries, &mut undermined_replay, 215).is_empty());
+    assert_eq!(undermined, undermined_replay);
+    assert_eq!(
+        undermined
+            .survival()
+            .player()
+            .unwrap()
+            .vitality()
+            .parts_per_million(),
+        1_000_000,
+        "unsupported scout cannot harm the adjacent player"
+    );
+    assert_eq!(
+        undermined.surface().get(head).unwrap().remaining_mass(),
+        Mass::from_milligrams(50_000),
+        "blocked work must not abrade the real tool"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&undermined).unwrap().total(),
+        unsupported_matter
+    );
+    assert_eq!(validate_loaded_state(&registries, &undermined), Ok(()));
+
     let mut away = generated.clone();
     crate::logistics::relocate_player_for_test(&mut away, VoxelCoord::new(0, 0, 2));
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &generated)).unwrap();

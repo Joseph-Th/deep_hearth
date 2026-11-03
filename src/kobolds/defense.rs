@@ -8,6 +8,7 @@ use crate::registry::Registries;
 use crate::surface::{SurfaceResourceId, abrade_scavenged_tool_head};
 use crate::survival::{Vitality, apply_kobold_worksite_contact_injury};
 
+use super::patrol::opening_resident_can_depart;
 use super::scrap_tools::{KoboldPryHeadKind, KoboldScrapLever, current_junction_scrap_lever};
 use super::{
     KoboldColony, KoboldRole, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_SAFE_SCAVENGE_TEMPERATURE,
@@ -15,8 +16,10 @@ use super::{
 
 /// One observable, ready-to-grip local weapon. The read-only sighting and
 /// actual contact share this gate, so no warning appears for an unfitted,
-/// stolen, hot, exhausted, frightened or unreported tool.
+/// stolen, hot, exhausted, frightened or unreported tool. On generated terrain
+/// the scout also needs the same physical footing as its other work slots.
 pub(super) fn ready_worksite_tool(
+    registries: &Registries,
     state: &AppState,
     colony: &KoboldColony,
     at: SimulationTick,
@@ -28,6 +31,7 @@ pub(super) fn ready_worksite_tool(
         || colony.is_staggered(KoboldRole::Scout)
         || colony.recently_shoved(KoboldRole::Scout, state.control_tick())
         || colony.wary_until.is_some_and(|due| due > at)
+        || !opening_resident_can_depart(registries, state, colony.scout_position())
     {
         return None;
     }
@@ -46,7 +50,7 @@ pub(super) fn scout_defends_visible_worksite(
     state: &AppState,
     colony: &KoboldColony,
 ) -> bool {
-    ready_worksite_tool(state, colony, state.tick()).is_some()
+    ready_worksite_tool(registries, state, colony, state.tick()).is_some()
         && assess_local_illumination(registries, state, colony.scout_position()).level()
             < SCOUT_DETERRENT_LIGHT_LEVEL
 }
@@ -76,7 +80,7 @@ pub(super) fn attempt_worksite_counterstroke(
     {
         return None;
     }
-    let tool = ready_worksite_tool(state, colony, next_tick)?;
+    let tool = ready_worksite_tool(registries, state, colony, next_tick)?;
     let injury_ppm = match tool.kind() {
         KoboldPryHeadKind::StoneWedge => return None,
         KoboldPryHeadKind::CopperFulcrum => 8_000,
