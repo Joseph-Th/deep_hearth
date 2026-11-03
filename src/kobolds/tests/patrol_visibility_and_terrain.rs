@@ -55,6 +55,56 @@ fn opening_scout_cannot_walk_from_an_excavated_unsupported_floor() {
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
+#[test]
+fn unsupported_scout_retains_exact_stolen_cargo_until_its_real_return_edge_is_restored() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::core::state::validate_loaded_state;
+    use crate::world::{BlockStateId, set_generated_block_for_test};
+
+    let (registries, mut state, _) = generated_terrain_scout_opening();
+    let [den, junction, tip] = colony(&state).route;
+    let parcel = place_loose_stone_drop(&registries, &mut state, tip);
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 190);
+    assert_eq!(colony(&state).scout_position(), junction);
+    assert_eq!(colony(&state).scavenged_drop, Some(parcel));
+    assert_eq!(state.surface().get(parcel).unwrap().position(), junction);
+
+    let floor = VoxelCoord::new(junction.x(), junction.y() - 1, junction.z());
+    set_generated_block_for_test(registries.world(), &mut state, floor, BlockStateId::AIR);
+    // The test-only terrain mutation intentionally removes the stone's represented
+    // mass. Compare the same physical world while the floor stays excavated.
+    let matter_without_floor = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 195);
+    assert_eq!(colony(&state).scout_position(), junction);
+    assert_eq!(colony(&state).scavenged_drop, Some(parcel));
+    assert_eq!(state.surface().get(parcel).unwrap().position(), junction);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_without_floor
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    set_generated_block_for_test(registries.world(), &mut state, floor, BLOCK_STATE_STONE);
+    set_generated_block_for_test(registries.world(), &mut replay, floor, BLOCK_STATE_STONE);
+    advance_to_tick(&registries, &mut state, 200);
+    advance_to_tick(&registries, &mut replay, 200);
+    assert_eq!(replay, state);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(colony(&state).scavenged_drop, None);
+    assert_eq!(state.surface().get(parcel).unwrap().position(), den);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
 /// Physical sight is not player-visible identity without local illumination.
 /// Scout perception and custody stay unchanged when the player cannot see.
 #[test]
