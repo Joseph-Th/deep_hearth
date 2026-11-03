@@ -340,13 +340,37 @@ pub(super) fn resolve_unique_carried_stack(
     let Some(first) = matches.next() else {
         return Err(SecondaryActionOutcome::MaterialUnavailable);
     };
-    let remaining = matches.count();
-    if remaining != 0 {
+    let Some(second) = matches.next() else {
+        // Preserve the food owner's specific rejection or already-satisfied
+        // outcome when there is only one physical cohort to use.
+        return Ok(first);
+    };
+    if registries.survival().get_food(commodity).is_none() {
+        // Timber placement also uses this resolver. It has no eating admission
+        // and must continue requiring an explicit choice of physical cohort.
         return Err(SecondaryActionOutcome::AmbiguousMaterialStacks {
-            count: remaining + 1,
+            count: 2 + matches.count(),
         });
     }
-    Ok(first)
+    let mut observed = 0;
+    let mut admissible = 0;
+    let mut sole_admissible = None;
+    for stack in [first, second].into_iter().chain(matches) {
+        observed += 1;
+        if validate_eat_stack_to_full_control_rate(registries, state, &stack).is_ok() {
+            admissible += 1;
+            sole_admissible = Some(stack);
+        }
+    }
+    if admissible == 1 {
+        // Current meal validation, not commodity equality or private lot ID,
+        // chooses the one usable physical cohort. Multiple viable cohorts
+        // still demand an explicit stack choice.
+        return Ok(sole_admissible.expect("one admitted cohort was retained"));
+    }
+    Err(SecondaryActionOutcome::AmbiguousMaterialStacks {
+        count: if admissible > 1 { admissible } else { observed },
+    })
 }
 
 pub(super) fn attempt_selected_secondary_action(
@@ -460,12 +484,38 @@ fn resolve_selected_combustion_target(
                 .is_some_and(|definition| definition.combustion_profile_for(commodity).is_some())
         })
         .map(|store| store.id());
-    if let Some(store) = stores.next() {
-        let additional = stores.count();
-        return Some(if additional == 0 {
-            SelectedCombustionTarget::Existing(store)
+    if let Some(first) = stores.next() {
+        let Some(second) = stores.next() else {
+            // Keep the owner's typed rejection when the only observed fire is
+            // full, occupied, or otherwise unable to accept the chosen fuel.
+            return Some(SelectedCombustionTarget::Existing(first));
+        };
+        let source = state
+            .logistics()
+            .player()
+            .expect("observed local combustion stores require an admitted player")
+            .carried_stockpile();
+        let mut observed = 0;
+        let mut admissible = 0;
+        let mut sole_admissible = None;
+        for store in [first, second].into_iter().chain(stores) {
+            observed += 1;
+            if validate_combust_selected_fuel(registries, state, store, source, commodity).is_ok() {
+                admissible += 1;
+                sole_admissible = Some(store);
+            }
+        }
+        // A full or occupied fire must not hide the one usable physical
+        // destination. Two admissible stores remain a genuine player choice;
+        // two blocked stores still report the observed ambiguity.
+        return Some(if admissible == 1 {
+            SelectedCombustionTarget::Existing(sole_admissible.unwrap())
         } else {
-            SelectedCombustionTarget::AmbiguousStores(additional + 1)
+            SelectedCombustionTarget::AmbiguousStores(if admissible > 1 {
+                admissible
+            } else {
+                observed
+            })
         });
     }
     let mut definitions = registries

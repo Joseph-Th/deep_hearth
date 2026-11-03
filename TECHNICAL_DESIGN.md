@@ -132,6 +132,15 @@ withdraw actual matter; subsequent eating, drinking, and gathering installments
 still settle on the slow simulation clock. Invalid or already-satisfied use
 reports its outcome immediately, without buffering an unnecessary request.
 Durable hotbar bindings to depleted food do not authorize a meal.
+When carried food has multiple physical freshness cohorts, a selected-use
+gesture chooses the sole cohort currently admitted by the eating validator;
+multiple viable cohorts remain ambiguous and require an explicit stack choice.
+One observed but inadmissible cohort still reports its canonical rejection.
+When selected fuel is usable by multiple co-located combustion stores, direct
+use selects a store only if the canonical fuel validator admits exactly one.
+Full or occupied stores cannot mask that sole usable destination; multiple
+admissible stores remain an explicit choice, and a lone blocked store retains
+its specific rejection.
 The empty-hand contextual action does not let visible but sub-minimum water
 remainders, an inadmissible local withdrawal, a full hydration reserve, or
 an unusable gathering source block an otherwise valid local gather.

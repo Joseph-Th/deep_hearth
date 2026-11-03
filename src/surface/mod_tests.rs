@@ -877,6 +877,110 @@ fn selected_fuel_rejects_ambiguous_local_combustion_stores_without_mutation() {
     }
 }
 
+#[test]
+fn selected_fuel_uses_the_only_local_fire_with_room_for_another_charge() {
+    use crate::content::CAMPFIRE_FUEL_THERMAL_ENERGY;
+    use crate::energy::{CombustionError, validate_combust_selected_fuel};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let carried = admit_player(&registries, &mut state, position);
+    let stone = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
+    let timber = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        stone,
+        Mass::from_milligrams(2_000_000),
+        TEMPERATURE,
+    )
+    .unwrap();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        timber,
+        Mass::from_milligrams(CAMPFIRE_FUEL_MASS.milligrams() * 3),
+        TEMPERATURE,
+    )
+    .unwrap();
+    let fires = (0..2)
+        .map(|_| {
+            validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, carried)
+                .unwrap()
+                .commit(&mut state)
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    for _ in 0..2 {
+        let released =
+            validate_combust_selected_fuel(&registries, &state, fires[0], carried, timber)
+                .unwrap()
+                .commit(&mut state)
+                .unwrap();
+        assert_eq!(released, CAMPFIRE_FUEL_THERMAL_ENERGY);
+    }
+    assert!(matches!(
+        validate_combust_selected_fuel(&registries, &state, fires[0], carried, timber),
+        Err(CombustionError::InsufficientThermalCapacity { .. })
+    ));
+    assert!(validate_combust_selected_fuel(&registries, &state, fires[1], carried, timber).is_ok());
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(timber)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let original_first = state.energy().get_store(fires[0]).unwrap().stored();
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
+    let outcome = advance_control_tick_with_direct_input(&registries, &mut state, input).unwrap();
+    let replay_outcome =
+        advance_control_tick_with_direct_input(&registries, &mut replay, input).unwrap();
+    assert_eq!(outcome, replay_outcome);
+    assert_eq!(
+        outcome.secondary_action(),
+        Some(&SecondaryActionOutcome::CombustionFuelAdded {
+            store: fires[1],
+            released: CAMPFIRE_FUEL_THERMAL_ENERGY,
+        })
+    );
+    assert_eq!(
+        state.energy().get_store(fires[0]).unwrap().stored(),
+        original_first
+    );
+    assert_eq!(
+        state.energy().get_store(fires[1]).unwrap().stored(),
+        CAMPFIRE_FUEL_THERMAL_ENERGY
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(timber),
+        Mass::ZERO
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(state, replay);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
 fn backward_shallow_down_view() -> ViewDirection {
     ViewDirection::new(-866_025, -500_000, 0)
         .unwrap_or_else(|error| panic!("surface backward-down view failed: {error}"))
@@ -2821,6 +2925,96 @@ fn secondary_use_refuses_ambiguous_physical_food_cohorts() {
     );
     assert!(state.logistics().pending_secondary_use().is_none());
     assert_eq!(state.player_work().active(), None);
+}
+
+#[test]
+fn selected_food_can_eat_the_only_edible_cohort_beside_spoiled_food() {
+    use crate::survival::validate_eat_stack_to_full;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let carried = admit_player(&registries, &mut state, VoxelCoord::new(0, 0, 0));
+    let commodity = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    let portion = Mass::from_milligrams(250_000);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        portion,
+        TEMPERATURE,
+    )
+    .unwrap();
+    let shelf_life = registries
+        .survival()
+        .get_food(commodity)
+        .unwrap()
+        .shelf_life();
+    apply_clock_advance(
+        &mut state,
+        SimulationTick::new(shelf_life.value().checked_add(1).unwrap()),
+    );
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        portion,
+        TEMPERATURE,
+    )
+    .unwrap();
+    // One real survival tick creates a nonzero intake need. The original
+    // serving has aged past its shelf life while the new serving remains fresh.
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    let stacks = project_material_stacks(&registries, &state, carried).unwrap();
+    let cohorts = stacks
+        .iter()
+        .filter(|stack| stack.commodity() == commodity)
+        .collect::<Vec<_>>();
+    assert_eq!(cohorts.len(), 2);
+    assert_eq!(
+        cohorts
+            .iter()
+            .filter(|stack| validate_eat_stack_to_full(&registries, &state, stack).is_ok())
+            .count(),
+        1,
+        "only the fresh cohort can admit a selected meal"
+    );
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(commodity)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
+    let outcome = advance_control_tick_with_direct_input(&registries, &mut state, input).unwrap();
+    let replay_outcome =
+        advance_control_tick_with_direct_input(&registries, &mut replay, input).unwrap();
+    assert_eq!(outcome, replay_outcome);
+    assert!(matches!(
+        outcome.secondary_action(),
+        Some(SecondaryActionOutcome::EatingStarted(_))
+    ));
+    assert!(matches!(
+        state.player_work().active(),
+        Some(crate::labor::PlayerWork::Eating { .. })
+    ));
+    assert_eq!(state, replay);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]
