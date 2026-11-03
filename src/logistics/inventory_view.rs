@@ -22,6 +22,7 @@ use super::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerInventoryProjectionError {
     PlayerNotAdmitted,
+    PlayerDead,
     Stack(MaterialStackProjectionError),
 }
 
@@ -65,6 +66,7 @@ impl Display for PlayerInventoryProjectionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerNotAdmitted => formatter.write_str("player is not admitted"),
+            Self::PlayerDead => formatter.write_str("dead player cannot observe carried inventory"),
             Self::Stack(error) => write!(formatter, "material stack projection failed: {error}"),
         }
     }
@@ -73,7 +75,7 @@ impl Display for PlayerInventoryProjectionError {
 impl Error for PlayerInventoryProjectionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::PlayerNotAdmitted => None,
+            Self::PlayerNotAdmitted | Self::PlayerDead => None,
             Self::Stack(error) => Some(error),
         }
     }
@@ -231,7 +233,11 @@ fn project_stockpile(
     })
 }
 
-/// Projects the admitted player's carried inventory and only containers at their exact voxel.
+/// Projects a living admitted player's carried inventory and co-located containers.
+///
+/// A dead player's old logistics body still exists for physical respawn and
+/// custody recovery, but does not grant an actor-facing inventory observation.
+/// Logistics-only capability fixtures retain their existing observation rule.
 pub fn project_player_inventory(
     registries: &Registries,
     state: &AppState,
@@ -241,6 +247,9 @@ pub fn project_player_inventory(
         .player()
         .copied()
         .ok_or(PlayerInventoryProjectionError::PlayerNotAdmitted)?;
+    if state.player_observation_position().is_none() {
+        return Err(PlayerInventoryProjectionError::PlayerDead);
+    }
     let carrying = assess_player_carrying(state)
         .unwrap_or_else(|| unreachable!("admitted logistics player has carrying assessment"));
     let carried = project_stockpile(registries, state, player.carried_stockpile())?;
