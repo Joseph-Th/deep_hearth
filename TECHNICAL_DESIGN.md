@@ -866,9 +866,13 @@ Both generation plans retain the structural revision that authorized this
 check; materialization or other structural mutation before commit invalidates
 the pending plan rather than bypassing prospective occupancy admission.
 Archivists occupy a solid two-by-two-cell floor footprint and three-cell body
-height; wardens occupy one-by-one-by-two cells. A nearby living player can
-observe an archivist's ten-tick-per-step attendance of its dormant archive
-on a 240-simulation-tick cycle. Its route uses actual face-adjacent cells,
+height; wardens occupy one-by-one-by-two cells. Player-facing temple sightings
+use the same generated-world occlusion and finite light as ordinary scout
+sightings. An unlit resident cannot be identified through darkness, but an
+illuminated visible head or other exposed body cell is sufficient; the caste's
+own geometric perception of intruders and other residents is unchanged.
+A nearby living player can observe an archivist's ten-tick-per-step attendance
+of its dormant archive on a 240-simulation-tick cycle. Its route uses actual face-adjacent cells,
 shifting the full twelve-cell body west through the carved chamber and then
 north to view the copper archive shell through a one-cell maintenance throat.
 The archivist checks that physical block only when standing at the approach.

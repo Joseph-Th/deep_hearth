@@ -1267,7 +1267,7 @@ fn a_diagonal_scout_sighting_does_not_peek_through_an_opaque_corner() {
     for voxel in [scout, diagonal, x_leg, z_leg] {
         assert_eq!(state.world().block_at(voxel), Some(BlockStateId::AIR));
     }
-    assert!(crate::kobolds::scout_visible_from(
+    assert!(crate::kobolds::visibility::scout_visible_from(
         &registries,
         &state,
         scout,
@@ -1276,12 +1276,12 @@ fn a_diagonal_scout_sighting_does_not_peek_through_an_opaque_corner() {
     for occlusion in [x_leg, z_leg] {
         set_generated_block_for_test(registries.world(), &mut state, occlusion, BLOCK_STATE_STONE);
         assert!(
-            !crate::kobolds::scout_visible_from(&registries, &state, scout, diagonal),
+            !crate::kobolds::visibility::scout_visible_from(&registries, &state, scout, diagonal),
             "a solid wall on either side of a corner conceals the scout"
         );
         set_generated_block_for_test(registries.world(), &mut state, occlusion, BlockStateId::AIR);
     }
-    assert!(crate::kobolds::scout_visible_from(
+    assert!(crate::kobolds::visibility::scout_visible_from(
         &registries,
         &state,
         scout,

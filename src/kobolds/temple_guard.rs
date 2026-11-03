@@ -115,6 +115,28 @@ fn clear_standing_cell(registries: &Registries, state: &AppState, position: Voxe
             .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
 }
 
+/// Player sight resolves either visible cell of the actual two-high warden,
+/// with real illumination on the observed cell. A waist-high obstruction may
+/// hide the feet without hiding an illuminated head.
+pub(super) fn warden_visible_to_player(
+    registries: &Registries,
+    state: &AppState,
+    warden: VoxelCoord,
+    player: VoxelCoord,
+) -> bool {
+    let (Some(warden_y), Some(player_y)) = (warden.y().checked_add(1), player.y().checked_add(1))
+    else {
+        return false;
+    };
+    let warden_head = VoxelCoord::new(warden.x(), warden_y, warden.z());
+    let player_head = VoxelCoord::new(player.x(), player_y, player.z());
+    [warden, warden_head].into_iter().any(|body| {
+        [player, player_head]
+            .into_iter()
+            .any(|eye| crate::world::player_can_see_local_cell(registries, state, eye, body))
+    })
+}
+
 /// The heavy guardian watches with its complete two-cell body, rather than
 /// seeing only along the floor. The player's occupied head cell is similarly
 /// observable. Each of the four local rays checks authoritative opacity and

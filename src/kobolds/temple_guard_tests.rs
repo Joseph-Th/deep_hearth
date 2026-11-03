@@ -44,6 +44,16 @@ use crate::world::{
 };
 
 fn occupied_temple() -> (Registries, AppState, [VoxelCoord; 3]) {
+    occupied_temple_with_light(false)
+}
+
+/// Fixed, finite pre-existing fire is a disclosed fixture for tests about
+/// movement, defense or excavation rather than lighting acquisition.
+fn occupied_temple_lit() -> (Registries, AppState, [VoxelCoord; 3]) {
+    occupied_temple_with_light(true)
+}
+
+fn occupied_temple_with_light(lit: bool) -> (Registries, AppState, [VoxelCoord; 3]) {
     let registries = build_registries();
     let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
     // This authored replay seed resolves its ancient precinct to column (0,0).
@@ -59,11 +69,154 @@ fn occupied_temple() -> (Registries, AppState, [VoxelCoord; 3]) {
         chunk.world_min_z().unwrap() + 8,
     );
     let route = temple_warden_route_at(&registries, &state, sample).unwrap();
+    if lit {
+        use crate::content::ENERGY_STONE_RING_CAMPFIRE;
+        use crate::content::{
+            CAMPFIRE_FUEL_MASS, FORM_LOG, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD,
+        };
+        use crate::energy::{validate_assemble_energy_store, validate_combust_fuel};
+        use crate::inventory::{add_solid_stockpile_for_test, deposit_bulk_for_test};
+        use crate::logistics::place_energy_store_for_fixture;
+
+        // Material-backed, twice fueled pre-existing fire in a vacant chamber,
+        // off every warden traversal cell. This is disclosed starting context,
+        // not invented light or a second observation rule.
+        let light_at = VoxelCoord::new(route[2].x() + 2, route[2].y(), route[2].z() + 2);
+        assert_eq!(state.world().block_at(light_at), Some(BlockStateId::AIR));
+        let stone = registries
+            .energy()
+            .get_store(ENERGY_STONE_RING_CAMPFIRE)
+            .unwrap()
+            .assembly_profile()
+            .unwrap()
+            .input_mass();
+        let fuel = CAMPFIRE_FUEL_MASS.checked_add(CAMPFIRE_FUEL_MASS).unwrap();
+        let source =
+            add_solid_stockpile_for_test(&mut state, stone.checked_add(fuel).unwrap()).unwrap();
+        for (commodity, mass) in [
+            (CommodityKey::new(MATERIAL_STONE, FORM_LUMP), stone),
+            (CommodityKey::new(MATERIAL_WOOD, FORM_LOG), fuel),
+        ] {
+            deposit_bulk_for_test(&registries, &mut state, source, commodity, mass).unwrap();
+        }
+        let fire =
+            validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, source)
+                .unwrap()
+                .commit(&mut state)
+                .unwrap();
+        for _ in 0..2 {
+            validate_combust_fuel(&registries, &state, fire, source)
+                .unwrap()
+                .commit(&mut state)
+                .unwrap();
+        }
+        place_energy_store_for_fixture(&mut state, fire, light_at);
+    }
     validate_admit_player(&registries, &state, route[2])
         .unwrap()
         .commit(&mut state)
         .unwrap();
     (registries, state, route)
+}
+
+#[test]
+fn unlit_temple_warden_does_not_bypass_generated_world_player_visibility() {
+    use crate::content::{
+        CAMPFIRE_FUEL_MASS, ENERGY_STONE_RING_CAMPFIRE, FORM_LUMP, MATERIAL_STONE,
+    };
+    use crate::core::quantity::Mass;
+    use crate::energy::{validate_assemble_energy_store, validate_combust_fuel};
+    use crate::inventory::deposit_bulk_for_test;
+    use crate::kobolds::available_nearby_kobold_scouts;
+
+    let (registries, mut state, route) = occupied_temple();
+    let observer = state.logistics().player().unwrap().position();
+    let post = route[0];
+    assert_eq!(
+        crate::world::assess_generated_skylight(&registries, &state, post),
+        0,
+        "the warden's underground room has no direct sky"
+    );
+    assert_eq!(
+        crate::energy::assess_local_illumination(&registries, &state, post).level(),
+        0,
+        "the room has no finite local light source"
+    );
+    assert!(
+        !crate::world::player_can_see_local_cell(&registries, &state, observer, post),
+        "ordinary generated-world observation must not confer night vision"
+    );
+    assert!(
+        crate::kobolds::available_nearby_kobold_scouts(&registries, &state)
+            .all(|seen| seen.role() != crate::kobolds::KoboldRole::TempleWarden),
+        "temple residents must not bypass the same darkness as other generated-world residents"
+    );
+
+    // An ordinary fueled campfire restores the sighting without moving or
+    // manufacturing the resident. It also survives exact save/load replay.
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(1_000_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            CAMPFIRE_FUEL_MASS,
+        ),
+    ] {
+        deposit_bulk_for_test(&registries, &mut state, carried, commodity, mass).unwrap();
+    }
+    let campfire =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, carried)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    validate_combust_fuel(&registries, &state, campfire, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(crate::energy::assess_local_illumination(&registries, &state, post).level() > 0);
+    assert_eq!(
+        visible_guard(&registries, &state),
+        Some(post),
+        "a real local light source must restore the same unoccluded sighting"
+    );
+
+    // A one-cell wall may conceal the lower body while leaving the head
+    // physically visible. Sighting the head must still report the real warden.
+    let mut lower_obstructed = state.clone();
+    set_generated_block_for_test(
+        registries.world(),
+        &mut lower_obstructed,
+        route[1],
+        BLOCK_STATE_STONE,
+    );
+    let observer_head = VoxelCoord::new(observer.x(), observer.y() + 1, observer.z());
+    let post_head = VoxelCoord::new(post.x(), post.y() + 1, post.z());
+    assert!(!crate::world::player_can_see_local_cell(
+        &registries,
+        &lower_obstructed,
+        observer,
+        post,
+    ));
+    assert!(crate::world::player_can_see_local_cell(
+        &registries,
+        &lower_obstructed,
+        observer_head,
+        post_head,
+    ));
+    assert_eq!(visible_guard(&registries, &lower_obstructed), Some(post));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(
+        available_nearby_kobold_scouts(&registries, &state).collect::<Vec<_>>(),
+        available_nearby_kobold_scouts(&registries, &replay).collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -718,7 +871,7 @@ fn forge_member_position_in_save(
 
 #[test]
 fn heavy_castes_are_solid_on_the_actual_continuous_player_walk_sweep() {
-    let (registries, mut state, route) = occupied_temple();
+    let (registries, mut state, route) = occupied_temple_lit();
     advance_to(&registries, &mut state, 5);
     let original = state.logistics().player().unwrap().body().foot_position();
     assert!(crate::kobolds::temple_caste_occupies_voxel(
@@ -1451,7 +1604,7 @@ fn jump_and_stance_change_cannot_pass_through_a_stranded_warden_from_below() {
 
 #[test]
 fn moving_warden_cannot_enter_the_airborne_players_upper_body() {
-    let (registries, mut state, route) = occupied_temple();
+    let (registries, mut state, route) = occupied_temple_lit();
     let target = route[1];
     set_generated_block_for_test(
         registries.world(),
@@ -1611,7 +1764,7 @@ fn respawn_rechecks_structural_clearance_and_avoids_a_completed_panel() {
 
 #[test]
 fn respawn_falls_back_when_a_warden_now_guards_the_original_spawn() {
-    let (registries, mut state, route) = occupied_temple();
+    let (registries, mut state, route) = occupied_temple_lit();
     advance_to(&registries, &mut state, 5);
     relocate_player_for_test(
         &mut state,
@@ -1828,7 +1981,7 @@ fn distant_side_sighting_does_not_lure_a_warden_into_a_blind_patrol_oscillation(
 
 #[test]
 fn inspecting_sentinel_is_not_defending_until_it_observes_a_threat_to_the_inner_hall() {
-    let (registries, mut state, route) = occupied_temple();
+    let (registries, mut state, route) = occupied_temple_lit();
     let annex = VoxelCoord::new(route[2].x() + 4, route[2].y(), route[2].z());
     relocate_player_for_test(&mut state, annex);
     advance_to(&registries, &mut state, 120);
@@ -1857,7 +2010,7 @@ fn inspecting_sentinel_is_not_defending_until_it_observes_a_threat_to_the_inner_
 
 #[test]
 fn missing_copper_drive_prompts_a_local_warden_watch_without_free_machinery() {
-    let (registries, mut state, route) = occupied_temple();
+    let (registries, mut state, route) = occupied_temple_lit();
     let center = route[2];
     let drive = VoxelCoord::new(center.x() + 5, center.y(), center.z());
     let chunk = ChunkCoord::containing(center);
@@ -2023,7 +2176,7 @@ fn intact_or_opaque_drive_housing_does_not_create_a_false_breach_watch() {
 
 #[test]
 fn temple_warden_heeds_a_visible_archivist_breach_vigil_and_guards_the_inner_throat() {
-    let (registries, mut state, route) = occupied_temple();
+    let (registries, mut state, route) = occupied_temple_lit();
     let center = route[2];
     let chunk = ChunkCoord::containing(center);
     let west_observer = VoxelCoord::new(center.x() - 4, center.y(), center.z());
@@ -2159,7 +2312,7 @@ fn intact_archive_cannot_trigger_an_invented_caste_warning() {
 
 #[test]
 fn temple_warden_makes_a_real_engine_gallery_round_without_operating_the_drive() {
-    let (registries, mut state, route) = occupied_temple();
+    let (registries, mut state, route) = occupied_temple_lit();
     let center = route[2];
     let west_annex = VoxelCoord::new(center.x() - 4, center.y(), center.z());
     let drive = VoxelCoord::new(center.x() + 5, center.y(), center.z());
@@ -2455,7 +2608,7 @@ fn temple_warden_challenges_a_visible_side_approach_but_not_a_distant_or_rear_ac
 
 #[test]
 fn intruder_draws_a_warden_forward_by_one_real_cell_then_it_withdraws() {
-    let (registries, mut state, route) = occupied_temple();
+    let (registries, mut state, route) = occupied_temple_lit();
     assert_eq!(visible_guard(&registries, &state), Some(route[0]));
     assert_eq!(defending_guard(&registries, &state), Some(false));
     advance_to(&registries, &mut state, 5);
@@ -2487,7 +2640,7 @@ fn intruder_draws_a_warden_forward_by_one_real_cell_then_it_withdraws() {
 
 #[test]
 fn a_warden_takes_a_second_supported_step_but_never_enters_the_player() {
-    let (registries, mut state, route) = occupied_temple();
+    let (registries, mut state, route) = occupied_temple_lit();
     advance_to(&registries, &mut state, 5);
     relocate_player_for_test(
         &mut state,
@@ -2520,7 +2673,7 @@ fn blocking_the_real_hall_throat_prevents_a_warden_move() {
 
 #[test]
 fn missing_stone_support_prevents_warden_advance() {
-    let (registries, mut state, route) = occupied_temple();
+    let (registries, mut state, route) = occupied_temple_lit();
     let floor = VoxelCoord::new(route[1].x(), route[1].y() - 1, route[1].z());
     set_generated_block_for_test(
         registries.world(),
@@ -2536,7 +2689,7 @@ fn missing_stone_support_prevents_warden_advance() {
 
 #[test]
 fn removed_floor_strands_a_displaced_warden_without_corrupting_save_continuation() {
-    let (registries, mut state, route) = occupied_temple();
+    let (registries, mut state, route) = occupied_temple_lit();
     advance_to(&registries, &mut state, 5);
     let floor = VoxelCoord::new(route[1].x(), route[1].y() - 1, route[1].z());
     set_generated_block_for_test(

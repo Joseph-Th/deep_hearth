@@ -333,6 +333,45 @@ fn seeded_temple_is_buried_carved_and_matter_backed_with_two_ancient_residents()
         None,
         "unvisited regions do not disclose a temple or its inhabitants"
     );
+    // This sighting contract needs an illuminated hall, not implicit
+    // underground night vision. A pre-existing finite campfire is an explicit
+    // fixture; resident geometry and generated archaeology are unchanged.
+    let light_at = VoxelCoord::new(center.x() + 2, center.y(), center.z() + 2);
+    assert_eq!(state.world().block_at(light_at), Some(BlockStateId::AIR));
+    use crate::content::{
+        CAMPFIRE_FUEL_MASS, ENERGY_STONE_RING_CAMPFIRE, FORM_LOG, FORM_LUMP, MATERIAL_WOOD,
+    };
+    use crate::energy::{validate_assemble_energy_store, validate_combust_fuel};
+    use crate::inventory::{add_solid_stockpile_for_test, deposit_bulk_for_test};
+
+    let stone = registries
+        .energy()
+        .get_store(ENERGY_STONE_RING_CAMPFIRE)
+        .unwrap()
+        .assembly_profile()
+        .unwrap()
+        .input_mass();
+    let fuel = CAMPFIRE_FUEL_MASS.checked_add(CAMPFIRE_FUEL_MASS).unwrap();
+    let source =
+        add_solid_stockpile_for_test(&mut state, stone.checked_add(fuel).unwrap()).unwrap();
+    for (commodity, mass) in [
+        (CommodityKey::new(MATERIAL_STONE, FORM_LUMP), stone),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_LOG), fuel),
+    ] {
+        deposit_bulk_for_test(&registries, &mut state, source, commodity, mass).unwrap();
+    }
+    let fire =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, source)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    for _ in 0..2 {
+        validate_combust_fuel(&registries, &state, fire, source)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    }
+    crate::logistics::place_energy_store_for_fixture(&mut state, fire, light_at);
     validate_admit_player(&registries, &state, center)
         .unwrap()
         .commit(&mut state)
@@ -357,11 +396,22 @@ fn seeded_temple_is_buried_carved_and_matter_backed_with_two_ancient_residents()
         guardian,
         BLOCK_STATE_STONE,
     );
+    assert!(
+        available_nearby_kobold_scouts(&registries, &obstructed)
+            .any(|seen| seen.role() == KoboldRole::TempleWarden),
+        "blocking only the feet must not conceal a lit, unobstructed head"
+    );
+    set_generated_block_for_test(
+        registries.world(),
+        &mut obstructed,
+        VoxelCoord::new(guardian.x(), guardian.y() + 1, guardian.z()),
+        BLOCK_STATE_STONE,
+    );
     let surviving = available_nearby_kobold_scouts(&registries, &obstructed).collect::<Vec<_>>();
     assert_eq!(
         surviving.len(),
         1,
-        "one blocked caste must not hide every resident"
+        "completely hiding one caste must not hide every resident"
     );
     assert_eq!(surviving[0].role(), KoboldRole::TempleArchivist);
 

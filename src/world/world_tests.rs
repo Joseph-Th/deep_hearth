@@ -387,6 +387,54 @@ fn mine_entire_temple_device_with_direct_control(
     (original, batches)
 }
 
+/// Pre-existing finite light for mine-and-react tests. The real mining and
+/// resident continuation paths are unchanged; the player can actually
+/// observe the guarded machinery at the end of the episode.
+fn place_observable_temple_light(
+    registries: &Registries,
+    state: &mut AppState,
+    center: VoxelCoord,
+    west: bool,
+) {
+    let offset = if west { -2 } else { 2 };
+    let position = VoxelCoord::new(center.x() + offset, center.y(), center.z() + 2);
+    assert_eq!(state.world().block_at(position), Some(BlockStateId::AIR));
+    use crate::content::{
+        CAMPFIRE_FUEL_MASS, ENERGY_STONE_RING_CAMPFIRE, FORM_LOG, FORM_LUMP, MATERIAL_STONE,
+        MATERIAL_WOOD,
+    };
+    use crate::energy::{validate_assemble_energy_store, validate_combust_fuel};
+    use crate::inventory::{add_solid_stockpile_for_test, deposit_bulk_for_test};
+
+    let stone = registries
+        .energy()
+        .get_store(ENERGY_STONE_RING_CAMPFIRE)
+        .unwrap()
+        .assembly_profile()
+        .unwrap()
+        .input_mass();
+    let fuel = CAMPFIRE_FUEL_MASS.checked_add(CAMPFIRE_FUEL_MASS).unwrap();
+    let source = add_solid_stockpile_for_test(state, stone.checked_add(fuel).unwrap()).unwrap();
+    for (commodity, mass) in [
+        (CommodityKey::new(MATERIAL_STONE, FORM_LUMP), stone),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_LOG), fuel),
+    ] {
+        deposit_bulk_for_test(registries, state, source, commodity, mass).unwrap();
+    }
+    let fire =
+        validate_assemble_energy_store(registries, state, ENERGY_STONE_RING_CAMPFIRE, source)
+            .unwrap()
+            .commit(state)
+            .unwrap();
+    for _ in 0..2 {
+        validate_combust_fuel(registries, state, fire, source)
+            .unwrap()
+            .commit(state)
+            .unwrap();
+    }
+    crate::logistics::place_energy_store_for_fixture(state, fire, position);
+}
+
 #[test]
 fn direct_player_excavation_of_a_real_temple_drive_triggers_the_guard_watch() {
     let registries = build_registries();
@@ -420,6 +468,7 @@ fn direct_player_excavation_of_a_real_temple_drive_triggers_the_guard_watch() {
     assert_eq!(state.world().block_at(player), Some(BlockStateId::AIR));
 
     let pick = assemble_iron_pick_at(&registries, &mut state, player);
+    place_observable_temple_light(&registries, &mut state, center, false);
     validate_admit_player(&registries, &state, player)
         .unwrap()
         .commit(&mut state)
@@ -512,6 +561,7 @@ fn direct_player_excavation_of_the_generated_archive_causes_a_real_caste_vigil()
     assert_eq!(state.world().block_at(player), Some(BlockStateId::AIR));
 
     let pick = assemble_iron_pick_at(&registries, &mut state, player);
+    place_observable_temple_light(&registries, &mut state, center, true);
     validate_admit_player(&registries, &state, player)
         .unwrap()
         .commit(&mut state)

@@ -19,6 +19,14 @@ use crate::structural::{
 use crate::world::{WorldGenerationSeed, set_generated_block_for_test, validate_generate_chunk};
 
 fn occupied_archive() -> (Registries, AppState, VoxelCoord) {
+    occupied_archive_with_light(false)
+}
+
+fn occupied_archive_lit() -> (Registries, AppState, VoxelCoord) {
+    occupied_archive_with_light(true)
+}
+
+fn occupied_archive_with_light(lit: bool) -> (Registries, AppState, VoxelCoord) {
     let registries = build_registries();
     let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
     let chunk = ChunkCoord::new(0, 0);
@@ -33,6 +41,47 @@ fn occupied_archive() -> (Registries, AppState, VoxelCoord) {
         chunk.world_min_z().unwrap() + 8,
     );
     let [_, home] = temple_residents_at(&registries, &state, observer).unwrap();
+    if lit {
+        use crate::content::ENERGY_STONE_RING_CAMPFIRE;
+        use crate::content::{CAMPFIRE_FUEL_MASS, FORM_LOG, FORM_LUMP, MATERIAL_STONE};
+        use crate::energy::{validate_assemble_energy_store, validate_combust_fuel};
+        use crate::inventory::{add_solid_stockpile_for_test, deposit_bulk_for_test};
+        use crate::logistics::place_energy_store_for_fixture;
+        use crate::material::CommodityKey;
+
+        // Material-backed, twice fueled fire in a real side chamber, kept
+        // off the entire archivist route. No implicit underground light.
+        let light_at = VoxelCoord::new(home.x() - 2, home.y(), home.z() + 3);
+        assert_eq!(state.world().block_at(light_at), Some(BlockStateId::AIR));
+        let stone = registries
+            .energy()
+            .get_store(ENERGY_STONE_RING_CAMPFIRE)
+            .unwrap()
+            .assembly_profile()
+            .unwrap()
+            .input_mass();
+        let fuel = CAMPFIRE_FUEL_MASS.checked_add(CAMPFIRE_FUEL_MASS).unwrap();
+        let source =
+            add_solid_stockpile_for_test(&mut state, stone.checked_add(fuel).unwrap()).unwrap();
+        for (commodity, mass) in [
+            (CommodityKey::new(MATERIAL_STONE, FORM_LUMP), stone),
+            (CommodityKey::new(MATERIAL_WOOD, FORM_LOG), fuel),
+        ] {
+            deposit_bulk_for_test(&registries, &mut state, source, commodity, mass).unwrap();
+        }
+        let fire =
+            validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, source)
+                .unwrap()
+                .commit(&mut state)
+                .unwrap();
+        for _ in 0..2 {
+            validate_combust_fuel(&registries, &state, fire, source)
+                .unwrap()
+                .commit(&mut state)
+                .unwrap();
+        }
+        place_energy_store_for_fixture(&mut state, fire, light_at);
+    }
     let witness = VoxelCoord::new(home.x() - 4, home.y(), home.z() + 2);
     assert_eq!(state.world().block_at(witness), Some(BlockStateId::AIR));
     validate_admit_player(&registries, &state, witness)
@@ -40,6 +89,86 @@ fn occupied_archive() -> (Registries, AppState, VoxelCoord) {
         .commit(&mut state)
         .unwrap();
     (registries, state, home)
+}
+
+#[test]
+fn underground_archivist_sighting_requires_light_on_its_actual_body() {
+    use crate::content::{
+        CAMPFIRE_FUEL_MASS, ENERGY_STONE_RING_CAMPFIRE, FORM_LUMP, MATERIAL_STONE,
+    };
+    use crate::core::quantity::Mass;
+    use crate::energy::{
+        assess_local_illumination, validate_assemble_energy_store, validate_combust_fuel,
+    };
+    use crate::inventory::deposit_bulk_for_test;
+    use crate::material::CommodityKey;
+
+    let (registries, mut state, home) = occupied_archive();
+    let observer = VoxelCoord::new(home.x() - 2, home.y(), home.z());
+    assert_eq!(state.world().block_at(observer), Some(BlockStateId::AIR));
+    relocate_player_for_test(&mut state, observer);
+    assert!(
+        archivist_visible_from(&registries, &state, home, observer),
+        "the observer and archivist have unobstructed geometric sight"
+    );
+    assert_eq!(
+        assess_local_illumination(&registries, &state, home).level(),
+        0
+    );
+    assert!(!archivist_visible_to_player(
+        &registries,
+        &state,
+        home,
+        observer
+    ));
+    assert!(
+        visible_archivist(&registries, &state).is_none(),
+        "living underground residents must not be revealed in total darkness"
+    );
+
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(1_000_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            CAMPFIRE_FUEL_MASS,
+        ),
+    ] {
+        deposit_bulk_for_test(&registries, &mut state, carried, commodity, mass).unwrap();
+    }
+    let campfire =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, carried)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    validate_combust_fuel(&registries, &state, campfire, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(assess_local_illumination(&registries, &state, home).level() > 0);
+    assert!(archivist_visible_to_player(
+        &registries,
+        &state,
+        home,
+        observer
+    ));
+    assert_eq!(
+        visible_archivist(&registries, &state).map(|(cell, _)| cell),
+        Some(home)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(
+        visible_archivist(&registries, &replay),
+        visible_archivist(&registries, &state)
+    );
 }
 
 fn advance_to(registries: &Registries, state: &mut AppState, goal: u64) {
@@ -175,7 +304,7 @@ fn archivist_inspects_when_a_living_player_is_near_across_a_generated_chunk_bord
 
 #[test]
 fn archivist_walks_a_real_wide_supported_approach_to_the_archive_and_back() {
-    let (registries, mut state, home) = occupied_archive();
+    let (registries, mut state, home) = occupied_archive_lit();
     let chunk = ChunkCoord::containing(home);
     let original_mass = calculate_matter_accounting(&state).unwrap().total();
     assert_eq!(state.kobold_state().temple_archivist_step(chunk), 0);
@@ -235,7 +364,7 @@ fn archivist_walks_a_real_wide_supported_approach_to_the_archive_and_back() {
 
 #[test]
 fn breached_archive_causes_local_guarded_vigil_without_repairing_the_shell() {
-    let (registries, mut state, home) = occupied_archive();
+    let (registries, mut state, home) = occupied_archive_lit();
     let shell = archive_cell(home);
     set_generated_block_for_test(registries.world(), &mut state, shell, BlockStateId::AIR);
     let remaining = calculate_matter_accounting(&state).unwrap().total();
@@ -380,7 +509,7 @@ fn archive_inspection_obeys_full_massive_body_clearance_and_returns_on_blockage(
 
 #[test]
 fn full_archivist_footprint_is_visible_and_blocks_the_players_true_body() {
-    let (registries, mut state, home) = occupied_archive();
+    let (registries, mut state, home) = occupied_archive_lit();
     advance_to(&registries, &mut state, 280);
     let chunk = ChunkCoord::containing(home);
     assert_eq!(state.kobold_state().temple_archivist_step(chunk), 5);

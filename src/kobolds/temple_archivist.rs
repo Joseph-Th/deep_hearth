@@ -60,6 +60,26 @@ fn resident_body_cells(anchor: VoxelCoord) -> impl Iterator<Item = VoxelCoord> {
     })
 }
 
+/// The player must have actual light on at least one unobstructed cell of
+/// the archivist's large body. Resident-to-resident perception above remains
+/// geometric; it must not borrow the player's lack of underground night vision.
+pub(super) fn archivist_visible_to_player(
+    registries: &Registries,
+    state: &AppState,
+    anchor: VoxelCoord,
+    player: VoxelCoord,
+) -> bool {
+    let Some(head_y) = player.y().checked_add(1) else {
+        return false;
+    };
+    let player_head = VoxelCoord::new(player.x(), head_y, player.z());
+    resident_body_cells(anchor).any(|cell| {
+        [player, player_head].into_iter().any(|observer| {
+            crate::world::player_can_see_local_cell(registries, state, observer, cell)
+        })
+    })
+}
+
 fn clear_body_cells(state: &AppState, anchor: VoxelCoord) -> bool {
     resident_body_cells(anchor)
         .all(|voxel| state.world().block_at(voxel) == Some(BlockStateId::AIR))
