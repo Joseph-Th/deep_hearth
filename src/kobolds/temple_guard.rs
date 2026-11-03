@@ -124,17 +124,11 @@ pub(super) fn warden_visible_to_player(
     warden: VoxelCoord,
     player: VoxelCoord,
 ) -> bool {
-    let (Some(warden_y), Some(player_y)) = (warden.y().checked_add(1), player.y().checked_add(1))
-    else {
+    let Some(warden_y) = warden.y().checked_add(1) else {
         return false;
     };
     let warden_head = VoxelCoord::new(warden.x(), warden_y, warden.z());
-    let player_head = VoxelCoord::new(player.x(), player_y, player.z());
-    [warden, warden_head].into_iter().any(|body| {
-        [player, player_head]
-            .into_iter()
-            .any(|eye| crate::world::player_can_see_local_cell(registries, state, eye, body))
-    })
+    super::visibility::player_sees_resident_body(registries, state, player, [warden, warden_head])
 }
 
 /// The heavy guardian watches with its complete two-cell body, rather than

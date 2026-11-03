@@ -69,15 +69,12 @@ pub(super) fn archivist_visible_to_player(
     anchor: VoxelCoord,
     player: VoxelCoord,
 ) -> bool {
-    let Some(head_y) = player.y().checked_add(1) else {
-        return false;
-    };
-    let player_head = VoxelCoord::new(player.x(), head_y, player.z());
-    resident_body_cells(anchor).any(|cell| {
-        [player, player_head].into_iter().any(|observer| {
-            crate::world::player_can_see_local_cell(registries, state, observer, cell)
-        })
-    })
+    super::visibility::player_sees_resident_body(
+        registries,
+        state,
+        player,
+        resident_body_cells(anchor),
+    )
 }
 
 fn clear_body_cells(state: &AppState, anchor: VoxelCoord) -> bool {
