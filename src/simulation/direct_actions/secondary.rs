@@ -13,11 +13,11 @@ use crate::spatial::ViewDirection;
 use crate::surface::{
     PlayerSurfaceGatheringOption, SurfaceGatheringError, SurfaceResourceId,
     assess_player_surface_gathering_option_admission, assess_player_surface_gathering_reservation,
-    player_surface_gathering_options, validate_start_player_surface_gathering_option,
+    player_surface_gathering_options, validate_start_player_surface_gathering_option_control_rate,
 };
 use crate::survival::{
-    assess_drink_store_to_full_admission, assess_eat_stack_to_full_admission,
-    available_local_drink_sources, validate_drink_store_to_full, validate_eat_stack_to_full,
+    assess_drink_store_to_full_admission, available_local_drink_sources,
+    validate_drink_store_to_full_control_rate, validate_eat_stack_to_full_control_rate,
 };
 use crate::world::raycast_player_block;
 
@@ -192,10 +192,12 @@ fn attempt_direct_surface_gathering(
     if let Err(error) = assess_player_surface_gathering_reservation(state, request_mass) {
         return SecondaryActionOutcome::SurfaceGatheringRejected(error);
     }
-    if !state.control_tick().is_simulation_boundary() {
-        return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
-    }
-    match validate_start_player_surface_gathering_option(registries, state, option, request_mass) {
+    match validate_start_player_surface_gathering_option_control_rate(
+        registries,
+        state,
+        option,
+        request_mass,
+    ) {
         Ok(validated) => {
             validated.commit(state).unwrap_or_else(|error| {
                 panic!(
@@ -279,10 +281,9 @@ pub(super) fn attempt_explicit_surface_gathering(
     if let Err(error) = assess_player_surface_gathering_reservation(state, mass) {
         return SecondaryActionOutcome::SurfaceGatheringRejected(error);
     }
-    if !state.control_tick().is_simulation_boundary() {
-        return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
-    }
-    match validate_start_player_surface_gathering_option(registries, state, option, mass) {
+    match validate_start_player_surface_gathering_option_control_rate(
+        registries, state, option, mass,
+    ) {
         Ok(validated) => {
             validated.commit(state).unwrap_or_else(|error| {
                 panic!("runtime invariant broken: explicit surface gathering became stale: {error}")
@@ -303,10 +304,7 @@ fn attempt_direct_drinking(
     state: &mut AppState,
     store: crate::fluid::FluidStoreId,
 ) -> SecondaryActionOutcome {
-    if !state.control_tick().is_simulation_boundary() {
-        return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
-    }
-    match validate_drink_store_to_full(registries, state, store) {
+    match validate_drink_store_to_full_control_rate(registries, state, store) {
         Ok(Some(validated)) => {
             let outcome = validated.commit(state).unwrap_or_else(|error| {
                 panic!(
@@ -422,16 +420,9 @@ pub(super) fn attempt_selected_secondary_action(
         Ok(stack) => stack,
         Err(outcome) => return outcome,
     };
-    // Hotbar commodity bindings intentionally survive depletion. Report a
-    // missing or ambiguous carried stack on the input frame, rather than
-    // queuing a meal that is already impossible to start.
-    if !state.control_tick().is_simulation_boundary() {
-        return match assess_eat_stack_to_full_admission(registries, state, &stack) {
-            Ok(()) => SecondaryActionOutcome::DeferredUntilSimulationBoundary,
-            Err(error) => SecondaryActionOutcome::EatingRejected(error),
-        };
-    }
-    match validate_eat_stack_to_full(registries, state, &stack) {
+    // Hotbar bindings survive depletion, but an actual meal starts at
+    // the input frame with its canonical custody and survival admission.
+    match validate_eat_stack_to_full_control_rate(registries, state, &stack) {
         Ok(Some(validated)) => {
             let outcome = validated.commit(state).unwrap_or_else(|error| {
                 panic!(

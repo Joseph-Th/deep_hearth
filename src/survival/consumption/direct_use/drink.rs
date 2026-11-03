@@ -102,6 +102,16 @@ pub fn validate_drink_store_to_full(
     validate_drink_store_to_full_with_mode(registries, state, store, false)
 }
 
+/// Admit selected local drinking on the input control frame. The existing
+/// validated transaction still owns fluid custody and scheduled absorption.
+pub(crate) fn validate_drink_store_to_full_control_rate(
+    registries: &Registries,
+    state: &AppState,
+    store: FluidStoreId,
+) -> Result<Option<ValidatedDrink>, DrinkStoreToTargetError> {
+    validate_drink_store_to_full_with_mode(registries, state, store, true)
+}
+
 /// A water source competes with gathering only if the full-use gesture can
 /// actually be admitted. Preview tokens never escape this read-only check.
 pub(crate) fn assess_drink_store_to_full_admission(

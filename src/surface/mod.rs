@@ -31,6 +31,7 @@ pub(crate) use gathering::{
     apply_surface_gathering_cancellation, apply_surface_gathering_tick,
     assess_player_surface_gathering_option_admission, assess_player_surface_gathering_reservation,
     decide_surface_gathering_cancellation, decide_surface_gathering_tick,
+    validate_start_player_surface_gathering_option_control_rate,
 };
 pub(crate) use ground_stockpile_raid::{
     ScavengedGroundStockpileRequest, scavenge_unenclosed_ground_stockpile_material,

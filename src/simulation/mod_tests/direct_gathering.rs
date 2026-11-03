@@ -36,7 +36,6 @@ fn full_carrying_capacity_rejects_explicit_and_empty_hand_gathering_before_queue
         .commit(&mut state)
         .unwrap()
         .carried_stockpile();
-    let mut queued_before_filling = state.clone();
     let capacity = state.inventory().get_stockpile(carried).unwrap().capacity();
     deposit_lot_for_test(
         &registries,
@@ -101,81 +100,6 @@ fn full_carrying_capacity_rejects_explicit_and_empty_hand_gathering_before_queue
     );
     assert_eq!(
         crate::core::state::validate_loaded_state(&registries, &state),
-        Ok(())
-    );
-
-    // An initially legal buffered request must recheck inventory custody
-    // after the pack fills, including after trusted save/reload.
-    let queued = advance_control_tick_with_direct_input(
-        &registries,
-        &mut queued_before_filling,
-        PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::gather_surface(
-            resource, requested, direction,
-        )),
-    )
-    .unwrap();
-    assert_eq!(
-        queued.secondary_action(),
-        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
-    );
-    deposit_lot_for_test(
-        &registries,
-        &mut queued_before_filling,
-        carried,
-        commodity,
-        capacity,
-        temperature,
-    )
-    .unwrap();
-    let matter_before = calculate_matter_accounting(&queued_before_filling)
-        .unwrap()
-        .total();
-    let serialized =
-        serde_json::to_vec(&SaveEnvelope::new(&registries, &queued_before_filling)).unwrap();
-    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&serialized)
-        .unwrap()
-        .into_state(&registries)
-        .unwrap();
-    let mut due_rejected = false;
-    while !queued_before_filling
-        .control_tick()
-        .is_simulation_boundary()
-    {
-        let outcome = advance_control_tick(&registries, &mut queued_before_filling).unwrap();
-        let replay_outcome = advance_control_tick(&registries, &mut replay).unwrap();
-        assert_eq!(outcome, replay_outcome);
-        if let Some(SecondaryActionOutcome::SurfaceGatheringRejected(
-            SurfaceGatheringError::DestinationCapacityExceeded {
-                stockpile,
-                requested: due_mass,
-                ..
-            },
-        )) = outcome.secondary_action()
-        {
-            assert_eq!((*stockpile, *due_mass), (carried, requested));
-            due_rejected = true;
-        }
-    }
-    assert!(
-        due_rejected,
-        "a stale buffered capacity must fail on its due boundary"
-    );
-    assert_eq!(queued_before_filling, replay);
-    assert!(
-        queued_before_filling
-            .logistics()
-            .pending_secondary_use()
-            .is_none()
-    );
-    assert!(queued_before_filling.player_work().active().is_none());
-    assert_eq!(
-        calculate_matter_accounting(&queued_before_filling)
-            .unwrap()
-            .total(),
-        matter_before
-    );
-    assert_eq!(
-        crate::core::state::validate_loaded_state(&registries, &queued_before_filling),
         Ok(())
     );
 }
@@ -260,7 +184,7 @@ fn hot_natural_gathering_is_reported_on_the_input_frame_without_buffering() {
 }
 
 #[test]
-fn explicit_direct_gathering_resolves_ambiguous_food_and_replays_a_retargeted_press() {
+fn explicit_direct_gathering_starts_named_food_source_and_replays_completion() {
     let registries = build_registries();
     let mut state = AppState::new();
     let at = VoxelCoord::new(0, 0, 0);
@@ -388,21 +312,26 @@ fn explicit_direct_gathering_resolves_ambiguous_food_and_replays_a_retargeted_pr
         Some(&SecondaryActionOutcome::AmbiguousLocalSurfaceResources { count: 2 })
     );
     let portion = Mass::from_milligrams(150_000);
-    let first =
-        advance_control_tick_with_direct_input(
-            &registries,
-            &mut state,
-            PlayerDirectControlInput::NEUTRAL.with_secondary(
-                SecondaryControlIntent::gather_surface(berry_source, portion, direction),
-            ),
-        )
-        .unwrap();
-    assert_eq!(
+    let first = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::gather_surface(
+            nut_source, portion, direction,
+        )),
+    )
+    .unwrap();
+    assert!(matches!(
         first.secondary_action(),
-        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
-    );
-    assert!(first.queued_action_wait_control_ticks().is_some());
-    let buffered_revision = state.logistics().revision();
+        Some(SecondaryActionOutcome::SurfaceGatheringStarted(work))
+            if work.resource() == nut_source && work.gathered_mass() == portion
+    ));
+    assert!(state.logistics().pending_secondary_use().is_none());
+    let reserved = state
+        .inventory()
+        .get_stockpile(carried)
+        .unwrap()
+        .reserved_inbound();
+    assert_eq!(reserved, portion);
     let held =
         advance_control_tick_with_direct_input(
             &registries,
@@ -414,73 +343,15 @@ fn explicit_direct_gathering_resolves_ambiguous_food_and_replays_a_retargeted_pr
         .unwrap();
     assert_eq!(
         held.secondary_action(),
-        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+        None,
+        "active work cannot be retargeted by another press"
     );
-    assert_eq!(
-        state.logistics().revision(),
-        buffered_revision,
-        "holding the same gathering choice must not repeatedly clear and requeue it"
-    );
-    // A newer explicit source supersedes the older one, without gathering
-    // any berry or spending an arbitrary held-action interval.
-    let retarget = advance_control_tick_with_direct_input(
-        &registries,
-        &mut state,
-        PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::gather_surface(
-            nut_source, portion, direction,
-        )),
-    )
-    .unwrap();
-    assert_eq!(
-        retarget.secondary_action(),
-        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
-    );
-    assert_eq!(
-        state
-            .logistics()
-            .pending_secondary_use()
-            .unwrap()
-            .surface_request(),
-        Some((nut_source, portion))
-    );
+
     let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
-    for invalid_field in [0_usize, 1_usize] {
-        let mut forged = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
-        forged["state"]["systems"]["logistics"]["pending_secondary_use"]["surface_request"]
-            [invalid_field] = serde_json::json!(0);
-        let decoded: LoadedSaveEnvelope = serde_json::from_value(forged).unwrap();
-        assert_eq!(
-            decoded.into_state(&registries),
-            Err(crate::persistence::LoadError::InvalidState(
-                crate::core::state::StateValidationError::Logistics(
-                    crate::logistics::LogisticsValidationError::PendingSecondaryUseSurfaceRequestInvalid
-                )
-            )),
-            "trusted load must reject an impossible selected resource ID or mass"
-        );
-    }
-    let loaded: LoadedSaveEnvelope = serde_json::from_slice(&saved).unwrap();
-    let mut replay = loaded.into_state(&registries).unwrap();
-    assert_eq!(state, replay);
-    let mut started = false;
-    while !state.control_tick().is_simulation_boundary() {
-        let current = advance_control_tick(&registries, &mut state).unwrap();
-        let restored = advance_control_tick(&registries, &mut replay).unwrap();
-        assert_eq!(current, restored);
-        if let Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) =
-            current.secondary_action()
-        {
-            assert_eq!(work.resource(), nut_source);
-            assert_eq!(work.gathered_mass(), portion);
-            started = true;
-        } else {
-            assert_eq!(current.secondary_action(), None);
-        }
-    }
-    assert!(
-        started,
-        "queued chosen source must begin exactly on the slow boundary"
-    );
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
     while state.player_work().active().is_some() {
         assert_eq!(
             advance_tick(&registries, &mut state).unwrap(),
@@ -505,19 +376,11 @@ fn explicit_direct_gathering_resolves_ambiguous_food_and_replays_a_retargeted_pr
         Mass::ZERO
     );
     assert_eq!(
-        state
-            .available_surface_resources()
-            .find(|source| source.id() == berry_source)
-            .unwrap()
-            .remaining_mass(),
+        state.surface().get(berry_source).unwrap().remaining_mass(),
         one_kilo
     );
     assert_eq!(
-        state
-            .available_surface_resources()
-            .find(|source| source.id() == nut_source)
-            .unwrap()
-            .remaining_mass(),
+        state.surface().get(nut_source).unwrap().remaining_mass(),
         nut_mass.checked_sub(portion).unwrap()
     );
     assert_eq!(
@@ -556,7 +419,7 @@ fn explicit_gathering_rejects_unadmitted_player_without_mutating_resources() {
 }
 
 #[test]
-fn simultaneous_drop_cancels_a_pending_and_held_explicit_gather() {
+fn simultaneous_drop_and_gather_does_not_start_work() {
     let registries = build_registries();
     let mut state = AppState::new();
     let at = VoxelCoord::new(0, 0, 0);
@@ -584,17 +447,7 @@ fn simultaneous_drop_cancels_a_pending_and_held_explicit_gather() {
     let matter_before = calculate_matter_accounting(&state).unwrap().total();
     let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
     let action = SecondaryControlIntent::gather_surface(source, mass, direction);
-    let queued = advance_control_tick_with_direct_input(
-        &registries,
-        &mut state,
-        PlayerDirectControlInput::NEUTRAL.with_secondary(action),
-    )
-    .unwrap();
-    assert_eq!(
-        queued.secondary_action(),
-        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
-    );
-    let drop = advance_control_tick_with_direct_input(
+    let control = advance_control_tick_with_direct_input(
         &registries,
         &mut state,
         PlayerDirectControlInput::NEUTRAL
@@ -602,12 +455,8 @@ fn simultaneous_drop_cancels_a_pending_and_held_explicit_gather() {
             .with_drop_active_selection(),
     )
     .unwrap();
-    assert_eq!(drop.secondary_action(), None);
+    assert_eq!(control.secondary_action(), None);
     assert!(state.logistics().pending_secondary_use().is_none());
-    while !state.control_tick().is_simulation_boundary() {
-        let settled = advance_control_tick(&registries, &mut state).unwrap();
-        assert_eq!(settled.secondary_action(), None);
-    }
     assert!(state.player_work().active().is_none());
     assert_eq!(
         state
@@ -617,14 +466,7 @@ fn simultaneous_drop_cancels_a_pending_and_held_explicit_gather() {
             .get_mass(commodity),
         Mass::ZERO
     );
-    assert_eq!(
-        state
-            .available_surface_resources()
-            .next()
-            .unwrap()
-            .remaining_mass(),
-        mass
-    );
+    assert_eq!(state.surface().get(source).unwrap().remaining_mass(), mass);
     assert_eq!(
         calculate_matter_accounting(&state).unwrap().total(),
         matter_before

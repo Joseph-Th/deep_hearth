@@ -70,10 +70,8 @@ pub(super) fn exercise_native_copper_preservation(
             .any(|record| record.commodity() == CommodityKey::new(MATERIAL_CLAY, FORM_LUMP)),
         "clay and copper must be co-located but independently selectable natural resources"
     );
-    // Two different gatherable materials occupy this same outcrop. The
-    // unqualified hand action is ambiguous; the real direct-control gesture
-    // selects the visible copper source and exactly 40 g, then waits for
-    // its slow-boundary admission and timed completion.
+    // With clay and copper co-located, the player selects the visible copper
+    // identity and amount. Admission occurs immediately; harvesting is timed.
     let direction = ViewDirection::new(0, VIEW_DIRECTION_PARTS_PER_MILLION, 0).unwrap();
     let chosen =
         advance_control_tick_with_direct_input(
@@ -84,30 +82,11 @@ pub(super) fn exercise_native_copper_preservation(
             ),
         )
         .unwrap();
-    let wait = chosen.queued_action_wait_control_ticks().unwrap();
-    assert_eq!(
-        chosen.secondary_action(),
-        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
-    );
-    let mut copper_work = None;
-    for _ in 0..wait {
-        let update = advance_control_tick(registries, &mut built).unwrap();
-        if let Some(tick) = update.simulation() {
-            assert_tick_events_within(
-                tick,
-                TickEventAllowance::default(),
-                "selected copper queue admission",
-            );
-        }
-        if let Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) =
-            update.secondary_action()
-        {
-            assert!(copper_work.replace(*work).is_none());
-        } else {
-            assert_eq!(update.secondary_action(), None);
-        }
-    }
-    let work = copper_work.unwrap_or_else(|| panic!("direct copper choice never began work"));
+    let work = match chosen.secondary_action() {
+        Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => *work,
+        other => panic!("direct copper choice did not begin immediately: {other:?}"),
+    };
+    assert_eq!(chosen.queued_action_wait_control_ticks(), None);
     assert_eq!(work.resource(), copper_source);
     assert_eq!(work.gathered_mass(), copper_collected);
     advance_to(

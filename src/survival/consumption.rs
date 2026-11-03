@@ -38,7 +38,8 @@ pub(crate) use freshness::{
 
 pub(crate) use absorption::{DirectConsumptionInstallment, direct_consumption_installment};
 pub(crate) use direct_use::{
-    assess_drink_store_to_full_admission, assess_eat_stack_to_full_admission,
+    assess_drink_store_to_full_admission, validate_drink_store_to_full_control_rate,
+    validate_eat_stack_to_full_control_rate,
 };
 
 /// Reserves the survival-owner revision span required by one direct-consumption action.

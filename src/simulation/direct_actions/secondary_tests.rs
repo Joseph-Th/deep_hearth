@@ -9,7 +9,11 @@ use crate::core::quantity::Temperature;
 use crate::material::MaterialComposition;
 use crate::player::validate_admit_player;
 use crate::spatial::VoxelCoord;
-use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources};
+use crate::surface::{
+    SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources,
+    validate_start_player_surface_gathering_option,
+};
+use crate::survival::validate_drink_store_to_full;
 
 #[test]
 fn contextual_gathering_counts_physical_sources_before_method_choices() {
@@ -405,8 +409,7 @@ fn gathering_without_surface_revision_headroom_cannot_mask_drinking() {
     );
     assert_eq!(validate_loaded_state(&registries, &exhausted), Ok(()));
 
-    // The ordinary held-use input must buffer across 20 Hz control samples,
-    // then choose the same viable drink at the slow boundary after revalidation.
+    // The ordinary held-use input now admits drinking on this control frame.
     let direction = ViewDirection::new(1_000_000, 0, 0).unwrap();
     let queued = advance_control_tick_with_direct_input(
         &registries,
@@ -415,33 +418,22 @@ fn gathering_without_surface_revision_headroom_cannot_mask_drinking() {
             .with_secondary(SecondaryControlIntent::use_active(direction)),
     )
     .unwrap();
-    assert_eq!(
+    assert!(matches!(
         queued.secondary_action(),
-        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
-    );
+        Some(SecondaryActionOutcome::DrinkingStarted(drink)) if drink.store() == stores[0]
+    ));
+    assert!(via_input.logistics().pending_secondary_use().is_none());
     let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &via_input)).unwrap();
     let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
         .unwrap()
         .into_state(&registries)
         .unwrap();
-    let mut started = false;
     for _ in 0..crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK {
         let current = advance_control_tick(&registries, &mut via_input).unwrap();
         let restored = advance_control_tick(&registries, &mut replay).unwrap();
         assert_eq!(current, restored);
         assert_eq!(via_input, replay);
-        if matches!(
-            current.secondary_action(),
-            Some(SecondaryActionOutcome::DrinkingStarted(drink)) if drink.store() == stores[0]
-        ) {
-            started = true;
-            break;
-        }
     }
-    assert!(
-        started,
-        "buffered use must start drinking on its next slow boundary"
-    );
     assert_eq!(via_input.surface().revision(), u64::MAX);
     assert_eq!(validate_loaded_state(&registries, &via_input), Ok(()));
 }
@@ -515,10 +507,13 @@ fn drinking_without_survival_revision_headroom_cannot_mask_short_gathering() {
             DrinkError::SimulationBoundary(_)
         ))
     ));
-    assert_eq!(
-        attempt_empty_hand_secondary_action(&registries, &mut off_boundary),
-        SecondaryActionOutcome::DeferredUntilSimulationBoundary,
-        "off-boundary admission preview must not make an impossible drink compete with gathering"
+    let mut via_input = off_boundary.clone();
+    assert!(
+        matches!(
+            attempt_empty_hand_secondary_action(&registries, &mut off_boundary),
+            SecondaryActionOutcome::SurfaceGatheringStarted(_)
+        ),
+        "an impossible drink cannot hide an immediately admissible gather"
     );
     assert!(
         matches!(
@@ -531,9 +526,7 @@ fn drinking_without_survival_revision_headroom_cannot_mask_short_gathering() {
         state.fluid().get_store(stores[0]).unwrap().stored_volume(),
         minimum
     );
-    // Buffered use replays across the slow boundary and never touches the
-    // unspendable local water.
-    let mut via_input = off_boundary;
+    // Input-frame gathering replays through its work interval without taking water.
     let conserved = calculate_matter_accounting(&via_input).unwrap().total();
     let direction = ViewDirection::new(1_000_000, 0, 0).unwrap();
     let queued = advance_control_tick_with_direct_input(
@@ -543,34 +536,23 @@ fn drinking_without_survival_revision_headroom_cannot_mask_short_gathering() {
             .with_secondary(SecondaryControlIntent::use_active(direction)),
     )
     .unwrap();
-    assert_eq!(
+    assert!(matches!(
         queued.secondary_action(),
-        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
-    );
+        Some(SecondaryActionOutcome::SurfaceGatheringStarted(work))
+            if work.resource() == option.resource()
+    ));
+    assert!(via_input.logistics().pending_secondary_use().is_none());
     let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &via_input)).unwrap();
     let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
         .unwrap()
         .into_state(&registries)
         .unwrap();
-    let mut started = false;
     for _ in 0..crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK {
         let outcome = advance_control_tick(&registries, &mut via_input).unwrap();
         let restored = advance_control_tick(&registries, &mut replay).unwrap();
         assert_eq!(outcome, restored);
         assert_eq!(via_input, replay);
-        if matches!(
-            outcome.secondary_action(),
-            Some(SecondaryActionOutcome::SurfaceGatheringStarted(work))
-                if work.resource() == option.resource()
-        ) {
-            started = true;
-            break;
-        }
     }
-    assert!(
-        started,
-        "buffered use must start gathering instead of impossible drinking"
-    );
     assert_eq!(
         via_input
             .fluid()

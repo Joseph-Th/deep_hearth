@@ -23,38 +23,29 @@ fn empty_hand_secondary_use_drinks_from_one_finite_local_source() {
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("direct-drink water placement commit failed: {error}"));
     assert_eq!(state.logistics().active_selection(), None);
+    // A fresh player is fully hydrated. Advance one metabolic tick so this
+    // press has a genuine intake need on the input frame.
+    let _ = advance_tick(&registries, &mut state).unwrap();
 
     let input = PlayerDirectControlInput::NEUTRAL
         .with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
-    let queued = advance_control_tick_with_direct_input(&registries, &mut state, input)
-        .unwrap_or_else(|error| panic!("direct-drink queue control failed: {error}"));
-    assert_eq!(
-        queued.secondary_action(),
-        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
-    );
-    assert!(state.logistics().pending_secondary_use().is_some());
+    let control = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("direct-drink control failed: {error}"));
+    let started = match control.secondary_action() {
+        Some(SecondaryActionOutcome::DrinkingStarted(outcome)) => *outcome,
+        other => panic!("direct-drink returned unexpected outcome: {other:?}"),
+    };
+    assert!(state.logistics().pending_secondary_use().is_none());
     assert_eq!(
         crate::logistics::validate_loaded_logistics(&registries, &state),
         Ok(())
     );
-
-    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state))
-        .unwrap_or_else(|error| panic!("queued direct-drink serialization failed: {error}"));
-    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&encoded)
-        .unwrap_or_else(|error| panic!("queued direct-drink decode failed: {error}"));
-    state = decoded
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    state = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
         .into_state(&registries)
-        .unwrap_or_else(|error| panic!("queued direct-drink load failed: {error}"));
+        .unwrap();
 
-    let started = loop {
-        let control = advance_control_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("direct-drink neutral continuation failed: {error}"));
-        match control.secondary_action() {
-            Some(SecondaryActionOutcome::DrinkingStarted(outcome)) => break *outcome,
-            None => {}
-            other => panic!("direct-drink returned unexpected outcome: {other:?}"),
-        }
-    };
     assert!(!started.volume().is_zero());
     assert_eq!(started.store(), water);
     assert_eq!(
@@ -134,21 +125,13 @@ fn empty_hand_secondary_use_gathers_one_local_natural_opportunity() {
     let input = PlayerDirectControlInput::NEUTRAL
         .with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
 
-    let queued = advance_control_tick_with_direct_input(&registries, &mut state, input)
-        .unwrap_or_else(|error| panic!("direct-gather queue control failed: {error}"));
-    assert_eq!(
-        queued.secondary_action(),
-        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
-    );
-    let work = loop {
-        let control = advance_control_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("direct-gather neutral continuation failed: {error}"));
-        match control.secondary_action() {
-            Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => break *work,
-            None => {}
-            other => panic!("direct-gather returned unexpected outcome: {other:?}"),
-        }
+    let result = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("direct-gather control failed: {error}"));
+    let work = match result.secondary_action() {
+        Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => *work,
+        other => panic!("direct-gather returned unexpected outcome: {other:?}"),
     };
+    assert!(state.logistics().pending_secondary_use().is_none());
 
     assert_eq!(work.resource(), stone);
     assert_eq!(work.method(), SURFACE_GATHERING_HAND_COLLECT_STONE);
@@ -205,23 +188,11 @@ fn empty_hand_secondary_use_clamps_surface_gathering_to_carried_capacity() {
     let input = PlayerDirectControlInput::NEUTRAL
         .with_secondary(SecondaryControlIntent::use_active(positive_x_view()));
 
-    let queued = advance_control_tick_with_direct_input(&registries, &mut state, input)
-        .unwrap_or_else(|error| panic!("capacity-clamped direct-gather queue failed: {error}"));
-    assert_eq!(
-        queued.secondary_action(),
-        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
-    );
-    let work = loop {
-        let control = advance_control_tick(&registries, &mut state).unwrap_or_else(|error| {
-            panic!("capacity-clamped direct-gather neutral continuation failed: {error}")
-        });
-        match control.secondary_action() {
-            Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => break *work,
-            None => {}
-            other => {
-                panic!("capacity-clamped direct-gather returned unexpected outcome: {other:?}")
-            }
-        }
+    let result = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("capacity-clamped direct-gather failed: {error}"));
+    let work = match result.secondary_action() {
+        Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => *work,
+        other => panic!("capacity-clamped direct-gather returned unexpected outcome: {other:?}"),
     };
 
     assert_eq!(work.resource(), stone);

@@ -543,14 +543,12 @@ fn exercise_generated_clay_casting_bed_for_seed(seed: WorldGenerationSeed, repor
         .find(|resource| resource.id() == nuts_source)
         .unwrap_or_else(|| panic!("clay worksite cannot inspect the discovered protein source"))
         .remaining_mass();
-    // Ordinary generated-world player input, not the direct gathering test
-    // helper: choose a smaller protein ration before committing to the long
-    // construction job. Preserve the visible identity through the buffered
-    // control interval and the canonical slow-work completion.
+    // Select a physical wild-nut serving directly on the input frame;
+    // source mass settles only when the scheduled gathering completes.
     let selected_nuts = Mass::from_milligrams(150_000);
     let upward = ViewDirection::new(0, VIEW_DIRECTION_PARTS_PER_MILLION, 0)
         .unwrap_or_else(|error| panic!("clay worksite direct gather view invalid: {error}"));
-    let queued_nuts =
+    let selected =
         advance_control_tick_with_direct_input(
             &registries,
             &mut state,
@@ -559,34 +557,11 @@ fn exercise_generated_clay_casting_bed_for_seed(seed: WorldGenerationSeed, repor
             ),
         )
         .unwrap_or_else(|error| panic!("worksite deliberate protein choice failed: {error}"));
-    assert_eq!(
-        queued_nuts.secondary_action(),
-        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
-    );
-    let wait_control = queued_nuts
-        .queued_action_wait_control_ticks()
-        .unwrap_or_else(|| panic!("worksite selected ration was not acknowledged as queued"));
-    let mut selected_work = None;
-    for _ in 0..wait_control {
-        let outcome = advance_control_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("worksite protein queued control failed: {error}"));
-        if let Some(tick) = outcome.simulation() {
-            assert_tick_events_within(
-                tick,
-                TickEventAllowance::default(),
-                "queued worksite protein admission",
-            );
-        }
-        if let Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) =
-            outcome.secondary_action()
-        {
-            assert!(selected_work.replace(*work).is_none());
-        } else {
-            assert_eq!(outcome.secondary_action(), None);
-        }
-    }
-    let selected_work = selected_work
-        .unwrap_or_else(|| panic!("worksite targeted gathering did not start at the due boundary"));
+    let selected_work = match selected.secondary_action() {
+        Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => *work,
+        other => panic!("worksite targeted gathering did not start immediately: {other:?}"),
+    };
+    assert_eq!(selected.queued_action_wait_control_ticks(), None);
     assert_eq!(selected_work.resource(), nuts_source);
     assert_eq!(selected_work.gathered_mass(), selected_nuts);
     advance_to(
@@ -931,12 +906,12 @@ fn exercise_generated_clay_casting_bed_for_seed(seed: WorldGenerationSeed, repor
             .checked_sub(final_reserves.hydration())
             .unwrap_or_else(|| panic!("clay project gained unexplained hydration"));
         std::println!(
-            "PLAYER PROJECT PROVISION seed=0x{:016X} episode=coverage/rested/clay-worksite evidence=generated-direct-control choice=[protein-wild-nuts:{}mg from:{}mg] action=[explicit-source:{} buffered:{}ct slow-work:{}t] consequence=[carried:{}mg left-at-source:{}mg] automatic-other-source=false matter=conserved",
+            "PLAYER PROJECT PROVISION seed=0x{:016X} episode=coverage/rested/clay-worksite evidence=generated-direct-control choice=[protein-wild-nuts:{}mg from:{}mg] action=[explicit-source:{} admission-delay:{}ct slow-work:{}t] consequence=[carried:{}mg left-at-source:{}mg] automatic-other-source=false matter=conserved",
             seed.value(),
             selected_nuts.milligrams(),
             nuts_initial.milligrams(),
             nuts_source.value(),
-            wait_control,
+            0,
             selected_work.completes_at().value() - selected_work.started_at().value(),
             selected_nuts.milligrams(),
             nuts_before.milligrams(),

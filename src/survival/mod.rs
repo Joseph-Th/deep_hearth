@@ -9,7 +9,8 @@ mod state;
 mod validation;
 
 pub(crate) use consumption::{
-    assess_drink_store_to_full_admission, assess_eat_stack_to_full_admission,
+    assess_drink_store_to_full_admission, validate_drink_store_to_full_control_rate,
+    validate_eat_stack_to_full_control_rate,
 };
 pub(crate) use consumption::{
     assess_surface_food_freshness, edible_surface_food_definition, freshness_from_history,

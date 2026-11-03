@@ -54,8 +54,8 @@ def wilderness_summary(lines: list[str]) -> str | None:
             r"\bhaul=\[timber:(\d+)mg carried:(\d+)mg/(\d+)mg return:(\d+)ct\]",
             direct_use_lines[0],
         )
-        queue = re.search(
-            r"\bqueue=\[forage:(\d+)ct drink:(\d+)ct timber:(\d+)ct\]",
+        lag = re.search(
+            r"\badmission-lag=\[forage:(\d+)ct drink:(\d+)ct timber:(\d+)ct\]",
             direct_use_lines[0],
         )
         body_effort = re.search(
@@ -68,21 +68,20 @@ def wilderness_summary(lines: list[str]) -> str | None:
             or known_path is None
             or material_choice is None
             or haul is None
-            or queue is None
+            or lag is None
             or body_effort is None
         ):
             raise ValueError(
-                "wilderness direct-use witness lost route/projection/material/haul/body-effort/queue telemetry"
+                "wilderness direct-use witness lost route/projection/material/haul/body-effort/admission-lag telemetry"
             )
         if int(body_effort.group(3)) <= int(body_effort.group(4)) or int(
             body_effort.group(5)
         ) <= int(body_effort.group(6)):
             raise ValueError("wilderness jump no longer carries a survival cost above idle")
-        # The one-shot action is acknowledged on its input control tick, but the work
-        # cannot begin until a slow boundary. Surface the lived delay in seconds: raw
-        # control-tick counts conceal a multi-second interaction response.
-        queued_seconds = "/".join(
-            f"{int(queue.group(index)) / 20:.2f}"
+        # Direct-use admission occurs on the input frame. Expose control-frame
+        # latency as seconds so a future queuing regression is visible.
+        lag_seconds = "/".join(
+            f"{int(lag.group(index)) / 20:.2f}"
             for index in (1, 2, 3)
         )
         direct_use = (
@@ -90,7 +89,7 @@ def wilderness_summary(lines: list[str]) -> str | None:
             f"plan={known_path.group(1)}e/{known_path.group(2)}ct "
             f"mats={material_choice.group(2)}/{material_choice.group(1)} "
             f"haul={_mass_kg(int(haul.group(1)))}/{_mass_kg(int(haul.group(2)))}/{_mass_kg(int(haul.group(3)))}kg@{haul.group(4)}ct "
-            f"lag={queued_seconds}s use=one-shot "
+            f"lag={lag_seconds}s use=one-shot "
             + compact_fields(
                 direct_use_lines[0],
                 ("gather", "water", "hydration", "timed"),

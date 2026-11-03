@@ -251,32 +251,14 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
         .unwrap_or_else(|error| panic!("direct-use view direction failed: {error}"));
     let input = PlayerDirectControlInput::NEUTRAL
         .with_secondary(SecondaryControlIntent::use_active(direction));
-    let forage_queued = advance_control_tick_with_direct_input(&registries, &mut state, input)
-        .unwrap_or_else(|error| panic!("direct-use forage queue failed: {error}"));
-    assert_eq!(
-        forage_queued.secondary_action(),
-        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary),
-        "one empty-hand forage press should be retained until its legal work boundary"
-    );
-    let (forage_started_at, gathering) = loop {
-        let control = advance_control_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("direct-use forage continuation failed: {error}"));
-        match control.secondary_action() {
-            Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => {
-                break (control.control_tick(), *work);
-            }
-            None => {}
-            other => panic!("direct-use forage returned unexpected outcome: {other:?}"),
-        }
+    let forage_input = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("direct-use forage input failed: {error}"));
+    let gathering = match forage_input.secondary_action() {
+        Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => *work,
+        other => panic!("direct-use forage did not start immediately: {other:?}"),
     };
-    let forage_queue_ticks = forage_started_at
-        .checked_steps_since(forage_queued.control_tick())
-        .unwrap_or_else(|| panic!("direct-use forage start preceded queued input"));
-    assert_eq!(
-        forage_queued.queued_action_wait_control_ticks(),
-        Some(forage_queue_ticks),
-        "the input-tick wait projection must predict actual forage admission"
-    );
+    assert_eq!(forage_input.queued_action_wait_control_ticks(), None);
+    let forage_queue_ticks = 0_u64;
     assert_eq!(gathering.resource(), forage.resource());
     assert!(!gathering.gathered_mass().is_zero());
     advance_to(
@@ -333,32 +315,14 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
         .unwrap_or_else(|| panic!("direct-water actor disappeared before use"))
         .hydration();
 
-    let water_queued = advance_control_tick_with_direct_input(&registries, &mut state, input)
-        .unwrap_or_else(|error| panic!("direct-water queue failed: {error}"));
-    assert_eq!(
-        water_queued.secondary_action(),
-        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary),
-        "one empty-hand drink press should be retained until its legal work boundary"
-    );
-    let (water_started_at, started) = loop {
-        let control = advance_control_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("direct-water continuation failed: {error}"));
-        match control.secondary_action() {
-            Some(SecondaryActionOutcome::DrinkingStarted(outcome)) => {
-                break (control.control_tick(), *outcome);
-            }
-            None => {}
-            other => panic!("direct-water returned unexpected outcome: {other:?}"),
-        }
+    let water_input = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("direct-water input failed: {error}"));
+    let started = match water_input.secondary_action() {
+        Some(SecondaryActionOutcome::DrinkingStarted(outcome)) => *outcome,
+        other => panic!("direct-water drinking did not start immediately: {other:?}"),
     };
-    let water_queue_ticks = water_started_at
-        .checked_steps_since(water_queued.control_tick())
-        .unwrap_or_else(|| panic!("direct-water start preceded queued input"));
-    assert_eq!(
-        water_queued.queued_action_wait_control_ticks(),
-        Some(water_queue_ticks),
-        "the input-tick wait projection must predict actual drinking admission"
-    );
+    assert_eq!(water_input.queued_action_wait_control_ticks(), None);
+    let water_queue_ticks = 0_u64;
     assert_eq!(started.store(), water.store());
     assert!(!started.volume().is_zero());
     assert_eq!(
@@ -450,32 +414,14 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
         .find(|resource| resource.id() == timber.resource())
         .map(|resource| resource.remaining_mass())
         .unwrap_or_else(|| panic!("direct-use timber disappeared before haul gathering"));
-    let timber_queued = advance_control_tick_with_direct_input(&registries, &mut state, input)
-        .unwrap_or_else(|error| panic!("direct-use timber queue failed: {error}"));
-    assert_eq!(
-        timber_queued.secondary_action(),
-        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary),
-        "one empty-hand timber press should survive until its legal gathering boundary"
-    );
-    let (timber_started_at, timber_direct) = loop {
-        let control = advance_control_tick(&registries, &mut state)
-            .unwrap_or_else(|error| panic!("direct-use timber continuation failed: {error}"));
-        match control.secondary_action() {
-            Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => {
-                break (control.control_tick(), *work);
-            }
-            None => {}
-            other => panic!("direct-use timber returned unexpected outcome: {other:?}"),
-        }
+    let timber_input = advance_control_tick_with_direct_input(&registries, &mut state, input)
+        .unwrap_or_else(|error| panic!("direct-use timber input failed: {error}"));
+    let timber_direct = match timber_input.secondary_action() {
+        Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => *work,
+        other => panic!("direct-use timber did not start immediately: {other:?}"),
     };
-    let timber_queue_ticks = timber_started_at
-        .checked_steps_since(timber_queued.control_tick())
-        .unwrap_or_else(|| panic!("direct-use timber start preceded queued input"));
-    assert_eq!(
-        timber_queued.queued_action_wait_control_ticks(),
-        Some(timber_queue_ticks),
-        "the input-tick wait projection must predict actual timber admission"
-    );
+    assert_eq!(timber_input.queued_action_wait_control_ticks(), None);
+    let timber_queue_ticks = 0_u64;
     assert_eq!(timber_direct.resource(), timber.resource());
     advance_to(
         &registries,
@@ -616,7 +562,7 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
             .map(|store| store.stored_volume())
             .unwrap_or_else(|| panic!("direct-water source disappeared after use"));
         std::println!(
-            "WILDERNESS DIRECT USE seed=0x{:016X} movement=continuous-body route=[voxels:7 unique-edges:5/6 control-ticks:{}] known-path-projection=[edges:2 control-ticks:{} matched:true] material-choice=[stone+timber:2 visited:2] haul=[timber:{}mg carried:{}mg/{}mg return:{}ct] body-effort=[jump-load:{}mg vertical:{}nm/s energy:{}nJ>{}nJ-idle hydration:{}uL>{}uL-idle settle:{}ct] input=one-shot-empty-hand-secondary queue=[forage:{}ct drink:{}ct timber:{}ct] gather=[before:{}mg batch:{}mg remaining:{}mg] water=[before:{}uL serving:{}uL remaining:{}uL] hydration=[before:{}uL after:{}uL] timed=true",
+            "WILDERNESS DIRECT USE seed=0x{:016X} movement=continuous-body route=[voxels:7 unique-edges:5/6 control-ticks:{}] known-path-projection=[edges:2 control-ticks:{} matched:true] material-choice=[stone+timber:2 visited:2] haul=[timber:{}mg carried:{}mg/{}mg return:{}ct] body-effort=[jump-load:{}mg vertical:{}nm/s energy:{}nJ>{}nJ-idle hydration:{}uL>{}uL-idle settle:{}ct] input=one-shot-empty-hand-secondary admission-lag=[forage:{}ct drink:{}ct timber:{}ct] gather=[before:{}mg batch:{}mg remaining:{}mg] water=[before:{}uL serving:{}uL remaining:{}uL] hydration=[before:{}uL after:{}uL] timed=true",
             WILDERNESS_WORLD_SEED.value(),
             route_control_ticks,
             return_projection.control_ticks(),
@@ -988,6 +934,15 @@ fn advance_to(
     allowance: TickEventAllowance<'_>,
     context: &str,
 ) {
+    // Direct use starts on a control frame. Finish that frame's slow interval
+    // through actual body physics before using the neutral slow-tick helper.
+    while state.tick() < completes_at && !state.control_tick().is_simulation_boundary() {
+        let control = advance_control_tick(registries, state)
+            .unwrap_or_else(|error| panic!("wilderness {context} control failed: {error}"));
+        if let Some(tick) = control.simulation() {
+            assert_tick_events_within(tick, allowance, context);
+        }
+    }
     while state.tick() < completes_at {
         let outcome = advance_tick(registries, state)
             .unwrap_or_else(|error| panic!("wilderness {context} tick failed: {error}"));

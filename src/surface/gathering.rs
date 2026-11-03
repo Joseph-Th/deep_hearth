@@ -546,9 +546,8 @@ pub fn validate_start_player_surface_gathering_option(
     validate_player_gathering_option_with_mode(registries, state, option, mass, false)
 }
 
-/// Read-only feasibility for contextual use before the next slow boundary.
-/// Reuse all canonical gathering and labor prechecks, but never return an
-/// executable authorization from an off-boundary control sample.
+/// Read-only feasibility for contextual choice, using the same admission
+/// prechecks as the executable control-rate gathering action.
 pub(crate) fn assess_player_surface_gathering_option_admission(
     registries: &Registries,
     state: &AppState,
@@ -556,6 +555,17 @@ pub(crate) fn assess_player_surface_gathering_option_admission(
     mass: Mass,
 ) -> Result<(), SurfaceGatheringError> {
     validate_player_gathering_option_with_mode(registries, state, option, mass, true).map(|_| ())
+}
+
+/// Admit a contextual gathering job on the current control frame.
+/// Settlement still runs on the ordinary slow simulation tick.
+pub(crate) fn validate_start_player_surface_gathering_option_control_rate(
+    registries: &Registries,
+    state: &AppState,
+    option: PlayerSurfaceGatheringOption,
+    mass: Mass,
+) -> Result<ValidatedSurfaceGatheringStart, SurfaceGatheringError> {
+    validate_player_gathering_option_with_mode(registries, state, option, mass, true)
 }
 
 fn validate_player_gathering_option_with_mode(

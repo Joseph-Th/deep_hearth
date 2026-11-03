@@ -21,9 +21,11 @@ use super::{
 
 mod drink;
 use super::eating::validate_eat_with_mode;
-pub(crate) use drink::assess_drink_store_to_full_admission;
 pub use drink::{
     DrinkStoreToTargetError, validate_drink_store_to_full, validate_drink_store_to_hydration_target,
+};
+pub(crate) use drink::{
+    assess_drink_store_to_full_admission, validate_drink_store_to_full_control_rate,
 };
 
 /// Failure while composing a selected food stack into the exact eating transaction.
@@ -327,15 +329,14 @@ pub fn validate_eat_stack_to_full(
     validate_eat_stack_to_full_with_mode(registries, state, stack, false)
 }
 
-/// Previewing the selected food gesture cannot authorize consumption.
-/// Preserve queued-action ordering for both eligible meals and satisfied
-/// reserves, but reject genuinely inadmissible servings on the input frame.
-pub(crate) fn assess_eat_stack_to_full_admission(
+/// Admit selected food on the input control frame. It still uses the exact
+/// inventory, survival, and player-attention transaction.
+pub(crate) fn validate_eat_stack_to_full_control_rate(
     registries: &Registries,
     state: &AppState,
     stack: &MaterialStackProjection,
-) -> Result<(), EatStackToTargetError> {
-    validate_eat_stack_to_full_with_mode(registries, state, stack, true).map(|_| ())
+) -> Result<Option<ValidatedEat>, EatStackToTargetError> {
+    validate_eat_stack_to_full_with_mode(registries, state, stack, true)
 }
 
 fn validate_eat_stack_to_full_with_mode(

@@ -97,7 +97,7 @@ fn undersized_food_is_rejected_on_input_without_queueing_a_doomed_meal() {
 }
 
 #[test]
-fn viable_and_satisfied_food_preserve_buffered_boundary_ordering() {
+fn viable_food_starts_on_input_and_satisfied_food_does_not_queue() {
     let (registries, mut viable) = selected_berries(Mass::from_milligrams(250_000));
     let _ = advance_tick(&registries, &mut viable).unwrap();
     let carried = viable.logistics().player().unwrap().carried_stockpile();
@@ -106,15 +106,18 @@ fn viable_and_satisfied_food_preserve_buffered_boundary_ordering() {
         validate_eat_stack_to_full(&registries, &viable, &stack[0]),
         Ok(Some(_))
     ));
-    let queued =
+    let started =
         advance_control_tick_with_direct_input(&registries, &mut viable, use_selected_food())
             .unwrap();
-    assert_eq!(
-        queued.secondary_action(),
-        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
-    );
-    assert!(viable.logistics().pending_secondary_use().is_some());
-    assert!(viable.player_work().active().is_none());
+    assert!(matches!(
+        started.secondary_action(),
+        Some(SecondaryActionOutcome::EatingStarted(_))
+    ));
+    assert!(viable.logistics().pending_secondary_use().is_none());
+    assert!(matches!(
+        viable.player_work().active(),
+        Some(crate::labor::PlayerWork::Eating { .. })
+    ));
     assert_eq!(validate_loaded_state(&registries, &viable), Ok(()));
 
     let (registries, mut satisfied) = selected_berries(Mass::from_milligrams(250_000));
@@ -129,9 +132,9 @@ fn viable_and_satisfied_food_preserve_buffered_boundary_ordering() {
             .unwrap();
     assert_eq!(
         result.secondary_action(),
-        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+        Some(&SecondaryActionOutcome::AlreadySatisfied)
     );
-    assert!(satisfied.logistics().pending_secondary_use().is_some());
+    assert!(satisfied.logistics().pending_secondary_use().is_none());
     assert!(satisfied.player_work().active().is_none());
     assert_eq!(validate_loaded_state(&registries, &satisfied), Ok(()));
 }
