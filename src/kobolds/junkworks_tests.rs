@@ -22,6 +22,7 @@ use crate::surface::{SurfaceResourceSpec, validate_create_surface_resources};
 const DEN: VoxelCoord = VoxelCoord::new(-1, 0, 0);
 const JUNCTION: VoxelCoord = VoxelCoord::new(0, 0, 0);
 const TIP: VoxelCoord = VoxelCoord::new(1, 0, 0);
+const SIDE: VoxelCoord = VoxelCoord::new(0, 0, 1);
 const OBSERVER: VoxelCoord = VoxelCoord::new(-3, 0, 0);
 const TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 
@@ -322,6 +323,157 @@ fn undersized_iron_fragment_cannot_replace_a_working_wooden_clapper() {
             ))
             .unwrap()
     );
+}
+
+/// Both competing resources exist at the decision tick. Only the tip part's
+/// actual usability and the den's current need differ between the cases.
+fn tip_part_competing_with_side_scrap(
+    tip_part: CommodityKey,
+    temperature: Temperature,
+    den_has_striker: bool,
+) -> (Registries, AppState, SurfaceResourceId, SurfaceResourceId) {
+    let (registries, mut state) = mobilized_den();
+    add_traversable_edge_for_test(&mut state, JUNCTION, SIDE);
+    put_drop(
+        &registries,
+        &mut state,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+    );
+    if den_has_striker {
+        put_drop(
+            &registries,
+            &mut state,
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+        );
+    }
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        TIP,
+        tip_part,
+        Mass::from_milligrams(50_000),
+        temperature,
+        MaterialComposition::pure(tip_part.material()),
+    )
+    .unwrap();
+    let planned = validate_create_surface_resources(&registries, &state, [spec]).unwrap();
+    let part_id = planned.first_resource_id();
+    planned.commit(&mut state).unwrap();
+    let side_stone = put_drop_at(
+        &registries,
+        &mut state,
+        SIDE,
+        CommodityKey::new(MATERIAL_STONE, crate::content::FORM_LUMP),
+    );
+    (registries, state, part_id, side_stone)
+}
+
+#[test]
+fn useful_main_route_clapper_precedes_unneeded_side_scrap() {
+    let (registries, mut state, iron, side_stone) = tip_part_competing_with_side_scrap(
+        CommodityKey::new(MATERIAL_IRON, FORM_SCRAP),
+        TEMPERATURE,
+        true,
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    advance_to(&registries, &mut state, 205);
+    advance_to(&registries, &mut replay, 205);
+    assert_eq!(state, replay);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        TIP,
+        "the scout must not detour for ordinary stone while its alarm needs a visible iron clapper"
+    );
+    advance_to(&registries, &mut state, 215);
+    advance_to(&registries, &mut replay, 215);
+    assert_eq!(state, replay);
+    assert_eq!(state.surface().get(iron).unwrap().position(), DEN);
+    assert_eq!(state.surface().get(side_stone).unwrap().position(), SIDE);
+    assert_eq!(
+        current_den_rig(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .kind(),
+        KoboldJunkRigKind::IronChime
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn missing_main_route_striker_precedes_unneeded_side_scrap() {
+    let (registries, mut state, striker, side_stone) = tip_part_competing_with_side_scrap(
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+        TEMPERATURE,
+        false,
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 205);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        TIP,
+        "an alarm missing its striker should seek the usable tip part first"
+    );
+    advance_to(&registries, &mut state, 215);
+    assert_eq!(state.surface().get(striker).unwrap().position(), DEN);
+    assert_eq!(state.surface().get(side_stone).unwrap().position(), SIDE);
+    assert_eq!(
+        current_den_rig(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .kind(),
+        KoboldJunkRigKind::TimberRatchet
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn too_hot_tip_clapper_does_not_override_safe_side_scavenging() {
+    let (registries, mut state, iron, stone) = tip_part_competing_with_side_scrap(
+        CommodityKey::new(MATERIAL_IRON, FORM_SCRAP),
+        Temperature::from_millikelvin(373_150),
+        true,
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 205);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        SIDE,
+        "ungraspable iron is not a viable alarm upgrade or a reason to ignore safe loot"
+    );
+    advance_to(&registries, &mut state, 210);
+    assert_eq!(state.surface().get(iron).unwrap().position(), TIP);
+    assert_eq!(state.surface().get(stone).unwrap().position(), JUNCTION);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

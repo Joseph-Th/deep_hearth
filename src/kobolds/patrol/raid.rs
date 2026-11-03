@@ -31,6 +31,8 @@ pub(super) struct ScoutRaidInterest {
     pub(super) inherited_target: Option<(VoxelCoord, Option<VoxelCoord>)>,
     pub(super) preferred_forage: Option<(VoxelCoord, Option<VoxelCoord>)>,
     pub(super) preferred_water: Option<(VoxelCoord, Option<VoxelCoord>)>,
+    // A real, visible part needed at the patrol tip outranks optional side scavenging.
+    pub(super) needed_tip_salvage: bool,
 }
 
 /// Choose a larger observed ration only when nearby food is insufficient.
@@ -173,45 +175,27 @@ pub(super) fn scout_raid_interest(
         )
     })
     .flatten();
-    // A shaped striker on the authored outer patrol is a real salvage goal too.
-    // A fed kobold bypasses nearer inert rock only while the part is still
-    // visible, den-fitting, physically reachable, unguarded, and unlit.
-    let missing_striker_at_tip = colony.mobilized_at.is_some()
+    // A real part at the main patrol tip is worth reaching before optional
+    // side scrap. Check capacity, handling, sight and danger once for both
+    // a missing striker and a higher-quality replacement; neither is a
+    // valid goal simply because the item's shape matches the rig.
+    let can_seek_tip_part = colony.mobilized_at.is_some()
         && !water_deprived
         && colony.scout_step == 1
         && !colony.returning
-        && !pressured
-        && den_or_relay_needs_striker(state, colony.route[0])
+        && !pressured;
+    let needs_striker = can_seek_tip_part && den_or_relay_needs_striker(state, colony.route[0]);
+    let wants_iron = can_seek_tip_part && den_or_relay_wants_iron_chime(state, colony);
+    let needed_junk_at_tip = (needs_striker || wants_iron)
         && state
             .surface()
             .available_resources_at(Some(colony.route[2]))
             .any(|resource| {
                 is_portable_drop(resource)
                     && resource.remaining_mass() <= capacity
-                    && is_junk_striker(resource)
                     && scout_wants_loose_drop(registries, state, resource, at)
-            })
-        && scout_visible_from(registries, state, from, colony.route[2])
-        && scout_can_enter(registries, state, colony.route[2], player_position)
-        && !scout_sees_guarded_cell(registries, state, from, colony.route[2])
-        && assess_local_illumination(registries, state, colony.route[2]).level()
-            < SCOUT_DETERRENT_LIGHT_LEVEL;
-    // Having actually seen a usable metal replacement, the scout will not
-    // turn home for inert junk at the junction. Visibility, carriage, den
-    // capacity and deterrents are checked before treating this as a goal.
-    let useful_iron_at_tip = colony.mobilized_at.is_some()
-        && !water_deprived
-        && colony.scout_step == 1
-        && !colony.returning
-        && !pressured
-        && den_or_relay_wants_iron_chime(state, colony)
-        && state
-            .surface()
-            .available_resources_at(Some(colony.route[2]))
-            .any(|resource| {
-                is_portable_drop(resource)
-                    && resource.remaining_mass() <= capacity
-                    && is_iron_chime_striker(resource)
+                    && ((needs_striker && is_junk_striker(resource))
+                        || (wants_iron && is_iron_chime_striker(resource)))
             })
         && scout_visible_from(registries, state, from, colony.route[2])
         && scout_can_enter(registries, state, colony.route[2], player_position)
@@ -223,6 +207,7 @@ pub(super) fn scout_raid_interest(
         && colony.scout_step == 1
         && !colony.returning
         && reachable_needed_tool_at_tip(registries, state, colony, context);
+    let needed_tip_salvage = needed_junk_at_tip || missing_tool_at_tip;
     let exposed = (has_local_scout_interest(
         registries,
         state,
@@ -232,11 +217,7 @@ pub(super) fn scout_raid_interest(
         at,
         colony.seeks_food_at_junction(),
     ) || (colony.scout_step == 2 && local_food))
-        && ((inherited_target.is_none()
-            && !missing_striker_at_tip
-            && !useful_iron_at_tip
-            && !missing_tool_at_tip)
-            || local_food)
+        && ((inherited_target.is_none() && !needed_tip_salvage) || local_food)
         && !continue_to_planned_far_raid(registries, state, colony, context)
         && preferred_forage.is_none()
         && preferred_water.is_none();
@@ -245,6 +226,7 @@ pub(super) fn scout_raid_interest(
         inherited_target,
         preferred_forage,
         preferred_water,
+        needed_tip_salvage,
     }
 }
 
@@ -467,10 +449,16 @@ pub(super) fn choose_outbound_detour(
         inherited_target,
         preferred_forage,
         preferred_water,
+        needed_tip_salvage,
         ..
     } = interest;
     if let Some(route) = preferred_water {
         return Some(route);
+    }
+    // Going to the nearby, already-seen part needs no side route. A selected
+    // inherited salvage mission still wins, and urgent food or water comes first.
+    if needed_tip_salvage && inherited_target.is_none() && !colony.hungry {
+        return None;
     }
     let junction = colony.route[1];
     let route = ScavengeRoute::new(colony.route, player_position);
@@ -561,10 +549,12 @@ pub(super) fn choose_outbound_detour(
         };
         // Food first, then the remembered machine-service salvage priority.
         // Ordinary nearby scraps remain available when neither is reachable.
-        food_choice()
-            .or_else(wild_food)
-            .or_else(inherited_salvage)
-            .or_else(|| loose_cache(false))
+        let priority_route = food_choice().or_else(wild_food).or_else(inherited_salvage);
+        if priority_route.is_some() || needed_tip_salvage {
+            priority_route
+        } else {
+            loose_cache(false)
+        }
     } else {
         inherited_salvage()
             .or_else(|| loose_cache(false))
