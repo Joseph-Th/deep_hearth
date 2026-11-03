@@ -473,6 +473,53 @@ fn hydrated_player_with_two_local_water_sources_has_no_drink_choice_to_make() {
 }
 
 #[test]
+fn observed_water_without_a_survival_actor_does_not_invent_full_hydration() {
+    use crate::content::FLUID_WATER;
+    use crate::fluid::add_fluid_store_with_contents_for_fixture;
+    use crate::logistics::{validate_initialize_player_logistics, validate_place_fluid_store};
+    use crate::survival::{DrinkStoreToTargetError, available_local_drink_sources};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let volume = registries
+        .survival()
+        .physiology()
+        .direct_consumption()
+        .minimum_drink_volume();
+    let store = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        volume,
+        FLUID_WATER,
+        volume,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_place_fluid_store(&state, store, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_initialize_player_logistics(&state, position, Mass::from_milligrams(25_000_000))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(state.survival().player().is_none());
+    assert_eq!(
+        available_local_drink_sources(&registries, &state)
+            .map(|source| source.store())
+            .collect::<Vec<_>>(),
+        vec![store]
+    );
+    let before = state.clone();
+    assert_eq!(
+        attempt_empty_hand_secondary_action(&registries, &mut state),
+        SecondaryActionOutcome::DrinkingRejected(DrinkStoreToTargetError::SurvivalNotInitialized)
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn unusable_water_remainder_does_not_obstruct_empty_hand_gathering() {
     use crate::core::quantity::Volume;
     use crate::survival::available_local_drink_sources;
