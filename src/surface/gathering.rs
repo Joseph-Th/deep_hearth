@@ -121,6 +121,7 @@ impl PlayerSurfaceGatheringOption {
         registries: &Registries,
         state: &AppState,
     ) -> Result<Option<PlayerSurfaceFoodValue>, SurfaceGatheringError> {
+        validate_gathering_player_observer(state)?;
         let actual_surface_revision = state.surface().revision();
         if actual_surface_revision != self.expected_surface_revision {
             return Err(SurfaceGatheringError::StalePlayerOption {
@@ -231,6 +232,7 @@ impl SurfaceGatheringRequest {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SurfaceGatheringError {
     PlayerNotLocated,
+    PlayerDead,
     StalePlayerOption {
         expected_surface_revision: u64,
         actual_surface_revision: u64,
@@ -304,6 +306,7 @@ impl Display for SurfaceGatheringError {
             Self::PlayerNotLocated => {
                 formatter.write_str("surface gathering requires an admitted player location")
             }
+            Self::PlayerDead => formatter.write_str("dead player cannot gather surface resources"),
             Self::StalePlayerOption {
                 expected_surface_revision,
                 actual_surface_revision,
@@ -424,6 +427,7 @@ impl Error for SurfaceGatheringError {
             Self::DestinationStorage(error) => Some(error),
             Self::PlayerWork(error) => Some(error),
             Self::PlayerNotLocated
+            | Self::PlayerDead
             | Self::StalePlayerOption { .. }
             | Self::UnknownMethod { .. }
             | Self::ResourceUnavailableAtPlayer { .. }
@@ -445,6 +449,19 @@ impl Error for SurfaceGatheringError {
     }
 }
 
+/// A logistics-only capability fixture may gather without a survival actor.
+/// A real actor whose survival record exists but is dead cannot observe or
+/// reuse the old body's exact-local resources before respawn.
+fn validate_gathering_player_observer(state: &AppState) -> Result<(), SurfaceGatheringError> {
+    if state.logistics().player().is_none() {
+        return Err(SurfaceGatheringError::PlayerNotLocated);
+    }
+    if state.player_observation_position().is_none() {
+        return Err(SurfaceGatheringError::PlayerDead);
+    }
+    Ok(())
+}
+
 /// Projects current exact-local natural gathering choices for the admitted player.
 ///
 /// Player-created drops are excluded because their ordinary path is automatic pickup. A resource
@@ -454,9 +471,7 @@ pub fn player_surface_gathering_options(
     registries: &Registries,
     state: &AppState,
 ) -> Result<Vec<PlayerSurfaceGatheringOption>, SurfaceGatheringError> {
-    if state.logistics().player().is_none() {
-        return Err(SurfaceGatheringError::PlayerNotLocated);
-    }
+    validate_gathering_player_observer(state)?;
     let expected_surface_revision = state.surface().revision();
     let mut options = Vec::new();
     for resource in state
@@ -550,6 +565,9 @@ fn validate_player_gathering_option_with_mode(
     mass: Mass,
     preview_off_boundary: bool,
 ) -> Result<ValidatedSurfaceGatheringStart, SurfaceGatheringError> {
+    // Obsolete actor snapshots cannot reveal source revision changes before
+    // the same liveness check used by the local gathering catalog.
+    validate_gathering_player_observer(state)?;
     let actual_surface_revision = state.surface().revision();
     if actual_surface_revision != option.expected_surface_revision {
         return Err(SurfaceGatheringError::StalePlayerOption {
@@ -574,6 +592,7 @@ pub(crate) fn assess_player_surface_gathering_reservation(
     state: &AppState,
     mass: Mass,
 ) -> Result<(), SurfaceGatheringError> {
+    validate_gathering_player_observer(state)?;
     let destination = state
         .logistics()
         .player()
@@ -727,9 +746,7 @@ fn validate_start_surface_gathering_with_mode(
         .ok_or(SurfaceGatheringError::UnknownMethod {
             method: request.method,
         })?;
-    if state.logistics().player().is_none() {
-        return Err(SurfaceGatheringError::PlayerNotLocated);
-    }
+    validate_gathering_player_observer(state)?;
     let resource = state
         .available_surface_resources()
         .find(|resource| resource.id() == request.resource)

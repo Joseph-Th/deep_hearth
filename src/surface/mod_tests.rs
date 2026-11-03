@@ -931,6 +931,171 @@ fn player_world_drop_projection_excludes_natural_opportunities() {
 }
 
 #[test]
+fn dead_player_cannot_query_or_start_surface_gathering_until_respawn() {
+    use crate::player::validate_respawn_player;
+    use crate::survival::player_record_with_thermal_comfort;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let resource = insert_surface_resource_for_test(
+        &registries,
+        &mut state,
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Opportunity,
+            position,
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(100_000),
+            TEMPERATURE,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let _ = admit_player(&registries, &mut state, position);
+    let option = player_surface_gathering_options(&registries, &state)
+        .unwrap()
+        .into_iter()
+        .find(|candidate| candidate.resource() == resource)
+        .expect("a living player must see the same exact-local 100 g stone source");
+    let portion = Mass::from_milligrams(25_000);
+    assert!(
+        validate_start_player_surface_gathering_option(&registries, &state, option, portion)
+            .is_ok(),
+        "the original gathered portion must be genuinely actionable when alive"
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+
+    let player = state.survival().player().copied().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            player.metabolic_energy(),
+            player.hydration(),
+            Vitality::ZERO,
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+            player.thermal_comfort_ppm(),
+        ),
+    );
+    assert_eq!(state.player_observation_position(), None);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let dead = state.clone();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for actor in [&state, &replay] {
+        assert_eq!(
+            player_surface_gathering_options(&registries, actor).err(),
+            Some(SurfaceGatheringError::PlayerDead),
+            "a dead actor must not get a successful empty local gathering catalog"
+        );
+        assert_eq!(
+            validate_start_player_surface_gathering_option(&registries, actor, option, portion)
+                .err(),
+            Some(SurfaceGatheringError::PlayerDead),
+            "a dead actor cannot reuse a previously observed gathering choice"
+        );
+        assert_eq!(
+            validate_start_player_surface_gathering(
+                &registries,
+                actor,
+                SURFACE_GATHERING_HAND_COLLECT_STONE,
+                resource,
+                portion,
+            )
+            .err(),
+            Some(SurfaceGatheringError::PlayerDead),
+        );
+        assert_eq!(
+            option.food_value(&registries, actor).err(),
+            Some(SurfaceGatheringError::PlayerDead),
+            "an obsolete option cannot inspect physical food history"
+        );
+        assert_eq!(
+            super::gathering::assess_player_surface_gathering_reservation(actor, portion),
+            Err(SurfaceGatheringError::PlayerDead),
+        );
+        assert_eq!(
+            actor.surface().get(resource).unwrap().remaining_mass(),
+            Mass::from_milligrams(100_000),
+        );
+    }
+    assert_eq!(state, dead);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+
+    for actor in [&mut state, &mut replay] {
+        let _ = validate_respawn_player(&registries, actor)
+            .unwrap()
+            .commit(actor)
+            .unwrap();
+        assert!(
+            player_surface_gathering_options(&registries, actor)
+                .unwrap()
+                .iter()
+                .any(|candidate| candidate.resource() == resource)
+        );
+        assert_eq!(validate_loaded_state(&registries, actor), Ok(()));
+        assert_eq!(
+            calculate_matter_accounting(actor).unwrap().total(),
+            conserved
+        );
+    }
+    assert_eq!(state, replay);
+}
+
+#[test]
+fn logistics_only_surface_gathering_observation_remains_available() {
+    use crate::logistics::validate_initialize_player_logistics;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let resource = insert_surface_resource_for_test(
+        &registries,
+        &mut state,
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Opportunity,
+            position,
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(100_000),
+            TEMPERATURE,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    validate_initialize_player_logistics(&state, position, Mass::from_milligrams(25_000_000))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(state.survival().player().is_none());
+    assert_eq!(state.player_observation_position(), Some(position));
+
+    let option = player_surface_gathering_options(&registries, &state)
+        .unwrap()
+        .into_iter()
+        .find(|candidate| candidate.resource() == resource)
+        .expect("logistics-only local stone is an observable gathering opportunity");
+    assert_eq!(option.source_mass(), Mass::from_milligrams(100_000));
+    assert_eq!(option.food_value(&registries, &state), Ok(None));
+    assert_eq!(
+        super::gathering::assess_player_surface_gathering_reservation(
+            &state,
+            Mass::from_milligrams(25_000),
+        ),
+        Ok(())
+    );
+}
+
+#[test]
 fn player_world_drop_pickup_preflight_follows_death_load_and_respawn() {
     use crate::player::validate_respawn_player;
     use crate::survival::player_record_with_thermal_comfort;
