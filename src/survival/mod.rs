@@ -8,7 +8,9 @@ mod resource_cost;
 mod state;
 mod validation;
 
-pub(crate) use consumption::assess_drink_store_to_full_admission;
+pub(crate) use consumption::{
+    assess_drink_store_to_full_admission, assess_eat_stack_to_full_admission,
+};
 pub(crate) use consumption::{
     assess_surface_food_freshness, edible_surface_food_definition, freshness_from_history,
 };

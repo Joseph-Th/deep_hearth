@@ -125,11 +125,16 @@ On the 20 Hz direct-input frame, selected log, handle and board placement checks
 the currently carried stack, visible target and unoccupied placement geometry before
 buffering. Invalid aims and missing materials reject immediately; a feasible
 construction still waits for canonical slow-tick admission and revalidation.
-Selected food use likewise resolves the actual carried stack before queuing;
-durable hotbar bindings to depleted food cannot reserve a doomed meal.
+Selected food use resolves the actual carried stack and performs read-only
+canonical meal admission before queuing. An absent, undersized, spoiled or
+otherwise inadmissible serving rejects on the input frame. Feasible meals
+and already-satisfied requests retain buffered-action ordering and receive
+fresh slow-boundary validation; only actual eating settles finite custody.
+Durable hotbar
+bindings to depleted food cannot reserve a doomed meal.
 The empty-hand contextual action does not let visible but sub-minimum water
-remainders, an inadmissible local withdrawal, or a full hydration reserve block
-otherwise valid local gathering.
+remainders, an inadmissible local withdrawal, a full hydration reserve, or
+an unusable gathering source block an otherwise valid local gather.
 Those stores remain observable; without gathering, the direct drinking path
 still reports its specific insufficiency or already-satisfied outcome. A real
 drink serving and a gatherable source remain explicitly ambiguous.

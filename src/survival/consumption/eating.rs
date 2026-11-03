@@ -269,7 +269,22 @@ pub fn validate_eat(
     source: StockpileId,
     selections: &[MaterialLotSelection],
 ) -> Result<ValidatedEat, EatError> {
-    require_simulation_boundary(state.control_tick()).map_err(EatError::SimulationBoundary)?;
+    validate_eat_with_mode(registries, state, source, selections, false)
+}
+
+/// Read-only input-frame feasibility shares the entire eating admission path.
+/// Its off-boundary token must be discarded; only a fresh slow-boundary
+/// validation can authorize the real inventory and survival mutations.
+pub(super) fn validate_eat_with_mode(
+    registries: &Registries,
+    state: &AppState,
+    source: StockpileId,
+    selections: &[MaterialLotSelection],
+    preview_off_boundary: bool,
+) -> Result<ValidatedEat, EatError> {
+    if !preview_off_boundary {
+        require_simulation_boundary(state.control_tick()).map_err(EatError::SimulationBoundary)?;
+    }
     let attention = validate_player_attention(state).map_err(|error| match error {
         PlayerAttentionError::SurvivalNotInitialized => EatError::SurvivalNotInitialized,
         PlayerAttentionError::PlayerDead => EatError::PlayerDead,

@@ -1,5 +1,8 @@
 //! Regression contracts for physical-source and gathering-method contextual selection.
 
+#[path = "secondary_tests/food_preview.rs"]
+mod food_preview;
+
 use super::*;
 use crate::content::{FORM_FOOD, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE, build_registries};
 use crate::core::quantity::Temperature;

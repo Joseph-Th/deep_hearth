@@ -16,8 +16,8 @@ use crate::surface::{
     player_surface_gathering_options, validate_start_player_surface_gathering_option,
 };
 use crate::survival::{
-    assess_drink_store_to_full_admission, available_local_drink_sources,
-    validate_drink_store_to_full, validate_eat_stack_to_full,
+    assess_drink_store_to_full_admission, assess_eat_stack_to_full_admission,
+    available_local_drink_sources, validate_drink_store_to_full, validate_eat_stack_to_full,
 };
 use crate::world::raycast_player_block;
 
@@ -426,10 +426,12 @@ pub(super) fn attempt_selected_secondary_action(
     // missing or ambiguous carried stack on the input frame, rather than
     // queuing a meal that is already impossible to start.
     if !state.control_tick().is_simulation_boundary() {
-        return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
+        return match assess_eat_stack_to_full_admission(registries, state, &stack) {
+            Ok(()) => SecondaryActionOutcome::DeferredUntilSimulationBoundary,
+            Err(error) => SecondaryActionOutcome::EatingRejected(error),
+        };
     }
-    let stack = &stack;
-    match validate_eat_stack_to_full(registries, state, stack) {
+    match validate_eat_stack_to_full(registries, state, &stack) {
         Ok(Some(validated)) => {
             let outcome = validated.commit(state).unwrap_or_else(|error| {
                 panic!(
