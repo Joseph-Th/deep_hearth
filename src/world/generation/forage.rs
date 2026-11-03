@@ -50,9 +50,46 @@ fn seeded_food(profile: WorldGenerationProfile, hash: u64, x: i64, z: i64) -> (C
     )
 }
 
+/// Candidate locations and food identity are fixed by the world seed. Runtime
+/// obstructions may skip an earlier site, but neither generation nor trusted
+/// load can select a site outside this finite set.
+fn seeded_forage_candidates(
+    profile: WorldGenerationProfile,
+    coord: ChunkCoord,
+) -> impl Iterator<Item = (VoxelCoord, CommodityKey, Mass)> {
+    let origin = (|| {
+        if profile.solid_state() != BLOCK_STATE_STONE {
+            return None;
+        }
+        let hash = district_hash(profile, coord);
+        if coord.x().rem_euclid(2) as u64 != hash & 1
+            || coord.z().rem_euclid(2) as u64 != (hash >> 1) & 1
+        {
+            return None;
+        }
+        let base_x = coord
+            .world_min_x()?
+            .checked_add(3 + ((hash >> 12) % 10) as i64)?;
+        let base_z = coord
+            .world_min_z()?
+            .checked_add(3 + ((hash >> 26) % 10) as i64)?;
+        Some((hash, base_x, base_z))
+    })();
+    [(0, 0), (2, 0), (0, 2), (-2, 0), (0, -2)]
+        .into_iter()
+        .filter_map(move |(dx, dz)| {
+            let (hash, base_x, base_z) = origin?;
+            let x = base_x.checked_add(dx)?;
+            let z = base_z.checked_add(dz)?;
+            let y = terrain_height(profile.seed(), x, z).checked_add(1)?;
+            let (commodity, mass) = seeded_food(profile, hash, x, z);
+            Some((VoxelCoord::new(x, y, z), commodity, mass))
+        })
+}
+
 /// Verify decoded rooted biomass against the original world seed without
 /// consulting changed terrain, current fruit, exploration order or live
-/// occupants. Any of the five original candidate roots was legal if earlier
+/// occupants. Any of the five original candidates was legal if earlier
 /// sites were obstructed at the generation boundary.
 pub(crate) fn seeded_perennial_matches(
     profile: WorldGenerationProfile,
@@ -60,34 +97,11 @@ pub(crate) fn seeded_perennial_matches(
     commodity: CommodityKey,
     original_fruit: Mass,
 ) -> bool {
-    if profile.solid_state() != BLOCK_STATE_STONE {
-        return false;
-    }
-    let coord = ChunkCoord::containing(position);
-    let hash = district_hash(profile, coord);
-    if coord.x().rem_euclid(2) as u64 != hash & 1
-        || coord.z().rem_euclid(2) as u64 != (hash >> 1) & 1
-    {
-        return false;
-    }
-    let Some((x, z)) = coord
-        .world_min_x()
-        .and_then(|x| x.checked_add(3 + ((hash >> 12) % 10) as i64))
-        .zip(
-            coord
-                .world_min_z()
-                .and_then(|z| z.checked_add(3 + ((hash >> 26) % 10) as i64)),
-        )
-    else {
-        return false;
-    };
-    [(0, 0), (2, 0), (0, 2), (-2, 0), (0, -2)]
-        .into_iter()
-        .filter_map(|(dx, dz)| Some((x.checked_add(dx)?, z.checked_add(dz)?)))
-        .any(|(cx, cz)| {
-            position == VoxelCoord::new(cx, terrain_height(profile.seed(), cx, cz) + 1, cz)
-                && seeded_food(profile, hash, cx, cz) == (commodity, original_fruit)
-        })
+    seeded_forage_candidates(profile, ChunkCoord::containing(position)).any(
+        |(candidate, food, mass)| {
+            candidate == position && food == commodity && mass == original_fruit
+        },
+    )
 }
 
 /// The sparse site is selected by district, not by independent chunk rolls.
@@ -99,16 +113,7 @@ pub(super) fn seeded_forage_spec(
     profile: WorldGenerationProfile,
     chunk: &WorldChunk,
 ) -> Option<SurfaceResourceSpec> {
-    if profile.solid_state() != BLOCK_STATE_STONE {
-        return None;
-    }
     let coord = chunk.coord();
-    let hash = district_hash(profile, coord);
-    if coord.x().rem_euclid(2) as u64 != hash & 1
-        || coord.z().rem_euclid(2) as u64 != (hash >> 1) & 1
-    {
-        return None;
-    }
     // The district has already received its single seeded shrub if even a
     // depleted perennial record survives. Do not reroll alternate sites or
     // mint new biomass on expansion after that patch was harvested.
@@ -120,22 +125,13 @@ pub(super) fn seeded_forage_spec(
     {
         return None;
     }
-    let min_x = coord.world_min_x()?;
-    let min_z = coord.world_min_z()?;
-    // A small number of alternate rooted sites prevents a single tree or
-    // already placed structure from erasing every nearby food opportunity.
-    let base_x = min_x.checked_add(3 + ((hash >> 12) % 10) as i64)?;
-    let base_z = min_z.checked_add(3 + ((hash >> 26) % 10) as i64)?;
     let tree = super::super::generated_tree(profile, chunk);
-    for (offset_x, offset_z) in [(0, 0), (2, 0), (0, 2), (-2, 0), (0, -2)] {
-        let x = base_x.checked_add(offset_x)?;
-        let z = base_z.checked_add(offset_z)?;
-        let floor = VoxelCoord::new(x, terrain_height(profile.seed(), x, z), z);
-        let position = VoxelCoord::new(x, floor.y().checked_add(1)?, z);
+    for (position, commodity, mass) in seeded_forage_candidates(profile, coord) {
+        let floor = VoxelCoord::new(position.x(), position.y().checked_sub(1)?, position.z());
+        let head = VoxelCoord::new(position.x(), position.y().checked_add(1)?, position.z());
         if chunk.block_at(floor) != BLOCK_STATE_STONE
             || chunk.block_at(position) != BlockStateId::AIR
-            || chunk.block_at(VoxelCoord::new(x, position.y().checked_add(1)?, z))
-                != BlockStateId::AIR
+            || chunk.block_at(head) != BlockStateId::AIR
             || tree.is_some_and(|tree| tree.occupies_trunk(position))
             || state.structures().blocks_full_cell(position)
             || state.logistics().has_stationary_occupant_at(position)
@@ -147,12 +143,6 @@ pub(super) fn seeded_forage_spec(
         {
             continue;
         }
-        // Both food type and yield are consequences of the local habitat,
-        // not independent resource rolls. Wet groves reward fruit seeking;
-        // sparse scrub carries less food but tends to provide dense nuts.
-        // The first crop ages from world creation; finite roots may later
-        // support a smaller new crop through the normal biological cycle.
-        let (commodity, mass) = seeded_food(profile, hash, x, z);
         if !registries.materials().has_commodity(commodity) {
             return None;
         }

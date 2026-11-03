@@ -17,6 +17,74 @@ use crate::surface::{
 use crate::world::validate_generate_chunk;
 
 #[test]
+fn obstructed_seeded_forage_uses_a_valid_alternate_without_changing_its_seed_identity() {
+    // This world has a seed-derived tree at the first candidate shrub site.
+    // Occupancy selects a later site; trusted load must recognize that
+    // alternative without admitting fabricated locations or biomass.
+    let registries = build_registries();
+    let seed = super::super::WorldGenerationSeed::new(1293);
+    let coord = super::super::ChunkCoord::new(0, 0);
+    let profile = super::super::WorldGenerationProfile::new(seed, BLOCK_STATE_STONE);
+    let chunk = super::super::build_generated_chunk(registries.world(), profile, coord).unwrap();
+    let tree = super::super::super::generated_tree(profile, &chunk).unwrap();
+    let candidates = seeded_forage_candidates(profile, coord).collect::<Vec<_>>();
+    assert_eq!(candidates.len(), 5);
+    assert_eq!(candidates[0].0, tree.root());
+
+    let mut state = AppState::new();
+    let bootstrap = super::super::ChunkCoord::new(-1, 0);
+    validate_generate_chunk(&registries, &state, seed, bootstrap, BLOCK_STATE_STONE)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let spawn = VoxelCoord::new(-8, super::super::terrain_height(seed, -8, 0) + 1, 0);
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let demand = super::super::validate_generate_player_neighborhood(&registries, &state)
+        .unwrap()
+        .expect("a neighbor of the admitted player has not yet been generated");
+    assert!(demand.chunks().any(|generated| generated.coord() == coord));
+    demand.commit(&mut state).unwrap();
+
+    let actual = state
+        .surface()
+        .perennial_resources_in_chunk(coord)
+        .next()
+        .expect("the real neighborhood must choose unblocked seeded forage");
+    let chosen = candidates
+        .iter()
+        .find(|(position, _, _)| *position == actual.position())
+        .expect("generated patch must use an immutable seed-derived site");
+    assert_ne!(chosen.0, tree.root());
+    assert_eq!(actual.commodity(), chosen.1);
+    assert_eq!(actual.remaining_mass(), chosen.2);
+    assert!(seeded_perennial_matches(
+        profile, chosen.0, chosen.1, chosen.2
+    ));
+    assert!(!seeded_perennial_matches(
+        profile,
+        chosen.0,
+        chosen.1,
+        chosen.2.checked_add(Mass::from_milligrams(1)).unwrap(),
+    ));
+    assert!(!seeded_perennial_matches(
+        profile,
+        VoxelCoord::new(chosen.0.x(), chosen.0.y() + 1, chosen.0.z()),
+        chosen.1,
+        chosen.2,
+    ));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+}
+
+#[test]
 fn generated_forage_is_one_local_physical_opportunity_not_an_infinite_refill() {
     let registries = build_registries();
     let seed = super::super::WorldGenerationSeed::new(0x46_4F_52_41_47_45_57);
@@ -405,34 +473,27 @@ fn a_depleted_seeded_patch_with_live_roots_cannot_spawn_duplicate_forage() {
     // Each alternate candidate is individually consistent with the seed,
     // but the generator may choose only one for the entire district. Forging
     // another persisted root cannot duplicate that finite initial biomass.
-    let hash = district_hash(profile, chunk.coord());
-    let base_x = chunk.coord().world_min_x().unwrap() + 3 + ((hash >> 12) % 10) as i64;
-    let base_z = chunk.coord().world_min_z().unwrap() + 3 + ((hash >> 26) % 10) as i64;
-    let (other, commodity, original_fruit, duplicate) = [(0, 0), (2, 0), (0, 2), (-2, 0), (0, -2)]
-        .into_iter()
-        .find_map(|(dx, dz)| {
-            let x = base_x + dx;
-            let z = base_z + dz;
-            let position = VoxelCoord::new(x, super::super::terrain_height(seed, x, z) + 1, z);
-            if position == root || state.world().block_at(position) != Some(BlockStateId::AIR) {
-                return None;
-            }
-            let (commodity, mass) = seeded_food(profile, hash, x, z);
-            let spec = SurfaceResourceSpec::new(
-                SurfaceResourceKind::Opportunity,
-                position,
-                commodity,
-                mass,
-                crate::core::quantity::Temperature::from_millikelvin(293_150),
-                crate::material::MaterialComposition::pure(commodity.material()),
-            )
-            .unwrap()
-            .with_perennial_reserve(Mass::from_milligrams(mass.milligrams() / 2));
-            crate::surface::validate_create_surface_resources(&registries, &state, [spec])
-                .ok()
-                .map(|plan| (position, commodity, mass, plan))
-        })
-        .expect("seeded shrub has a second physically clear candidate");
+    let (other, commodity, original_fruit, duplicate) =
+        seeded_forage_candidates(profile, chunk.coord())
+            .find_map(|(position, commodity, mass)| {
+                if position == root || state.world().block_at(position) != Some(BlockStateId::AIR) {
+                    return None;
+                }
+                let spec = SurfaceResourceSpec::new(
+                    SurfaceResourceKind::Opportunity,
+                    position,
+                    commodity,
+                    mass,
+                    crate::core::quantity::Temperature::from_millikelvin(293_150),
+                    crate::material::MaterialComposition::pure(commodity.material()),
+                )
+                .unwrap()
+                .with_perennial_reserve(Mass::from_milligrams(mass.milligrams() / 2));
+                crate::surface::validate_create_surface_resources(&registries, &state, [spec])
+                    .ok()
+                    .map(|plan| (position, commodity, mass, plan))
+            })
+            .expect("seeded shrub has a second physically clear candidate");
     assert!(seeded_perennial_matches(
         profile,
         other,
@@ -476,41 +537,28 @@ fn juvenile_transplant_cannot_replace_harvested_seeded_roots() {
     let chunk = super::super::ChunkCoord::new(1, 0);
     // Find a real juvenile and a seed-plausible shrub two steps away on
     // supported level ground; no fabricated tree or terrain is required.
-    let (seed, from, to, player_at) =
-        (1..100_000_u64)
-            .find_map(|number| {
-                let seed = super::super::WorldGenerationSeed::new(number);
-                let profile = super::super::WorldGenerationProfile::new(seed, BLOCK_STATE_STONE);
-                let tree = crate::world::trees::seeded_tree_identity(profile, chunk)?;
-                if tree.initial_wood().milligrams() != 8_000_000 {
+    let (seed, from, to, player_at) = (1..100_000_u64)
+        .find_map(|number| {
+            let seed = super::super::WorldGenerationSeed::new(number);
+            let profile = super::super::WorldGenerationProfile::new(seed, BLOCK_STATE_STONE);
+            let tree = crate::world::trees::seeded_tree_identity(profile, chunk)?;
+            if tree.initial_wood().milligrams() != 8_000_000 {
+                return None;
+            }
+            let from = tree.root();
+            seeded_forage_candidates(profile, chunk).find_map(|(to, _, _)| {
+                let two_steps = (from.x().abs_diff(to.x()) == 2 && from.z() == to.z())
+                    || (from.x() == to.x() && from.z().abs_diff(to.z()) == 2);
+                if !two_steps || to.y() != from.y() {
                     return None;
                 }
-                let hash = district_hash(profile, chunk);
-                if chunk.x().rem_euclid(2) as u64 != hash & 1
-                    || chunk.z().rem_euclid(2) as u64 != (hash >> 1) & 1
-                {
-                    return None;
-                }
-                let from = tree.root();
-                let base_x = chunk.world_min_x()? + 3 + ((hash >> 12) % 10) as i64;
-                let base_z = chunk.world_min_z()? + 3 + ((hash >> 26) % 10) as i64;
-                [(0, 0), (2, 0), (0, 2), (-2, 0), (0, -2)]
-                    .into_iter()
-                    .find_map(|(dx, dz)| {
-                        let x = base_x + dx;
-                        let z = base_z + dz;
-                        let two_steps = (from.x().abs_diff(x) == 2 && from.z() == z)
-                            || (from.x() == x && from.z().abs_diff(z) == 2);
-                        if !two_steps || terrain_height(seed, x, z) + 1 != from.y() {
-                            return None;
-                        }
-                        let halfway =
-                            VoxelCoord::new((from.x() + x) / 2, from.y(), (from.z() + z) / 2);
-                        (terrain_height(seed, halfway.x(), halfway.z()) + 1 == from.y())
-                            .then_some((seed, from, VoxelCoord::new(x, from.y(), z), halfway))
-                    })
+                let halfway =
+                    VoxelCoord::new((from.x() + to.x()) / 2, from.y(), (from.z() + to.z()) / 2);
+                (terrain_height(seed, halfway.x(), halfway.z()) + 1 == from.y())
+                    .then_some((seed, from, to, halfway))
             })
-            .expect("seeded grove has a juvenile beside a rooted site");
+        })
+        .expect("seeded grove has a juvenile beside a rooted site");
 
     let mut state = AppState::new();
     validate_generate_chunk(&registries, &state, seed, chunk, BLOCK_STATE_STONE)
@@ -523,7 +571,9 @@ fn juvenile_transplant_cannot_replace_harvested_seeded_roots() {
         .unwrap();
     let pending = validate_transplant_juvenile(&registries, &state, from, to).unwrap();
     let profile = state.world().generation_profile().unwrap();
-    let (commodity, mass) = seeded_food(profile, district_hash(profile, chunk), to.x(), to.z());
+    let (commodity, mass) = seeded_forage_candidates(profile, chunk)
+        .find_map(|(site, commodity, mass)| (site == to).then_some((commodity, mass)))
+        .expect("the existing plant was selected from this seed's real sites");
     let source = SurfaceResourceSpec::new(
         SurfaceResourceKind::Opportunity,
         to,
