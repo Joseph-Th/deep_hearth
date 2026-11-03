@@ -373,9 +373,9 @@ def wilderness_worksite_player_experience(lines: list[str]) -> str | None:
         r"protein-wild-nuts:(\d+)mg from:(\d+)mg",
         "chosen wild protein portion",
     )
-    source, queue, forage = _capture(
+    source, admission_delay, forage = _capture(
         _required(provision, "action"),
-        r"explicit-source:(\d+) buffered:(\d+)ct slow-work:(\d+)t",
+        r"explicit-source:(\d+) admission-delay:(\d+)ct slow-work:(\d+)t",
         "executed explicit gathering action",
     )
     carried, left = _capture(
@@ -392,7 +392,7 @@ def wilderness_worksite_player_experience(lines: list[str]) -> str | None:
         not 0 < int(picked) == int(carried) < int(initial)
         or int(initial) - int(picked) != int(left)
         or int(source) == 0
-        or int(queue) == 0
+        or int(admission_delay) != 0
         or int(forage) == 0
         or int(baseline_nuts) != int(left)
         or int(fire_nuts) > int(baseline_nuts)
@@ -685,7 +685,7 @@ def wilderness_worksite_player_experience(lines: list[str]) -> str | None:
     return (
         "PLAYER EXPERIENCE worksite-project goal=specified-not-discovered "
         f"provision=[selected-protein:{_kg(picked)} left-in-world:{_kg(left)} "
-        f"buffer:{queue}ct gather:{forage}t] "
+        f"admission:{admission_delay}ct gather:{forage}t] "
         f"forecast=[warmth:{remaining}t necessary-work:{estimate}t] "
         f"choice=[prepare-fire:{choice} extra:{preparation}t "
         f"stone:{_kg(stone)} fuel:{_kg(timber)}] "

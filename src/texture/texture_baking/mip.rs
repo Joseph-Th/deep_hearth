@@ -104,7 +104,7 @@ fn preserve_cutout_coverage(
     // at each mip level.
     let mut pixels = [(0_usize, 0_usize, 0_u64); TEXTURE_TEXEL_COUNT / 4];
     debug_assert!(stride <= pixels.len());
-    for index in 0..stride {
+    for (index, pixel) in pixels.iter_mut().take(stride).enumerate() {
         let x = (index % side) * footprint_side;
         let y = (index / side) * footprint_side;
         let mut opaque = 0_usize;
@@ -120,7 +120,7 @@ fn preserve_cutout_coverage(
         tie ^= tie >> 30;
         tie = tie.wrapping_mul(0xBF58_476D_1CE4_E5B9);
         tie ^= tie >> 27;
-        pixels[index] = (index, opaque, tie);
+        *pixel = (index, opaque, tie);
     }
     pixels[..stride]
         .sort_unstable_by_key(|(index, opaque, tie)| (std::cmp::Reverse(*opaque), *tie, *index));

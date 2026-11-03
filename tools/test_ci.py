@@ -3382,7 +3382,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "PLAYER PROJECT PROVISION seed=0xA episode=coverage/rested/clay-worksite "
             "evidence=generated-direct-control "
             "choice=[protein-wild-nuts:150000mg from:835922mg] "
-            "action=[explicit-source:4 buffered:71ct slow-work:17t] "
+            "action=[explicit-source:4 admission-delay:0ct slow-work:17t] "
             "consequence=[carried:150000mg left-at-source:685922mg] "
             "automatic-other-source=false matter=conserved"
         )
@@ -3457,7 +3457,7 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIsNotNone(summary)
         assert summary is not None
         self.assertIn("goal=specified-not-discovered", summary)
-        self.assertIn("provision=[selected-protein:0.15kg left-in-world:0.69kg buffer:71ct gather:17t]", summary)
+        self.assertIn("provision=[selected-protein:0.15kg left-in-world:0.69kg admission:0ct gather:17t]", summary)
         self.assertIn("choice=[prepare-fire:true extra:20t stone:1.00kg fuel:1.00kg]", summary)
         self.assertIn("comfort:1000000ppm-vs:744000ppm", summary)
         self.assertIn("local-ecology=[food-fire:0.69kg exposed:0.69kg scout-difference:0mg]", summary)
@@ -3502,6 +3502,10 @@ class GameplayReportContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "finite-source selection or local ecology"):
             gameplay_report_summary.wilderness_worksite_player_experience([
                 witness, project, provision.replace("left-at-source:685922mg", "left-at-source:835922mg"), payoff, priority
+            ])
+        with self.assertRaisesRegex(ValueError, "finite-source selection or local ecology"):
+            gameplay_report_summary.wilderness_worksite_player_experience([
+                witness, project, provision.replace("admission-delay:0ct", "admission-delay:71ct"), payoff, priority
             ])
         with self.assertRaisesRegex(ValueError, "finite-source selection or local ecology"):
             gameplay_report_summary.wilderness_worksite_player_experience([

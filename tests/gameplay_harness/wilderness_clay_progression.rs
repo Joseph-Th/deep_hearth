@@ -561,7 +561,8 @@ fn exercise_generated_clay_casting_bed_for_seed(seed: WorldGenerationSeed, repor
         Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => *work,
         other => panic!("worksite targeted gathering did not start immediately: {other:?}"),
     };
-    assert_eq!(selected.queued_action_wait_control_ticks(), None);
+    let admission_delay_control_ticks = selected.queued_action_wait_control_ticks().unwrap_or(0);
+    assert_eq!(admission_delay_control_ticks, 0);
     assert_eq!(selected_work.resource(), nuts_source);
     assert_eq!(selected_work.gathered_mass(), selected_nuts);
     advance_to(
@@ -911,7 +912,7 @@ fn exercise_generated_clay_casting_bed_for_seed(seed: WorldGenerationSeed, repor
             selected_nuts.milligrams(),
             nuts_initial.milligrams(),
             nuts_source.value(),
-            0,
+            admission_delay_control_ticks,
             selected_work.completes_at().value() - selected_work.started_at().value(),
             selected_nuts.milligrams(),
             nuts_before.milligrams(),

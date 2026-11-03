@@ -59,8 +59,7 @@ fn undersized_food_is_rejected_on_input_without_queueing_a_doomed_meal() {
     let stack = project_material_stacks(&registries, &state, carried).unwrap();
     assert_eq!(stack.len(), 1);
     let expected = validate_eat_stack_to_full(&registries, &state, &stack[0])
-        .err()
-        .expect("an undersized serving cannot admit eating");
+        .expect_err("an undersized serving cannot admit eating");
     assert!(matches!(
         expected,
         EatStackToTargetError::InsufficientStackMass { .. }
