@@ -1,14 +1,11 @@
-//! Selected food stack and lot adapters over exact survival transactions.
+//! Projected food-stack reserve targets over canonical conserved eating.
 
-use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::{Energy, Mass};
 use crate::core::state::AppState;
-use crate::inventory::{
-    MaterialLotId, MaterialLotSelection, MaterialStackProjection, MaterialStackProjectionError,
-};
+use crate::inventory::{MaterialStackProjection, MaterialStackProjectionError};
 use crate::logistics::validate_player_stockpile_access;
 use crate::material::CommodityKey;
 use crate::registry::Registries;
@@ -16,10 +13,11 @@ use crate::survival::Vitality;
 
 use super::{
     EatError, MealMetabolicProjectionError, ValidatedEat, project_minimum_meal_to_metabolic_target,
-    validate_eat,
 };
 
 mod drink;
+mod lot;
+mod portions;
 use super::eating::validate_eat_with_mode;
 pub use drink::{
     DrinkStoreToTargetError, validate_drink_store_to_full, validate_drink_store_to_hydration_target,
@@ -27,174 +25,10 @@ pub use drink::{
 pub(crate) use drink::{
     assess_drink_store_to_full_admission, validate_drink_store_to_full_control_rate,
 };
-
-/// Failure while composing a selected food stack into the exact eating transaction.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum EatLotToTargetError {
-    SurvivalNotInitialized,
-    UnknownLot {
-        lot: MaterialLotId,
-    },
-    NotEdible {
-        commodity: CommodityKey,
-    },
-    Projection(MealMetabolicProjectionError),
-    InsufficientLotMass {
-        lot: MaterialLotId,
-        available: Mass,
-        required: Mass,
-    },
-    Eat(EatError),
-}
-
-#[must_use]
-#[derive(Clone, Copy, Debug)]
-pub struct FoodStackPortion<'a> {
-    stack: &'a MaterialStackProjection,
-    mass: Mass,
-}
-
-impl<'a> FoodStackPortion<'a> {
-    pub const fn new(stack: &'a MaterialStackProjection, mass: Mass) -> Self {
-        Self { stack, mass }
-    }
-
-    pub const fn stack(self) -> &'a MaterialStackProjection {
-        self.stack
-    }
-
-    #[must_use]
-    pub const fn mass(self) -> Mass {
-        self.mass
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum EatStackPortionsError {
-    EmptyMeal,
-    MixedSources {
-        expected: crate::inventory::StockpileId,
-        actual: crate::inventory::StockpileId,
-    },
-    Stack {
-        portion: usize,
-        error: MaterialStackProjectionError,
-    },
-    Eat(EatError),
-}
-
-impl Display for EatStackPortionsError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::EmptyMeal => {
-                formatter.write_str("visible-stack meal requires at least one portion")
-            }
-            Self::MixedSources { expected, actual } => write!(
-                formatter,
-                "visible-stack meal mixes stockpiles {} and {}",
-                expected.value(),
-                actual.value()
-            ),
-            Self::Stack { portion, error } => {
-                write!(formatter, "meal portion {portion} became stale: {error}")
-            }
-            Self::Eat(error) => write!(formatter, "visible-stack meal failed: {error}"),
-        }
-    }
-}
-
-impl Error for EatStackPortionsError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Stack { error, .. } => Some(error),
-            Self::Eat(error) => Some(error),
-            Self::EmptyMeal | Self::MixedSources { .. } => None,
-        }
-    }
-}
-
-/// Validates one deliberate meal composed from visible physical stack portions.
-///
-/// Exact lot membership remains private to inventory. Every portion must come from the same
-/// stockpile; canonical eating still owns freshness, intake limits, nutrition, timing, attention,
-/// custody, and conservation.
-pub fn validate_eat_stack_portions(
-    registries: &Registries,
-    state: &AppState,
-    portions: &[FoodStackPortion<'_>],
-) -> Result<ValidatedEat, EatStackPortionsError> {
-    let source = portions
-        .first()
-        .map(|portion| portion.stack().stockpile())
-        .ok_or(EatStackPortionsError::EmptyMeal)?;
-    // A displayed stack is not proof of current player access. Reject remote
-    // custody before inspecting sizes, freshness cohorts, or lot membership.
-    validate_player_stockpile_access(state, source)
-        .map_err(|error| EatStackPortionsError::Eat(EatError::Access(error)))?;
-    // Multiple requested portions of the same projected stack must share one
-    // allocation across its underlying lots. Resolving each portion separately
-    // starts at the first lot every time and can overdraw it even when the
-    // complete visible stack contains sufficient food.
-    let mut grouped = Vec::<(usize, &MaterialStackProjection, Mass)>::new();
-    for (index, portion) in portions.iter().copied().enumerate() {
-        if portion.stack().stockpile() != source {
-            return Err(EatStackPortionsError::MixedSources {
-                expected: source,
-                actual: portion.stack().stockpile(),
-            });
-        }
-        // Validate every requested portion independently, including zero-mass and
-        // stale projections, before adding it to an existing stack group.
-        portion
-            .stack()
-            .validate_selection_mass(state, source, portion.mass())
-            .map_err(|error| EatStackPortionsError::Stack {
-                portion: index,
-                error,
-            })?;
-        if let Some((last_index, _, requested)) = grouped
-            .iter_mut()
-            .find(|(_, stack, _)| *stack == portion.stack())
-        {
-            *requested =
-                requested
-                    .checked_add(portion.mass())
-                    .ok_or(EatStackPortionsError::Eat(
-                        EatError::InventoryMassOverflow { stockpile: source },
-                    ))?;
-            *last_index = index;
-        } else {
-            grouped.push((index, portion.stack(), portion.mass()));
-        }
-    }
-    let mut mass_by_lot = BTreeMap::<MaterialLotId, u128>::new();
-    for (index, stack, requested) in grouped {
-        for selection in stack
-            .selections_for_mass(state, source, requested)
-            .map_err(|error| EatStackPortionsError::Stack {
-                portion: index,
-                error,
-            })?
-        {
-            let total = mass_by_lot.entry(selection.lot()).or_default();
-            *total = total
-                .checked_add(u128::from(selection.mass().milligrams()))
-                .ok_or(EatStackPortionsError::Eat(
-                    EatError::InventoryMassOverflow { stockpile: source },
-                ))?;
-        }
-    }
-    let selections = mass_by_lot
-        .into_iter()
-        .map(|(lot, total)| {
-            let mass = u64::try_from(total).map_err(|_| {
-                EatStackPortionsError::Eat(EatError::InventoryMassOverflow { stockpile: source })
-            })?;
-            Ok(MaterialLotSelection::new(lot, Mass::from_milligrams(mass)))
-        })
-        .collect::<Result<Vec<_>, EatStackPortionsError>>()?;
-    validate_eat(registries, state, source, &selections).map_err(EatStackPortionsError::Eat)
-}
+pub use lot::{
+    EatLotToTargetError, validate_eat_lot_to_full, validate_eat_lot_to_metabolic_target,
+};
+pub use portions::{EatStackPortionsError, FoodStackPortion, validate_eat_stack_portions};
 
 /// Failure while composing one familiar projected food stack into exact eating.
 ///
@@ -248,40 +82,6 @@ impl Error for EatStackToTargetError {
             Self::SurvivalNotInitialized
             | Self::NotEdible { .. }
             | Self::InsufficientStackMass { .. } => None,
-        }
-    }
-}
-
-impl Display for EatLotToTargetError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::SurvivalNotInitialized => {
-                formatter.write_str("selected-stack eating requires initialized player survival")
-            }
-            Self::UnknownLot { lot } => {
-                write!(formatter, "unknown selected food lot {}", lot.value())
-            }
-            Self::NotEdible { commodity } => write!(
-                formatter,
-                "selected material {} form {} is not edible",
-                commodity.material().value(),
-                commodity.form().value()
-            ),
-            Self::Projection(error) => {
-                write!(formatter, "selected-stack meal projection failed: {error}")
-            }
-            Self::InsufficientLotMass {
-                lot,
-                available,
-                required,
-            } => write!(
-                formatter,
-                "selected food stack {} contains {} mg but {} mg is needed for the requested reserve target",
-                lot.value(),
-                available.milligrams(),
-                required.milligrams()
-            ),
-            Self::Eat(error) => write!(formatter, "selected-stack eating failed: {error}"),
         }
     }
 }
@@ -386,19 +186,6 @@ fn validate_eat_stack_to_full_with_mode(
     }
 }
 
-impl Error for EatLotToTargetError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Projection(error) => Some(error),
-            Self::Eat(error) => Some(error),
-            Self::SurvivalNotInitialized
-            | Self::UnknownLot { .. }
-            | Self::NotEdible { .. }
-            | Self::InsufficientLotMass { .. } => None,
-        }
-    }
-}
-
 fn validate_eat_stack_up_to(
     registries: &Registries,
     state: &AppState,
@@ -490,147 +277,4 @@ fn validate_eat_stack_to_metabolic_target_with_mode(
     validate_eat_with_mode(registries, state, source, &selections, preview_off_boundary)
         .map(Some)
         .map_err(EatStackToTargetError::Eat)
-}
-
-/// Familiar default food-use action: eat toward full metabolic and dietary reserves.
-///
-/// Reaching full reserve is a preference, not an admission requirement. If one legal meal cannot
-/// reach full reserve, or the selected stack contains less than the exact refill amount, this
-/// action consumes the largest legal available portion instead. A deficient selected food
-/// category requests its deficit-sized serving whenever this is larger than the meal required
-/// for metabolic energy, including when energy is already full. Explicit callers that require
-/// a particular metabolic reserve should use
-/// [`validate_eat_lot_to_metabolic_target`].
-pub fn validate_eat_lot_to_full(
-    registries: &Registries,
-    state: &AppState,
-    lot: MaterialLotId,
-) -> Result<Option<ValidatedEat>, EatLotToTargetError> {
-    let result = validate_eat_lot_to_metabolic_target(
-        registries,
-        state,
-        lot,
-        registries
-            .survival()
-            .physiology()
-            .maximum_metabolic_energy(),
-    );
-    match result {
-        Ok(Some(validated)) => match state.inventory().get_lot(lot).and_then(|record| {
-            selected_food_dietary_refill_mass(registries, state, record.commodity())
-        }) {
-            Some(mass) if mass > validated.planned_mass() => {
-                validate_eat_lot_up_to(registries, state, lot, mass)
-            }
-            _ => Ok(Some(validated)),
-        },
-        Ok(None) => match state.inventory().get_lot(lot).and_then(|record| {
-            selected_food_dietary_refill_mass(registries, state, record.commodity())
-        }) {
-            Some(mass) => validate_eat_lot_up_to(registries, state, lot, mass),
-            None => Ok(None),
-        },
-        Err(EatLotToTargetError::Projection(
-            MealMetabolicProjectionError::TargetUnreachableWithinIntakeLimit { maximum_meal_mass },
-        )) => validate_eat_lot_up_to(registries, state, lot, maximum_meal_mass),
-        Err(EatLotToTargetError::InsufficientLotMass { available, .. }) => {
-            validate_eat_lot_up_to(registries, state, lot, available)
-        }
-        result => result,
-    }
-}
-
-fn validate_eat_lot_up_to(
-    registries: &Registries,
-    state: &AppState,
-    lot: MaterialLotId,
-    desired: Mass,
-) -> Result<Option<ValidatedEat>, EatLotToTargetError> {
-    let lot_record = state
-        .inventory()
-        .get_lot(lot)
-        .ok_or(EatLotToTargetError::UnknownLot { lot })?;
-    let source = lot_record.stockpile();
-    validate_player_stockpile_access(state, source)
-        .map_err(|error| EatLotToTargetError::Eat(EatError::Access(error)))?;
-    let direct = registries.survival().physiology().direct_consumption();
-    let available = lot_record.mass();
-    let portion = desired.min(available).min(direct.maximum_meal_mass());
-    if portion < direct.minimum_meal_mass() {
-        return Err(EatLotToTargetError::InsufficientLotMass {
-            lot,
-            available,
-            required: direct.minimum_meal_mass(),
-        });
-    }
-    validate_eat(
-        registries,
-        state,
-        source,
-        &[MaterialLotSelection::new(lot, portion)],
-    )
-    .map(Some)
-    .map_err(EatLotToTargetError::Eat)
-}
-
-/// Validates eating the minimum amount from one selected stack needed to reach `target`.
-///
-/// `Ok(None)` means the player already satisfies the requested reserve. The caller chooses policy
-/// (full, warning-safe, work reserve, and so on); this adapter only translates the familiar held
-/// stack action into exact mass and then delegates freshness, temperature, attention, conservation,
-/// and physiological legality to [`validate_eat`].
-pub fn validate_eat_lot_to_metabolic_target(
-    registries: &Registries,
-    state: &AppState,
-    lot: MaterialLotId,
-    target: Energy,
-) -> Result<Option<ValidatedEat>, EatLotToTargetError> {
-    let player = state
-        .survival()
-        .player()
-        .copied()
-        .ok_or(EatLotToTargetError::SurvivalNotInitialized)?;
-    if player.vitality() == Vitality::ZERO {
-        return Err(EatLotToTargetError::Eat(EatError::PlayerDead));
-    }
-    let lot_record = state
-        .inventory()
-        .get_lot(lot)
-        .ok_or(EatLotToTargetError::UnknownLot { lot })?;
-    let source = lot_record.stockpile();
-    validate_player_stockpile_access(state, source)
-        .map_err(|error| EatLotToTargetError::Eat(EatError::Access(error)))?;
-    let food = registries
-        .survival()
-        .get_food(lot_record.commodity())
-        .copied()
-        .ok_or(EatLotToTargetError::NotEdible {
-            commodity: lot_record.commodity(),
-        })?;
-    let projected = project_minimum_meal_to_metabolic_target(
-        registries.survival().physiology(),
-        food,
-        player.metabolic_energy(),
-        target,
-    )
-    .map_err(EatLotToTargetError::Projection)?;
-    let Some(projected) = projected else {
-        return Ok(None);
-    };
-    let required = projected.mass();
-    if required > lot_record.mass() {
-        return Err(EatLotToTargetError::InsufficientLotMass {
-            lot,
-            available: lot_record.mass(),
-            required,
-        });
-    }
-    validate_eat(
-        registries,
-        state,
-        source,
-        &[MaterialLotSelection::new(lot, required)],
-    )
-    .map(Some)
-    .map_err(EatLotToTargetError::Eat)
 }
