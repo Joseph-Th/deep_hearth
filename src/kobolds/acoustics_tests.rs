@@ -840,6 +840,19 @@ fn a_real_sprint_behind_a_stone_corner_makes_the_scout_hold_back_but_quiet_play_
         let _ = advance_control_tick(&registries, &mut state).unwrap();
     }
     let mut quiet = state.clone();
+    let mut loaded = state.clone();
+    let load = registries.survival().physiology().carried_mass_capacity();
+    let pack = loaded.logistics().player().unwrap().carried_stockpile();
+    crate::inventory::deposit_lot_for_test(
+        &registries,
+        &mut loaded,
+        pack,
+        CommodityKey::new(crate::content::MATERIAL_STONE, crate::content::FORM_CHIP),
+        load,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let mut loaded_walking = loaded.clone();
     let movement = PlayerControlInput::new(HorizontalControlInput::new(-1_000_000, 0).unwrap());
     let sprint = movement.with_sprint(true);
     assert!(!scout_hears_running_player(
@@ -851,6 +864,9 @@ fn a_real_sprint_behind_a_stone_corner_makes_the_scout_hold_back_but_quiet_play_
     for _ in 0..13 {
         let _ = advance_control_tick_with_input(&registries, &mut state, sprint).unwrap();
         let _ = advance_control_tick_with_input(&registries, &mut quiet, movement).unwrap();
+        let _ = advance_control_tick_with_input(&registries, &mut loaded, sprint).unwrap();
+        let _ =
+            advance_control_tick_with_input(&registries, &mut loaded_walking, movement).unwrap();
     }
     let player = state.logistics().player().unwrap().position();
     assert!(
@@ -873,6 +889,31 @@ fn a_real_sprint_behind_a_stone_corner_makes_the_scout_hold_back_but_quiet_play_
         den,
         quiet.tick()
     ));
+    let loaded_speed = loaded
+        .logistics()
+        .player()
+        .unwrap()
+        .body()
+        .horizontal_velocity()
+        .x_nanometers_per_second()
+        .unsigned_abs();
+    let locomotion = registries.survival().physiology().locomotion();
+    assert!(loaded_speed < locomotion.walking_speed().nanometers_per_second());
+    assert!(
+        loaded_speed
+            > locomotion
+                .walking_speed_for_load(load, load)
+                .nanometers_per_second(),
+        "the carried player must actually be running above their loaded walking pace"
+    );
+    assert!(
+        scout_hears_running_player(&registries, &loaded, den, loaded.tick()),
+        "a real loaded sprint should not become silent merely because it is slower than unloaded walking"
+    );
+    assert!(
+        !scout_hears_running_player(&registries, &loaded_walking, den, loaded_walking.tick()),
+        "ordinary loaded walking must not be mistaken for a sprint"
+    );
 
     let mut sealed = state.clone();
     for voxel in [tip, VoxelCoord::new(tip.x(), tip.y() + 1, tip.z())] {
@@ -884,8 +925,12 @@ fn a_real_sprint_behind_a_stone_corner_makes_the_scout_hold_back_but_quiet_play_
     );
     let _ = advance_control_tick_with_input(&registries, &mut state, sprint).unwrap();
     let _ = advance_control_tick_with_input(&registries, &mut quiet, movement).unwrap();
+    let _ = advance_control_tick_with_input(&registries, &mut loaded, sprint).unwrap();
+    let _ = advance_control_tick_with_input(&registries, &mut loaded_walking, movement).unwrap();
     assert_eq!(state.tick(), SimulationTick::new(180));
     assert_eq!(quiet.tick(), SimulationTick::new(180));
+    assert_eq!(loaded.tick(), SimulationTick::new(180));
+    assert_eq!(loaded_walking.tick(), SimulationTick::new(180));
     assert_eq!(
         state.kobold_state().colony.as_ref().unwrap().scout_step,
         0,
@@ -896,14 +941,37 @@ fn a_real_sprint_behind_a_stone_corner_makes_the_scout_hold_back_but_quiet_play_
         1,
         "ordinary walking leaves the unseen scout on its usual patrol"
     );
+    assert_eq!(
+        loaded.kobold_state().colony.as_ref().unwrap().scout_step,
+        0,
+        "a scout must react to an actual loaded sprint behind the corner"
+    );
+    assert_eq!(
+        loaded_walking
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_step,
+        1,
+        "a loaded walking player remains inaudible behind the corner"
+    );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     assert_eq!(validate_loaded_state(&registries, &quiet), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &loaded), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &loaded_walking), Ok(()));
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
     let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
         .unwrap()
         .into_state(&registries)
         .unwrap();
     assert_eq!(state, restored);
+    let loaded_save = serde_json::to_vec(&SaveEnvelope::new(&registries, &loaded)).unwrap();
+    let loaded_replay = serde_json::from_slice::<LoadedSaveEnvelope>(&loaded_save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, loaded_replay);
 }
 
 #[test]

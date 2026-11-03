@@ -11,7 +11,7 @@ use std::collections::{BTreeSet, VecDeque};
 
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
-use crate::logistics::{PlayerStance, player_body_is_grounded};
+use crate::logistics::{PlayerStance, assess_player_carrying, player_body_is_grounded};
 use crate::registry::Registries;
 use crate::spatial::{CubeFace, VoxelCoord};
 use crate::survival::Vitality;
@@ -193,12 +193,17 @@ pub(super) fn scout_hears_running_player(
     let velocity = player.body().horizontal_velocity();
     let x = u128::from(velocity.x_nanometers_per_second().unsigned_abs());
     let z = u128::from(velocity.z_nanometers_per_second().unsigned_abs());
+    // Running is motion above this body's actual walk envelope, not above
+    // the *unladen* walking speed. A full pack slows both walking and sprinting;
+    // using the unloaded threshold would make an actual laden sprint inaudible.
+    let carrying = assess_player_carrying(state)
+        .expect("an admitted generated-world player has carrying custody");
     let walking = u128::from(
         registries
             .survival()
             .physiology()
             .locomotion()
-            .walking_speed()
+            .walking_speed_for_load(carrying.stored(), carrying.capacity())
             .nanometers_per_second(),
     );
     let speed_squared = x.saturating_mul(x).saturating_add(z.saturating_mul(z));
