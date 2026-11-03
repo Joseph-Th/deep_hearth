@@ -538,10 +538,11 @@ fn off_boundary_feasibility_preview_preserves_real_water_and_gathering_ambiguity
     let (registries, mut state, stores) = water_and_gathering_context(&[minimum], true, true);
     let _ = crate::simulation::advance_control_tick(&registries, &mut state).unwrap();
     assert!(!state.control_tick().is_simulation_boundary());
-    assert_eq!(
-        assess_drink_store_to_full_admission(&registries, &state, stores[0]),
-        true
-    );
+    assert!(assess_drink_store_to_full_admission(
+        &registries,
+        &state,
+        stores[0]
+    ));
     let snapshot = state.clone();
     assert_eq!(
         attempt_empty_hand_secondary_action(&registries, &mut state),
