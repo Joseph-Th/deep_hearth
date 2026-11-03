@@ -76,6 +76,7 @@ impl PlayerEnergyStoreUpgradeOption {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerEnergyStoreUpgradeCatalogError {
     PlayerNotAdmitted,
+    PlayerDead,
     SourceAccess(PlayerStockpileAccessError),
     UnknownSource { stockpile: StockpileId },
     SourceMassOverflow { stockpile: StockpileId },
@@ -85,6 +86,7 @@ impl Display for PlayerEnergyStoreUpgradeCatalogError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerNotAdmitted => f.write_str("player is not admitted"),
+            Self::PlayerDead => f.write_str("player is dead"),
             Self::SourceAccess(error) => {
                 write!(f, "energy upgrade material access failed: {error}")
             }
@@ -107,6 +109,7 @@ impl Error for PlayerEnergyStoreUpgradeCatalogError {
         match self {
             Self::SourceAccess(error) => Some(error),
             Self::PlayerNotAdmitted
+            | Self::PlayerDead
             | Self::UnknownSource { .. }
             | Self::SourceMassOverflow { .. } => None,
         }
@@ -122,6 +125,9 @@ pub fn player_energy_store_upgrade_options(
 ) -> Result<Vec<PlayerEnergyStoreUpgradeOption>, PlayerEnergyStoreUpgradeCatalogError> {
     if state.logistics().player().is_none() {
         return Err(PlayerEnergyStoreUpgradeCatalogError::PlayerNotAdmitted);
+    }
+    if state.player_observation_position().is_none() {
+        return Err(PlayerEnergyStoreUpgradeCatalogError::PlayerDead);
     }
     if state.inventory().get_stockpile(source).is_none() {
         return Err(PlayerEnergyStoreUpgradeCatalogError::UnknownSource { stockpile: source });

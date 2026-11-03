@@ -84,6 +84,213 @@ fn mark_player_dead(state: &mut AppState) {
 }
 
 #[test]
+fn dead_player_cannot_observe_carried_crafting_and_equipment_catalogs_until_respawn() {
+    use crate::content::{FORM_LUMP, PROCESS_SHAPE_WOOD_BOARDS};
+    use crate::core::state::validate_loaded_state;
+    use crate::crafting::{
+        ManualCraftInputMode, PlayerManualCraftError, PlayerPoweredCraftOptionError,
+        player_manual_craft_options, player_powered_craft_options,
+    };
+    use crate::energy::{
+        PlayerEnergyStoreUpgradeCatalogError, player_energy_store_upgrade_options,
+    };
+    use crate::equipment::{
+        PlayerEquipmentAssemblyCatalogError, PlayerEquipmentMaintenanceCatalogError,
+        PlayerEquipmentUpgradeCatalogError, player_equipment_assembly_options,
+        player_equipment_maintenance_options, player_equipment_upgrade_options,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            Mass::from_milligrams(2_000_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(1_000_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+    }
+    let has_working_recipe = |state: &AppState| {
+        player_manual_craft_options(&registries, state)
+            .unwrap()
+            .into_iter()
+            .any(|option| {
+                option.process() == PROCESS_SHAPE_WOOD_BOARDS
+                    && matches!(
+                        option.input_mode(),
+                        ManualCraftInputMode::Automatic(availability)
+                            if availability.maximum_batches() > 0
+                    )
+            })
+    };
+    let has_ready_assembly = |state: &AppState| {
+        player_equipment_assembly_options(&registries, state, carried)
+            .unwrap()
+            .into_iter()
+            .any(|option| option.definition() == EQUIPMENT_STONE_PICK && option.is_ready())
+    };
+    assert!(has_working_recipe(&state));
+    assert!(has_ready_assembly(&state));
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+
+    mark_player_dead(&mut state);
+    assert_eq!(state.player_observation_position(), None);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let dead = state.clone();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(replay, state);
+
+    for current in [&state, &replay] {
+        assert_eq!(
+            player_manual_craft_options(&registries, current).err(),
+            Some(PlayerManualCraftError::PlayerDead),
+        );
+        assert_eq!(
+            player_equipment_assembly_options(&registries, current, carried).err(),
+            Some(PlayerEquipmentAssemblyCatalogError::PlayerDead),
+        );
+        assert_eq!(
+            player_powered_craft_options(&registries, current, carried, PROCESS_SHAPE_WOOD_BOARDS)
+                .err(),
+            Some(PlayerPoweredCraftOptionError::PlayerDead),
+        );
+        assert_eq!(
+            player_equipment_maintenance_options(&registries, current).err(),
+            Some(PlayerEquipmentMaintenanceCatalogError::PlayerDead),
+        );
+        assert_eq!(
+            player_equipment_upgrade_options(&registries, current, carried).err(),
+            Some(PlayerEquipmentUpgradeCatalogError::PlayerDead),
+        );
+        assert_eq!(
+            player_energy_store_upgrade_options(&registries, current, carried).err(),
+            Some(PlayerEnergyStoreUpgradeCatalogError::PlayerDead),
+        );
+    }
+    assert_eq!(
+        state, dead,
+        "read-only catalogs cannot mutate corpse custody"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+
+    for actor in [&mut state, &mut replay] {
+        let outcome = validate_respawn_player(&registries, actor)
+            .unwrap()
+            .commit(actor)
+            .unwrap();
+        assert_ne!(outcome.carried_stockpile(), carried);
+        assert_eq!(outcome.death_cache(), carried);
+        assert_eq!(
+            actor
+                .inventory()
+                .get_stockpile(outcome.carried_stockpile())
+                .unwrap()
+                .stored_mass(),
+            Mass::ZERO,
+        );
+        assert_eq!(
+            actor
+                .inventory()
+                .get_stockpile(outcome.death_cache())
+                .unwrap()
+                .stored_mass(),
+            Mass::from_milligrams(4_000_000),
+        );
+        assert!(player_manual_craft_options(&registries, actor).is_ok());
+        assert!(
+            player_equipment_assembly_options(&registries, actor, outcome.carried_stockpile())
+                .is_ok()
+        );
+        assert!(
+            !has_working_recipe(actor),
+            "old material is in the corpse cache, not the new pack"
+        );
+        assert_eq!(validate_loaded_state(&registries, actor), Ok(()));
+        assert_eq!(
+            calculate_matter_accounting(actor).unwrap().total(),
+            conserved
+        );
+    }
+    assert_eq!(state, replay);
+}
+
+#[test]
+fn logistics_only_workshop_catalogs_remain_queryable_without_survival_actor() {
+    use crate::content::PROCESS_SHAPE_WOOD_BOARDS;
+    use crate::crafting::{player_manual_craft_options, player_powered_craft_options};
+    use crate::energy::player_energy_store_upgrade_options;
+    use crate::equipment::{
+        player_equipment_assembly_options, player_equipment_maintenance_options,
+        player_equipment_upgrade_options,
+    };
+    use crate::logistics::validate_initialize_player_logistics;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let carried =
+        validate_initialize_player_logistics(&state, position, Mass::from_milligrams(25_000_000))
+            .unwrap()
+            .commit(&mut state)
+            .unwrap()
+            .carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(2_000_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    assert!(state.survival().player().is_none());
+    assert_eq!(state.player_observation_position(), Some(position));
+
+    assert!(player_manual_craft_options(&registries, &state).is_ok());
+    assert!(player_equipment_assembly_options(&registries, &state, carried).is_ok());
+    assert!(
+        player_powered_craft_options(&registries, &state, carried, PROCESS_SHAPE_WOOD_BOARDS)
+            .is_ok()
+    );
+    assert!(player_equipment_maintenance_options(&registries, &state).is_ok());
+    assert!(player_equipment_upgrade_options(&registries, &state, carried).is_ok());
+    assert!(player_energy_store_upgrade_options(&registries, &state, carried).is_ok());
+}
+
+#[test]
 fn admission_clearance_expires_after_a_simulation_tick() {
     let registries = build_registries();
     let mut state = AppState::new();

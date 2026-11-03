@@ -91,6 +91,7 @@ impl PlayerEquipmentAssemblyOption {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerEquipmentAssemblyCatalogError {
     PlayerNotAdmitted,
+    PlayerDead,
     SourceAccess(PlayerStockpileAccessError),
     UnknownSource { stockpile: StockpileId },
     SourceMassOverflow { stockpile: StockpileId },
@@ -100,6 +101,7 @@ impl Display for PlayerEquipmentAssemblyCatalogError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerNotAdmitted => formatter.write_str("player is not admitted"),
+            Self::PlayerDead => formatter.write_str("player is dead"),
             Self::SourceAccess(error) => {
                 write!(
                     formatter,
@@ -125,6 +127,7 @@ impl Error for PlayerEquipmentAssemblyCatalogError {
         match self {
             Self::SourceAccess(error) => Some(error),
             Self::PlayerNotAdmitted
+            | Self::PlayerDead
             | Self::UnknownSource { .. }
             | Self::SourceMassOverflow { .. } => None,
         }
@@ -139,6 +142,9 @@ pub fn player_equipment_assembly_options(
 ) -> Result<Vec<PlayerEquipmentAssemblyOption>, PlayerEquipmentAssemblyCatalogError> {
     if state.logistics().player().is_none() {
         return Err(PlayerEquipmentAssemblyCatalogError::PlayerNotAdmitted);
+    }
+    if state.player_observation_position().is_none() {
+        return Err(PlayerEquipmentAssemblyCatalogError::PlayerDead);
     }
     if state.inventory().get_stockpile(source).is_none() {
         return Err(PlayerEquipmentAssemblyCatalogError::UnknownSource { stockpile: source });

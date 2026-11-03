@@ -23,6 +23,7 @@ use super::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerManualCraftError {
     PlayerNotAdmitted,
+    PlayerDead,
     InputPlan(ManualCraftInputPlanError),
     Stack(MaterialStackProjectionError),
     StackCommodityMismatch {
@@ -36,6 +37,7 @@ impl Display for PlayerManualCraftError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerNotAdmitted => formatter.write_str("player is not admitted"),
+            Self::PlayerDead => formatter.write_str("player is dead"),
             Self::InputPlan(error) => {
                 write!(formatter, "personal craft input planning failed: {error}")
             }
@@ -58,7 +60,9 @@ impl Display for PlayerManualCraftError {
 impl Error for PlayerManualCraftError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::PlayerNotAdmitted | Self::StackCommodityMismatch { .. } => None,
+            Self::PlayerNotAdmitted | Self::PlayerDead | Self::StackCommodityMismatch { .. } => {
+                None
+            }
             Self::InputPlan(error) => Some(error),
             Self::Stack(error) => Some(error),
             Self::Start(error) => Some(error),
@@ -95,6 +99,11 @@ pub fn player_manual_craft_options(
     state: &AppState,
 ) -> Result<Vec<ManualCraftStockpileOption>, PlayerManualCraftError> {
     let carried = carried_stockpile(state)?;
+    // Carried matter remains physically owned after death, but an obsolete
+    // actor cannot inspect its live recipe availability before respawning.
+    if state.player_observation_position().is_none() {
+        return Err(PlayerManualCraftError::PlayerDead);
+    }
     manual_craft_options_from_stockpile(registries, state, carried)
         .map_err(PlayerManualCraftError::InputPlan)
 }

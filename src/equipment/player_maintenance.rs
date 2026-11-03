@@ -81,12 +81,14 @@ impl PlayerEquipmentMaintenanceOption {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerEquipmentMaintenanceCatalogError {
     PlayerNotAdmitted,
+    PlayerDead,
 }
 
 impl Display for PlayerEquipmentMaintenanceCatalogError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerNotAdmitted => formatter.write_str("player is not admitted"),
+            Self::PlayerDead => formatter.write_str("player is dead"),
         }
     }
 }
@@ -107,6 +109,9 @@ pub fn player_equipment_maintenance_options(
         .player()
         .copied()
         .ok_or(PlayerEquipmentMaintenanceCatalogError::PlayerNotAdmitted)?;
+    if state.player_observation_position().is_none() {
+        return Err(PlayerEquipmentMaintenanceCatalogError::PlayerDead);
+    }
     let carried = player.carried_stockpile();
     let mut options = Vec::new();
     for record in state.available_local_equipment() {

@@ -87,6 +87,7 @@ impl PlayerPoweredCraftOption {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerPoweredCraftOptionError {
     PlayerNotAdmitted,
+    PlayerDead,
     StockpileAccess(PlayerStockpileAccessError),
     Input(ManualCraftInputPlanError),
     Start(StartPoweredCraftError),
@@ -96,6 +97,7 @@ impl Display for PlayerPoweredCraftOptionError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerNotAdmitted => f.write_str("player is not admitted"),
+            Self::PlayerDead => f.write_str("player is dead"),
             Self::StockpileAccess(error) => write!(f, "powered workshop stockpile access: {error}"),
             Self::Input(error) => write!(f, "powered workshop input: {error}"),
             Self::Start(error) => write!(f, "powered workshop start: {error}"),
@@ -106,7 +108,7 @@ impl Display for PlayerPoweredCraftOptionError {
 impl Error for PlayerPoweredCraftOptionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::PlayerNotAdmitted => None,
+            Self::PlayerNotAdmitted | Self::PlayerDead => None,
             Self::StockpileAccess(error) => Some(error),
             Self::Input(error) => Some(error),
             Self::Start(error) => Some(error),
@@ -127,6 +129,9 @@ pub fn player_powered_craft_options(
 ) -> Result<Vec<PlayerPoweredCraftOption>, PlayerPoweredCraftOptionError> {
     if state.logistics().player().is_none() {
         return Err(PlayerPoweredCraftOptionError::PlayerNotAdmitted);
+    }
+    if state.player_observation_position().is_none() {
+        return Err(PlayerPoweredCraftOptionError::PlayerDead);
     }
     validate_player_stockpile_access(state, source)
         .map_err(PlayerPoweredCraftOptionError::StockpileAccess)?;
