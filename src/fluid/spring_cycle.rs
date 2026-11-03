@@ -12,6 +12,53 @@ use super::state::{FluidContents, SpringSoilExchange};
 
 const WATER_PER_FRONT: Volume = Volume::from_microliters(250_000);
 
+/// Choose the largest available exchange that preserves exact millikelvin heat.
+///
+/// Mixing an existing volume V at a different temperature with x incoming
+/// microliters is representable precisely when (V + x) divides
+/// V * |existing_temperature - incoming_temperature|. The preferred batch
+/// need not satisfy that condition even when a smaller batch does. Search
+/// the narrower of the possible temperature deltas and the bounded exchange
+/// volumes instead of abandoning an otherwise possible weather-front transfer.
+fn largest_exact_mixing_exchange(
+    existing: (Volume, crate::core::quantity::Temperature),
+    incoming_temperature: crate::core::quantity::Temperature,
+    maximum: Volume,
+) -> Option<Volume> {
+    let available = u128::from(maximum.microliters());
+    if available == 0 {
+        return None;
+    }
+    let original = u128::from(existing.0.microliters());
+    let delta = u128::from(
+        existing
+            .1
+            .millikelvin()
+            .abs_diff(incoming_temperature.millikelvin()),
+    );
+    if original == 0 || delta == 0 {
+        return Some(maximum);
+    }
+    let numerator = original * delta;
+    let first_quotient = numerator.div_ceil(original + available);
+    let last_quotient = numerator / (original + 1);
+    if first_quotient > last_quotient {
+        return None;
+    }
+    let amount = if last_quotient - first_quotient < available {
+        (first_quotient..=last_quotient)
+            .find(|&quotient| numerator.is_multiple_of(quotient))
+            .map(|quotient| numerator / quotient - original)
+    } else {
+        (1..=available)
+            .rev()
+            .find(|&amount| numerator.is_multiple_of(original + amount))
+    }?;
+    Some(Volume::from_microliters(
+        u64::try_from(amount).expect("exact exchange is bounded by preferred volume"),
+    ))
+}
+
 /// Checked finite-water exchange resolved against the final same-tick roof and world state.
 pub(crate) struct NaturalWaterCyclePlan {
     changes: Vec<SpringSoilExchange>,
@@ -51,20 +98,27 @@ pub(crate) fn decide_natural_water_cycle(
             match direction {
                 SpringMoistureFlux::Drying => {
                     let space = record.capacity().checked_sub(catchment.soaked)?;
-                    let amount = surface.min(WATER_PER_FRONT).min(space);
-                    if amount.is_zero() {
-                        return None;
-                    }
+                    let maximum = surface.min(WATER_PER_FRONT).min(space);
+                    let incoming_temperature = record.contents()?.temperature();
+                    let existing_temperature = if catchment.soaked.is_zero() {
+                        incoming_temperature
+                    } else {
+                        catchment.soaked_temperature?
+                    };
+                    let amount = largest_exact_mixing_exchange(
+                        (catchment.soaked, existing_temperature),
+                        incoming_temperature,
+                        maximum,
+                    )?;
                     let visible = surface.checked_sub(amount)?;
                     let soaked = catchment.soaked.checked_add(amount)?;
-                    let incoming_temperature = record.contents()?.temperature();
                     let soaked_temperature = match catchment.soaked_temperature {
                         Some(existing) => exact_mixed_temperature(
                             (catchment.soaked, existing),
                             (amount, incoming_temperature),
                             soaked,
                         )
-                        .ok()?,
+                        .expect("selected exchange admits exact soil temperature"),
                         None => incoming_temperature,
                     };
                     let contents = (!visible.is_zero()).then_some(FluidContents {
@@ -81,20 +135,25 @@ pub(crate) fn decide_natural_water_cycle(
                 }
                 SpringMoistureFlux::Returning => {
                     let space = record.capacity().checked_sub(surface)?;
-                    let amount = catchment.soaked.min(WATER_PER_FRONT).min(space);
-                    if amount.is_zero() {
-                        return None;
-                    }
+                    let maximum = catchment.soaked.min(WATER_PER_FRONT).min(space);
+                    let groundwater_temperature = catchment.soaked_temperature?;
+                    let existing_temperature = record
+                        .contents()
+                        .map_or(groundwater_temperature, FluidContents::temperature);
+                    let amount = largest_exact_mixing_exchange(
+                        (surface, existing_temperature),
+                        groundwater_temperature,
+                        maximum,
+                    )?;
                     let visible = surface.checked_add(amount)?;
                     let soaked = catchment.soaked.checked_sub(amount)?;
-                    let groundwater_temperature = catchment.soaked_temperature?;
                     let temperature = match record.contents() {
                         Some(water) => exact_mixed_temperature(
                             (surface, water.temperature()),
                             (amount, groundwater_temperature),
                             visible,
                         )
-                        .ok()?,
+                        .expect("selected exchange admits exact surface temperature"),
                         None => groundwater_temperature,
                     };
                     Some(SpringSoilExchange {

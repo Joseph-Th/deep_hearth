@@ -381,7 +381,10 @@ or whether the caller is crossing an ownership boundary it does not control.
   binds authored identities and physical definitions. The current schema persists seed-verifiable
   woodland biomass, scout drinking history and consumed-water custody, perennial root and fruit
   budgets, and finite spring catchment water with its exact temperature. Natural spring surface-to-soil
-  exchange conserves water volume and explicitly modeled heat. A persisted spring must occupy one
+  exchange conserves water volume and explicitly modeled heat. When the preferred weather-front
+  batch cannot mix at an exactly representable millikelvin temperature, the spring transfers the
+  largest smaller feasible volume rather than abandoning a possible exchange; no fractional heat
+  is rounded away. A persisted spring must occupy one
   generator-derived candidate site at its immutable authored capacity, with no second spring in the
   same two-by-two chunk district; subsequent drainage, refill, and terrain changes do not alter its
   original identity. Earlier save schemas are rejected rather than implicitly migrated.

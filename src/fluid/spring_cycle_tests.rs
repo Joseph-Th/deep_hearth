@@ -119,8 +119,11 @@ fn seasonal_fronts_change_actual_pool_volume_without_changing_world_water() {
     );
 }
 
-#[test]
-fn returning_soil_water_mixes_with_warmer_replenished_pool_without_creating_heat() {
+fn assert_returning_soil_water_mixes_exactly(
+    warm_temperature: crate::core::quantity::Temperature,
+    returned: Volume,
+    expected_temperature: crate::core::quantity::Temperature,
+) {
     use crate::content::FLUID_WATER;
     use crate::core::quantity::Temperature;
     use crate::core::state::apply_clock_advance;
@@ -168,7 +171,6 @@ fn returning_soil_water_mixes_with_warmer_replenished_pool_without_creating_heat
         Volume::ZERO
     );
 
-    let warm_temperature = Temperature::from_millikelvin(303_150);
     let warm = add_fluid_store_with_contents_for_fixture(
         &registries,
         &mut state,
@@ -224,11 +226,18 @@ fn returning_soil_water_mixes_with_warmer_replenished_pool_without_creating_heat
         "restored catchment temperature must determine the same return"
     );
     let after = state.fluid().get_store(pool).unwrap().contents().unwrap();
-    assert_eq!(after.volume(), Volume::from_microliters(500_000));
-    assert_eq!(after.temperature(), Temperature::from_millikelvin(298_150));
+    assert_eq!(
+        after.volume(),
+        WATER_PER_FRONT.checked_add(returned).unwrap()
+    );
+    assert_eq!(after.temperature(), expected_temperature);
     let soil = state.fluid().spring_soil.get(&pool).unwrap();
-    assert_eq!(soil.soaked, Volume::ZERO);
-    assert_eq!(soil.soaked_temperature, None);
+    let residual = WATER_PER_FRONT.checked_sub(returned).unwrap();
+    assert_eq!(soil.soaked, residual);
+    assert_eq!(
+        soil.soaked_temperature,
+        (!residual.is_zero()).then_some(Temperature::from_millikelvin(293_150))
+    );
     assert_eq!(
         calculate_fluid_volume_accounting(&state).unwrap(),
         volume_before
@@ -240,6 +249,102 @@ fn returning_soil_water_mixes_with_warmer_replenished_pool_without_creating_heat
         heat_before
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    if !residual.is_zero() {
+        // The same mismatched water must also admit a finite, exact return to
+        // the soil on a later drying front. Neither direction can round heat.
+        let dry_front = next_front_with(&state, SpringMoistureFlux::Drying);
+        for actor in [&mut state, &mut replay] {
+            apply_clock_advance(actor, dry_front);
+            let plan = decide_natural_water_cycle(&registries, actor, dry_front).unwrap();
+            apply_natural_water_cycle(actor, plan);
+        }
+        assert_eq!(state, replay);
+        let water = state.fluid().get_store(pool).unwrap().contents().unwrap();
+        assert_eq!(water.volume(), WATER_PER_FRONT);
+        assert_eq!(water.temperature(), expected_temperature);
+        let soil = state.fluid().spring_soil.get(&pool).unwrap();
+        assert_eq!(soil.soaked, WATER_PER_FRONT);
+        assert_eq!(
+            soil.soaked_temperature,
+            Some(Temperature::from_millikelvin(293_151))
+        );
+        assert_eq!(
+            calculate_fluid_volume_accounting(&state).unwrap(),
+            volume_before
+        );
+        assert_eq!(
+            calculate_explicit_energy_accounting(&registries, &state)
+                .unwrap()
+                .fluid_material_thermal(),
+            heat_before
+        );
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+}
+
+#[test]
+fn returning_soil_water_mixes_with_warmer_replenished_pool_without_creating_heat() {
+    assert_returning_soil_water_mixes_exactly(
+        crate::core::quantity::Temperature::from_millikelvin(303_150),
+        WATER_PER_FRONT,
+        crate::core::quantity::Temperature::from_millikelvin(298_150),
+    );
+}
+
+#[test]
+fn mismatched_spring_temperatures_transfer_exact_partial_batches_in_both_directions() {
+    assert_returning_soil_water_mixes_exactly(
+        crate::core::quantity::Temperature::from_millikelvin(293_153),
+        Volume::from_microliters(125_000),
+        crate::core::quantity::Temperature::from_millikelvin(293_152),
+    );
+}
+
+#[test]
+fn spring_exchange_chooses_largest_exact_batch_with_bounded_arithmetic() {
+    use crate::core::quantity::Temperature;
+
+    let cold = Temperature::from_millikelvin(293_150);
+    for stored in 1..=32_u64 {
+        for delta in 1..=32_u32 {
+            let warmer = Temperature::from_millikelvin(cold.millikelvin() + delta);
+            for limit in 1..=32_u64 {
+                let expected = (1..=limit)
+                    .rev()
+                    .find(|&amount| {
+                        (u128::from(stored) * u128::from(delta))
+                            .is_multiple_of(u128::from(stored + amount))
+                    })
+                    .map(Volume::from_microliters);
+                assert_eq!(
+                    largest_exact_mixing_exchange(
+                        (Volume::from_microliters(stored), cold),
+                        warmer,
+                        Volume::from_microliters(limit),
+                    ),
+                    expected,
+                    "stored={stored}, delta={delta}, limit={limit}"
+                );
+            }
+        }
+    }
+    assert_eq!(
+        largest_exact_mixing_exchange(
+            (Volume::from_microliters(4), cold),
+            Temperature::from_millikelvin(293_153),
+            Volume::from_microliters(3),
+        ),
+        Some(Volume::from_microliters(2)),
+    );
+    assert_eq!(
+        largest_exact_mixing_exchange(
+            (Volume::from_microliters(u64::MAX - 2), cold),
+            Temperature::from_millikelvin(293_151),
+            Volume::from_microliters(2),
+        ),
+        None,
+    );
 }
 
 #[test]
