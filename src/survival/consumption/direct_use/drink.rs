@@ -8,6 +8,7 @@ use crate::core::state::AppState;
 use crate::fluid::FluidStoreId;
 use crate::logistics::validate_player_fluid_store_access;
 use crate::registry::Registries;
+use crate::survival::Vitality;
 
 use super::super::drinking::validate_drink_with_mode;
 use super::super::{
@@ -202,6 +203,11 @@ fn validate_drink_store_to_hydration_target_with_mode(
         .player()
         .copied()
         .ok_or(DrinkStoreToTargetError::SurvivalNotInitialized)?;
+    // A full hydration reserve does not authorize a dead actor to use a
+    // vessel; check before any source lookup or successful no-op projection.
+    if player.vitality() == Vitality::ZERO {
+        return Err(DrinkStoreToTargetError::Drink(DrinkError::PlayerDead));
+    }
     validate_player_fluid_store_access(state, store)
         .map_err(|error| DrinkStoreToTargetError::Drink(DrinkError::Access(error)))?;
     let store_record = state

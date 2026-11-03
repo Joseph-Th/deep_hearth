@@ -766,6 +766,119 @@ fn selected_stack_default_use_is_a_noop_when_already_full() {
 }
 
 #[test]
+fn dead_player_full_reserve_use_rejects_before_reporting_no_meal_or_drink_needed() {
+    use crate::core::state::validate_loaded_state;
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+    use crate::player::validate_admit_player;
+    use crate::survival::player_record_with_thermal_comfort;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(100_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap()
+        .remove(0);
+    let water = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        Volume::from_microliters(500_000),
+        FLUID_WATER,
+        Volume::from_microliters(500_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_place_fluid_store(&state, water, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let player = state.survival().player().copied().unwrap();
+    let physiology = registries.survival().physiology();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            physiology.maximum_metabolic_energy(),
+            physiology.maximum_hydration(),
+            Vitality::ZERO,
+            NutritionReserves::FULL,
+            player.vitality_recovery_remainder(),
+            player.thermal_comfort_ppm(),
+        ),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(replay, state);
+    for candidate in [&state, &replay] {
+        assert_eq!(
+            validate_eat_lot_to_full(&registries, candidate, lot).err(),
+            Some(EatLotToTargetError::Eat(EatError::PlayerDead)),
+        );
+        assert_eq!(
+            validate_eat_lot_to_metabolic_target(
+                &registries,
+                candidate,
+                lot,
+                physiology.maximum_metabolic_energy(),
+            )
+            .err(),
+            Some(EatLotToTargetError::Eat(EatError::PlayerDead)),
+        );
+        assert_eq!(
+            validate_eat_stack_to_full(&registries, candidate, &stack).err(),
+            Some(EatStackToTargetError::Eat(EatError::PlayerDead)),
+        );
+        assert_eq!(
+            validate_eat_stack_to_metabolic_target(
+                &registries,
+                candidate,
+                &stack,
+                physiology.maximum_metabolic_energy(),
+            )
+            .err(),
+            Some(EatStackToTargetError::Eat(EatError::PlayerDead)),
+        );
+        assert_eq!(
+            validate_drink_store_to_full(&registries, candidate, water).err(),
+            Some(DrinkStoreToTargetError::Drink(DrinkError::PlayerDead)),
+        );
+        assert_eq!(
+            validate_drink_store_to_hydration_target(
+                &registries,
+                candidate,
+                water,
+                physiology.maximum_hydration(),
+            )
+            .err(),
+            Some(DrinkStoreToTargetError::Drink(DrinkError::PlayerDead)),
+        );
+    }
+    assert_eq!(
+        state, before,
+        "rejected use must not change physical custody"
+    );
+}
+
+#[test]
 fn selected_food_stack_default_use_preserves_canonical_temperature_rejection() {
     let registries = build_registries();
     let mut state = AppState::new();

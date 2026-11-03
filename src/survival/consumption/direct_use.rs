@@ -12,6 +12,7 @@ use crate::inventory::{
 use crate::logistics::validate_player_stockpile_access;
 use crate::material::CommodityKey;
 use crate::registry::Registries;
+use crate::survival::Vitality;
 
 use super::{
     EatError, MealMetabolicProjectionError, ValidatedEat, project_minimum_meal_to_metabolic_target,
@@ -405,6 +406,11 @@ pub fn validate_eat_stack_to_metabolic_target(
         .player()
         .copied()
         .ok_or(EatStackToTargetError::SurvivalNotInitialized)?;
+    // Even a satisfied reserve must not turn a dead actor's use into an
+    // apparently successful no-op. Canonical eating rejects the same state.
+    if player.vitality() == Vitality::ZERO {
+        return Err(EatStackToTargetError::Eat(EatError::PlayerDead));
+    }
     let source = stack.stockpile();
     validate_player_stockpile_access(state, source)
         .map_err(|error| EatStackToTargetError::Eat(EatError::Access(error)))?;
@@ -542,6 +548,9 @@ pub fn validate_eat_lot_to_metabolic_target(
         .player()
         .copied()
         .ok_or(EatLotToTargetError::SurvivalNotInitialized)?;
+    if player.vitality() == Vitality::ZERO {
+        return Err(EatLotToTargetError::Eat(EatError::PlayerDead));
+    }
     let lot_record = state
         .inventory()
         .get_lot(lot)
