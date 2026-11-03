@@ -94,6 +94,22 @@ pub(super) fn scout_can_enter(
         })
 }
 
+/// A resident already occupying generated air cannot begin another grounded
+/// walking edge if excavation removed the floor beneath it. Keep the resident
+/// and its cargo at the last real position until terrain support returns, as
+/// with the temple castes. Ungenerated opening routes retain their authored
+/// graph-only movement, including a retreat from a colocated player.
+pub(super) fn opening_resident_can_depart(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+) -> bool {
+    !state.world().has_generated_terrain_at(position)
+        || state
+            .world()
+            .has_standing_clearance(registries.world(), position)
+}
+
 pub(super) fn living_player_deters_scout(
     registries: &Registries,
     state: &AppState,
@@ -257,6 +273,7 @@ fn plan_scout_move(
         turned_back_at_barrier,
         cancelled_empty_cache_raid,
         physically_clear: !colony.is_staggered(super::KoboldRole::Scout)
+            && opening_resident_can_depart(registries, state, from)
             && step != colony.scout_step
             // A calm returning scavenger must not carry food or scrap into a
             // newly bright approach. A scout already in danger may still flee

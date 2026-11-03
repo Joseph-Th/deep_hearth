@@ -2,6 +2,59 @@
 
 use super::*;
 
+#[test]
+fn opening_scout_cannot_walk_from_an_excavated_unsupported_floor() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::core::state::validate_loaded_state;
+    use crate::world::{BlockStateId, set_generated_block_for_test};
+
+    let (registries, mut state, _) = generated_terrain_scout_opening();
+    advance_to_tick(&registries, &mut state, 180);
+    assert_eq!(colony(&state).scout_step, 1);
+    let junction = colony(&state).route[1];
+    assert!(
+        state
+            .world()
+            .has_standing_clearance(registries.world(), junction),
+        "generated scout patrol begins with a supported junction"
+    );
+    let mut supported = state.clone();
+    advance_to_tick(&registries, &mut supported, 185);
+    assert_ne!(
+        colony(&supported).scout_position(),
+        junction,
+        "an ordinary supported scout should leave the junction on schedule"
+    );
+
+    let floor = VoxelCoord::new(junction.x(), junction.y() - 1, junction.z());
+    set_generated_block_for_test(registries.world(), &mut state, floor, BlockStateId::AIR);
+    assert!(
+        !state
+            .world()
+            .has_standing_clearance(registries.world(), junction)
+    );
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(
+        colony(&state).scout_position(),
+        junction,
+        "an unsupported resident cannot take a normal grounded patrol step"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(replay, state);
+
+    // Restoring real support lets the same persisted resident resume, rather
+    // than teleporting it to its den or deleting its cargo and history.
+    set_generated_block_for_test(registries.world(), &mut state, floor, BLOCK_STATE_STONE);
+    advance_to_tick(&registries, &mut state, 190);
+    assert_ne!(colony(&state).scout_position(), junction);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
 /// Physical sight is not player-visible identity without local illumination.
 /// Scout perception and custody stay unchanged when the player cannot see.
 #[test]

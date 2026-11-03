@@ -10,7 +10,10 @@ use crate::survival::Vitality;
 
 use super::feeding::consume_complete_den_ration;
 use super::junkworks::{KoboldAlarmPulse, locally_audible_alarm_pulses, relay_watch_alarm};
-use super::patrol::{living_player_deters_scout, scout_can_enter, scout_sees_guarded_cell};
+use super::patrol::{
+    living_player_deters_scout, opening_resident_can_depart, scout_can_enter,
+    scout_sees_guarded_cell,
+};
 use super::tracks::KoboldTrailKind;
 use super::visibility::scout_visible_from;
 use super::{
@@ -196,7 +199,8 @@ pub(super) fn apply_watchman_tick(
     let Some((destination, next_leg)) = next else {
         return (signaled, audible);
     };
-    if !scout_can_enter(registries, state, destination, player)
+    if !opening_resident_can_depart(registries, state, guard)
+        || !scout_can_enter(registries, state, destination, player)
         || (destination != den && scout_position == destination)
         // Coming home is a real physical step too. A player watching the den
         // entrance can hold a calm sentry at its post, delaying both the

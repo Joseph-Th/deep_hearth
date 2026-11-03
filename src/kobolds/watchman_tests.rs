@@ -226,6 +226,63 @@ fn opening_a_real_stone_screen_keeps_a_watchman_home_for_a_visible_player() {
     );
     assert_eq!(validate_loaded_state(&registries, &world), Ok(()));
     assert_eq!(validate_loaded_state(&registries, &screened), Ok(()));
+
+    // The same food-funded watch is now physically outside its den. Removing
+    // the floor beneath its junction must not let it walk the return edge
+    // while unsupported, even though that destination remains clear.
+    let mut supported_watch = screened.clone();
+    advance_to(&registries, &mut supported_watch, 220);
+    assert_eq!(
+        supported_watch
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
+        den,
+        "the provisioned guard normally finishes its finite watch on schedule"
+    );
+    let junction_floor = VoxelCoord::new(junction.x(), junction.y() - 1, junction.z());
+    set_generated_block_for_test(
+        registries.world(),
+        &mut screened,
+        junction_floor,
+        BlockStateId::AIR,
+    );
+    advance_to(&registries, &mut screened, 220);
+    assert_eq!(
+        screened
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
+        junction,
+        "the watchman cannot walk home across an edge without current footing"
+    );
+    assert_eq!(validate_loaded_state(&registries, &screened), Ok(()));
+    let saved_watch = serde_json::to_vec(&SaveEnvelope::new(&registries, &screened)).unwrap();
+    let restored_watch = serde_json::from_slice::<LoadedSaveEnvelope>(&saved_watch)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored_watch, screened);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut screened,
+        junction_floor,
+        BLOCK_STATE_STONE,
+    );
+    advance_to(&registries, &mut screened, 225);
+    assert_eq!(
+        screened
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_position(),
+        den
+    );
 }
 
 #[test]
