@@ -99,7 +99,11 @@ fn preserve_cutout_coverage(
         .filter(|texel| opaque_by_texel[usize::from(texel.raw_value())] != 0)
         .count();
     let wanted = (base_opaque * stride + TEXTURE_TEXEL_COUNT / 2) / TEXTURE_TEXEL_COUNT;
-    let mut pixels = Vec::with_capacity(stride);
+    // Called only after the first 16-to-8 reduction: at most 64 footprints.
+    // Reuse bounded stack scratch instead of allocating for every cutout layer
+    // at each mip level.
+    let mut pixels = [(0_usize, 0_usize, 0_u64); TEXTURE_TEXEL_COUNT / 4];
+    debug_assert!(stride <= pixels.len());
     for index in 0..stride {
         let x = (index % side) * footprint_side;
         let y = (index / side) * footprint_side;
@@ -116,11 +120,12 @@ fn preserve_cutout_coverage(
         tie ^= tie >> 30;
         tie = tie.wrapping_mul(0xBF58_476D_1CE4_E5B9);
         tie ^= tie >> 27;
-        pixels.push((index, opaque, tie));
+        pixels[index] = (index, opaque, tie);
     }
-    pixels.sort_unstable_by_key(|(index, opaque, tie)| (std::cmp::Reverse(*opaque), *tie, *index));
+    pixels[..stride]
+        .sort_unstable_by_key(|(index, opaque, tie)| (std::cmp::Reverse(*opaque), *tie, *index));
     let offset = layer_index * stride;
-    for (rank, (index, _, _)) in pixels.into_iter().enumerate() {
+    for (rank, &(index, _, _)) in pixels[..stride].iter().enumerate() {
         let x = (index % side) * footprint_side;
         let y = (index / side) * footprint_side;
         target[offset + index] = representative_cutout_texel(

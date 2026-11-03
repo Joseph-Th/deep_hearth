@@ -37,17 +37,17 @@ enum DirectSurfaceGatheringResolution {
 fn resolve_direct_surface_gathering(
     registries: &Registries,
     state: &AppState,
-    require_actionable: bool,
+    allow_unavailable_fallback: bool,
 ) -> DirectSurfaceGatheringResolution {
-    let mut options = player_surface_gathering_options(registries, state).unwrap_or_else(|error| {
+    let options = player_surface_gathering_options(registries, state).unwrap_or_else(|error| {
         panic!("runtime invariant broken: direct gathering option projection failed: {error}")
     });
-    if require_actionable {
-        // A visible source is not a competing default action unless its owner
-        // can actually admit gathering now. This includes thermal, inventory
-        // profile, reserved revision, material identity, and work-budget checks.
-        // Explicit gathering still reports the precise rejection for each source.
-        options.retain(|option| {
+    // Inadmissible sources must not compete with a viable local gather.
+    // The owner checks temperature, storage, revisions and work resources.
+    let actionable = options
+        .iter()
+        .copied()
+        .filter(|option| {
             assess_player_surface_gathering_option_admission(
                 registries,
                 state,
@@ -55,9 +55,15 @@ fn resolve_direct_surface_gathering(
                 direct_gathering_request_mass(state, *option),
             )
             .is_ok()
-        });
+        })
+        .collect::<Vec<_>>();
+    if actionable.is_empty() && allow_unavailable_fallback {
+        // With neither a feasible drink nor a feasible gather, preserve the
+        // observed source's typed rejection rather than reporting no context.
+        classify_direct_surface_gathering_options(&options)
+    } else {
+        classify_direct_surface_gathering_options(&actionable)
     }
-    classify_direct_surface_gathering_options(&options)
 }
 
 fn classify_direct_surface_gathering_options(
@@ -109,7 +115,7 @@ pub(super) fn attempt_empty_hand_secondary_action(
         })
         .collect::<Vec<_>>();
     let gathering =
-        resolve_direct_surface_gathering(registries, state, !actionable_drink_sources.is_empty());
+        resolve_direct_surface_gathering(registries, state, actionable_drink_sources.is_empty());
     let surface_resources = match gathering {
         DirectSurfaceGatheringResolution::AmbiguousResources { count } => count,
         DirectSurfaceGatheringResolution::One(_)

@@ -161,6 +161,61 @@ fn unavailable_gathering_without_drink_retains_its_specific_rejection() {
     ));
 }
 
+#[test]
+fn unusable_local_source_does_not_obscure_the_only_gatherable_source() {
+    use crate::core::state::validate_loaded_state;
+    use crate::matter::calculate_matter_accounting;
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+
+    let (registries, mut state, _) = water_and_gathering_context(&[], false, true);
+    let position = state.logistics().player().unwrap().position();
+    let sources = [
+        (CommodityKey::new(MATERIAL_STONE, FORM_LUMP), 423_150),
+        (CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD), 293_150),
+    ]
+    .map(|(commodity, millikelvin)| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Opportunity,
+            position,
+            commodity,
+            Mass::from_milligrams(500_000),
+            Temperature::from_millikelvin(millikelvin),
+            MaterialComposition::pure(commodity.material()),
+        )
+        .unwrap()
+    });
+    validate_create_surface_resources(&registries, &state, sources)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let options = player_surface_gathering_options(&registries, &state).unwrap();
+    assert_eq!(options.len(), 2);
+    let hot_stone = options[0].resource();
+    let berries = options[1].resource();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    let result = attempt_empty_hand_secondary_action(&registries, &mut state);
+    let replay_result = attempt_empty_hand_secondary_action(&registries, &mut replay);
+    assert_eq!(result, replay_result);
+    assert!(matches!(
+        result,
+        SecondaryActionOutcome::SurfaceGatheringStarted(work) if work.resource() == berries
+    ));
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(hot_stone).unwrap().remaining_mass(),
+        Mass::from_milligrams(500_000)
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
 fn water_and_gathering_context(
     water_volumes: &[crate::core::quantity::Volume],
     forage: bool,
