@@ -29,6 +29,8 @@ impl ValidatedStartProcess {
             next_production_revision,
             expected_logistics_revision,
             expected_player_survival_revision,
+            expected_player_work_revision,
+            expected_combat_revision,
             reservation,
             energy_reservation,
             energy_ingress_reservation,
@@ -50,6 +52,24 @@ impl ValidatedStartProcess {
 
         validate_commit_occupancy(state, &job)?;
         validate_logistics_revision(state, expected_logistics_revision)?;
+        if let Some(expected_player_work_revision) = expected_player_work_revision {
+            let actual = state.player_work().revision();
+            if actual != expected_player_work_revision {
+                return Err(StartProcessCommitError::StalePlayerWorkRevision {
+                    expected: expected_player_work_revision,
+                    actual,
+                });
+            }
+        }
+        if let Some(expected_combat_revision) = expected_combat_revision {
+            let actual = state.combat().revision();
+            if actual != expected_combat_revision {
+                return Err(StartProcessCommitError::StaleCombatRevision {
+                    expected: expected_combat_revision,
+                    actual,
+                });
+            }
+        }
         if let Some(expected_survival_revision) = expected_player_survival_revision {
             validate_survival_revision(state, expected_survival_revision)?;
         }

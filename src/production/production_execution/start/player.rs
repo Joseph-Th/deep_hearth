@@ -25,6 +25,8 @@ use crate::survival::Vitality;
 pub enum StartPlayerProcessError {
     PlayerNotAdmitted,
     PlayerDead,
+    PlayerBusy,
+    PreparedStrikeActive,
     StockpileAccess(PlayerStockpileAccessError),
     EquipmentAccess(PlayerEquipmentAccessError),
     EnergyStoreAccess(PlayerEnergyStoreAccessError),
@@ -36,6 +38,10 @@ impl Display for StartPlayerProcessError {
         match self {
             Self::PlayerNotAdmitted => formatter.write_str("player is not fully admitted"),
             Self::PlayerDead => formatter.write_str("dead player cannot start production"),
+            Self::PlayerBusy => formatter
+                .write_str("player cannot load a new production batch while work is active"),
+            Self::PreparedStrikeActive => formatter
+                .write_str("player must lower the prepared weapon before loading production"),
             Self::StockpileAccess(error) => write!(formatter, "stockpile access failed: {error}"),
             Self::EquipmentAccess(error) => write!(formatter, "equipment access failed: {error}"),
             Self::EnergyStoreAccess(error) => {
@@ -49,7 +55,10 @@ impl Display for StartPlayerProcessError {
 impl Error for StartPlayerProcessError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::PlayerNotAdmitted | Self::PlayerDead => None,
+            Self::PlayerNotAdmitted
+            | Self::PlayerDead
+            | Self::PlayerBusy
+            | Self::PreparedStrikeActive => None,
             Self::StockpileAccess(error) => Some(error),
             Self::EquipmentAccess(error) => Some(error),
             Self::EnergyStoreAccess(error) => Some(error),
@@ -72,6 +81,12 @@ fn validate_player_process_access(
         .unwrap_or_else(|| unreachable!("admitted player has survival state"));
     if player.vitality() == Vitality::ZERO {
         return Err(StartPlayerProcessError::PlayerDead);
+    }
+    if state.player_work().active().is_some() {
+        return Err(StartPlayerProcessError::PlayerBusy);
+    }
+    if state.combat().has_prepared_strike() {
+        return Err(StartPlayerProcessError::PreparedStrikeActive);
     }
     validate_player_stockpile_access(state, resolution.source())
         .map_err(StartPlayerProcessError::StockpileAccess)?;
@@ -138,5 +153,5 @@ pub fn validate_start_player_process_routed(
         registries, state, resolution, source, routes, false,
     )
     .map_err(StartPlayerProcessError::Process)?;
-    Ok(validated.bind_player_survival_revision(state.survival().revision()))
+    Ok(validated.bind_player_actor_revisions(state))
 }

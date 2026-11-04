@@ -187,6 +187,8 @@ pub enum StartPoweredCraftError {
     NoSegregableResidue { process: ProcessId },
     PlayerNotAdmitted,
     PlayerDead,
+    PlayerBusy,
+    PreparedStrikeActive,
     StockpileAccess(PlayerStockpileAccessError),
     EquipmentAccess(PlayerEquipmentAccessError),
     EnergyStoreAccess(PlayerEnergyStoreAccessError),
@@ -206,6 +208,12 @@ impl Display for StartPoweredCraftError {
                 formatter.write_str("powered crafting requires an admitted player")
             }
             Self::PlayerDead => formatter.write_str("dead player cannot start powered crafting"),
+            Self::PlayerBusy => {
+                formatter.write_str("player cannot load a powered craft batch while work is active")
+            }
+            Self::PreparedStrikeActive => formatter.write_str(
+                "player must lower the prepared weapon before starting powered crafting",
+            ),
             Self::StockpileAccess(error) => {
                 write!(formatter, "powered craft stockpile access failed: {error}")
             }
@@ -229,7 +237,11 @@ impl Display for StartPoweredCraftError {
 impl Error for StartPoweredCraftError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::PlayerNotAdmitted | Self::PlayerDead | Self::NoSegregableResidue { .. } => None,
+            Self::PlayerNotAdmitted
+            | Self::PlayerDead
+            | Self::PlayerBusy
+            | Self::PreparedStrikeActive
+            | Self::NoSegregableResidue { .. } => None,
             Self::StockpileAccess(error) => Some(error),
             Self::EquipmentAccess(error) => Some(error),
             Self::EnergyStoreAccess(error) => Some(error),

@@ -524,6 +524,10 @@ fn validate_start_powered_craft_internal(
             unreachable!("powered craft already proved full player admission")
         }
         StartPlayerProcessError::PlayerDead => StartPoweredCraftError::PlayerDead,
+        StartPlayerProcessError::PlayerBusy => StartPoweredCraftError::PlayerBusy,
+        StartPlayerProcessError::PreparedStrikeActive => {
+            StartPoweredCraftError::PreparedStrikeActive
+        }
         StartPlayerProcessError::StockpileAccess(error) => {
             StartPoweredCraftError::StockpileAccess(error)
         }

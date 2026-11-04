@@ -28,6 +28,14 @@ pub enum StartProcessCommitError {
         expected: u64,
         actual: u64,
     },
+    StalePlayerWorkRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleCombatRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleProductionRevision {
         expected: u64,
         actual: u64,
@@ -99,6 +107,14 @@ impl Display for StartProcessCommitError {
             Self::StaleSurvivalRevision { expected, actual } => write!(
                 formatter,
                 "player-authorized process start expected survival revision {expected} but current revision is {actual}"
+            ),
+            Self::StalePlayerWorkRevision { expected, actual } => write!(
+                formatter,
+                "player-authorized process start expected work revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleCombatRevision { expected, actual } => write!(
+                formatter,
+                "player-authorized process start expected combat revision {expected} but current revision is {actual}"
             ),
             Self::StaleProductionRevision { expected, actual } => write!(
                 formatter,
@@ -188,6 +204,8 @@ impl Error for StartProcessCommitError {
             | Self::StaleSimulationTick { .. }
             | Self::StaleLogisticsRevision { .. }
             | Self::StaleSurvivalRevision { .. }
+            | Self::StalePlayerWorkRevision { .. }
+            | Self::StaleCombatRevision { .. }
             | Self::StaleProductionRevision { .. }
             | Self::StaleInventoryRevision { .. }
             | Self::StaleEnergyRevision { .. }
