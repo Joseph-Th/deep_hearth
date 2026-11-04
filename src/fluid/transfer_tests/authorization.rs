@@ -4,6 +4,170 @@ use super::*;
 use crate::simulation::advance_tick;
 
 #[test]
+fn prepared_weapon_blocks_pours_and_invalidates_prior_transfer_authorization() {
+    use crate::combat::{validate_cancel_primitive_preparation, validate_prepare_primitive_strike};
+    use crate::content::EQUIPMENT_WOODEN_CLUB;
+    use crate::equipment::validate_assemble_equipment;
+    use crate::inventory::deposit_lot_for_test;
+    use crate::logistics::{
+        PlayerActiveSelection, validate_pickup_equipment, validate_set_active_selection,
+    };
+    use crate::spatial::ViewDirection;
+
+    for destination_position in [POSITION, VoxelCoord::new(0, -1, 0)] {
+        let mut fixture = fixture_at(None, destination_position);
+        let volume = Volume::from_microliters(200_000);
+        let source = fixture
+            .state
+            .logistics()
+            .player()
+            .unwrap()
+            .carried_stockpile();
+        let assembly = fixture
+            .registries
+            .equipment()
+            .get_equipment(EQUIPMENT_WOODEN_CLUB)
+            .unwrap()
+            .assembly_profile()
+            .unwrap()
+            .clone();
+        for input in assembly.inputs() {
+            deposit_lot_for_test(
+                &fixture.registries,
+                &mut fixture.state,
+                source,
+                input.commodity(),
+                input.mass(),
+                ROOM_TEMPERATURE,
+            )
+            .unwrap();
+        }
+        let club = validate_assemble_equipment(
+            &fixture.registries,
+            &fixture.state,
+            EQUIPMENT_WOODEN_CLUB,
+            source,
+        )
+        .unwrap()
+        .commit(&mut fixture.state)
+        .unwrap();
+        validate_pickup_equipment(&fixture.registries, &fixture.state, club)
+            .unwrap()
+            .commit(&mut fixture.state)
+            .unwrap();
+        validate_set_active_selection(
+            &fixture.registries,
+            &fixture.state,
+            Some(PlayerActiveSelection::equipment(club)),
+        )
+        .unwrap()
+        .commit(&mut fixture.state)
+        .unwrap();
+
+        let validate = |state: &AppState| {
+            if destination_position == POSITION {
+                validate_transfer_fluid_between_local_stores(
+                    &fixture.registries,
+                    state,
+                    fixture.source,
+                    fixture.destination,
+                    volume,
+                )
+            } else {
+                validate_gravity_feed_fluid_to_lower_store(
+                    &fixture.registries,
+                    state,
+                    fixture.source,
+                    fixture.destination,
+                    volume,
+                )
+            }
+        };
+        let prevalidated = validate(&fixture.state).unwrap();
+        let combat_before = fixture.state.combat().revision();
+        let facing = ViewDirection::new(1_000_000, 0, 0).unwrap();
+        let _ = validate_prepare_primitive_strike(&fixture.registries, &fixture.state, facing)
+            .unwrap()
+            .commit(&mut fixture.state)
+            .unwrap();
+        let combat_after = fixture.state.combat().revision();
+        let water_before = calculate_fluid_volume_accounting(&fixture.state).unwrap();
+        let unchanged = fixture.state.clone();
+        assert_eq!(
+            validate(&fixture.state).err(),
+            Some(FluidTransferError::PreparedStrikeActive)
+        );
+        let options =
+            player_fluid_transfer_options(&fixture.registries, &fixture.state, volume).unwrap();
+        assert_eq!(options.len(), 1);
+        assert_eq!(
+            options[0].blocker(),
+            Some(&FluidTransferError::PreparedStrikeActive)
+        );
+        assert_eq!(
+            prevalidated.commit(&mut fixture.state),
+            Err(FluidTransferCommitError::StaleCombatRevision {
+                expected: combat_before,
+                actual: combat_after,
+            })
+        );
+        assert_eq!(fixture.state, unchanged);
+        assert_eq!(
+            calculate_fluid_volume_accounting(&fixture.state).unwrap(),
+            water_before
+        );
+        assert_eq!(
+            validate_loaded_state(&fixture.registries, &fixture.state),
+            Ok(())
+        );
+
+        let saved =
+            serde_json::to_vec(&SaveEnvelope::new(&fixture.registries, &fixture.state)).unwrap();
+        let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&fixture.registries)
+            .unwrap();
+        assert_eq!(replay, fixture.state);
+        assert_eq!(
+            validate(&replay).err(),
+            Some(FluidTransferError::PreparedStrikeActive)
+        );
+        for state in [&mut fixture.state, &mut replay] {
+            let _ = validate_cancel_primitive_preparation(state)
+                .unwrap()
+                .commit(state)
+                .unwrap();
+            assert_eq!(
+                validate_player_fluid_transfer_option(&fixture.registries, state, &options[0],)
+                    .err(),
+                Some(FluidTransferError::ObservedOutcomeChanged {
+                    source: fixture.source,
+                    destination: fixture.destination,
+                }),
+                "a formerly blocked catalog row requires a fresh observation"
+            );
+            let refreshed =
+                player_fluid_transfer_options(&fixture.registries, state, volume).unwrap();
+            assert!(refreshed[0].is_ready());
+            let _ =
+                validate_player_fluid_transfer_option(&fixture.registries, state, &refreshed[0])
+                    .unwrap()
+                    .commit(state)
+                    .unwrap();
+        }
+        assert_eq!(fixture.state, replay);
+        assert_eq!(
+            calculate_fluid_volume_accounting(&fixture.state).unwrap(),
+            water_before,
+        );
+        assert_eq!(
+            validate_loaded_state(&fixture.registries, &fixture.state),
+            Ok(())
+        );
+    }
+}
+
+#[test]
 fn exclusive_player_work_blocks_local_and_downhill_pours_and_stales_prior_authorization() {
     use crate::content::{FORM_CHIP, MATERIAL_STONE, SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS};
     use crate::core::quantity::Mass;

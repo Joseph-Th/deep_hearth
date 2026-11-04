@@ -30,7 +30,7 @@ Implemented systems exchange a small set of authoritative flows:
 | Flow | Contract |
 | --- | --- |
 | Matter | Moves through explicit custody; creation/destruction requires an authored physical source/sink. |
-| Fluid | Finite stores own volume; withdrawal/consumption, same-voxel manual decant, and immediate one-voxel downward gravity feed are explicit. Player-tended transfers refuse exclusive work at admission and bind work revisions through commit. Generic transport is absent. |
+| Fluid | Finite stores own volume; withdrawal/consumption, same-voxel manual decant, and immediate one-voxel downward gravity feed are explicit. Player-tended transfers refuse exclusive work and a prepared melee stance at admission, and bind both work and combat revisions through commit. Generic transport is absent. |
 | Energy | Finite stores and work records own stored/reserved energy; losses are explicit sinks. Player-tended combustion, energy-store assembly, and energy-store upgrades reject active exclusive work at validation and commit without restricting headless owner execution. |
 | Labor | `PlayerWorkState` owns exclusive timed attention; survival supplies physiological work budget. A raised, prepared melee weapon excludes all timed player attention, including eating and drinking, across validation-to-commit transitions; the shared attention guard checks work and combat revisions. Admitted-player equipment assembly and upgrades cannot run alongside active work; headless material owner execution remains available. |
 | Information | Hidden geology becomes actor-usable only through acquired `GeologicalKnowledgeState`. |
@@ -1603,10 +1603,12 @@ would round off explicit sensible heat and is rejected without mutation. Differe
 identities remain incompatible; this is not compositional alloying or fluid contamination.
 Overfill and inaccessible or remote locations are also rejected. The transfer projects both supported loads together so
 same-support redistribution cannot artificially change structural weight. Validation binds
-fluid, logistics and living-player survival revisions; commit rechecks those owners before
+fluid, logistics, living-player survival, player-work and combat revisions; commit rechecks those owners before
 any structural or fluid mutation. Water and molten-copper fixtures check exact
 volume and precise sensible/latent thermal-energy accounting, structural support, and
-deterministic continuation through save/load. Downhill delivery between two
+deterministic continuation through save/load. A raised melee weapon blocks both
+direct pouring and downhill feeding, and invalidates already authorized pours;
+canceling that stance requires a fresh catalog observation. Downhill delivery between two
 separately supported neighboring vessels projects the reduced upper and increased
 lower fluid weight in one atomic structural transaction; stale player, logistics and
 fluid revisions fail without movement. Generic remote transport, pumping, chemical mixing, and pressure networks

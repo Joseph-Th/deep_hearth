@@ -29,6 +29,7 @@ pub enum FluidTransferError {
     PlayerNotAdmitted,
     PlayerDead,
     PlayerBusy,
+    PreparedStrikeActive,
     SourceAccess(PlayerFluidStoreAccessError),
     DestinationAccess(PlayerFluidStoreAccessError),
     InvalidGravityRoute {
@@ -93,6 +94,7 @@ pub enum FluidTransferCommitError {
     StaleLogisticsRevision { expected: u64, actual: u64 },
     StaleSurvivalRevision { expected: u64, actual: u64 },
     StalePlayerWorkRevision { expected: u64, actual: u64 },
+    StaleCombatRevision { expected: u64, actual: u64 },
     ContentsChanged { store: FluidStoreId },
     Structure(StructuralCommitError),
 }
@@ -153,6 +155,7 @@ pub struct ValidatedFluidTransfer {
     expected_structure_revision: Option<u64>,
     expected_logistics_revision: u64,
     expected_player_work_revision: u64,
+    expected_combat_revision: u64,
     player_action: PlayerActionGuard,
     structural: Option<ValidatedFluidStructuralLoad>,
 }
@@ -201,6 +204,13 @@ impl ValidatedFluidTransfer {
             return Err(FluidTransferCommitError::StalePlayerWorkRevision {
                 expected: self.expected_player_work_revision,
                 actual: actual_work,
+            });
+        }
+        let actual_combat = state.combat().revision();
+        if actual_combat != self.expected_combat_revision {
+            return Err(FluidTransferCommitError::StaleCombatRevision {
+                expected: self.expected_combat_revision,
+                actual: actual_combat,
             });
         }
         let actual_fluid = state.fluid().revision();
@@ -384,6 +394,12 @@ fn validate_transfer_fluid(
     if state.player_work().active().is_some() {
         return Err(FluidTransferError::PlayerBusy);
     }
+    // A raised melee weapon already owns the actor's exclusive attention.
+    // Instantaneous pours cannot run alongside that windup or bypass it
+    // through a token admitted before the weapon was raised.
+    if state.combat().has_prepared_strike() {
+        return Err(FluidTransferError::PreparedStrikeActive);
+    }
     if source == destination {
         return Err(FluidTransferError::SameStore);
     }
@@ -488,6 +504,7 @@ fn validate_transfer_fluid(
             .then_some(state.structures().revision()),
         expected_logistics_revision: state.logistics().revision(),
         expected_player_work_revision: state.player_work().revision(),
+        expected_combat_revision: state.combat().revision(),
         player_action,
         structural,
     })
