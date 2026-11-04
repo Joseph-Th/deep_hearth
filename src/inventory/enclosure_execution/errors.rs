@@ -22,6 +22,7 @@ use crate::structural::{StructuralCommitError, StructuralElementId};
 pub enum StorageEnclosureConstructionError {
     PlayerDead,
     PlayerBusy,
+    PreparedStrikeActive,
     UnknownDefinition {
         definition: StorageDefinitionId,
     },
@@ -111,6 +112,7 @@ pub enum StorageEnclosureConstructionError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerStoragePlacementError {
     PlayerBusy,
+    PreparedStrikeActive,
     Allocation(PlayerGroundStockpileAllocationError),
     Construction(StorageEnclosureConstructionError),
     GeneratedSolidTerrain {
@@ -133,6 +135,9 @@ impl Display for PlayerStoragePlacementError {
         match self {
             Self::PlayerBusy => {
                 formatter.write_str("player cannot place storage while work is active")
+            }
+            Self::PreparedStrikeActive => {
+                formatter.write_str("player must lower the prepared weapon before placing storage")
             }
             Self::Allocation(error) => {
                 write!(formatter, "storage placement allocation failed: {error}")
@@ -180,7 +185,7 @@ impl Display for PlayerStoragePlacementError {
 impl Error for PlayerStoragePlacementError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::PlayerBusy => None,
+            Self::PlayerBusy | Self::PreparedStrikeActive => None,
             Self::Allocation(error) => Some(error),
             Self::Construction(error) => Some(error),
             Self::LooseResidueFooting { .. }
@@ -195,6 +200,10 @@ impl Error for PlayerStoragePlacementError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerStoragePlacementCommitError {
     PlayerBecameBusy,
+    StaleCombatRevision {
+        expected: u64,
+        actual: u64,
+    },
     Allocation(GroundStockpileAllocationCommitError),
     SurfaceRevisionChanged {
         expected: u64,
@@ -216,6 +225,10 @@ impl Display for PlayerStoragePlacementCommitError {
             Self::PlayerBecameBusy => {
                 formatter.write_str("player work started before storage placement commit")
             }
+            Self::StaleCombatRevision { expected, actual } => write!(
+                formatter,
+                "storage placement expected combat revision {expected} but current revision is {actual}"
+            ),
             Self::Allocation(error) => {
                 write!(formatter, "storage placement commit failed: {error}")
             }
@@ -241,6 +254,7 @@ impl Error for PlayerStoragePlacementCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::PlayerBecameBusy
+            | Self::StaleCombatRevision { .. }
             | Self::WorldRevisionChanged { .. }
             | Self::StaleControlTick { .. } => None,
             Self::Allocation(error) => Some(error),
@@ -265,6 +279,9 @@ impl Display for StorageEnclosureConstructionError {
             Self::PlayerDead => formatter.write_str("dead player cannot build storage"),
             Self::PlayerBusy => {
                 formatter.write_str("player cannot build storage during exclusive work")
+            }
+            Self::PreparedStrikeActive => {
+                formatter.write_str("player must lower the prepared weapon before building storage")
             }
             Self::UnknownDefinition { definition } => write!(
                 formatter,
@@ -438,6 +455,7 @@ impl Error for StorageEnclosureConstructionError {
             Self::TargetAccess(error) | Self::SourceAccess(error) => Some(error),
             Self::PlayerDead
             | Self::PlayerBusy
+            | Self::PreparedStrikeActive
             | Self::UnknownDefinition { .. }
             | Self::UnknownTarget { .. }
             | Self::UnknownSource { .. }
@@ -466,6 +484,10 @@ impl Error for StorageEnclosureConstructionError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StorageEnclosureCommitError {
     PlayerBecameBusy,
+    StaleCombatRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleSurvivalRevision {
         expected: u64,
         actual: u64,
@@ -503,6 +525,10 @@ impl Display for StorageEnclosureCommitError {
         match self {
             Self::PlayerBecameBusy => formatter
                 .write_str("player began exclusive work before storage construction commit"),
+            Self::StaleCombatRevision { expected, actual } => write!(
+                formatter,
+                "storage construction expected combat revision {expected} but current revision is {actual}"
+            ),
             Self::StaleSurvivalRevision { expected, actual } => write!(
                 formatter,
                 "storage construction expected survival revision {expected} but current revision is {actual}"
@@ -553,6 +579,7 @@ impl Error for StorageEnclosureCommitError {
         match self {
             Self::Structure(error) => Some(error),
             Self::PlayerBecameBusy
+            | Self::StaleCombatRevision { .. }
             | Self::StaleSurvivalRevision { .. }
             | Self::StaleInventoryRevision { .. }
             | Self::StaleLogisticsRevision { .. }

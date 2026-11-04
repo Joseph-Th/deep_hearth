@@ -52,6 +52,222 @@ const TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 const CHEST_MASS: Mass = Mass::from_milligrams(2_400_000);
 
 #[test]
+fn owner_level_storage_placement_cannot_enclose_living_tree_root_or_trunk() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::player::validate_admit_player;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(41),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let root = state.world().trees().next().unwrap().root();
+    let upper = VoxelCoord::new(root.x(), root.y() + 1, root.z());
+    assert_eq!(state.world().block_at(root), Some(BlockStateId::AIR));
+    assert_eq!(state.world().block_at(upper), Some(BlockStateId::AIR));
+    let spawn = VoxelCoord::new(100, 100, 100);
+    let carried = validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let definition = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap();
+    for input in definition.assembly_profile().inputs() {
+        let _ = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            input.commodity(),
+            input.mass(),
+            TEMPERATURE,
+        )
+        .unwrap();
+    }
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let unchanged = state.clone();
+    for voxel in [root, upper] {
+        assert_eq!(
+            validate_place_player_storage_at(
+                &registries,
+                &state,
+                STORAGE_ROUGH_TIMBER_FIELD_BOX,
+                voxel,
+            )
+            .err(),
+            Some(PlayerStoragePlacementError::GeneratedSolidTerrain { position: voxel }),
+        );
+        assert_eq!(state, unchanged);
+    }
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn prepared_weapon_blocks_new_and_existing_storage_construction_without_spending_matter() {
+    use crate::combat::{validate_cancel_primitive_preparation, validate_prepare_primitive_strike};
+    use crate::content::EQUIPMENT_WOODEN_CLUB;
+    use crate::equipment::validate_assemble_equipment;
+    use crate::logistics::{
+        PlayerActiveSelection, validate_pickup_equipment, validate_set_active_selection,
+    };
+    use crate::player::validate_admit_player;
+    use crate::spatial::ViewDirection;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let definition = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap();
+    let target =
+        add_solid_stockpile_for_test(&mut state, definition.maximum_stockpile_capacity()).unwrap();
+    validate_place_ground_stockpile(&state, target, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    for input in definition.assembly_profile().inputs() {
+        let twice = input.mass().checked_add(input.mass()).unwrap();
+        let _ = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            input.commodity(),
+            twice,
+            TEMPERATURE,
+        )
+        .unwrap();
+    }
+    let club_assembly = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_WOODEN_CLUB)
+        .unwrap()
+        .assembly_profile()
+        .unwrap()
+        .clone();
+    for input in club_assembly.inputs() {
+        let _ = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            input.commodity(),
+            input.mass(),
+            TEMPERATURE,
+        )
+        .unwrap();
+    }
+    let club = validate_assemble_equipment(&registries, &state, EQUIPMENT_WOODEN_CLUB, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_pickup_equipment(&registries, &state, club)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::equipment(club)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let placement =
+        validate_place_player_storage(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX).unwrap();
+    let enclosure = validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_ROUGH_TIMBER_FIELD_BOX,
+        target,
+        carried,
+    )
+    .unwrap();
+    let expected = state.combat().revision();
+    let _ = validate_prepare_primitive_strike(
+        &registries,
+        &state,
+        ViewDirection::new(1_000_000, 0, 0).unwrap(),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let actual = state.combat().revision();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let prepared = state.clone();
+    assert_eq!(
+        validate_place_player_storage(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX).err(),
+        Some(PlayerStoragePlacementError::PreparedStrikeActive)
+    );
+    assert_eq!(
+        validate_build_storage_enclosure(
+            &registries,
+            &state,
+            STORAGE_ROUGH_TIMBER_FIELD_BOX,
+            target,
+            carried,
+        )
+        .err(),
+        Some(StorageEnclosureConstructionError::PreparedStrikeActive)
+    );
+    assert_eq!(
+        placement.commit(&mut state),
+        Err(PlayerStoragePlacementCommitError::StaleCombatRevision { expected, actual })
+    );
+    assert_eq!(
+        enclosure.commit(&mut state),
+        Err(StorageEnclosureCommitError::StaleCombatRevision { expected, actual })
+    );
+    assert_eq!(state, prepared);
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let serialized = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&serialized)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for game in [&mut state, &mut replay] {
+        let _ = validate_cancel_primitive_preparation(game)
+            .unwrap()
+            .commit(game)
+            .unwrap();
+        validate_build_storage_enclosure(
+            &registries,
+            game,
+            STORAGE_ROUGH_TIMBER_FIELD_BOX,
+            target,
+            carried,
+        )
+        .unwrap()
+        .commit(game)
+        .unwrap();
+        let _ = validate_place_player_storage(&registries, game, STORAGE_ROUGH_TIMBER_FIELD_BOX)
+            .unwrap()
+            .commit(game)
+            .unwrap();
+        assert_eq!(calculate_matter_accounting(game).unwrap().total(), total);
+        assert_eq!(validate_loaded_state(&registries, game), Ok(()));
+    }
+    assert_eq!(replay, state);
+}
+
+#[test]
 fn enclosure_tokens_reject_intervening_control_time_before_spending_construction_matter() {
     use crate::core::time::ControlTick;
     use crate::player::validate_admit_player;

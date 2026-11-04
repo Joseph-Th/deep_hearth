@@ -1206,6 +1206,12 @@ load on subsequent 20 Hz control samples rather than reserving a multi-tick move
 energy-store disassembly recovery likewise uses current carried capacity and owner revisions. Mount/unmount changes
 support without teleporting an existing location. Assembly establishes player-local world custody for newly created
 equipment/energy stores; disassembly removes that custody.
+Both material-backed storage creation at a chosen voxel and in-place enclosure construction refuse a prepared
+melee stance for an admitted player; their authorization tokens bind combat revisions as well as the existing
+control-time and custody checks. Headless in-place enclosure construction retains its owner-level capability.
+The storage owner uses the generated world's full-cell collision assessment, which includes living tree roots and
+trunks even though their generated block state is air; player-facing pointed placement independently checks the
+same trees and nearby physical occupants.
 The familiar maximum-fit quick-move first checks player authorization and exact-local ground
 access, then verifies that its selected stack still belongs to the current inventory revision
 before reporting destination capacity or delegating an exact inventory relocation. A stale stack

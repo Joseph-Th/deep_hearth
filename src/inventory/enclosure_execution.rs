@@ -37,6 +37,7 @@ pub use errors::{
 pub struct ValidatedStorageEnclosureConstruction {
     player_action: PlayerActionGuard,
     expected_control_tick: ControlTick,
+    expected_combat_revision: u64,
     target: StockpileId,
     expected_inventory_revision: u64,
     expected_logistics_revision: u64,
@@ -57,6 +58,7 @@ pub struct ValidatedStorageEnclosureConstruction {
 #[must_use]
 pub struct ValidatedPlayerStoragePlacement {
     expected_control_tick: ControlTick,
+    expected_combat_revision: u64,
     expected_surface_revision: u64,
     expected_world_revision: u64,
     allocation: ValidatedGroundStockpileAllocation,
@@ -87,6 +89,13 @@ impl ValidatedPlayerStoragePlacement {
     ) -> Result<StockpileId, PlayerStoragePlacementCommitError> {
         if state.player_work().active().is_some() {
             return Err(PlayerStoragePlacementCommitError::PlayerBecameBusy);
+        }
+        let actual_combat_revision = state.combat().revision();
+        if actual_combat_revision != self.expected_combat_revision {
+            return Err(PlayerStoragePlacementCommitError::StaleCombatRevision {
+                expected: self.expected_combat_revision,
+                actual: actual_combat_revision,
+            });
         }
         if state.surface().revision() != self.expected_surface_revision {
             return Err(PlayerStoragePlacementCommitError::SurfaceRevisionChanged {
@@ -153,6 +162,9 @@ pub(crate) fn validate_place_player_storage_at(
     if state.player_work().active().is_some() {
         return Err(PlayerStoragePlacementError::PlayerBusy);
     }
+    if state.combat().has_prepared_strike() {
+        return Err(PlayerStoragePlacementError::PreparedStrikeActive);
+    }
     validate_player_stockpile_access(state, source)
         .map_err(StorageEnclosureConstructionError::SourceAccess)
         .map_err(PlayerStoragePlacementError::Construction)?;
@@ -214,6 +226,7 @@ pub(crate) fn validate_place_player_storage_at(
         .unwrap_or_else(|| unreachable!("placement headroom includes all inventory mutations"));
     Ok(ValidatedPlayerStoragePlacement {
         expected_control_tick: state.control_tick(),
+        expected_combat_revision: state.combat().revision(),
         expected_surface_revision: state.surface().revision(),
         expected_world_revision: state.world().revision(),
         allocation,
@@ -254,6 +267,13 @@ impl ValidatedStorageEnclosureConstruction {
     pub fn commit(self, state: &mut AppState) -> Result<(), StorageEnclosureCommitError> {
         if state.player_work().active().is_some() {
             return Err(StorageEnclosureCommitError::PlayerBecameBusy);
+        }
+        let actual_combat_revision = state.combat().revision();
+        if actual_combat_revision != self.expected_combat_revision {
+            return Err(StorageEnclosureCommitError::StaleCombatRevision {
+                expected: self.expected_combat_revision,
+                actual: actual_combat_revision,
+            });
         }
         let actual_revision = state.inventory().revision();
         if actual_revision != self.expected_inventory_revision {
@@ -343,6 +363,9 @@ pub fn validate_build_storage_enclosure(
     if state.player_work().active().is_some() {
         return Err(StorageEnclosureConstructionError::PlayerBusy);
     }
+    if state.logistics().player().is_some() && state.combat().has_prepared_strike() {
+        return Err(StorageEnclosureConstructionError::PreparedStrikeActive);
+    }
     let definition_record = registries
         .storage()
         .get(definition)
@@ -407,6 +430,7 @@ pub fn validate_build_storage_enclosure(
     Ok(ValidatedStorageEnclosureConstruction {
         player_action,
         expected_control_tick: state.control_tick(),
+        expected_combat_revision: state.combat().revision(),
         target,
         expected_inventory_revision,
         expected_logistics_revision: state.logistics().revision(),
