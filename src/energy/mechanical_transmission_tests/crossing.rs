@@ -202,3 +202,108 @@ fn disjoint_shaft_runs_can_use_different_stores_at_one_shared_endpoint() {
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
+
+/// One high-output crossing run can still be worse than two independently usable
+/// shafts. Selecting the single largest transfer must not discard their combined work.
+#[test]
+fn two_independent_shafts_outdeliver_one_conflicting_stronger_shaft() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let definition = ENERGY_MECHANICAL_SMALL_DRIVE;
+    let capacity = registries
+        .energy()
+        .get_store(definition)
+        .unwrap()
+        .capacity();
+    let mut stores = Vec::new();
+    for (position, charge) in [
+        (VoxelCoord::new(-1, 0, 0), capacity),
+        (VoxelCoord::new(2, 0, 0), Energy::ZERO),
+        (VoxelCoord::new(0, 0, -2), capacity),
+        (VoxelCoord::new(0, 0, 2), Energy::ZERO),
+        (VoxelCoord::new(1, 0, -2), capacity),
+        (VoxelCoord::new(1, 0, 2), Energy::ZERO),
+    ] {
+        let id =
+            add_energy_store_with_initial_for_fixture(&registries, &mut state, definition, charge)
+                .unwrap();
+        place_energy_store_for_fixture(&mut state, id, position);
+        stores.push(id);
+    }
+    let rollers = [(0, -1), (0, 0), (0, 1), (1, -1), (1, 0), (1, 1)]
+        .into_iter()
+        .map(|(x, z)| materialize_roller_at(&registries, &mut state, x, z))
+        .collect::<Vec<_>>();
+    let passive =
+        crate::energy::passive_dissipation::decide_passive_energy_dissipation(&registries, &state);
+    let horizontal = plan_pair(
+        &registries,
+        &state,
+        &passive,
+        rollers[1],
+        2,
+        stores[0],
+        stores[1],
+    )
+    .unwrap();
+    let left = plan_pair(
+        &registries,
+        &state,
+        &passive,
+        rollers[0],
+        3,
+        stores[2],
+        stores[3],
+    )
+    .unwrap();
+    let right = plan_pair(
+        &registries,
+        &state,
+        &passive,
+        rollers[3],
+        3,
+        stores[4],
+        stores[5],
+    )
+    .unwrap();
+    assert!(horizontal.delivered() > left.delivered());
+    assert!(horizontal.delivered() > right.delivered());
+    assert!(
+        horizontal.delivered().nanojoules()
+            < left.delivered().nanojoules() + right.delivered().nanojoules()
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let planned = decide_mechanical_transmission(&registries, &state, &passive, None);
+    assert_eq!(planned.transfers, vec![left, right]);
+
+    let before_total = stores
+        .iter()
+        .map(|&id| state.energy().get_store(id).unwrap().stored().nanojoules())
+        .sum::<u128>();
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let outcome = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(outcome, advance_tick(&registries, &mut replay).unwrap());
+    assert_eq!(state, replay);
+    assert_eq!(outcome.mechanical_transmissions(), &[left, right]);
+    let after_total = stores
+        .iter()
+        .map(|&id| state.energy().get_store(id).unwrap().stored().nanojoules())
+        .sum::<u128>();
+    assert_eq!(
+        after_total + left.lost().nanojoules() + right.lost().nanojoules(),
+        before_total
+    );
+    assert_eq!(
+        state.energy().get_store(stores[0]).unwrap().stored(),
+        capacity,
+    );
+    assert_eq!(
+        state.energy().get_store(stores[1]).unwrap().stored(),
+        Energy::ZERO,
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}

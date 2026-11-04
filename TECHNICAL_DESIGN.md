@@ -990,10 +990,12 @@ survival + logistics + carried inventory -> atomic ordinary player admission
 ```
 
 When multiple straight shaft runs compete for a roller or an endpoint store, the tick planner
-ranks their actual feasible whole-energy deliveries before committing any shared capacity. It
-prefers less source draw for equal delivery, admits subsequent non-overlapping pairs (including
-alternate stores at a shared endpoint), and retains stable physical-run receipt ordering. No
-roller or store contributes to more than one transfer in a tick.
+compares their feasible whole-energy deliveries without reserving shared capacity first. Each
+connected conflict group of at most 16 candidate transfers is arbitrated for greatest aggregate
+useful delivery, then lowest aggregate source draw and stable candidate priority. Larger groups
+retain a bounded deterministic greedy ranking by useful delivery, least source draw and stable
+identity. Disjoint runs can use distinct stores at the same endpoint, receipts retain stable
+physical-run order, and no roller or store contributes to more than one transfer in a tick.
 
 Slow-tick shaft transmission spends an energy-owner revision only after accounting for future
 production and manual-power completion reservations and unavoidable same-tick passive loss.

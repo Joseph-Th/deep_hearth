@@ -5,6 +5,9 @@
 
 use super::*;
 
+mod arbitration;
+use arbitration::select_shaft_pairs;
+
 #[derive(Clone, Copy)]
 struct ShaftPair {
     run: usize,
@@ -87,27 +90,7 @@ pub(crate) fn decide_mechanical_transmission(
 ) -> MechanicalTransmissionPlan {
     let (runs, mut pairs) = available_shaft_pairs(registries, state, passive, dismantled_this_tick);
     pairs.sort_unstable_by(compare_pairs);
-    let mut used_stores = BTreeSet::new();
-    let mut used_rollers = BTreeSet::new();
-    let mut accepted = Vec::new();
-    for pair in pairs {
-        if used_stores.contains(&pair.transfer.source())
-            || used_stores.contains(&pair.transfer.destination())
-            || runs[pair.run]
-                .rollers
-                .iter()
-                .any(|roller| used_rollers.contains(roller))
-        {
-            continue;
-        }
-        used_stores.insert(pair.transfer.source());
-        used_stores.insert(pair.transfer.destination());
-        used_rollers.extend(runs[pair.run].rollers.iter().copied());
-        accepted.push(pair);
-    }
-    // Receipt order is spatially stable even though allocation order is based
-    // on useful work, preserving the simple physical-run presentation order.
-    accepted.sort_unstable_by_key(|pair| pair.run);
+    let accepted = select_shaft_pairs(&pairs, &runs);
     MechanicalTransmissionPlan {
         transfers: accepted.into_iter().map(|pair| pair.transfer).collect(),
     }
