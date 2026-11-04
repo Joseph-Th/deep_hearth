@@ -134,6 +134,9 @@ mod readiness;
 #[path = "combat_tests/carry.rs"]
 mod carry;
 
+#[path = "combat_tests/support_changes.rs"]
+mod support_changes;
+
 #[test]
 fn close_range_shove_startles_a_real_scout_and_retreat_replays_after_save() {
     use crate::simulation::{

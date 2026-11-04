@@ -102,6 +102,8 @@ pub struct ValidatedStockpileSupportChange {
     expected_inventory_revision: u64,
     next_inventory_revision: u64,
     expected_logistics_revision: u64,
+    expected_player_work_revision: u64,
+    expected_combat_revision: u64,
     structural: ValidatedStockpileStructuralLoad,
 }
 
@@ -123,6 +125,20 @@ impl ValidatedStockpileSupportChange {
                 actual: stale.actual,
             }
         })?;
+        let actual_player_work = state.player_work().revision();
+        if actual_player_work != self.expected_player_work_revision {
+            return Err(StockpileSupportCommitError::StalePlayerWorkRevision {
+                expected: self.expected_player_work_revision,
+                actual: actual_player_work,
+            });
+        }
+        let actual_combat = state.combat().revision();
+        if actual_combat != self.expected_combat_revision {
+            return Err(StockpileSupportCommitError::StaleCombatRevision {
+                expected: self.expected_combat_revision,
+                actual: actual_combat,
+            });
+        }
         let actual_revision = state.inventory().revision();
         if actual_revision != self.expected_inventory_revision {
             return Err(StockpileSupportCommitError::StaleInventoryRevision {
@@ -167,7 +183,12 @@ impl ValidatedStockpileSupportChange {
 }
 
 fn validate_direct_action(state: &AppState) -> Result<PlayerActionGuard, StockpileSupportError> {
-    validate_optional_player_action(state).map_err(|_| StockpileSupportError::PlayerDead)
+    let action =
+        validate_optional_player_action(state).map_err(|_| StockpileSupportError::PlayerDead)?;
+    if state.logistics().player().is_some() && state.combat().has_prepared_strike() {
+        return Err(StockpileSupportError::PreparedStrikeActive);
+    }
+    Ok(action)
 }
 
 fn next_inventory_revision(state: &AppState) -> Result<(u64, u64), StockpileSupportError> {
@@ -297,6 +318,8 @@ pub fn validate_mount_stockpile(
         expected_inventory_revision,
         next_inventory_revision,
         expected_logistics_revision: state.logistics().revision(),
+        expected_player_work_revision: state.player_work().revision(),
+        expected_combat_revision: state.combat().revision(),
         structural,
     })
 }
@@ -355,6 +378,8 @@ pub fn validate_unmount_stockpile(
         expected_inventory_revision,
         next_inventory_revision,
         expected_logistics_revision: state.logistics().revision(),
+        expected_player_work_revision: state.player_work().revision(),
+        expected_combat_revision: state.combat().revision(),
         structural,
     })
 }

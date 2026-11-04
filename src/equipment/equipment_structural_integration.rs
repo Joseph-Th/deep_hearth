@@ -53,6 +53,8 @@ pub struct ValidatedEquipmentSupportChange {
     expected_equipment_revision: u64,
     next_equipment_revision: u64,
     expected_logistics_revision: u64,
+    expected_player_work_revision: u64,
+    expected_combat_revision: u64,
     structural: ValidatedStructuralLoadChange,
 }
 
@@ -105,6 +107,20 @@ impl ValidatedEquipmentSupportChange {
                 actual: stale.actual,
             }
         })?;
+        let actual_player_work = state.player_work().revision();
+        if actual_player_work != self.expected_player_work_revision {
+            return Err(EquipmentSupportCommitError::StalePlayerWorkRevision {
+                expected: self.expected_player_work_revision,
+                actual: actual_player_work,
+            });
+        }
+        let actual_combat = state.combat().revision();
+        if actual_combat != self.expected_combat_revision {
+            return Err(EquipmentSupportCommitError::StaleCombatRevision {
+                expected: self.expected_combat_revision,
+                actual: actual_combat,
+            });
+        }
         let actual_revision = state.equipment().revision();
         if actual_revision != self.expected_equipment_revision {
             return Err(EquipmentSupportCommitError::StaleEquipmentRevision {
@@ -150,7 +166,12 @@ impl ValidatedEquipmentSupportChange {
 }
 
 fn validate_direct_action(state: &AppState) -> Result<PlayerActionGuard, EquipmentSupportError> {
-    validate_optional_player_action(state).map_err(|_| EquipmentSupportError::PlayerDead)
+    let action =
+        validate_optional_player_action(state).map_err(|_| EquipmentSupportError::PlayerDead)?;
+    if state.logistics().player().is_some() && state.combat().has_prepared_strike() {
+        return Err(EquipmentSupportError::PreparedStrikeActive);
+    }
+    Ok(action)
 }
 
 fn validate_not_busy(
@@ -240,6 +261,8 @@ pub fn validate_mount_equipment(
         expected_equipment_revision,
         next_equipment_revision,
         expected_logistics_revision: state.logistics().revision(),
+        expected_player_work_revision: state.player_work().revision(),
+        expected_combat_revision: state.combat().revision(),
         structural,
     })
 }
@@ -286,6 +309,8 @@ pub fn validate_unmount_equipment(
         expected_equipment_revision,
         next_equipment_revision,
         expected_logistics_revision: state.logistics().revision(),
+        expected_player_work_revision: state.player_work().revision(),
+        expected_combat_revision: state.combat().revision(),
         structural,
     })
 }
@@ -365,6 +390,8 @@ pub fn validate_relocate_equipment(
         expected_equipment_revision,
         next_equipment_revision,
         expected_logistics_revision: state.logistics().revision(),
+        expected_player_work_revision: state.player_work().revision(),
+        expected_combat_revision: state.combat().revision(),
         structural,
     })
 }

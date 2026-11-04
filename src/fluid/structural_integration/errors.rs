@@ -112,6 +112,7 @@ impl Error for FluidStructuralLoadError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FluidSupportError {
     PlayerDead,
+    PreparedStrikeActive,
     NaturalPoolIsNotAVessel {
         store: FluidStoreId,
     },
@@ -143,6 +144,9 @@ impl Display for FluidSupportError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerDead => formatter.write_str("dead player cannot move fluid-store support"),
+            Self::PreparedStrikeActive => formatter.write_str(
+                "player must lower the prepared weapon before moving fluid-store support",
+            ),
             Self::NaturalPoolIsNotAVessel { store } => write!(
                 formatter,
                 "natural water pocket {} is ground-bound and cannot be mounted as a vessel",
@@ -195,6 +199,7 @@ impl Error for FluidSupportError {
             Self::Load(error) => Some(error),
             Self::Access(error) => Some(error),
             Self::PlayerDead
+            | Self::PreparedStrikeActive
             | Self::NaturalPoolIsNotAVessel { .. }
             | Self::UnknownStore { .. }
             | Self::AlreadyMounted { .. }
@@ -209,6 +214,14 @@ impl Error for FluidSupportError {
 /// Failure to commit a revision-bound fluid-store support transaction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FluidSupportCommitError {
+    StalePlayerWorkRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleCombatRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleSurvivalRevision {
         expected: u64,
         actual: u64,
@@ -243,6 +256,14 @@ impl Display for FluidSupportCommitError {
                 formatter,
                 "validated fluid support change expected logistics revision {expected} but current revision is {actual}"
             ),
+            Self::StalePlayerWorkRevision { expected, actual } => write!(
+                formatter,
+                "validated fluid-store support change expected player work revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleCombatRevision { expected, actual } => write!(
+                formatter,
+                "validated fluid-store support change expected combat revision {expected} but current revision is {actual}"
+            ),
             Self::StaleFluidRevision { expected, actual } => write!(
                 formatter,
                 "validated fluid support change expected fluid revision {expected} but current revision is {actual}"
@@ -275,6 +296,8 @@ impl Error for FluidSupportCommitError {
             Self::Structure(error) => Some(error),
             Self::StaleSurvivalRevision { .. }
             | Self::StaleLogisticsRevision { .. }
+            | Self::StalePlayerWorkRevision { .. }
+            | Self::StaleCombatRevision { .. }
             | Self::StaleFluidRevision { .. }
             | Self::UnknownStore { .. }
             | Self::SupportChanged { .. } => None,

@@ -19,6 +19,7 @@ use crate::equipment::EquipmentId;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentSupportError {
     PlayerDead,
+    PreparedStrikeActive,
     UnknownEquipment {
         equipment: EquipmentId,
     },
@@ -89,6 +90,8 @@ impl Display for EquipmentSupportError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerDead => formatter.write_str("dead player cannot move equipment support"),
+            Self::PreparedStrikeActive => formatter
+                .write_str("player must lower the prepared weapon before moving equipment support"),
             Self::UnknownEquipment { equipment } => {
                 write!(formatter, "unknown equipment id {}", equipment.value())
             }
@@ -222,6 +225,7 @@ impl Error for EquipmentSupportError {
             Self::Structure(error) => Some(error),
             Self::Access(error) => Some(error),
             Self::PlayerDead
+            | Self::PreparedStrikeActive
             | Self::UnknownEquipment { .. }
             | Self::AlreadyMounted { .. }
             | Self::NotMounted { .. }
@@ -246,6 +250,14 @@ impl Error for EquipmentSupportError {
 /// Failure to commit a revision-bound equipment/support transaction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentSupportCommitError {
+    StalePlayerWorkRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleCombatRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleSurvivalRevision {
         expected: u64,
         actual: u64,
@@ -307,6 +319,14 @@ impl Display for EquipmentSupportCommitError {
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
                 "validated equipment support change expected logistics revision {expected} but current revision is {actual}"
+            ),
+            Self::StalePlayerWorkRevision { expected, actual } => write!(
+                formatter,
+                "validated equipment support change expected player work revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleCombatRevision { expected, actual } => write!(
+                formatter,
+                "validated equipment support change expected combat revision {expected} but current revision is {actual}"
             ),
             Self::StaleEquipmentRevision { expected, actual } => write!(
                 formatter,
@@ -397,6 +417,8 @@ impl Error for EquipmentSupportCommitError {
             Self::Structure(error) => Some(error),
             Self::StaleSurvivalRevision { .. }
             | Self::StaleLogisticsRevision { .. }
+            | Self::StalePlayerWorkRevision { .. }
+            | Self::StaleCombatRevision { .. }
             | Self::StaleEquipmentRevision { .. }
             | Self::UnknownEquipment { .. }
             | Self::SupportChanged { .. }

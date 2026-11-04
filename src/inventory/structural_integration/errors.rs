@@ -109,6 +109,7 @@ impl Error for StockpileStructuralLoadError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StockpileSupportError {
     PlayerDead,
+    PreparedStrikeActive,
     UnknownStockpile {
         stockpile: StockpileId,
     },
@@ -151,6 +152,8 @@ impl Display for StockpileSupportError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerDead => formatter.write_str("dead player cannot move stockpile support"),
+            Self::PreparedStrikeActive => formatter
+                .write_str("player must lower the prepared weapon before moving stockpile support"),
             Self::UnknownStockpile { stockpile } => {
                 write!(formatter, "unknown stockpile id {}", stockpile.value())
             }
@@ -223,6 +226,7 @@ impl Error for StockpileSupportError {
             Self::Load(error) => Some(error),
             Self::Access(error) => Some(error),
             Self::PlayerDead
+            | Self::PreparedStrikeActive
             | Self::UnknownStockpile { .. }
             | Self::AlreadyMounted { .. }
             | Self::NotMounted { .. }
@@ -240,6 +244,14 @@ impl Error for StockpileSupportError {
 /// Failure to commit a revision-bound stockpile support change.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StockpileSupportCommitError {
+    StalePlayerWorkRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleCombatRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleSurvivalRevision {
         expected: u64,
         actual: u64,
@@ -284,6 +296,14 @@ impl Display for StockpileSupportCommitError {
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
                 "validated stockpile support change expected logistics revision {expected} but current revision is {actual}"
+            ),
+            Self::StalePlayerWorkRevision { expected, actual } => write!(
+                formatter,
+                "validated stockpile support change expected player work revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleCombatRevision { expected, actual } => write!(
+                formatter,
+                "validated stockpile support change expected combat revision {expected} but current revision is {actual}"
             ),
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
@@ -337,6 +357,8 @@ impl Error for StockpileSupportCommitError {
             Self::Structure(error) => Some(error),
             Self::StaleSurvivalRevision { .. }
             | Self::StaleLogisticsRevision { .. }
+            | Self::StalePlayerWorkRevision { .. }
+            | Self::StaleCombatRevision { .. }
             | Self::StaleInventoryRevision { .. }
             | Self::UnknownStockpile { .. }
             | Self::SupportChanged { .. }

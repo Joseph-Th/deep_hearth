@@ -55,6 +55,8 @@ pub struct ValidatedFluidSupportChange {
     expected_fluid_revision: u64,
     next_fluid_revision: u64,
     expected_logistics_revision: u64,
+    expected_player_work_revision: u64,
+    expected_combat_revision: u64,
     structural: ValidatedFluidStructuralLoad,
 }
 
@@ -82,6 +84,20 @@ impl ValidatedFluidSupportChange {
                 actual: stale.actual,
             }
         })?;
+        let actual_player_work = state.player_work().revision();
+        if actual_player_work != self.expected_player_work_revision {
+            return Err(FluidSupportCommitError::StalePlayerWorkRevision {
+                expected: self.expected_player_work_revision,
+                actual: actual_player_work,
+            });
+        }
+        let actual_combat = state.combat().revision();
+        if actual_combat != self.expected_combat_revision {
+            return Err(FluidSupportCommitError::StaleCombatRevision {
+                expected: self.expected_combat_revision,
+                actual: actual_combat,
+            });
+        }
         let actual_revision = state.fluid().revision();
         if actual_revision != self.expected_fluid_revision {
             return Err(FluidSupportCommitError::StaleFluidRevision {
@@ -120,7 +136,12 @@ impl ValidatedFluidSupportChange {
 }
 
 fn validate_direct_action(state: &AppState) -> Result<PlayerActionGuard, FluidSupportError> {
-    validate_optional_player_action(state).map_err(|_| FluidSupportError::PlayerDead)
+    let action =
+        validate_optional_player_action(state).map_err(|_| FluidSupportError::PlayerDead)?;
+    if state.logistics().player().is_some() && state.combat().has_prepared_strike() {
+        return Err(FluidSupportError::PreparedStrikeActive);
+    }
+    Ok(action)
 }
 
 fn next_fluid_revision(state: &AppState) -> Result<(u64, u64), FluidSupportError> {
@@ -198,6 +219,8 @@ pub fn validate_mount_fluid_store(
         expected_fluid_revision,
         next_fluid_revision,
         expected_logistics_revision: state.logistics().revision(),
+        expected_player_work_revision: state.player_work().revision(),
+        expected_combat_revision: state.combat().revision(),
         structural,
     })
 }
@@ -241,6 +264,8 @@ pub fn validate_unmount_fluid_store(
         expected_fluid_revision,
         next_fluid_revision,
         expected_logistics_revision: state.logistics().revision(),
+        expected_player_work_revision: state.player_work().revision(),
+        expected_combat_revision: state.combat().revision(),
         structural,
     })
 }

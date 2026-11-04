@@ -1214,8 +1214,12 @@ contents, and their commit tokens bind the combat revision so a weapon raised af
 stale transfer. The same prepared stance also suspends automatic world-drop pickup until it is released or cancelled.
 Carried-load changes are immediate custody changes; continuous locomotion prices the resulting current
 load on subsequent 20 Hz control samples rather than reserving a multi-tick movement budget. Equipment and
-energy-store disassembly recovery likewise uses current carried capacity and owner revisions. Mount/unmount changes
-support without teleporting an existing location. Assembly establishes player-local world custody for newly created
+energy-store disassembly recovery likewise uses current carried capacity and owner revisions. Physical
+support mounting, unmounting and equipment relocation preserve existing world positions. They
+reject the admitted player's prepared melee stance and bind combat and player-work revisions
+across authorization and commit. Unrelated timed work may coexist with support reconfiguration,
+subject to each asset's occupancy, projected load, and retained completion obligations. Headless
+support/load operations remain available. Assembly establishes player-local world custody for newly created
 equipment/energy stores; disassembly removes that custody. Material-backed assembly, upgrade and disassembly
 reject a prepared melee stance for an admitted player, and their commit tokens invalidate if combat state changes
 after authorization. Dismantling the specifically prepared weapon retains its targeted occupancy rejection.
