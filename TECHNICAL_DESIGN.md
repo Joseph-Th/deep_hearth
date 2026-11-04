@@ -989,6 +989,12 @@ survival reserves + PlayerWorkState -> timed direct labor -> physical operation 
 survival + logistics + carried inventory -> atomic ordinary player admission
 ```
 
+When multiple straight shaft runs compete for a roller or an endpoint store, the tick planner
+ranks their actual feasible whole-energy deliveries before committing any shared capacity. It
+prefers less source draw for equal delivery, admits subsequent non-overlapping pairs (including
+alternate stores at a shared endpoint), and retains stable physical-run receipt ordering. No
+roller or store contributes to more than one transfer in a tick.
+
 Slow-tick shaft transmission spends an energy-owner revision only after accounting for future
 production and manual-power completion reservations and unavoidable same-tick passive loss.
 If no incidental revision remains, the optional shaft transfer waits without moving energy;

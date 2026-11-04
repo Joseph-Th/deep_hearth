@@ -2,6 +2,9 @@
 
 use super::*;
 
+#[path = "mechanical_transmission_tests/crossing.rs"]
+mod crossing;
+
 fn roller_set(cells: &[(i64, i64)]) -> BTreeMap<VoxelCoord, StructuralElementId> {
     cells
         .iter()
