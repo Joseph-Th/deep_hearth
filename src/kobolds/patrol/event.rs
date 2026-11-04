@@ -142,14 +142,16 @@ impl KoboldScoutEvent {
     }
 
     /// Food unfit for consumption physically discarded onto the adjacent route.
-    /// For bulky cargo, this names the moved split portion, not its source.
+    /// Names the moved parcel only if its destination is visible. For bulky
+    /// cargo, this names the moved split portion, not its source.
     #[must_use]
     pub const fn discarded_food(self) -> Option<SurfaceResourceId> {
         self.discarded_food
     }
 
     /// A blocked den released inert cargo for nearby food or visible salvage.
-    /// For oversized cargo, this identifies the moved split portion, not its source.
+    /// Names the moved parcel only if its destination is visible. For oversized
+    /// cargo, this identifies the moved split portion, not its source.
     #[must_use]
     pub const fn cleared_cache(self) -> Option<SurfaceResourceId> {
         self.cleared_cache

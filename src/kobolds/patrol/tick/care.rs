@@ -44,11 +44,28 @@ pub(super) fn settle_scout_visit_care(
     let care_visible = observer.is_some_and(|player| {
         crate::world::player_can_see_local_cell_at(registries, state, player, from, at)
     });
+    // Discard and cache clearing release matter into a neighboring cell. Seeing
+    // care at the den cannot reveal the ID of a parcel now outside sight.
+    // Read the moved record, since oversized cargo may have a new split ID.
+    let released_parcel_visible = |id: &SurfaceResourceId| {
+        care_visible
+            && observer.is_some_and(|player| {
+                state.surface().get(*id).is_some_and(|record| {
+                    crate::world::player_can_see_local_cell_at(
+                        registries,
+                        state,
+                        player,
+                        record.position(),
+                        at,
+                    )
+                })
+            })
+    };
     let observed_care = KoboldScoutEvent {
         consumed_food: consumed_food.filter(|_| care_visible),
         drank_water: drank_water.filter(|_| care_visible),
-        discarded_food: discarded_food.filter(|_| care_visible),
-        cleared_cache: cleared_cache.filter(|_| care_visible),
+        discarded_food: discarded_food.filter(released_parcel_visible),
+        cleared_cache: cleared_cache.filter(released_parcel_visible),
         ..KoboldScoutEvent::quiet_at(from)
     };
     ScoutVisitCare {

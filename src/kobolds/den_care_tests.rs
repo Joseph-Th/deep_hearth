@@ -1623,6 +1623,106 @@ fn locally_observed_cache_clearing_is_real_and_player_occupied_exit_stops_it() {
 }
 
 #[test]
+fn den_care_does_not_reveal_parcels_ejected_beyond_the_observers_sight() {
+    use crate::inventory::{MaterialLotProfile, MaterialLotProvenance, STORAGE_AGE_PARTS_PER_TICK};
+    use crate::material::MaterialLotSpec;
+
+    for spoiled_food in [false, true] {
+        let (registries, mut state, [den, junction, _, _]) = setup();
+        let displaced = if spoiled_food {
+            let commodity = CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD);
+            let mass = Mass::from_milligrams(80_000);
+            let profile = MaterialLotProfile::from_spec(
+                &MaterialLotSpec::with_composition(
+                    commodity,
+                    mass,
+                    Temperature::from_millikelvin(293_150),
+                    MaterialComposition::pure(MATERIAL_WILD_NUTS),
+                )
+                .unwrap(),
+            );
+            let shelf = registries
+                .survival()
+                .get_food(commodity)
+                .unwrap()
+                .shelf_life();
+            let spoiled = SurfaceResourceSpec::from_existing_material(
+                SurfaceResourceKind::Drop,
+                den,
+                mass,
+                profile,
+                MaterialLotProvenance::single(SimulationTick::ZERO),
+                u128::from(shelf.value()) * STORAGE_AGE_PARTS_PER_TICK,
+            )
+            .unwrap();
+            let plan = validate_create_surface_resources(&registries, &state, [spoiled]).unwrap();
+            let id = plan.first_resource_id();
+            plan.commit(&mut state).unwrap();
+            id
+        } else {
+            let plan = validate_create_surface_resources(
+                &registries,
+                &state,
+                [
+                    resource(den, SurfaceResourceKind::Drop, false),
+                    resource(junction, SurfaceResourceKind::Opportunity, true),
+                ],
+            )
+            .unwrap();
+            let id = plan.first_resource_id();
+            plan.commit(&mut state).unwrap();
+            id
+        };
+
+        let observer = VoxelCoord::new(den.x() - 2, den.y(), den.z());
+        validate_admit_player(&registries, &state, observer)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        assert!(crate::world::player_can_see_local_cell(
+            &registries,
+            &state,
+            observer,
+            den
+        ));
+        assert!(!crate::world::player_can_see_local_cell(
+            &registries,
+            &state,
+            observer,
+            junction
+        ));
+        assert!(!crate::kobolds::patrol::living_player_deters_scout(
+            &registries,
+            &state,
+            den
+        ));
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        let matter = calculate_matter_accounting(&state).unwrap().total();
+        let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        let event = advance_tick(&registries, &mut state).unwrap();
+        assert_eq!(event, advance_tick(&registries, &mut replay).unwrap());
+        assert_eq!(state, replay);
+        assert_eq!(
+            state.surface().get(displaced).unwrap().position(),
+            junction,
+            "the resident still moves actual finite matter to the unseen junction"
+        );
+        assert!(
+            event.kobold_scout().is_none_or(|event| {
+                event.discarded_food().is_none() && event.cleared_cache().is_none()
+            }),
+            "den visibility cannot disclose a parcel's new identity outside sight"
+        );
+        assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+}
+
+#[test]
 fn hungry_scout_opens_a_full_den_for_new_food_before_the_next_meal_deadline() {
     let (registries, mut responding, [den, junction, _, _]) = setup();
     let placement = validate_create_surface_resources(
