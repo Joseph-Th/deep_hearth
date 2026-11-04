@@ -305,6 +305,359 @@ fn arm_player(
 }
 
 #[test]
+fn raised_weapon_blocks_unrelated_tool_and_energy_dismantling_without_losing_matter() {
+    use crate::content::{
+        ENERGY_STONE_FLYWHEEL_DRIVE, EQUIPMENT_STONE_PICK, EQUIPMENT_WOODEN_CLUB,
+    };
+    use crate::core::quantity::Temperature;
+    use crate::energy::{
+        EnergyStoreDisassemblyCommitError, EnergyStoreDisassemblyError,
+        validate_assemble_energy_store, validate_disassemble_energy_store,
+    };
+    use crate::equipment::{
+        EquipmentDisassemblyCommitError, EquipmentDisassemblyError, validate_assemble_equipment,
+        validate_disassemble_equipment,
+    };
+    use crate::inventory::deposit_lot_for_test;
+    use crate::matter::calculate_matter_accounting;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let carried = validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    arm_player(&registries, &mut state, EQUIPMENT_WOODEN_CLUB);
+    let temperature = Temperature::from_millikelvin(293_150);
+    let tool_inputs = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_STONE_PICK)
+        .unwrap()
+        .assembly_profile()
+        .unwrap()
+        .inputs()
+        .to_vec();
+    for input in &tool_inputs {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            input.commodity(),
+            input.mass(),
+            temperature,
+        )
+        .unwrap();
+    }
+    let tool = validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let store_inputs = registries
+        .energy()
+        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
+        .unwrap()
+        .assembly_profile()
+        .unwrap()
+        .inputs()
+        .to_vec();
+    for input in &store_inputs {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            input.commodity(),
+            input.mass(),
+            temperature,
+        )
+        .unwrap();
+    }
+    let store =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, carried)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    let tool_token = validate_disassemble_equipment(&registries, &state, tool, carried).unwrap();
+    let store_token =
+        validate_disassemble_energy_store(&registries, &state, store, carried).unwrap();
+    let expected = state.combat().revision();
+    let _ = validate_prepare_primitive_strike(&registries, &state, east())
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let actual = state.combat().revision();
+    let unchanged = state.clone();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(
+        validate_disassemble_equipment(&registries, &state, tool, carried).err(),
+        Some(EquipmentDisassemblyError::PreparedStrikeActive)
+    );
+    assert_eq!(
+        validate_disassemble_energy_store(&registries, &state, store, carried).err(),
+        Some(EnergyStoreDisassemblyError::PreparedStrikeActive)
+    );
+    assert!(matches!(
+        tool_token.commit(&mut state),
+        Err(EquipmentDisassemblyCommitError::StaleCombatRevision {
+            expected: e, actual: a
+        }) if e == expected && a == actual
+    ));
+    assert!(matches!(
+        store_token.commit(&mut state),
+        Err(EnergyStoreDisassemblyCommitError::StaleCombatRevision {
+            expected: e, actual: a
+        }) if e == expected && a == actual
+    ));
+    assert_eq!(state, unchanged);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for game in [&mut state, &mut replay] {
+        let _ = validate_cancel_primitive_preparation(game)
+            .unwrap()
+            .commit(game)
+            .unwrap();
+        assert!(
+            !validate_disassemble_equipment(&registries, game, tool, carried)
+                .unwrap()
+                .commit(game)
+                .unwrap()
+                .recovered_lots()
+                .is_empty()
+        );
+        assert!(
+            !validate_disassemble_energy_store(&registries, game, store, carried)
+                .unwrap()
+                .commit(game)
+                .unwrap()
+                .recovered_lots()
+                .is_empty()
+        );
+        assert_eq!(
+            calculate_matter_accounting(game).unwrap().total(),
+            conserved
+        );
+        assert_eq!(validate_loaded_state(&registries, game), Ok(()));
+    }
+    assert_eq!(replay, state);
+}
+
+#[test]
+fn raised_weapon_blocks_equipment_and_energy_upgrades_without_spending_reinforcement() {
+    use crate::content::{
+        ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE, ENERGY_STONE_FLYWHEEL_DRIVE,
+        EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_STONE_PICK, EQUIPMENT_WOODEN_CLUB,
+    };
+    use crate::core::quantity::Temperature;
+    use crate::energy::{
+        EnergyStoreUpgradeCommitError, EnergyStoreUpgradeError, validate_assemble_energy_store,
+        validate_upgrade_energy_store,
+    };
+    use crate::equipment::{
+        EquipmentUpgradeCommitError, EquipmentUpgradeError, validate_assemble_equipment,
+        validate_upgrade_equipment,
+    };
+    use crate::inventory::deposit_lot_for_test;
+    use crate::matter::calculate_matter_accounting;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let carried = validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let _club = arm_player(&registries, &mut state, EQUIPMENT_WOODEN_CLUB);
+    let temperature = Temperature::from_millikelvin(293_150);
+    let tool_inputs = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_STONE_PICK)
+        .unwrap()
+        .assembly_profile()
+        .unwrap()
+        .inputs()
+        .to_vec();
+    for input in &tool_inputs {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            input.commodity(),
+            input.mass(),
+            temperature,
+        )
+        .unwrap();
+    }
+    let tool = validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let store_inputs = registries
+        .energy()
+        .get_store(ENERGY_STONE_FLYWHEEL_DRIVE)
+        .unwrap()
+        .assembly_profile()
+        .unwrap()
+        .inputs()
+        .to_vec();
+    for input in &store_inputs {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            input.commodity(),
+            input.mass(),
+            temperature,
+        )
+        .unwrap();
+    }
+    let store =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_FLYWHEEL_DRIVE, carried)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    let tool_additions = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_COPPER_REINFORCED_PICK)
+        .unwrap()
+        .upgrade_profile()
+        .unwrap()
+        .additions()
+        .inputs()
+        .to_vec();
+    let store_additions = registries
+        .energy()
+        .get_store(ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE)
+        .unwrap()
+        .upgrade_profile()
+        .unwrap()
+        .additions()
+        .inputs()
+        .to_vec();
+    for input in tool_additions.iter().chain(store_additions.iter()) {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            input.commodity(),
+            input.mass(),
+            temperature,
+        )
+        .unwrap();
+    }
+    let tool_token = validate_upgrade_equipment(
+        &registries,
+        &state,
+        tool,
+        EQUIPMENT_COPPER_REINFORCED_PICK,
+        carried,
+    )
+    .unwrap();
+    let store_token = validate_upgrade_energy_store(
+        &registries,
+        &state,
+        store,
+        ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
+        carried,
+    )
+    .unwrap();
+    let expected = state.combat().revision();
+    let _ = validate_prepare_primitive_strike(&registries, &state, east())
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let actual = state.combat().revision();
+    let unchanged = state.clone();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(
+        validate_upgrade_equipment(
+            &registries,
+            &state,
+            tool,
+            EQUIPMENT_COPPER_REINFORCED_PICK,
+            carried,
+        )
+        .err(),
+        Some(EquipmentUpgradeError::PreparedStrikeActive)
+    );
+    assert_eq!(
+        validate_upgrade_energy_store(
+            &registries,
+            &state,
+            store,
+            ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
+            carried,
+        )
+        .err(),
+        Some(EnergyStoreUpgradeError::PreparedStrikeActive)
+    );
+    assert_eq!(
+        tool_token.commit(&mut state),
+        Err(EquipmentUpgradeCommitError::StaleCombatRevision { expected, actual })
+    );
+    assert_eq!(
+        store_token.commit(&mut state),
+        Err(EnergyStoreUpgradeCommitError::StaleCombatRevision { expected, actual })
+    );
+    assert_eq!(state, unchanged);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for game in [&mut state, &mut replay] {
+        let _ = validate_cancel_primitive_preparation(game)
+            .unwrap()
+            .commit(game)
+            .unwrap();
+        assert_eq!(
+            validate_upgrade_equipment(
+                &registries,
+                game,
+                tool,
+                EQUIPMENT_COPPER_REINFORCED_PICK,
+                carried,
+            )
+            .unwrap()
+            .commit(game),
+            Ok(tool)
+        );
+        assert_eq!(
+            validate_upgrade_energy_store(
+                &registries,
+                game,
+                store,
+                ENERGY_COPPER_BANDED_STONE_FLYWHEEL_DRIVE,
+                carried,
+            )
+            .unwrap()
+            .commit(game),
+            Ok(store)
+        );
+        assert_eq!(
+            calculate_matter_accounting(game).unwrap().total(),
+            conserved
+        );
+        assert_eq!(validate_loaded_state(&registries, game), Ok(()));
+    }
+    assert_eq!(replay, state);
+}
+
+#[test]
 fn raised_weapon_blocks_material_backed_tool_and_energy_store_assembly() {
     use crate::content::{ENERGY_STONE_RING_CAMPFIRE, EQUIPMENT_STONE_PICK, EQUIPMENT_WOODEN_CLUB};
     use crate::core::quantity::Temperature;

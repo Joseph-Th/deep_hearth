@@ -16,6 +16,7 @@ use super::super::EnergyStoreId;
 pub enum EnergyStoreDisassemblyError {
     PlayerDead,
     PlayerBusy,
+    PreparedStrikeActive,
     StoreAccess(PlayerEnergyStoreAccessError),
     DestinationAccess(PlayerStockpileAccessError),
     UnknownStore {
@@ -68,6 +69,9 @@ impl Display for EnergyStoreDisassemblyError {
             Self::PlayerBusy => {
                 formatter.write_str("player cannot dismantle an energy store during exclusive work")
             }
+            Self::PreparedStrikeActive => formatter.write_str(
+                "player must lower the prepared weapon before dismantling an energy store",
+            ),
             Self::StoreAccess(error) => write!(formatter, "energy-store access failed: {error}"),
             Self::DestinationAccess(error) => write!(
                 formatter,
@@ -160,6 +164,7 @@ impl Error for EnergyStoreDisassemblyError {
             Self::StoredMatterLoad(error) => Some(error),
             Self::PlayerDead
             | Self::PlayerBusy
+            | Self::PreparedStrikeActive
             | Self::UnknownStore { .. }
             | Self::NoEmbodiedMatter { .. }
             | Self::StoreNotEmpty { .. }
@@ -180,6 +185,10 @@ impl Error for EnergyStoreDisassemblyError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreDisassemblyCommitError {
     PlayerBecameBusy,
+    StaleCombatRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleSurvival {
         expected: u64,
         actual: u64,
@@ -222,6 +231,10 @@ impl Display for EnergyStoreDisassemblyCommitError {
             Self::PlayerBecameBusy => {
                 formatter.write_str("player began exclusive work before energy-store dismantling")
             }
+            Self::StaleCombatRevision { expected, actual } => write!(
+                formatter,
+                "energy-store dismantling expected combat revision {expected} but current revision is {actual}"
+            ),
             Self::StaleSurvival { expected, actual } => write!(
                 formatter,
                 "energy-store disassembly expected survival revision {expected} but current revision is {actual}"
@@ -278,6 +291,7 @@ impl Error for EnergyStoreDisassemblyCommitError {
         match self {
             Self::Structure(error) => Some(error),
             Self::PlayerBecameBusy
+            | Self::StaleCombatRevision { .. }
             | Self::StaleSurvival { .. }
             | Self::StaleLogistics { .. }
             | Self::StaleInventory { .. }

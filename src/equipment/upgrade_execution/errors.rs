@@ -18,6 +18,7 @@ use super::super::{EquipmentDefinitionId, EquipmentId};
 pub enum EquipmentUpgradeError {
     PlayerDead,
     PlayerBusy,
+    PreparedStrikeActive,
     EquipmentAccess(PlayerEquipmentAccessError),
     SourceAccess(PlayerStockpileAccessError),
     UnknownEquipment {
@@ -102,6 +103,8 @@ impl Display for EquipmentUpgradeError {
             Self::PlayerBusy => {
                 formatter.write_str("player cannot upgrade equipment while work is active")
             }
+            Self::PreparedStrikeActive => formatter
+                .write_str("player must lower the prepared weapon before upgrading equipment"),
             Self::EquipmentAccess(error) => {
                 write!(formatter, "equipment upgrade access failed: {error}")
             }
@@ -259,6 +262,7 @@ impl Error for EquipmentUpgradeError {
             Self::StructuralLoad(error) => Some(error),
             Self::PlayerDead
             | Self::PlayerBusy
+            | Self::PreparedStrikeActive
             | Self::UnknownEquipment { .. }
             | Self::UnknownTargetDefinition { .. }
             | Self::NoUpgradeProfile { .. }
@@ -286,6 +290,10 @@ impl Error for EquipmentUpgradeError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentUpgradeCommitError {
     PlayerBecameBusy,
+    StaleCombatRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleSurvival {
         expected: u64,
         actual: u64,
@@ -350,6 +358,10 @@ impl Display for EquipmentUpgradeCommitError {
             Self::PlayerBecameBusy => {
                 formatter.write_str("player work started before equipment upgrade commit")
             }
+            Self::StaleCombatRevision { expected, actual } => write!(
+                formatter,
+                "equipment upgrade expected combat revision {expected} but current revision is {actual}"
+            ),
             Self::StaleSurvival { expected, actual } => write!(
                 formatter,
                 "equipment upgrade expected survival revision {expected} but current revision is {actual}"
@@ -453,6 +465,7 @@ impl Error for EquipmentUpgradeCommitError {
         match self {
             Self::Structure(error) => Some(error),
             Self::PlayerBecameBusy
+            | Self::StaleCombatRevision { .. }
             | Self::StaleSurvival { .. }
             | Self::StaleLogistics { .. }
             | Self::StaleInventory { .. }

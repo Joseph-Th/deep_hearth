@@ -158,6 +158,7 @@ fn commit_occupancy_error(
 #[must_use]
 pub struct ValidatedEquipmentUpgrade {
     player_action: PlayerActionGuard,
+    expected_combat_revision: u64,
     equipment: EquipmentId,
     expected_definition: EquipmentDefinitionId,
     target_definition: EquipmentDefinitionId,
@@ -188,6 +189,13 @@ impl ValidatedEquipmentUpgrade {
         })?;
         if state.logistics().player().is_some() && state.player_work().active().is_some() {
             return Err(EquipmentUpgradeCommitError::PlayerBecameBusy);
+        }
+        let actual_combat_revision = state.combat().revision();
+        if actual_combat_revision != self.expected_combat_revision {
+            return Err(EquipmentUpgradeCommitError::StaleCombatRevision {
+                expected: self.expected_combat_revision,
+                actual: actual_combat_revision,
+            });
         }
         if state.inventory().revision() != self.egress.expected_revision() {
             return Err(EquipmentUpgradeCommitError::StaleInventory {
@@ -263,6 +271,9 @@ pub fn validate_upgrade_equipment(
     if state.logistics().player().is_some() && state.player_work().active().is_some() {
         return Err(EquipmentUpgradeError::PlayerBusy);
     }
+    if state.logistics().player().is_some() && state.combat().has_prepared_strike() {
+        return Err(EquipmentUpgradeError::PreparedStrikeActive);
+    }
     validate_player_equipment_access(state, equipment)
         .map_err(EquipmentUpgradeError::EquipmentAccess)?;
     validate_player_stockpile_access(state, source).map_err(EquipmentUpgradeError::SourceAccess)?;
@@ -333,6 +344,7 @@ pub fn validate_upgrade_equipment(
 
     Ok(ValidatedEquipmentUpgrade {
         player_action,
+        expected_combat_revision: state.combat().revision(),
         equipment,
         expected_definition: record.definition(),
         target_definition: target,

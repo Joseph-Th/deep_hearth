@@ -81,6 +81,7 @@ impl EnergyStoreDisassemblyOutcome {
 pub struct ValidatedEnergyStoreDisassembly {
     player_action: PlayerActionGuard,
     store: EnergyStoreId,
+    expected_combat_revision: u64,
     expected_energy_revision: u64,
     next_energy_revision: u64,
     expected_logistics_revision: u64,
@@ -150,6 +151,13 @@ impl ValidatedEnergyStoreDisassembly {
         }
         if state.logistics().player().is_some() && state.player_work().active().is_some() {
             return Err(EnergyStoreDisassemblyCommitError::PlayerBecameBusy);
+        }
+        let actual_combat_revision = state.combat().revision();
+        if actual_combat_revision != self.expected_combat_revision {
+            return Err(EnergyStoreDisassemblyCommitError::StaleCombatRevision {
+                expected: self.expected_combat_revision,
+                actual: actual_combat_revision,
+            });
         }
         self.ingress.assert_matches_state(state.inventory());
         state.energy().assert_removal_available(
@@ -223,6 +231,9 @@ pub fn validate_disassemble_energy_store(
     if state.logistics().player().is_some() && state.player_work().active().is_some() {
         return Err(EnergyStoreDisassemblyError::PlayerBusy);
     }
+    if state.logistics().player().is_some() && state.combat().has_prepared_strike() {
+        return Err(EnergyStoreDisassemblyError::PreparedStrikeActive);
+    }
     let ingress = validate_material_ingress(
         registries,
         state.inventory(),
@@ -282,6 +293,7 @@ pub fn validate_disassemble_energy_store(
     Ok(ValidatedEnergyStoreDisassembly {
         player_action,
         store,
+        expected_combat_revision: state.combat().revision(),
         expected_energy_revision,
         next_energy_revision,
         expected_logistics_revision,

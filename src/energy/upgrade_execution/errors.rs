@@ -16,6 +16,7 @@ use super::super::{EnergyStoreDefinitionId, EnergyStoreId};
 pub enum EnergyStoreUpgradeError {
     PlayerDead,
     PlayerBusy,
+    PreparedStrikeActive,
     StoreAccess(PlayerEnergyStoreAccessError),
     SourceAccess(PlayerStockpileAccessError),
     UnknownStore {
@@ -77,6 +78,8 @@ impl Display for EnergyStoreUpgradeError {
             Self::PlayerBusy => {
                 formatter.write_str("player cannot upgrade energy storage while work is active")
             }
+            Self::PreparedStrikeActive => formatter
+                .write_str("player must lower the prepared weapon before upgrading energy storage"),
             Self::StoreAccess(error) => {
                 write!(formatter, "energy-store upgrade access failed: {error}")
             }
@@ -189,6 +192,7 @@ impl Error for EnergyStoreUpgradeError {
             Self::StructuralLoad(error) => Some(error),
             Self::PlayerDead
             | Self::PlayerBusy
+            | Self::PreparedStrikeActive
             | Self::UnknownStore { .. }
             | Self::UnknownTargetDefinition { .. }
             | Self::NoUpgradeProfile { .. }
@@ -210,6 +214,10 @@ impl Error for EnergyStoreUpgradeError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreUpgradeCommitError {
     PlayerBecameBusy,
+    StaleCombatRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleSurvival {
         expected: u64,
         actual: u64,
@@ -248,6 +256,10 @@ impl Display for EnergyStoreUpgradeCommitError {
             Self::PlayerBecameBusy => {
                 formatter.write_str("player work started before energy-store upgrade commit")
             }
+            Self::StaleCombatRevision { expected, actual } => write!(
+                formatter,
+                "energy-store upgrade expected combat revision {expected} but current revision is {actual}"
+            ),
             Self::StaleSurvival { expected, actual } => write!(
                 formatter,
                 "energy-store upgrade expected survival revision {expected} but current revision is {actual}"
@@ -297,6 +309,7 @@ impl Error for EnergyStoreUpgradeCommitError {
         match self {
             Self::Structure(error) => Some(error),
             Self::PlayerBecameBusy
+            | Self::StaleCombatRevision { .. }
             | Self::StaleSurvival { .. }
             | Self::StaleLogistics { .. }
             | Self::StaleInventory { .. }

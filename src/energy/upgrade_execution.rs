@@ -24,6 +24,7 @@ pub use errors::{EnergyStoreUpgradeCommitError, EnergyStoreUpgradeError};
 #[must_use]
 pub struct ValidatedEnergyStoreUpgrade {
     player_action: PlayerActionGuard,
+    expected_combat_revision: u64,
     store: EnergyStoreId,
     expected_definition: EnergyStoreDefinitionId,
     target_definition: EnergyStoreDefinitionId,
@@ -56,6 +57,13 @@ impl ValidatedEnergyStoreUpgrade {
         })?;
         if state.logistics().player().is_some() && state.player_work().active().is_some() {
             return Err(EnergyStoreUpgradeCommitError::PlayerBecameBusy);
+        }
+        let actual_combat_revision = state.combat().revision();
+        if actual_combat_revision != self.expected_combat_revision {
+            return Err(EnergyStoreUpgradeCommitError::StaleCombatRevision {
+                expected: self.expected_combat_revision,
+                actual: actual_combat_revision,
+            });
         }
         if state.inventory().revision() != self.egress.expected_revision() {
             return Err(EnergyStoreUpgradeCommitError::StaleInventory {
@@ -132,6 +140,9 @@ pub fn validate_upgrade_energy_store(
         validate_optional_player_action(state).map_err(|_| EnergyStoreUpgradeError::PlayerDead)?;
     if state.logistics().player().is_some() && state.player_work().active().is_some() {
         return Err(EnergyStoreUpgradeError::PlayerBusy);
+    }
+    if state.logistics().player().is_some() && state.combat().has_prepared_strike() {
+        return Err(EnergyStoreUpgradeError::PreparedStrikeActive);
     }
     validate_player_energy_store_access(state, store)
         .map_err(EnergyStoreUpgradeError::StoreAccess)?;
@@ -243,6 +254,7 @@ pub fn validate_upgrade_energy_store(
         .unwrap_or_else(|| unreachable!("energy headroom check includes store upgrade revision"));
     Ok(ValidatedEnergyStoreUpgrade {
         player_action,
+        expected_combat_revision: state.combat().revision(),
         store,
         expected_definition: record.definition(),
         target_definition: target,

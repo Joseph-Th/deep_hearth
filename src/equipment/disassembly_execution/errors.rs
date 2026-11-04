@@ -18,6 +18,7 @@ use super::super::EquipmentId;
 pub enum EquipmentDisassemblyError {
     PlayerDead,
     PlayerBusy,
+    PreparedStrikeActive,
     EquipmentAccess(PlayerEquipmentAccessError),
     DestinationAccess(PlayerStockpileAccessError),
     UnknownEquipment {
@@ -98,6 +99,8 @@ impl Display for EquipmentDisassemblyError {
             Self::PlayerBusy => {
                 formatter.write_str("player cannot dismantle equipment during exclusive work")
             }
+            Self::PreparedStrikeActive => formatter
+                .write_str("player must lower the prepared weapon before dismantling equipment"),
             Self::EquipmentAccess(error) => write!(formatter, "equipment access failed: {error}"),
             Self::DestinationAccess(error) => {
                 write!(
@@ -256,6 +259,7 @@ impl Error for EquipmentDisassemblyError {
             Self::StoredMatterLoad(error) => Some(error),
             Self::PlayerDead
             | Self::PlayerBusy
+            | Self::PreparedStrikeActive
             | Self::UnknownEquipment { .. }
             | Self::NoEmbodiedMatter { .. }
             | Self::WornComponentRecoveryUnavailable { .. }
@@ -284,6 +288,10 @@ impl Error for EquipmentDisassemblyError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentDisassemblyCommitError {
     PlayerBecameBusy,
+    StaleCombatRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleSurvival {
         expected: u64,
         actual: u64,
@@ -353,6 +361,10 @@ impl Display for EquipmentDisassemblyCommitError {
             Self::PlayerBecameBusy => {
                 formatter.write_str("player began exclusive work before equipment dismantling")
             }
+            Self::StaleCombatRevision { expected, actual } => write!(
+                formatter,
+                "equipment dismantling expected combat revision {expected} but current revision is {actual}"
+            ),
             Self::StaleSurvival { expected, actual } => write!(
                 formatter,
                 "equipment disassembly expected survival revision {expected} but current revision is {actual}"
@@ -461,6 +473,7 @@ impl Error for EquipmentDisassemblyCommitError {
         match self {
             Self::Structure(error) => Some(error),
             Self::PlayerBecameBusy
+            | Self::StaleCombatRevision { .. }
             | Self::StaleSurvival { .. }
             | Self::StaleLogistics { .. }
             | Self::StaleInventory { .. }

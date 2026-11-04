@@ -183,6 +183,9 @@ pub fn validate_disassemble_equipment(
     if state.combat().preparing_weapon(equipment) {
         return Err(EquipmentDisassemblyError::EquipmentPreparedForCombat { equipment });
     }
+    if state.logistics().player().is_some() && state.combat().has_prepared_strike() {
+        return Err(EquipmentDisassemblyError::PreparedStrikeActive);
+    }
     if state.logistics().is_equipment_carried(equipment) {
         return Err(EquipmentDisassemblyError::EquipmentCarried { equipment });
     }
@@ -252,6 +255,7 @@ pub fn validate_disassemble_equipment(
     Ok(ValidatedEquipmentDisassembly {
         player_action,
         equipment,
+        expected_combat_revision: state.combat().revision(),
         expected_equipment_revision,
         next_equipment_revision,
         expected_logistics_revision,

@@ -79,6 +79,7 @@ impl EquipmentDisassemblyOutcome {
 pub struct ValidatedEquipmentDisassembly {
     pub(super) player_action: PlayerActionGuard,
     equipment: EquipmentId,
+    expected_combat_revision: u64,
     expected_equipment_revision: u64,
     next_equipment_revision: u64,
     expected_logistics_revision: u64,
@@ -143,6 +144,13 @@ impl ValidatedEquipmentDisassembly {
                     equipment: self.equipment,
                 },
             );
+        }
+        let actual_combat_revision = state.combat().revision();
+        if actual_combat_revision != self.expected_combat_revision {
+            return Err(EquipmentDisassemblyCommitError::StaleCombatRevision {
+                expected: self.expected_combat_revision,
+                actual: actual_combat_revision,
+            });
         }
         let occupancy = equipment_occupancy(state, self.equipment);
         if let Some(element) = record.supported_by() {
