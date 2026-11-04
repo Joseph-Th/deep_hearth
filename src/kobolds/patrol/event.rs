@@ -111,6 +111,7 @@ impl KoboldScoutEvent {
     }
 
     /// Previously carried material left in its existing loose surface custody.
+    /// The parcel identity is reported only when the release cell was visible.
     #[must_use]
     pub const fn abandoned_drop(self) -> Option<SurfaceResourceId> {
         self.abandoned_drop
