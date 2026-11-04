@@ -310,6 +310,26 @@ fn scout_uses_authored_drink_temperature_and_preserves_unusable_water() {
     };
     assert_eq!(usable_water_at(&registries, &state, water), None);
     assert_eq!(observer_route(&state), None);
+    // A scalding source at the normal patrol tip must not conceal
+    // drinkable water on the side route.
+    let hot_tip = validate_generate_fluid_store(
+        &registries,
+        &state,
+        GeneratedFluidStoreSpec::new(
+            SCOUT_DRINK_VOLUME,
+            FLUID_WATER,
+            SCOUT_DRINK_VOLUME,
+            Temperature::from_millikelvin(345_150),
+        ),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    validate_place_fluid_store(&state, hot_tip, tip)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(observer_route(&state), None);
     let safe = place(&mut state, Temperature::from_millikelvin(293_150));
     assert_eq!(
         usable_water_at(&registries, &state, water),
@@ -347,11 +367,13 @@ fn scout_uses_authored_drink_temperature_and_preserves_unusable_water() {
         state.fluid().get_store(safe).unwrap().stored_volume(),
         Volume::ZERO
     );
-    assert_eq!(
-        state.fluid().get_store(scalding).unwrap().stored_volume(),
-        SCOUT_DRINK_VOLUME,
-        "undrinkable water is never silently withdrawn"
-    );
+    for untouched in [scalding, hot_tip] {
+        assert_eq!(
+            state.fluid().get_store(untouched).unwrap().stored_volume(),
+            SCOUT_DRINK_VOLUME,
+            "undrinkable water is never silently withdrawn"
+        );
+    }
     assert_eq!(calculate_fluid_volume_accounting(&state).unwrap(), initial);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
@@ -638,6 +660,102 @@ fn junction_water_search_prefers_a_real_nearby_source_over_far_detours() {
         water_before
     );
     assert_eq!(validate_loaded_state(&registries, &blocked), Ok(()));
+}
+
+#[test]
+fn main_patrol_water_precedes_equal_distance_side_water() {
+    use crate::core::quantity::Temperature;
+    use crate::fluid::{GeneratedFluidStoreSpec, validate_generate_fluid_store};
+    use crate::logistics::{add_traversable_edge_for_test, validate_place_fluid_store};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let den = VoxelCoord::new(-1, 0, 0);
+    let junction = VoxelCoord::new(0, 0, 0);
+    let tip = VoxelCoord::new(1, 0, 0);
+    let side = VoxelCoord::new(0, 0, 1);
+    for (from, to) in [(den, junction), (junction, tip), (junction, side)] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    while state.tick().value() < 980 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    let scout = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(scout.scout_position(), junction);
+    assert_eq!(scout.scout_step, 1);
+    assert!(scout.next_drink_at <= state.tick());
+
+    let place_water = |state: &mut AppState, position| {
+        let store = validate_generate_fluid_store(
+            &registries,
+            state,
+            GeneratedFluidStoreSpec::new(
+                SCOUT_DRINK_VOLUME,
+                FLUID_WATER,
+                SCOUT_DRINK_VOLUME,
+                Temperature::from_millikelvin(293_150),
+            ),
+        )
+        .unwrap()
+        .commit(state)
+        .unwrap();
+        validate_place_fluid_store(state, store, position)
+            .unwrap()
+            .commit(state)
+            .unwrap();
+        store
+    };
+    let tip_store = place_water(&mut state, tip);
+    let side_store = place_water(&mut state, side);
+    let water_before = calculate_fluid_volume_accounting(&state).unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.tick().value() < 985 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        tip,
+        "the scout should stay on its already-planned route to equally close viable water"
+    );
+    while state.tick().value() < 990 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.fluid().get_store(tip_store).unwrap().stored_volume(),
+        Volume::ZERO,
+    );
+    assert_eq!(
+        state.fluid().get_store(side_store).unwrap().stored_volume(),
+        SCOUT_DRINK_VOLUME,
+        "a side pool must remain finite when reachable main-route water meets the need"
+    );
+    assert_eq!(
+        calculate_fluid_volume_accounting(&state).unwrap(),
+        water_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

@@ -453,7 +453,9 @@ pub(super) fn choose_outbound_detour(
         ..
     } = interest;
     if let Some(route) = preferred_water {
-        return Some(route);
+        // The water planner also recognizes the normal route's next cell.
+        // Preserve that urgent choice without marking it as a side detour.
+        return (route != (colony.route[2], None)).then_some(route);
     }
     // Going to the nearby, already-seen part needs no side route. A selected
     // inherited salvage mission still wins, and urgent food or water comes first.

@@ -100,8 +100,19 @@ pub(super) fn reachable_water_from_junction(
             && crate::energy::assess_local_illumination(registries, state, to).level()
                 < SCOUT_DETERRENT_LIGHT_LEVEL
     };
+    // The ordinary patrol already goes straight from the junction to its tip.
+    // Drinking there costs no side excursion, so a viable tip source wins
+    // over equally close water off the route. A blocked or unusable tip
+    // still leaves the real side-branch search available.
+    let tip = colony.route[2];
+    if safe(junction, tip)
+        && scout_visible_from(registries, state, junction, tip)
+        && usable_water_at(registries, state, tip).is_some()
+    {
+        return Some((tip, None));
+    }
     // The water location index is cheap; visibility and local light are not.
-    // Keep only the shortest deterministic route, without allocating a list.
+    // Keep only the shortest deterministic side route, without allocating a list.
     let mut best_route = None;
     for first in state.logistics().traversable_destinations(junction) {
         if first == colony.route[0]
