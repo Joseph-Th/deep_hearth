@@ -85,7 +85,7 @@ pub(in crate::kobolds) fn reachable_far_stockpile(
         junction,
         den,
         authored_tip,
-        player_position,
+        ..
     } = route;
     state
         .logistics()
@@ -104,11 +104,7 @@ pub(in crate::kobolds) fn reachable_far_stockpile(
                 .map(move |goal| (first, goal))
         })
         .filter(|(first, goal)| {
-            scout_visible_from(registries, state, junction, *goal)
-                && unguarded_unlit_cell(registries, state, junction, *first, player_position)
-                // Do not borrow sight from a future waypoint. The next actual
-                // patrol step observes threats again from its new position.
-                && unguarded_unlit_cell(registries, state, junction, *goal, player_position)
+            far_route_is_sighted_and_safe(registries, state, route, (*first, *goal))
         })
         .min()
 }
@@ -144,6 +140,32 @@ pub(super) fn unguarded_unlit_cell(
             && scout_sees_guarded_cell(registries, state, scout, position))
         && assess_local_illumination(registries, state, position).level()
             < SCOUT_DETERRENT_LIGHT_LEVEL
+}
+
+/// Far stockpile, loose-drop, and forage planners must share the same observed
+/// threat boundary. A future waypoint cannot lend its viewpoint to the scout.
+/// Actual patrol movement checks the next edge again at that waypoint.
+fn far_route_is_sighted_and_safe(
+    registries: &Registries,
+    state: &AppState,
+    route: ScavengeRoute,
+    (first, goal): (VoxelCoord, VoxelCoord),
+) -> bool {
+    scout_visible_from(registries, state, route.junction, goal)
+        && unguarded_unlit_cell(
+            registries,
+            state,
+            route.junction,
+            first,
+            route.player_position,
+        )
+        && unguarded_unlit_cell(
+            registries,
+            state,
+            route.junction,
+            goal,
+            route.player_position,
+        )
 }
 
 /// Search only neighboring traversal cells, not the full history of world resources.
@@ -200,7 +222,7 @@ pub(in crate::kobolds) fn reachable_far_drop(
         junction,
         den,
         authored_tip,
-        player_position,
+        ..
     } = route;
     state
         .logistics()
@@ -228,9 +250,7 @@ pub(in crate::kobolds) fn reachable_far_drop(
                 })
         })
         .filter(|(_, first, goal)| {
-            scout_visible_from(registries, state, junction, *goal)
-                && unguarded_unlit_cell(registries, state, junction, *first, player_position)
-                && unguarded_unlit_cell(registries, state, junction, *goal, player_position)
+            far_route_is_sighted_and_safe(registries, state, route, (*first, *goal))
         })
         .min_by_key(|(priority, _, _)| *priority)
         .map(|(_, first, goal)| (first, goal))
@@ -333,7 +353,7 @@ pub(in crate::kobolds) fn reachable_far_food(
         junction,
         den,
         authored_tip,
-        player_position,
+        ..
     } = route;
     state
         .logistics()
@@ -350,9 +370,7 @@ pub(in crate::kobolds) fn reachable_far_food(
                 })
         })
         .filter(|(_, _, first, goal)| {
-            scout_visible_from(registries, state, junction, *goal)
-                && unguarded_unlit_cell(registries, state, junction, *first, player_position)
-                && unguarded_unlit_cell(registries, state, junction, *goal, player_position)
+            far_route_is_sighted_and_safe(registries, state, route, (*first, *goal))
         })
         .max_by_key(|(mass, id, first, goal)| {
             (*mass, Reverse(*id), Reverse(*first), Reverse(*goal))
