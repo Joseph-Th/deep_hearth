@@ -400,6 +400,119 @@ fn receiver_power_limit_applies_to_delivered_shaft_work_not_pre_loss_draw() {
 }
 
 #[test]
+fn co_located_shaft_receivers_prioritize_useful_work_over_store_identity() {
+    use crate::content::{
+        ENERGY_MECHANICAL_SMALL_DRIVE, FORM_HANDLE, MATERIAL_WOOD,
+        STRUCTURAL_PROFILE_TIMBER_DRIVE_COUPLING, build_registries,
+    };
+    use crate::core::quantity::{Area, Length};
+    use crate::core::state::validate_loaded_state;
+    use crate::energy::add_energy_store_with_initial_for_fixture;
+    use crate::logistics::place_energy_store_for_fixture;
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+    use crate::simulation::advance_tick;
+    use crate::spatial::VoxelBounds;
+    use crate::structural::{
+        add_structural_element, make_test_structural_geometry,
+        materialize_structural_element_for_test, validate_activate_structural_element,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let definition = ENERGY_MECHANICAL_SMALL_DRIVE;
+    let capacity = registries
+        .energy()
+        .get_store(definition)
+        .unwrap()
+        .capacity();
+    let source =
+        add_energy_store_with_initial_for_fixture(&registries, &mut state, definition, capacity)
+            .unwrap();
+    let nearly_full = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        definition,
+        capacity
+            .checked_sub(Energy::from_nanojoules(10_000_000_000))
+            .unwrap(),
+    )
+    .unwrap();
+    let empty = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        definition,
+        Energy::ZERO,
+    )
+    .unwrap();
+    place_energy_store_for_fixture(&mut state, source, VoxelCoord::new(0, 0, 0));
+    place_energy_store_for_fixture(&mut state, nearly_full, VoxelCoord::new(2, 0, 0));
+    place_energy_store_for_fixture(&mut state, empty, VoxelCoord::new(2, 0, 0));
+    let roller = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_TIMBER_DRIVE_COUPLING,
+        MATERIAL_WOOD,
+        make_test_structural_geometry(
+            VoxelBounds::new(VoxelCoord::new(1, 0, 0), VoxelCoord::new(2, 1, 1)).unwrap(),
+            Length::from_micrometers(1_000_000),
+            Area::from_square_millimeters(300),
+        ),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, roller, FORM_HANDLE);
+    let _ = validate_activate_structural_element(&registries, &state, roller)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    let passive =
+        crate::energy::passive_dissipation::decide_passive_energy_dissipation(&registries, &state);
+    let restricted = plan_pair(
+        &registries,
+        &state,
+        &passive,
+        roller,
+        1,
+        source,
+        nearly_full,
+    )
+    .expect("near-full receiver still permits a small transmission");
+    let productive = plan_pair(&registries, &state, &passive, roller, 1, source, empty)
+        .expect("empty receiver admits more transferred work");
+    assert!(productive.delivered() > restricted.delivered());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before_source = state.energy().get_store(source).unwrap().stored();
+    let before_restricted = state.energy().get_store(nearly_full).unwrap().stored();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let receipt = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(receipt, advance_tick(&registries, &mut replay).unwrap());
+    assert_eq!(state, replay);
+    assert_eq!(receipt.mechanical_transmissions().len(), 1);
+    let transfer = receipt.mechanical_transmissions()[0];
+    assert_eq!(transfer, productive);
+    assert_eq!(transfer.source(), source);
+    assert_eq!(transfer.destination(), empty);
+    assert_eq!(
+        state.energy().get_store(nearly_full).unwrap().stored(),
+        before_restricted
+    );
+    assert_eq!(
+        before_source.checked_sub(state.energy().get_store(source).unwrap().stored()),
+        Some(transfer.drawn()),
+    );
+    assert_eq!(
+        state.energy().get_store(empty).unwrap().stored(),
+        transfer.delivered()
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn one_nanojoule_charge_difference_does_not_start_a_lossy_oscillation() {
     use crate::content::make_test_registries_with_energy_store;
     use crate::core::quantity::Power;

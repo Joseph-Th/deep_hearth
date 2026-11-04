@@ -394,7 +394,8 @@ struct MechanicalTransmissionPlanner<'a> {
 }
 
 impl MechanicalTransmissionPlanner<'_> {
-    /// Binds one transfer to one physical run in stable endpoint order.
+    /// Binds one physical run to the most useful eligible endpoint pair.
+    /// Stable store-ID iteration breaks ties after useful work and input cost.
     fn plan_coupling_axis(
         &mut self,
         rollers: &BTreeMap<VoxelCoord, StructuralElementId>,
@@ -410,6 +411,7 @@ impl MechanicalTransmissionPlanner<'_> {
         let Ok(segments) = u32::try_from(path.len()) else {
             return;
         };
+        let mut best: Option<MechanicalTransmissionReceipt> = None;
         for left in self.state.logistics().energy_stores_at(low) {
             if self.used_stores.contains(&left) {
                 continue;
@@ -418,7 +420,7 @@ impl MechanicalTransmissionPlanner<'_> {
                 if self.used_stores.contains(&right) {
                     continue;
                 }
-                if let Some(transfer) = plan_pair(
+                let Some(candidate) = plan_pair(
                     self.registries,
                     self.state,
                     self.passive,
@@ -426,14 +428,26 @@ impl MechanicalTransmissionPlanner<'_> {
                     segments,
                     left,
                     right,
-                ) {
-                    self.used_stores.insert(left);
-                    self.used_stores.insert(right);
-                    self.used_rollers.extend(path);
-                    self.plan.transfers.push(transfer);
-                    return;
+                ) else {
+                    continue;
+                };
+                // A shared endpoint need not waste the shaft's whole tick on
+                // the first nearly-full receiver. Maximize useful delivery;
+                // with equal delivery, conserve the most source work.
+                if best.is_none_or(|selected| {
+                    candidate.delivered() > selected.delivered()
+                        || (candidate.delivered() == selected.delivered()
+                            && candidate.drawn() < selected.drawn())
+                }) {
+                    best = Some(candidate);
                 }
             }
+        }
+        if let Some(transfer) = best {
+            self.used_stores.insert(transfer.source());
+            self.used_stores.insert(transfer.destination());
+            self.used_rollers.extend(path);
+            self.plan.transfers.push(transfer);
         }
     }
 }
