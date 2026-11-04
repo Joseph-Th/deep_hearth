@@ -9,7 +9,7 @@ use crate::content::{
     SURFACE_GATHERING_HAND_COLLECT_STONE, build_registries,
     make_test_registries_with_standard_sensible_heating,
 };
-use crate::core::quantity::{Area, Energy, Force, Length, Mass, Temperature};
+use crate::core::quantity::{AggregateMass, Area, Energy, Force, Length, Mass, Temperature};
 use crate::core::state::{StateValidationError, validate_loaded_state};
 use crate::core::time::TickSpan;
 use crate::energy::add_energy_store_with_initial_for_fixture;
@@ -48,6 +48,19 @@ use crate::thermal::{
 };
 
 const STRUCTURAL_TEST_TARGET: Temperature = Temperature::from_millikelvin(500_000);
+
+#[test]
+fn supported_stockpile_mass_includes_enclosure_above_single_record_limit() {
+    let stored = Mass::from_milligrams(u64::MAX - 10);
+    let embodied = Mass::from_milligrams(100);
+    let total = aggregate_stockpile_mass(stored, embodied);
+    assert_eq!(
+        total,
+        AggregateMass::from_milligrams(u128::from(u64::MAX) + 90)
+    );
+    let registries = build_registries();
+    assert!(calculate_aggregate_weight_force_ceiling(total, registries.core().gravity()).is_some());
+}
 
 struct StructuralHeatingResolution(ResolvedSensibleHeating);
 

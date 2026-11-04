@@ -66,6 +66,15 @@ pub(super) struct SupportedMassProjection {
     pub(super) projected: AggregateMass,
 }
 
+/// Includes the physical enclosure without forcing two individually valid masses
+/// to fit inside the narrower single-stockpile material representation.
+#[must_use]
+pub(super) fn aggregate_stockpile_mass(stored: Mass, embodied: Mass) -> AggregateMass {
+    AggregateMass::from_milligrams(
+        u128::from(stored.milligrams()) + u128::from(embodied.milligrams()),
+    )
+}
+
 fn project_supported_mass(
     state: &AppState,
     element: StructuralElementId,
@@ -79,12 +88,9 @@ fn project_supported_mass(
             .inventory()
             .get_stockpile(stockpile)
             .ok_or(SupportedStockpileMassError::UnknownStockpile { stockpile })?;
-        let current_mass = record
-            .stored_mass()
-            .checked_add(record.embodied_mass())
-            .ok_or(SupportedStockpileMassError::AggregateMassOverflow { element })?;
+        let current_mass = aggregate_stockpile_mass(record.stored_mass(), record.embodied_mass());
         current = current
-            .checked_add(AggregateMass::from_mass(current_mass))
+            .checked_add(current_mass)
             .ok_or(SupportedStockpileMassError::AggregateMassOverflow { element })?;
 
         if excluded == Some(stockpile) {
@@ -94,11 +100,10 @@ fn project_supported_mass(
             .get(&stockpile)
             .copied()
             .unwrap_or_else(|| record.stored_mass());
-        let projected_mass = projected_stored_mass
-            .checked_add(record.embodied_mass())
-            .ok_or(SupportedStockpileMassError::AggregateMassOverflow { element })?;
+        let projected_mass =
+            aggregate_stockpile_mass(projected_stored_mass, record.embodied_mass());
         projected = projected
-            .checked_add(AggregateMass::from_mass(projected_mass))
+            .checked_add(projected_mass)
             .ok_or(SupportedStockpileMassError::AggregateMassOverflow { element })?;
     }
     Ok(SupportedMassProjection { current, projected })

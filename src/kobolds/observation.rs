@@ -2,15 +2,117 @@
 //!
 //! This read model never grants resident state, knowledge or movement authority.
 
+use serde::{Deserialize, Serialize};
+
+use crate::core::quantity::Mass;
 use crate::core::state::AppState;
+use crate::material::CommodityKey;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::SurfaceResourceLifecycle;
 
 use super::{
-    KoboldRole, KoboldSighting, KoboldState, defense, living_player_observer, temple_archivist,
+    KoboldState, STAGGERED_BELOW_PPM, defense, living_player_observer, temple_archivist,
     temple_guard,
 };
+
+/// Identity of a locally seen resident, including the fixed den watchman.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum KoboldRole {
+    Scout,
+    Watchman,
+    /// A large, armored temple-bred resident; no combat system is claimed.
+    TempleWarden,
+    /// A longer-lived heavy caste attending the surviving mnemonic machinery.
+    TempleArchivist,
+}
+
+/// Distinct physical presence, independent of an unimplemented damage/combat model.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KoboldStature {
+    Small,
+    Heavy,
+    Massive,
+}
+
+/// Player-local observation of a physical kobold; remote dens and patrols are not exposed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KoboldSighting {
+    role: KoboldRole,
+    position: VoxelCoord,
+    has_noticed_player_drop: bool,
+    is_wary: bool,
+    is_defending: bool,
+    balance_ppm: Option<u32>,
+    mobilized: bool,
+    scavenged_material: Option<(CommodityKey, Mass)>,
+}
+
+impl KoboldSighting {
+    #[must_use]
+    pub const fn role(self) -> KoboldRole {
+        self.role
+    }
+
+    #[must_use]
+    pub const fn balance_ppm(self) -> Option<u32> {
+        self.balance_ppm
+    }
+
+    #[must_use]
+    pub const fn is_staggered(self) -> bool {
+        match self.balance_ppm {
+            Some(balance) => balance < STAGGERED_BELOW_PPM,
+            None => false,
+        }
+    }
+
+    #[must_use]
+    pub const fn stature(self) -> KoboldStature {
+        match self.role {
+            KoboldRole::Scout | KoboldRole::Watchman => KoboldStature::Small,
+            KoboldRole::TempleWarden => KoboldStature::Heavy,
+            KoboldRole::TempleArchivist => KoboldStature::Massive,
+        }
+    }
+
+    #[must_use]
+    pub const fn position(self) -> VoxelCoord {
+        self.position
+    }
+
+    #[must_use]
+    pub const fn has_noticed_player_drop(self) -> bool {
+        self.has_noticed_player_drop
+    }
+
+    /// Scouts avoid recent danger; wardens guard visibly breached machinery
+    /// or heed a directly observed archivist's damaged-archive vigil.
+    #[must_use]
+    pub const fn is_wary(self) -> bool {
+        self.is_wary
+    }
+
+    /// Visible guarding includes a fitted scout at a threatened industrial
+    /// junction, a temple warden's challenge or an archivist's archive vigil.
+    /// It conveys physical readiness, not a remote combat buff.
+    #[must_use]
+    pub const fn is_defending(self) -> bool {
+        self.is_defending
+    }
+
+    /// An actual local sighting of engineered machinery mobilized this colony.
+    #[must_use]
+    pub const fn is_mobilized(self) -> bool {
+        self.mobilized
+    }
+
+    /// The identity and mass of a currently carried loose parcel, if still present.
+    #[must_use]
+    pub const fn scavenged_material(self) -> Option<(CommodityKey, Mass)> {
+        self.scavenged_material
+    }
+}
 
 impl KoboldState {
     fn sightings_at<'a>(

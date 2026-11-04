@@ -1,6 +1,14 @@
 //! Canonical admission for loose surface-resource gathering.
 
+mod errors;
+mod options;
 mod runtime;
+
+pub use errors::SurfaceGatheringError;
+use errors::hand_gathering_temperature_blocker;
+pub use options::{
+    PlayerSurfaceFoodValue, PlayerSurfaceGatheringOption, player_surface_gathering_options,
+};
 
 pub use runtime::SurfaceGatheringOutcome;
 pub(crate) use runtime::{
@@ -12,197 +20,20 @@ pub(crate) use runtime::{
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
-use crate::core::quantity::{Energy, Mass, Temperature};
+use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::core::time::TickSpan;
 use crate::inventory::{
     InboundReservationError, MaterialIngressEntry, MaterialIngressError, StockpileId,
-    StockpileStorageError, ValidatedInboundReservation, validate_inbound_reservation,
-    validate_material_ingress,
+    ValidatedInboundReservation, validate_inbound_reservation, validate_material_ingress,
 };
 use crate::labor::{
-    PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, SurfaceGatheringDefinition,
-    SurfaceGatheringMethodId, SurfaceGatheringWork, ValidatedPlayerWorkStart,
-    validate_player_work_start, validate_player_work_start_control_rate,
+    PlayerWork, PlayerWorkCommitError, SurfaceGatheringMethodId, SurfaceGatheringWork,
+    ValidatedPlayerWorkStart, validate_player_work_start, validate_player_work_start_control_rate,
 };
-use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
-use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE};
+use crate::logistics::validate_player_stockpile_access;
 use crate::registry::Registries;
-use crate::survival::{
-    FoodCategory, FoodFreshness, FoodFreshnessError, SurvivalExertion,
-    edible_surface_food_definition, freshness_from_history,
-};
 
-use super::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle};
-
-/// Actor-facing option for gathering one currently visible loose natural opportunity.
-///
-/// The authored method identity remains private. Callers can compare the physical commitment and
-/// choose a resource/amount without depending on internal method IDs; canonical gathering
-/// validation still owns admission, capacity, survival, reservations, and completion.
-#[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PlayerSurfaceGatheringOption {
-    expected_surface_revision: u64,
-    resource: SurfaceResourceId,
-    source_mass: Mass,
-    temperature: Temperature,
-    definition: SurfaceGatheringDefinition,
-}
-
-/// Food value of one exact-local, ordinary direct gathering batch, before accepting the work.
-///
-/// This is not a guarantee of carrying space, future freshness, or eating the food.
-/// The present freshness is evaluated from the actual local source history. The separate
-/// shelf-life baseline describes a newly gathered fresh batch under ambient storage.
-#[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PlayerSurfaceFoodValue {
-    batch_mass: Mass,
-    dietary_energy: Energy,
-    category: FoodCategory,
-    hydration_multiplier_ppm: u32,
-    fresh_ambient_shelf_life: TickSpan,
-    current_freshness: FoodFreshness,
-}
-
-impl PlayerSurfaceFoodValue {
-    #[must_use]
-    pub const fn batch_mass(self) -> Mass {
-        self.batch_mass
-    }
-
-    #[must_use]
-    pub const fn dietary_energy(self) -> Energy {
-        self.dietary_energy
-    }
-
-    #[must_use]
-    pub const fn category(self) -> FoodCategory {
-        self.category
-    }
-
-    #[must_use]
-    pub const fn hydration_multiplier_ppm(self) -> u32 {
-        self.hydration_multiplier_ppm
-    }
-
-    #[must_use]
-    pub const fn fresh_ambient_shelf_life(self) -> TickSpan {
-        self.fresh_ambient_shelf_life
-    }
-
-    #[must_use]
-    pub const fn current_freshness(self) -> FoodFreshness {
-        self.current_freshness
-    }
-}
-
-impl PlayerSurfaceGatheringOption {
-    /// Current physical temperature of the observed local source.
-    #[must_use]
-    pub const fn temperature(self) -> Temperature {
-        self.temperature
-    }
-
-    /// An immediately knowable blocker for unprotected hand gathering.
-    /// The authoritative work admission checks the same rule again.
-    #[must_use]
-    pub fn hand_handling_blocker(self) -> Option<SurfaceGatheringError> {
-        hand_gathering_temperature_blocker(self.resource, self.temperature)
-    }
-
-    /// Compares edible value using only the current local source, authored food definition,
-    /// and source's physical aging history. A stale option cannot silently describe old
-    /// resource custody; inedible gathering options return `Ok(None)`.
-    pub fn food_value(
-        self,
-        registries: &Registries,
-        state: &AppState,
-    ) -> Result<Option<PlayerSurfaceFoodValue>, SurfaceGatheringError> {
-        validate_gathering_player_observer(state)?;
-        let actual_surface_revision = state.surface().revision();
-        if actual_surface_revision != self.expected_surface_revision {
-            return Err(SurfaceGatheringError::StalePlayerOption {
-                expected_surface_revision: self.expected_surface_revision,
-                actual_surface_revision,
-            });
-        }
-        let resource = state
-            .available_surface_resources()
-            .find(|resource| resource.id() == self.resource)
-            .ok_or(SurfaceGatheringError::ResourceUnavailableAtPlayer {
-                resource: self.resource,
-            })?;
-        let Some(food) = edible_surface_food_definition(registries, resource) else {
-            return Ok(None);
-        };
-        let batch_mass = self.source_mass.min(self.definition.direct_batch_mass());
-        let history = resource
-            .ambient_storage_history_at(state.tick())
-            .unwrap_or_else(|| {
-                unreachable!("a currently visible source cannot predate its physical creation")
-            });
-        let current_freshness = freshness_from_history(
-            history,
-            NORMALIZED_PARTS_PER_MILLION,
-            state.tick(),
-            food.shelf_life(),
-        )
-        .map_err(|error| match error {
-            FoodFreshnessError::ShelfLifeOverflow => SurfaceGatheringError::FoodAgeOverflow,
-            FoodFreshnessError::UnknownLot { .. }
-            | FoodFreshnessError::UnknownStockpile { .. }
-            | FoodFreshnessError::NotEdible { .. } => {
-                unreachable!("known local food cannot lose its food identity")
-            }
-        })?;
-        Ok(Some(PlayerSurfaceFoodValue {
-            batch_mass,
-            dietary_energy: food.dietary_energy_for_mass(batch_mass),
-            category: food.category(),
-            hydration_multiplier_ppm: food.hydration_multiplier_ppm(),
-            fresh_ambient_shelf_life: food.shelf_life(),
-            current_freshness,
-        }))
-    }
-
-    #[must_use]
-    pub const fn resource(self) -> SurfaceResourceId {
-        self.resource
-    }
-
-    #[must_use]
-    pub const fn commodity(self) -> CommodityKey {
-        self.definition.commodity()
-    }
-
-    #[must_use]
-    pub const fn source_mass(self) -> Mass {
-        self.source_mass
-    }
-
-    #[must_use]
-    pub const fn maximum_batch_mass(self) -> Mass {
-        self.definition.maximum_batch_mass()
-    }
-
-    #[must_use]
-    pub const fn direct_batch_mass(self) -> Mass {
-        self.definition.direct_batch_mass()
-    }
-
-    #[must_use]
-    pub const fn exertion(self) -> SurvivalExertion {
-        self.definition.exertion()
-    }
-
-    #[must_use]
-    pub fn duration_for_mass(self, mass: Mass) -> Option<TickSpan> {
-        self.definition.duration_for_mass(mass)
-    }
-}
+use super::{SurfaceResourceId, SurfaceResourceLifecycle};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SurfaceGatheringRequest {
@@ -229,226 +60,6 @@ impl SurfaceGatheringRequest {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SurfaceGatheringError {
-    PlayerNotLocated,
-    PlayerDead,
-    StalePlayerOption {
-        expected_surface_revision: u64,
-        actual_surface_revision: u64,
-    },
-    UnknownMethod {
-        method: SurfaceGatheringMethodId,
-    },
-    ResourceUnavailableAtPlayer {
-        resource: SurfaceResourceId,
-    },
-    CommodityMismatch {
-        method: SurfaceGatheringMethodId,
-        expected: CommodityKey,
-        actual: CommodityKey,
-    },
-    ZeroMass,
-    BatchTooLarge {
-        requested: Mass,
-        maximum: Mass,
-    },
-    InsufficientResource {
-        requested: Mass,
-        remaining: Mass,
-    },
-    ResourceTooHot {
-        resource: SurfaceResourceId,
-        temperature: Temperature,
-        maximum: Temperature,
-    },
-    DestinationAccess(PlayerStockpileAccessError),
-    DestinationMissing {
-        stockpile: StockpileId,
-    },
-    DestinationMounted {
-        stockpile: StockpileId,
-    },
-    DestinationStorage(StockpileStorageError),
-    DestinationMassOverflow {
-        stockpile: StockpileId,
-    },
-    DestinationCapacityExceeded {
-        stockpile: StockpileId,
-        capacity: Mass,
-        committed: Mass,
-        requested: Mass,
-    },
-    MaterialLotIdExhausted,
-    InventoryRevisionExhausted,
-    SurfaceRevisionExhausted,
-    CompletionTickOverflow,
-    FoodAgeOverflow,
-    PlayerWork(PlayerWorkStartError),
-}
-
-fn hand_gathering_temperature_blocker(
-    resource: SurfaceResourceId,
-    temperature: Temperature,
-) -> Option<SurfaceGatheringError> {
-    (temperature > MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE).then_some(
-        SurfaceGatheringError::ResourceTooHot {
-            resource,
-            temperature,
-            maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
-        },
-    )
-}
-
-impl Display for SurfaceGatheringError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::PlayerNotLocated => {
-                formatter.write_str("surface gathering requires an admitted player location")
-            }
-            Self::PlayerDead => formatter.write_str("dead player cannot gather surface resources"),
-            Self::StalePlayerOption {
-                expected_surface_revision,
-                actual_surface_revision,
-            } => write!(
-                formatter,
-                "player surface-gathering option was projected at surface revision {expected_surface_revision} but current revision is {actual_surface_revision}"
-            ),
-            Self::UnknownMethod { method } => write!(
-                formatter,
-                "unknown surface gathering method {}",
-                method.value()
-            ),
-            Self::ResourceUnavailableAtPlayer { resource } => write!(
-                formatter,
-                "surface resource {} is not available at the player's location",
-                resource.value()
-            ),
-            Self::CommodityMismatch {
-                method,
-                expected,
-                actual,
-            } => write!(
-                formatter,
-                "surface gathering method {} expects commodity {} but resource contains {}",
-                method.value(),
-                expected.value(),
-                actual.value()
-            ),
-            Self::ZeroMass => formatter.write_str("surface gathering mass must be nonzero"),
-            Self::BatchTooLarge { requested, maximum } => write!(
-                formatter,
-                "surface gathering requested {} mg but the method permits at most {} mg per batch",
-                requested.milligrams(),
-                maximum.milligrams()
-            ),
-            Self::InsufficientResource {
-                requested,
-                remaining,
-            } => write!(
-                formatter,
-                "surface gathering requested {} mg but only {} mg remains",
-                requested.milligrams(),
-                remaining.milligrams()
-            ),
-            Self::ResourceTooHot {
-                resource,
-                temperature,
-                maximum,
-            } => write!(
-                formatter,
-                "surface resource {} is {} mK and exceeds the {} mK unprotected hand-gathering limit",
-                resource.value(),
-                temperature.millikelvin(),
-                maximum.millikelvin(),
-            ),
-            Self::DestinationAccess(error) => write!(
-                formatter,
-                "surface gathering destination is inaccessible: {error}"
-            ),
-            Self::DestinationMissing { stockpile } => write!(
-                formatter,
-                "surface gathering destination stockpile {} is missing",
-                stockpile.value()
-            ),
-            Self::DestinationMounted { stockpile } => write!(
-                formatter,
-                "surface gathering destination stockpile {} is mounted and cannot receive direct gathering",
-                stockpile.value()
-            ),
-            Self::DestinationStorage(error) => write!(
-                formatter,
-                "surface gathering destination cannot store the resource: {error}"
-            ),
-            Self::DestinationMassOverflow { stockpile } => write!(
-                formatter,
-                "surface gathering destination stockpile {} mass overflowed",
-                stockpile.value()
-            ),
-            Self::DestinationCapacityExceeded {
-                stockpile,
-                capacity,
-                committed,
-                requested,
-            } => write!(
-                formatter,
-                "surface gathering destination stockpile {} has {} mg capacity with {} mg committed and cannot reserve another {} mg",
-                stockpile.value(),
-                capacity.milligrams(),
-                committed.milligrams(),
-                requested.milligrams()
-            ),
-            Self::MaterialLotIdExhausted => formatter
-                .write_str("material lot identifier space is exhausted for surface gathering"),
-            Self::InventoryRevisionExhausted => {
-                formatter.write_str("inventory revision space is exhausted for surface gathering")
-            }
-            Self::SurfaceRevisionExhausted => {
-                formatter.write_str("surface revision space is exhausted for gathering")
-            }
-            Self::CompletionTickOverflow => {
-                formatter.write_str("surface gathering completion tick overflowed")
-            }
-            Self::FoodAgeOverflow => {
-                formatter.write_str("surface food opportunity aging cannot be projected")
-            }
-            Self::PlayerWork(error) => write!(
-                formatter,
-                "surface gathering cannot reserve player work: {error}"
-            ),
-        }
-    }
-}
-
-impl Error for SurfaceGatheringError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::DestinationAccess(error) => Some(error),
-            Self::DestinationStorage(error) => Some(error),
-            Self::PlayerWork(error) => Some(error),
-            Self::PlayerNotLocated
-            | Self::PlayerDead
-            | Self::StalePlayerOption { .. }
-            | Self::UnknownMethod { .. }
-            | Self::ResourceUnavailableAtPlayer { .. }
-            | Self::CommodityMismatch { .. }
-            | Self::ZeroMass
-            | Self::BatchTooLarge { .. }
-            | Self::InsufficientResource { .. }
-            | Self::ResourceTooHot { .. }
-            | Self::DestinationMissing { .. }
-            | Self::DestinationMounted { .. }
-            | Self::DestinationMassOverflow { .. }
-            | Self::DestinationCapacityExceeded { .. }
-            | Self::MaterialLotIdExhausted
-            | Self::InventoryRevisionExhausted
-            | Self::SurfaceRevisionExhausted
-            | Self::CompletionTickOverflow
-            | Self::FoodAgeOverflow => None,
-        }
-    }
-}
-
 /// A logistics-only capability fixture may gather without a survival actor.
 /// A real actor whose survival record exists but is dead cannot observe or
 /// reuse the old body's exact-local resources before respawn.
@@ -460,39 +71,6 @@ fn validate_gathering_player_observer(state: &AppState) -> Result<(), SurfaceGat
         return Err(SurfaceGatheringError::PlayerDead);
     }
     Ok(())
-}
-
-/// Projects current exact-local natural gathering choices for the admitted player.
-///
-/// Player-created drops are excluded because their ordinary path is automatic pickup. A resource
-/// with multiple authored gathering methods yields one option per method so callers can surface a
-/// real technique choice or reject ambiguity rather than silently selecting an implementation ID.
-pub fn player_surface_gathering_options(
-    registries: &Registries,
-    state: &AppState,
-) -> Result<Vec<PlayerSurfaceGatheringOption>, SurfaceGatheringError> {
-    validate_gathering_player_observer(state)?;
-    let expected_surface_revision = state.surface().revision();
-    let mut options = Vec::new();
-    for resource in state
-        .available_surface_resources()
-        .filter(|resource| resource.kind() == SurfaceResourceKind::Opportunity)
-    {
-        for definition in registries
-            .labor()
-            .surface_gathering_for_commodity(resource.commodity())
-            .copied()
-        {
-            options.push(PlayerSurfaceGatheringOption {
-                expected_surface_revision,
-                resource: resource.id(),
-                source_mass: resource.remaining_mass(),
-                temperature: resource.temperature(),
-                definition,
-            });
-        }
-    }
-    Ok(options)
 }
 
 fn map_ingress_error(error: MaterialIngressError) -> SurfaceGatheringError {

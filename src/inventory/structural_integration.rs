@@ -2,7 +2,6 @@
 
 use std::collections::BTreeMap;
 
-use crate::core::quantity::AggregateMass;
 use crate::core::state::AppState;
 use crate::logistics::validate_player_stockpile_access;
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
@@ -32,7 +31,9 @@ pub(crate) use load::{
 pub(crate) use projection::{
     StockpileStructuralLoadConsistencyError, validate_existing_stockpile_structural_load,
 };
-use projection::{support_force, supported_mass_projection, validate_existing_load};
+use projection::{
+    aggregate_stockpile_mass, support_force, supported_mass_projection, validate_existing_load,
+};
 
 /// Requires a stockpile's current support, if any, to be active before new inbound work is accepted.
 pub(crate) fn validate_stockpile_support_for_new_inbound(
@@ -260,15 +261,10 @@ pub fn validate_mount_stockpile(
         .map_err(StockpileSupportError::Load)?;
     validate_existing_load(registries, state, element, mass.current)
         .map_err(StockpileSupportError::Load)?;
-    let stockpile_mass = record
-        .stored_mass()
-        .checked_add(record.embodied_mass())
-        .ok_or(StockpileSupportError::Load(
-            StockpileStructuralLoadError::AggregateMassOverflow { element },
-        ))?;
+    let stockpile_mass = aggregate_stockpile_mass(record.stored_mass(), record.embodied_mass());
     let next_mass = mass
         .current
-        .checked_add(AggregateMass::from_mass(stockpile_mass))
+        .checked_add(stockpile_mass)
         .ok_or(StockpileSupportError::Load(
             StockpileStructuralLoadError::AggregateMassOverflow { element },
         ))?;

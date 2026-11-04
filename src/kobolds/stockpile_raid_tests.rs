@@ -14,6 +14,7 @@ use crate::logistics::{
     add_traversable_edge_for_test, place_energy_store_for_fixture,
     validate_allocate_ground_stockpile,
 };
+use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;

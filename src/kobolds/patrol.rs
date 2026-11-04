@@ -1,9 +1,11 @@
 //! Scout patrol planning and conserved physical scavenging on the slow tick.
 
 mod cargo;
+mod event;
 mod raid;
 mod tick;
 
+pub use event::KoboldScoutEvent;
 pub(crate) use tick::apply_kobold_scout_tick;
 
 use crate::core::quantity::Mass;
@@ -35,8 +37,8 @@ use super::scrap_tools::{
 use super::visibility::scout_visible_from;
 use super::watchman::apply_watchman_tick;
 use super::{
-    KoboldColony, KoboldScoutEvent, KoboldTrailKind, SCOUT_DETERRENT_LIGHT_LEVEL,
-    SCOUT_SAFE_SCAVENGE_TEMPERATURE, SCOUT_STEP_TICKS, SCOUT_WARY_INTERVAL_TICKS,
+    KoboldColony, KoboldTrailKind, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_SAFE_SCAVENGE_TEMPERATURE,
+    SCOUT_STEP_TICKS, SCOUT_WARY_INTERVAL_TICKS,
 };
 
 use cargo::{
