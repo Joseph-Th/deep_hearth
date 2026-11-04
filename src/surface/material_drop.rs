@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
+use crate::core::time::ControlTick;
 use crate::inventory::{
     ConsumptionSelectionError, MaterialEgressError, ValidatedMaterialEgress, apply_material_egress,
     validate_consumption_selection, validate_material_egress_from_selection,
@@ -30,6 +31,7 @@ pub enum PlayerMaterialDropError {
     PlayerNotAdmitted,
     PlayerDead,
     PlayerBusy,
+    PreparedStrikeActive,
     NoCarriedMaterial { commodity: CommodityKey },
     InventoryRevisionExhausted,
     SurfaceRevisionExhausted,
@@ -49,6 +51,8 @@ impl Display for PlayerMaterialDropError {
             Self::PlayerBusy => {
                 formatter.write_str("player cannot drop carried material while work is active")
             }
+            Self::PreparedStrikeActive => formatter
+                .write_str("player must lower the prepared weapon before dropping material"),
             Self::NoCarriedMaterial { commodity } => write!(
                 formatter,
                 "carried inventory contains no material {} form {} to drop",
@@ -85,6 +89,7 @@ impl Error for PlayerMaterialDropError {
             Self::PlayerNotAdmitted
             | Self::PlayerDead
             | Self::PlayerBusy
+            | Self::PreparedStrikeActive
             | Self::NoCarriedMaterial { .. }
             | Self::InventoryRevisionExhausted
             | Self::SurfaceRevisionExhausted
@@ -97,7 +102,15 @@ impl Error for PlayerMaterialDropError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerMaterialDropCommitError {
+    ControlTickChanged {
+        expected: ControlTick,
+        actual: ControlTick,
+    },
     PlayerBecameBusy,
+    StaleCombat {
+        expected: u64,
+        actual: u64,
+    },
     StaleSurvival {
         expected: u64,
         actual: u64,
@@ -139,9 +152,19 @@ pub enum PlayerMaterialDropCommitError {
 impl Display for PlayerMaterialDropCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::ControlTickChanged { expected, actual } => write!(
+                formatter,
+                "control tick changed from {} to {} before material drop",
+                expected.value(),
+                actual.value()
+            ),
             Self::PlayerBecameBusy => {
                 formatter.write_str("player work started before material drop commit")
             }
+            Self::StaleCombat { expected, actual } => write!(
+                formatter,
+                "combat revision changed from {expected} to {actual} before material drop"
+            ),
             Self::StaleSurvival { expected, actual } => write!(
                 formatter,
                 "player survival revision changed from {expected} to {actual} before material drop"
@@ -242,7 +265,9 @@ impl PlayerMaterialDropOutcome {
 #[must_use]
 pub struct ValidatedPlayerMaterialDrop {
     player_action: PlayerActionGuard,
+    expected_control_tick: ControlTick,
     expected_logistics_revision: u64,
+    expected_combat_revision: u64,
     expected_position: VoxelCoord,
     expected_inventory_revision: u64,
     commodity: CommodityKey,
@@ -256,6 +281,12 @@ impl ValidatedPlayerMaterialDrop {
         self,
         state: &mut AppState,
     ) -> Result<PlayerMaterialDropOutcome, PlayerMaterialDropCommitError> {
+        if state.control_tick() != self.expected_control_tick {
+            return Err(PlayerMaterialDropCommitError::ControlTickChanged {
+                expected: self.expected_control_tick,
+                actual: state.control_tick(),
+            });
+        }
         self.player_action.precheck(state).map_err(
             |StalePlayerSurvival { expected, actual }| {
                 PlayerMaterialDropCommitError::StaleSurvival { expected, actual }
@@ -265,6 +296,12 @@ impl ValidatedPlayerMaterialDrop {
             return Err(PlayerMaterialDropCommitError::StaleLogistics {
                 expected: self.expected_logistics_revision,
                 actual: state.logistics().revision(),
+            });
+        }
+        if state.combat().revision() != self.expected_combat_revision {
+            return Err(PlayerMaterialDropCommitError::StaleCombat {
+                expected: self.expected_combat_revision,
+                actual: state.combat().revision(),
             });
         }
         let actual_position = state.logistics().player().map(|player| player.position());
@@ -326,6 +363,9 @@ pub fn validate_drop_player_material(
     })?;
     if state.player_work().active().is_some() {
         return Err(PlayerMaterialDropError::PlayerBusy);
+    }
+    if state.combat().has_prepared_strike() {
+        return Err(PlayerMaterialDropError::PreparedStrikeActive);
     }
     let player = state
         .logistics()
@@ -431,7 +471,9 @@ pub fn validate_drop_player_material(
         })?;
     Ok(ValidatedPlayerMaterialDrop {
         player_action,
+        expected_control_tick: pickup_delay_started_at,
         expected_logistics_revision: state.logistics().revision(),
+        expected_combat_revision: state.combat().revision(),
         expected_position: player.position(),
         expected_inventory_revision: state.inventory().revision(),
         commodity,

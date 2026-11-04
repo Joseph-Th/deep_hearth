@@ -18,6 +18,105 @@ use crate::spatial::VoxelCoord;
 use crate::survival::{Vitality, player_record_with_thermal_comfort};
 
 #[test]
+fn carried_material_drop_cannot_reuse_an_earlier_control_sample_for_pickup_delay() {
+    use crate::surface::available_player_world_drops;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let mass = Mass::from_milligrams(65_000);
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let old_token = validate_drop_player_material(&registries, &state, commodity).unwrap();
+    let before = calculate_matter_accounting(&state).unwrap().total();
+    for _ in 0..20 {
+        assert!(
+            advance_control_tick(&registries, &mut state)
+                .unwrap()
+                .surface_drop_pickup()
+                .is_none()
+        );
+    }
+    assert_eq!(state.tick(), SimulationTick::ZERO);
+    assert_eq!(state.control_tick(), ControlTick::new(20));
+    let unchanged = state.clone();
+    assert_eq!(
+        old_token.commit(&mut state),
+        Err(super::PlayerMaterialDropCommitError::ControlTickChanged {
+            expected: ControlTick::ZERO,
+            actual: ControlTick::new(20),
+        })
+    );
+    assert_eq!(state, unchanged);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let fresh = validate_drop_player_material(&registries, &state, commodity).unwrap();
+    let dropped = fresh.commit(&mut state).unwrap();
+    let resource = dropped.resources()[0];
+    assert_eq!(
+        state
+            .surface()
+            .get(resource)
+            .unwrap()
+            .automatic_pickup_delay_started_at(),
+        Some(ControlTick::new(20))
+    );
+    let projection = available_player_world_drops(&state).next().unwrap();
+    assert_eq!(
+        projection.automatic_pickup_available_at(),
+        Some(ControlTick::new(60))
+    );
+    for _ in 0..39 {
+        assert!(
+            advance_control_tick(&registries, &mut state)
+                .unwrap()
+                .surface_drop_pickup()
+                .is_none()
+        );
+    }
+    assert_eq!(state.control_tick(), ControlTick::new(59));
+    assert_eq!(
+        state.surface().get(resource).unwrap().remaining_mass(),
+        mass
+    );
+    let pickup = advance_control_tick(&registries, &mut state)
+        .unwrap()
+        .surface_drop_pickup()
+        .unwrap();
+    assert_eq!(pickup.resource(), resource);
+    assert_eq!(pickup.picked_mass(), mass);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(commodity),
+        mass
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, loaded);
+}
+
+#[test]
 fn prepared_strike_blocks_automatic_hand_pickup_until_cancelled() {
     use crate::combat::{validate_cancel_primitive_preparation, validate_prepare_primitive_strike};
     use crate::content::EQUIPMENT_WOODEN_CLUB;

@@ -19,6 +19,7 @@ pub enum PlayerEquipmentCarryError {
     PlayerNotAdmitted,
     PlayerDead,
     PlayerBusy,
+    PreparedStrikeActive,
     UnknownEquipment {
         equipment: EquipmentId,
     },
@@ -68,6 +69,9 @@ impl Display for PlayerEquipmentCarryError {
             Self::PlayerDead => formatter.write_str("dead player cannot move equipment"),
             Self::PlayerBusy => {
                 formatter.write_str("player cannot move equipment while work is active")
+            }
+            Self::PreparedStrikeActive => {
+                formatter.write_str("player must lower the prepared weapon before moving equipment")
             }
             Self::UnknownEquipment { equipment } => {
                 write!(formatter, "unknown equipment {}", equipment.value())
@@ -155,6 +159,7 @@ impl Error for PlayerEquipmentCarryError {}
 pub enum PlayerEquipmentCarryCommitError {
     StaleSurvivalRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
+    StaleCombatRevision { expected: u64, actual: u64 },
     StaleEquipmentRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
     CarriedCapacityChanged { expected: Mass, actual: Mass },
@@ -172,6 +177,10 @@ impl Display for PlayerEquipmentCarryCommitError {
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
                 "equipment carry expected logistics revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleCombatRevision { expected, actual } => write!(
+                formatter,
+                "equipment carry expected combat revision {expected} but current revision is {actual}"
             ),
             Self::StaleEquipmentRevision { expected, actual } => write!(
                 formatter,
@@ -214,6 +223,7 @@ pub struct ValidatedPlayerEquipmentCarry {
     equipment: EquipmentId,
     expected_equipment_revision: u64,
     expected_logistics_revision: u64,
+    expected_combat_revision: u64,
     next_logistics_revision: u64,
     direction: EquipmentCarryDirection,
     capacity: ValidatedStockpileCapacityChange,
@@ -232,6 +242,13 @@ impl ValidatedPlayerEquipmentCarry {
             return Err(PlayerEquipmentCarryCommitError::StaleLogisticsRevision {
                 expected: self.expected_logistics_revision,
                 actual: actual_logistics,
+            });
+        }
+        let actual_combat = state.combat().revision();
+        if actual_combat != self.expected_combat_revision {
+            return Err(PlayerEquipmentCarryCommitError::StaleCombatRevision {
+                expected: self.expected_combat_revision,
+                actual: actual_combat,
             });
         }
         let actual_equipment = state.equipment().revision();
@@ -297,6 +314,9 @@ fn common_validation(
     let action = player_action(state)?;
     if state.player_work().active().is_some() {
         return Err(PlayerEquipmentCarryError::PlayerBusy);
+    }
+    if state.combat().has_prepared_strike() {
+        return Err(PlayerEquipmentCarryError::PreparedStrikeActive);
     }
     let record = state
         .equipment()
@@ -401,6 +421,7 @@ pub fn validate_pickup_equipment(
         equipment,
         expected_equipment_revision: state.equipment().revision(),
         expected_logistics_revision,
+        expected_combat_revision: state.combat().revision(),
         next_logistics_revision,
         direction: EquipmentCarryDirection::Pickup { position },
         capacity,
@@ -449,6 +470,7 @@ pub fn validate_drop_equipment(
         equipment,
         expected_equipment_revision: state.equipment().revision(),
         expected_logistics_revision,
+        expected_combat_revision: state.combat().revision(),
         next_logistics_revision,
         direction: EquipmentCarryDirection::Drop {
             position: player.position(),

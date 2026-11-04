@@ -131,6 +131,9 @@ fn opening_contact_world_after(
 #[path = "combat_tests/readiness.rs"]
 mod readiness;
 
+#[path = "combat_tests/carry.rs"]
+mod carry;
+
 #[test]
 fn close_range_shove_startles_a_real_scout_and_retreat_replays_after_save() {
     use crate::simulation::{
@@ -2079,10 +2082,10 @@ fn insufficient_melee_reserves_reject_without_wear_balance_or_cooldown() {
 }
 
 #[test]
-fn prepared_weapon_cannot_be_disassembled_into_unloadable_state() {
+fn prepared_weapon_cannot_be_dropped_or_disassembled_into_unloadable_state() {
     use crate::content::EQUIPMENT_WOODEN_CLUB;
     use crate::equipment::{EquipmentDisassemblyError, validate_disassemble_equipment};
-    use crate::logistics::validate_drop_equipment;
+    use crate::logistics::{PlayerEquipmentCarryError, validate_drop_equipment};
     let (registries, mut state, _, _, tip) = opening_contact_world();
     validate_admit_player(&registries, &state, tip)
         .unwrap()
@@ -2094,10 +2097,10 @@ fn prepared_weapon_cannot_be_disassembled_into_unloadable_state() {
         .unwrap()
         .commit(&mut state)
         .unwrap();
-    validate_drop_equipment(&registries, &state, club)
-        .unwrap()
-        .commit(&mut state)
-        .unwrap();
+    assert!(matches!(
+        validate_drop_equipment(&registries, &state, club),
+        Err(PlayerEquipmentCarryError::PreparedStrikeActive)
+    ));
     assert_eq!(
         validate_disassemble_equipment(&registries, &state, club, stockpile).err(),
         Some(EquipmentDisassemblyError::EquipmentPreparedForCombat { equipment: club })
@@ -2110,6 +2113,10 @@ fn prepared_weapon_cannot_be_disassembled_into_unloadable_state() {
     .unwrap();
     assert_eq!(loaded, state);
     let _ = validate_cancel_primitive_preparation(&state)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_drop_equipment(&registries, &state, club)
         .unwrap()
         .commit(&mut state)
         .unwrap();
