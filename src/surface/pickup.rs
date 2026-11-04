@@ -63,6 +63,10 @@ fn available_pickup_destination(state: &AppState) -> Option<(StockpileId, VoxelC
         .survival()
         .player()
         .is_some_and(|survival| survival.vitality() != Vitality::ZERO)
+        // Loose-drop collection is an unprotected hand action. A committed
+        // melee windup occupies that hand just as it does for explicit
+        // ground transfers; automatic collection cannot bypass the stance.
+        || state.combat().has_prepared_strike()
         || !state.can_spend_inventory_revisions(1)
         || !state.can_spend_surface_revisions(1)
     {

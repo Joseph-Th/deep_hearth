@@ -90,8 +90,8 @@ impl PlayerWorldDropProjection {
     /// Whether current player state and physical parcel conditions admit pickup.
     ///
     /// Includes the self-pickup timer, hand-safe temperature, gathering claim,
-    /// living actor, pack space and reserved owner-revision headroom. This is
-    /// advisory: competing drops and lot allocation are decided at control time.
+    /// living actor, unoccupied striking hand, pack space, and reserved owner-revision
+    /// headroom. This is advisory: competing drops and lot allocation are decided at control time.
     #[must_use]
     pub const fn automatic_pickup_preflight_ready(&self) -> bool {
         self.automatic_pickup_preflight_ready

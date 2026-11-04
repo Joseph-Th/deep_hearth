@@ -18,6 +18,156 @@ use crate::spatial::VoxelCoord;
 use crate::survival::{Vitality, player_record_with_thermal_comfort};
 
 #[test]
+fn prepared_strike_blocks_automatic_hand_pickup_until_cancelled() {
+    use crate::combat::{validate_cancel_primitive_preparation, validate_prepare_primitive_strike};
+    use crate::content::EQUIPMENT_WOODEN_CLUB;
+    use crate::equipment::validate_assemble_equipment;
+    use crate::logistics::{
+        PlayerActiveSelection, validate_pickup_equipment, validate_set_active_selection,
+    };
+    use crate::spatial::ViewDirection;
+    use crate::surface::available_player_world_drops;
+
+    let registries = build_registries();
+    let position = VoxelCoord::new(0, 0, 0);
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let mass = Mass::from_milligrams(75_000);
+    let mut state = AppState::new();
+    let drop = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        position,
+        commodity,
+        mass,
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let resource = insert_surface_resource_for_test(&registries, &mut state, drop).unwrap();
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let assembly = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_WOODEN_CLUB)
+        .unwrap()
+        .assembly_profile()
+        .unwrap()
+        .clone();
+    for input in assembly.inputs() {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            input.commodity(),
+            input.mass(),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+    }
+    let club = validate_assemble_equipment(&registries, &state, EQUIPMENT_WOODEN_CLUB, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_pickup_equipment(&registries, &state, club)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::equipment(club)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let _ = validate_prepare_primitive_strike(
+        &registries,
+        &state,
+        ViewDirection::new(1_000_000, 0, 0).unwrap(),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    assert!(state.combat().has_prepared_strike());
+    assert!(
+        !available_player_world_drops(&state)
+            .next()
+            .unwrap()
+            .automatic_pickup_preflight_ready()
+    );
+    assert_eq!(
+        advance_control_tick(&registries, &mut state)
+            .unwrap()
+            .surface_drop_pickup(),
+        None
+    );
+    assert_eq!(
+        state.surface().get(resource).unwrap().remaining_mass(),
+        mass
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(commodity),
+        Mass::ZERO
+    );
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(
+        state.surface().get(resource).unwrap().remaining_mass(),
+        mass
+    );
+    assert!(state.combat().has_prepared_strike());
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let _ = validate_cancel_primitive_preparation(&state)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(
+        available_player_world_drops(&state)
+            .next()
+            .unwrap()
+            .automatic_pickup_preflight_ready()
+    );
+    let pickup = advance_control_tick(&registries, &mut state)
+        .unwrap()
+        .surface_drop_pickup()
+        .unwrap();
+    assert_eq!(pickup.resource(), resource);
+    assert_eq!(pickup.picked_mass(), mass);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(commodity),
+        mass
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let serialized = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&serialized)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+}
+
+#[test]
 fn surface_drop_pickup_delay_and_depletion_fields_must_be_explicit() {
     let registries = build_registries();
     let mut state = AppState::new();
