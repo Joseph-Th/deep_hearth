@@ -1,10 +1,15 @@
 //! Finite-fluid drinking validation, accounting, and canonical commit.
 
 mod errors;
+mod observation;
 mod projection;
 
 use crate::logistics::validate_player_fluid_store_access;
 pub use errors::{DrinkCommitError, DrinkError};
+pub use observation::{
+    AdjacentDrinkSource, LocalDrinkSource, available_adjacent_drink_sources,
+    available_local_drink_sources,
+};
 pub use projection::{
     DrinkHydrationProjectionError, MinimumDrinkHydrationProjection,
     project_minimum_drink_to_hydration_target,
@@ -22,7 +27,6 @@ use crate::labor::{
     ValidatedPlayerAttentionHold, validate_player_attention,
 };
 use crate::registry::Registries;
-use crate::spatial::VoxelCoord;
 use crate::survival::{DirectConsumptionDefinition, DrinkDefinition};
 
 use super::super::state::PendingDrinking;
@@ -33,140 +37,6 @@ struct ResolvedDrinkSource {
     fluid: FluidDefinitionId,
     temperature: Temperature,
     definition: DrinkDefinition,
-}
-
-/// Actor-visible drinkable source at one face-adjacent voxel.
-///
-/// This intentionally reveals only source identity, fluid identity, and destination voxel. Exact
-/// finite volume and temperature remain local observations after the player actually reaches the
-/// source. It is immediate-neighbor orientation, not arbitrary remote scanning or line-of-sight.
-#[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AdjacentDrinkSource {
-    store: FluidStoreId,
-    fluid: FluidDefinitionId,
-    position: VoxelCoord,
-}
-
-impl AdjacentDrinkSource {
-    #[must_use]
-    pub const fn store(self) -> FluidStoreId {
-        self.store
-    }
-
-    #[must_use]
-    pub const fn fluid(self) -> FluidDefinitionId {
-        self.fluid
-    }
-
-    #[must_use]
-    pub const fn position(self) -> VoxelCoord {
-        self.position
-    }
-}
-
-/// Actor-visible finite drink source currently usable at the player's exact voxel.
-///
-/// This is observation only. Drinking still goes through [`validate_drink`] or one of the
-/// selected-store convenience validators, which recheck locality, temperature, finite volume,
-/// attention, and physiological constraints at admission time.
-#[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LocalDrinkSource {
-    store: FluidStoreId,
-    fluid: FluidDefinitionId,
-    available_volume: Volume,
-    temperature: Temperature,
-}
-
-/// Iterates drinkable sources located exactly one face-adjacent voxel from the admitted player.
-///
-/// Empty, inaccessible, non-drinkable, temperature-incompatible, local, diagonal, and more distant
-/// stores are omitted. Dead players cannot observe adjacent sources; controlled logistics-only
-/// fixtures preserve their existing capability observation. Callers cannot supply an arbitrary
-/// observation coordinate.
-pub fn available_adjacent_drink_sources<'a>(
-    registries: &'a Registries,
-    state: &'a AppState,
-) -> impl Iterator<Item = AdjacentDrinkSource> + 'a {
-    // Observation is bounded by the admitted player's authored neighbors,
-    // not by the total number of fluid vessels across the generated world.
-    let mut nearby = state
-        .player_observation_position()
-        .into_iter()
-        .flat_map(|position| state.logistics().traversable_destinations(position))
-        .flat_map(|position| {
-            state
-                .logistics()
-                .fluid_stores_at(position)
-                .map(move |store| (store, position))
-        })
-        .filter_map(|(store, position)| {
-            let contents = state.fluid().get_store(store)?.contents()?;
-            let drink = registries.survival().get_drink(contents.fluid())?;
-            drink
-                .consumption_temperature()
-                .contains(contents.temperature())
-                .then_some(AdjacentDrinkSource {
-                    store,
-                    fluid: contents.fluid(),
-                    position,
-                })
-        })
-        .collect::<Vec<_>>();
-    // Preserve the previous stable fluid-ID order, independent of which
-    // neighboring voxel happens to be first in the traversal index.
-    nearby.sort_unstable_by_key(|source| source.store);
-    nearby.into_iter()
-}
-
-impl LocalDrinkSource {
-    #[must_use]
-    pub const fn store(self) -> FluidStoreId {
-        self.store
-    }
-
-    #[must_use]
-    pub const fn fluid(self) -> FluidDefinitionId {
-        self.fluid
-    }
-
-    #[must_use]
-    pub const fn available_volume(self) -> Volume {
-        self.available_volume
-    }
-
-    #[must_use]
-    pub const fn temperature(self) -> Temperature {
-        self.temperature
-    }
-}
-
-/// Iterates drinkable, consumption-temperature fluid sources at the admitted player's exact voxel.
-///
-/// Empty, remote, unlocated, non-drinkable, and temperature-incompatible stores are omitted. The
-/// iterator deliberately does not apply the authored serving floor: a small but visible water
-/// remainder remains observable even when the next canonical drink action would reject it.
-/// A dead player cannot receive a fresh local-fluid observation.
-pub fn available_local_drink_sources<'a>(
-    registries: &'a Registries,
-    state: &'a AppState,
-) -> impl Iterator<Item = LocalDrinkSource> + 'a {
-    state
-        .available_local_fluid_stores()
-        .filter_map(move |store| {
-            let contents = store.contents()?;
-            let drink = registries.survival().get_drink(contents.fluid())?;
-            drink
-                .consumption_temperature()
-                .contains(contents.temperature())
-                .then_some(LocalDrinkSource {
-                    store: store.id(),
-                    fluid: contents.fluid(),
-                    available_volume: contents.volume(),
-                    temperature: contents.temperature(),
-                })
-        })
 }
 
 fn map_player_attention_error(error: PlayerAttentionError) -> DrinkError {
