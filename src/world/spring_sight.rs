@@ -1,5 +1,6 @@
 //! Discover nearby located fluid without exposing the hidden regional water ledger.
 
+use crate::content::FLUID_WATER;
 use crate::core::state::AppState;
 use crate::fluid::FluidStoreId;
 use crate::registry::Registries;
@@ -50,17 +51,17 @@ pub fn available_visible_generated_water(
         // Most cells in the local sight volume hold no fluid. Check the
         // exact-position index before expensive sight and sky queries;
         // this is only a private candidate gate, not remote disclosure.
-        if state.logistics().fluid_stores_at(to).next().is_none()
-            || !super::player_can_see_local_cell(registries, state, from, to)
+        let mut stores = state.logistics().fluid_stores_at(to).peekable();
+        if stores.peek().is_none() || !super::player_can_see_local_cell(registries, state, from, to)
         {
             continue;
         }
-        for store in state.logistics().fluid_stores_at(to) {
+        for store in stores {
             if state
                 .fluid()
                 .get_store(store)
                 .and_then(|record| record.contents())
-                .is_some_and(|contents| registries.survival().get_drink(contents.fluid()).is_some())
+                .is_some_and(|contents| contents.fluid() == FLUID_WATER)
             {
                 nearby.push(VisibleWaterSource {
                     store,
@@ -72,3 +73,7 @@ pub fn available_visible_generated_water(
     nearby.sort_unstable_by_key(|source| source.store);
     nearby
 }
+
+#[cfg(test)]
+#[path = "spring_sight_tests.rs"]
+mod tests;

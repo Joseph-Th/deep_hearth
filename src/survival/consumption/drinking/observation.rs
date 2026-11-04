@@ -5,13 +5,12 @@ use crate::core::state::AppState;
 use crate::fluid::{FluidDefinitionId, FluidStoreId};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
-use crate::survival::Vitality;
 
-/// Actor-visible drinkable source, with scope determined by its observation query.
+/// Actor-visible drinkable source at one face-adjacent opening-graph voxel.
 ///
 /// Only source identity, fluid identity and destination are visible. Exact volume and temperature
-/// remain exact-local observations. The opening-graph query is face-adjacent; the generated-world
-/// query sees up to two physical voxel steps, including the player's current voxel.
+/// remain exact-local observations. Generated terrain uses the separate world-owned
+/// `available_visible_generated_water` query, which reveals hot water without treating it as safe.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AdjacentDrinkSource {
@@ -34,41 +33,6 @@ impl AdjacentDrinkSource {
     #[must_use]
     pub const fn position(self) -> VoxelCoord {
         self.position
-    }
-
-    /// Drinkable water visible within two physical voxel steps in generated terrain.
-    ///
-    /// The generated-world view does not depend on an opening traversal edge. It requires a
-    /// living player, known terrain, unobstructed sight and actual daylight or local lighting.
-    /// Source volume, temperature and any water beyond the sightline remain concealed until
-    /// the player reaches the source. Execution must still revalidate exact-local drinking.
-    pub fn visible_in_generated_world(
-        registries: &Registries,
-        state: &AppState,
-    ) -> impl Iterator<Item = Self> {
-        let mut nearby = Vec::new();
-        if let Some(player) = state.logistics().player()
-            && state
-                .survival()
-                .player()
-                .is_some_and(|survival| survival.vitality() != Vitality::ZERO)
-        {
-            let from = player.position();
-            if state.world().has_generated_terrain_at(from) {
-                for to in crate::world::nearby_two_step_cells(from) {
-                    let mut stores = state.logistics().fluid_stores_at(to).peekable();
-                    if stores.peek().is_none()
-                        || !crate::world::player_can_see_local_cell(registries, state, from, to)
-                    {
-                        continue;
-                    }
-                    nearby
-                        .extend(stores.filter_map(|id| drink_source_at(registries, state, id, to)));
-                }
-            }
-        }
-        nearby.sort_unstable_by_key(|source| source.store);
-        nearby.into_iter()
     }
 }
 
@@ -171,7 +135,3 @@ pub fn available_local_drink_sources<'a>(
                 })
         })
 }
-
-#[cfg(test)]
-#[path = "observation_tests.rs"]
-mod tests;
