@@ -37,6 +37,9 @@ mod galena_chain;
 #[path = "precipitation_execution_tests/lead_recycling.rs"]
 mod lead_recycling;
 
+#[path = "precipitation_execution_tests/diagnostics.rs"]
+mod diagnostics;
+
 fn mount_machine_fixture(
     registries: &Registries,
     state: &mut AppState,

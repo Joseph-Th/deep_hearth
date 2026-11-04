@@ -4,6 +4,7 @@
 //! carbon-reduction/roasting equations. It is the first executable chemistry,
 //! not a generic license to turn sulfide ore into elemental metal.
 
+use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::capability::CapabilityEvaluationError;
@@ -90,11 +91,42 @@ pub enum PrecipitationBatchError {
 }
 
 impl Display for PrecipitationBatchError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self:?}")
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnrecognizedInput { commodity } => write!(
+                formatter,
+                "precipitation input material {} form {} is not a supported reactant",
+                commodity.material().value(),
+                commodity.form().value()
+            ),
+            Self::ImpureInput { commodity } => write!(
+                formatter,
+                "precipitation input material {} form {} is not chemically pure",
+                commodity.material().value(),
+                commodity.form().value()
+            ),
+            Self::InputTooHot { current, maximum } => write!(
+                formatter,
+                "precipitation input is {} mK; maximum is {} mK",
+                current.millikelvin(),
+                maximum.millikelvin()
+            ),
+            Self::MissingReactant => formatter.write_str(
+                "precipitation charge requires both crushed galena and iron scrap or chips",
+            ),
+            Self::InvalidMolarCharge { galena, iron } => write!(
+                formatter,
+                "precipitation charge has {} mg galena and {} mg iron; whole charge units require {GALENA_MG}:{IRON_MG} mg",
+                galena.milligrams(),
+                iron.milligrams()
+            ),
+            Self::MassOverflow => formatter.write_str(
+                "precipitation reactant or product mass exceeds the representable range",
+            ),
+        }
     }
 }
-impl std::error::Error for PrecipitationBatchError {}
+impl Error for PrecipitationBatchError {}
 
 /// Deterministic reaction outputs reconstructed from immutable consumed traces.
 fn resolve_precipitation_batch(
@@ -191,11 +223,84 @@ pub enum PrecipitationResolutionError {
 }
 
 impl Display for PrecipitationResolutionError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self:?}")
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownProcess { process } => {
+                write!(
+                    formatter,
+                    "precipitation process {} is not registered",
+                    process.value()
+                )
+            }
+            Self::Input(error) => {
+                write!(formatter, "precipitation input selection failed: {error}")
+            }
+            Self::Batch(error) => write!(formatter, "precipitation batch rejected: {error}"),
+            Self::Equipment(error) => {
+                write!(formatter, "precipitation furnace unavailable: {error}")
+            }
+            Self::Capability(error) => write!(
+                formatter,
+                "precipitation furnace capability failed: {error}"
+            ),
+            Self::MissingMassFlowCapability => {
+                formatter.write_str("precipitation furnace lacks the authored mass-flow capability")
+            }
+            Self::MissingMaximumBatchMassCapability => formatter.write_str(
+                "precipitation furnace lacks the authored maximum-batch-mass capability",
+            ),
+            Self::BatchMassExceeded { selected, maximum } => write!(
+                formatter,
+                "precipitation charge is {} mg but furnace maximum is {} mg",
+                selected.milligrams(),
+                maximum.milligrams()
+            ),
+            Self::Energy(error) => write!(
+                formatter,
+                "precipitation electrical supply unavailable: {error}"
+            ),
+            Self::WrongEnergyCarrier { required, provided } => write!(
+                formatter,
+                "precipitation requires {required:?} energy but supply carries {provided:?}"
+            ),
+            Self::ThroughputDuration(error) => write!(
+                formatter,
+                "precipitation throughput cannot be scheduled: {error}"
+            ),
+            Self::EnergyDuration(error) => write!(
+                formatter,
+                "precipitation energy delivery cannot be scheduled: {error}"
+            ),
+            Self::ConditionDuration(error) => write!(
+                formatter,
+                "precipitation furnace condition cannot sustain the batch: {error}"
+            ),
+            Self::Resolution(error) => {
+                write!(formatter, "precipitation output resolution failed: {error}")
+            }
+        }
     }
 }
-impl std::error::Error for PrecipitationResolutionError {}
+impl Error for PrecipitationResolutionError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Input(error) => Some(error),
+            Self::Batch(error) => Some(error),
+            Self::Equipment(error) => Some(error),
+            Self::Capability(error) => Some(error),
+            Self::Energy(error) => Some(error),
+            Self::ThroughputDuration(error) => Some(error),
+            Self::EnergyDuration(error) => Some(error),
+            Self::ConditionDuration(error) => Some(error),
+            Self::Resolution(error) => Some(error),
+            Self::UnknownProcess { .. }
+            | Self::MissingMassFlowCapability
+            | Self::MissingMaximumBatchMassCapability
+            | Self::BatchMassExceeded { .. }
+            | Self::WrongEnergyCarrier { .. } => None,
+        }
+    }
+}
 
 impl From<PoweredOreProviderError> for PrecipitationResolutionError {
     fn from(error: PoweredOreProviderError) -> Self {
@@ -319,11 +424,33 @@ pub enum PrecipitationJobValidationError {
 }
 
 impl Display for PrecipitationJobValidationError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self:?}")
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Powered(error) => write!(
+                formatter,
+                "persisted precipitation job violates powered ore physics: {error}"
+            ),
+            Self::Batch(error) => write!(
+                formatter,
+                "persisted precipitation job has an invalid reactant charge: {error}"
+            ),
+            Self::OutputMismatch { job } => write!(
+                formatter,
+                "persisted precipitation job {} has noncanonical lead/matte outputs",
+                job.value()
+            ),
+        }
     }
 }
-impl std::error::Error for PrecipitationJobValidationError {}
+impl Error for PrecipitationJobValidationError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Powered(error) => Some(error),
+            Self::Batch(error) => Some(error),
+            Self::OutputMismatch { .. } => None,
+        }
+    }
+}
 
 pub(crate) fn validate_loaded_precipitation_job(
     registries: &Registries,
