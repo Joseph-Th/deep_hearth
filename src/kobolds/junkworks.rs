@@ -326,11 +326,12 @@ pub(super) fn locally_audible_alarm_pulses(
     let mut pulses = Vec::new();
     if super::acoustics::can_hear_junk_rig(registries, state, source, player) {
         pulses.push(KoboldAlarmPulse {
-            position: crate::world::player_can_see_local_cell(
+            position: crate::world::player_can_see_local_cell_at(
                 registries,
                 state,
                 player,
                 source.position(),
+                at,
             )
             .then_some(source.position()),
             kind: source.kind(),
@@ -341,11 +342,12 @@ pub(super) fn locally_audible_alarm_pulses(
         && super::acoustics::can_hear_junk_rig(registries, state, relay, player)
     {
         pulses.push(KoboldAlarmPulse {
-            position: crate::world::player_can_see_local_cell(
+            position: crate::world::player_can_see_local_cell_at(
                 registries,
                 state,
                 player,
                 relay.position(),
+                at,
             )
             .then_some(relay.position()),
             kind: relay.kind(),

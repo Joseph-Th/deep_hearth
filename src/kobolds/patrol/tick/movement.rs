@@ -217,14 +217,20 @@ pub(super) fn settle_scout_movement(
     .contains(&true);
     let visible = had_local_activity
         && observer.is_some_and(|player| {
-            crate::world::player_can_see_local_cell(registries, state, player, scout_position)
+            crate::world::player_can_see_local_cell_at(
+                registries,
+                state,
+                player,
+                scout_position,
+                next_tick,
+            )
         });
     // A parcel released at the previous patrol cell remains there. Seeing
     // the scout at its destination cannot reveal matter outside the player's
     // actual sight envelope.
     let observed_abandoned_drop = abandoned_drop.filter(|_| {
         observer.is_some_and(|player| {
-            crate::world::player_can_see_local_cell(registries, state, player, from)
+            crate::world::player_can_see_local_cell_at(registries, state, player, from, next_tick)
         })
     });
     let reported = visible

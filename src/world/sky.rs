@@ -157,22 +157,29 @@ pub(crate) fn has_open_sky(
     true
 }
 
+/// Resolve the sky at the simulated moment, including during a due slow
+/// tick before the root clock is advanced. This is the same light field used
+/// by ordinary state-time observations, not a second lighting policy.
+pub(crate) fn assess_generated_skylight_at(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    at: SimulationTick,
+) -> u8 {
+    let light = sky_brightness(registries, at);
+    if light == 0 || !has_open_sky(registries, state, position) {
+        return 0;
+    }
+    light.saturating_sub(living_canopy_shade_at(registries, state, position, at))
+}
+
 #[must_use]
 pub fn assess_generated_skylight(
     registries: &Registries,
     state: &AppState,
     position: VoxelCoord,
 ) -> u8 {
-    let light = sky_brightness(registries, state.tick());
-    if light == 0 || !has_open_sky(registries, state, position) {
-        return 0;
-    }
-    light.saturating_sub(living_canopy_shade_at(
-        registries,
-        state,
-        position,
-        state.tick(),
-    ))
+    assess_generated_skylight_at(registries, state, position, state.tick())
 }
 
 #[cfg(test)]

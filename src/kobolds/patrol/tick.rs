@@ -115,7 +115,7 @@ pub(crate) fn apply_kobold_scout_tick(
         optional_work_blocked,
     ) {
         let visible = observer.is_some_and(|player| {
-            crate::world::player_can_see_local_cell(registries, state, player, from)
+            crate::world::player_can_see_local_cell_at(registries, state, player, from, next_tick)
         });
         return (
             visible.then_some(KoboldScoutEvent {

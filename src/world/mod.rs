@@ -60,7 +60,7 @@ pub use generation::{
 };
 pub(crate) use local_visibility::{
     has_clear_two_step_sightline, nearby_two_step_cells, player_can_see_local_cell,
-    within_manhattan_reach,
+    player_can_see_local_cell_at, within_manhattan_reach,
 };
 pub use sky::assess_generated_skylight;
 pub(crate) use sky::is_generated_night;

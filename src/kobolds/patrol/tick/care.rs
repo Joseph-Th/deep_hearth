@@ -42,7 +42,7 @@ pub(super) fn settle_scout_visit_care(
     let (heard_junk_alarm, alarm_pulses) = apply_watchman_tick(registries, state, at);
     // Preserve the witnessed source even if the scout later moves out of sight.
     let care_visible = observer.is_some_and(|player| {
-        crate::world::player_can_see_local_cell(registries, state, player, from)
+        crate::world::player_can_see_local_cell_at(registries, state, player, from, at)
     });
     let observed_care = KoboldScoutEvent {
         consumed_food: consumed_food.filter(|_| care_visible),

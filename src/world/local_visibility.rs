@@ -4,6 +4,7 @@
 //! should not disagree about whether an adjacent wall conceals a physical cell.
 
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
@@ -98,10 +99,22 @@ pub(crate) fn player_can_see_local_cell(
     observer: VoxelCoord,
     target: VoxelCoord,
 ) -> bool {
+    player_can_see_local_cell_at(registries, state, observer, target, state.tick())
+}
+
+/// Event observation uses the incoming tick's skylight before the root clock
+/// advances. Occlusion and artificial illumination still read committed owners.
+pub(crate) fn player_can_see_local_cell_at(
+    registries: &Registries,
+    state: &AppState,
+    observer: VoxelCoord,
+    target: VoxelCoord,
+    at: SimulationTick,
+) -> bool {
     has_clear_two_step_sightline(registries, state, observer, target)
         && ((!state.world().has_generated_terrain_at(observer)
             && !state.world().has_generated_terrain_at(target))
-            || super::assess_generated_skylight(registries, state, target) > 0
+            || super::sky::assess_generated_skylight_at(registries, state, target, at) > 0
             || crate::energy::assess_local_illumination(registries, state, target).level() > 0)
 }
 

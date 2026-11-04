@@ -999,6 +999,111 @@ fn approaching_a_loaded_scout_forces_it_to_abandon_recoverable_material() {
 }
 
 #[test]
+fn scout_event_at_dusk_does_not_use_the_previous_ticks_daylight() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::core::state::validate_loaded_state;
+    use crate::logistics::add_traversable_edge_for_test;
+    use crate::world::{
+        BlockStateId, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, set_generated_block_for_test,
+        validate_generate_chunk,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let anchor = VoxelCoord::new(6, 0, 6);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x4455_534B_5343_4F55),
+        ChunkCoord::containing(anchor),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let floor_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| state.world().block_at(VoxelCoord::new(6, y, 6)) == Some(BLOCK_STATE_STONE))
+        .unwrap();
+    let standing_y = floor_y + 1;
+    let den = VoxelCoord::new(6, standing_y, 6);
+    let junction = VoxelCoord::new(7, standing_y, 6);
+    let tip = VoxelCoord::new(8, standing_y, 6);
+    let observer = VoxelCoord::new(7, standing_y, 8);
+    for position in [den, junction, tip, observer] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(position.x(), standing_y - 1, position.z()),
+            BLOCK_STATE_STONE,
+        );
+        for y in standing_y..=standing_y + 1 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut state,
+                VoxelCoord::new(position.x(), y, position.z()),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    add_traversable_edge_for_test(&mut state, den, junction);
+    add_traversable_edge_for_test(&mut state, junction, tip);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    // A real lost floor keeps the scout at the den through the previous
+    // phases. Advance every slow tick so its meal and patrol schedules remain
+    // valid, then repair the route immediately before night falls.
+    let junction_floor = VoxelCoord::new(junction.x(), standing_y - 1, junction.z());
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        junction_floor,
+        BlockStateId::AIR,
+    );
+    let dusk = registries.core().calendar().ticks_per_day() * 3 / 4;
+    assert!(dusk.is_multiple_of(super::super::SCOUT_STEP_TICKS));
+    advance_to_tick(&registries, &mut state, dusk - 1);
+    assert_eq!(colony(&state).scout_position(), den);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        junction_floor,
+        BLOCK_STATE_STONE,
+    );
+    validate_admit_player(&registries, &state, observer)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert!(
+        crate::world::player_can_see_local_cell(&registries, &state, observer, junction),
+        "the preceding dusk phase still provides real sky light"
+    );
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let outcome = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(outcome, advance_tick(&registries, &mut replay).unwrap());
+    assert_eq!(state, replay);
+    assert_eq!(state.tick(), SimulationTick::new(dusk));
+    assert_eq!(colony(&state).scout_position(), junction);
+    assert!(
+        !crate::world::player_can_see_local_cell(&registries, &state, observer, junction),
+        "the settled night phase has no daylight or artificial illumination"
+    );
+    assert_eq!(
+        outcome.kobold_scout(),
+        None,
+        "the incoming night tick must not report a scout seen only in yesterday's daylight"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn visible_scout_return_does_not_expose_cargo_abandoned_outside_sight() {
     let (registries, mut state, _) = generated_opening();
     let [den, junction, tip] = colony(&state).route;
