@@ -1717,7 +1717,10 @@ per-column entries. The index does not change collision rules:
 only embodied members with a complete horizontal footprint block the player's body, whereas any embodied
 member can obstruct a heavy resident. Player-directed placement and opening-resident admission use those
 canonical local-occupancy predicates; structural dismantling uses the existing reverse support index to reject
-members with direct dependents rather than scanning the entire topology.
+members with direct dependents rather than scanning the entire topology. A timed dismantling start
+reserves exact recovered matter in the player's inventory at admission. Its commit rejects
+subsequent inventory-revision changes with a typed stale-authorization error before any internal
+reservation assertions or owner mutation; a fresh admission can safely use the new custody state.
 
 ## Spatial and presentation boundaries
 

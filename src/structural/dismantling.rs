@@ -1,8 +1,5 @@
 //! Timed recovery of one simple grounded structural member into player-carried custody.
 
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
@@ -13,8 +10,8 @@ use crate::inventory::{
     validate_material_ingress, validate_reserved_material_ingress,
 };
 use crate::labor::{
-    PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, StructuralConstructionMethodId,
-    StructuralDismantlingWork, ValidatedPlayerWorkStart, validate_player_work_start,
+    PlayerWork, StructuralConstructionMethodId, StructuralDismantlingWork,
+    ValidatedPlayerWorkStart, validate_player_work_start,
 };
 use crate::logistics::validate_player_stockpile_access;
 use crate::registry::Registries;
@@ -22,88 +19,9 @@ use crate::spatial::VoxelCoord;
 
 use super::{StructuralElementId, StructuralLoadKind, bounds_are_within_player_reach};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PlayerStructuralDismantlingError {
-    PlayerNotAdmitted,
-    UnknownElement {
-        element: StructuralElementId,
-    },
-    ElementNotRecoverable {
-        element: StructuralElementId,
-    },
-    ElementOutOfReach {
-        element: StructuralElementId,
-    },
-    ElementHasDependents {
-        element: StructuralElementId,
-    },
-    ElementHasExternalLoad {
-        element: StructuralElementId,
-    },
-    ElementSupportsEquipment {
-        element: StructuralElementId,
-    },
-    ElementSupportsStockpile {
-        element: StructuralElementId,
-    },
-    ElementSupportsFluidStore {
-        element: StructuralElementId,
-    },
-    UnknownMethod {
-        method: StructuralConstructionMethodId,
-    },
-    MemberTooHeavy {
-        required: Mass,
-        maximum: Mass,
-    },
-    CompletionTickOverflow,
-    RecoveryAccess(crate::logistics::PlayerStockpileAccessError),
-    RecoveryIngress,
-    RecoveryReservation,
-    MaterialLotIdExhausted,
-    InventoryRevisionExhausted,
-    StructureRevisionExhausted,
-    Work(PlayerWorkStartError),
-}
+mod errors;
 
-impl Display for PlayerStructuralDismantlingError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "structural dismantling admission failed: {self:?}"
-        )
-    }
-}
-
-impl Error for PlayerStructuralDismantlingError {}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PlayerStructuralDismantlingCommitError {
-    StaleStructureRevision {
-        expected: u64,
-        actual: u64,
-    },
-    StaleLogisticsRevision {
-        expected: u64,
-        actual: u64,
-    },
-    PlayerMoved {
-        expected: VoxelCoord,
-        actual: Option<VoxelCoord>,
-    },
-    ElementChanged {
-        element: StructuralElementId,
-    },
-    Work(PlayerWorkCommitError),
-}
-
-impl Display for PlayerStructuralDismantlingCommitError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "structural dismantling commit failed: {self:?}")
-    }
-}
-
-impl Error for PlayerStructuralDismantlingCommitError {}
+pub use errors::{PlayerStructuralDismantlingCommitError, PlayerStructuralDismantlingError};
 
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -181,6 +99,15 @@ impl ValidatedPlayerStructuralDismantlingStart {
             return Err(PlayerStructuralDismantlingCommitError::ElementChanged {
                 element: self.element,
             });
+        }
+        let actual_inventory_revision = state.inventory().revision();
+        if actual_inventory_revision != self.reservation.expected_revision() {
+            return Err(
+                PlayerStructuralDismantlingCommitError::StaleInventoryRevision {
+                    expected: self.reservation.expected_revision(),
+                    actual: actual_inventory_revision,
+                },
+            );
         }
         self.reservation.assert_matches_state(state.inventory());
         self.work_start

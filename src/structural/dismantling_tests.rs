@@ -11,7 +11,7 @@ use crate::inventory::{
     add_solid_stockpile_for_test, deposit_lot_for_test, project_material_stacks,
     validate_mount_stockpile,
 };
-use crate::labor::PlayerWork;
+use crate::labor::{PlayerWork, PlayerWorkCommitError, PlayerWorkStartError};
 use crate::logistics::{relocate_player_for_test, validate_place_ground_stockpile};
 use crate::material::CommodityKey;
 use crate::matter::calculate_matter_accounting;
@@ -164,15 +164,24 @@ fn unmaterialized_planned_member_is_not_recoverable() {
             });
     let before = state.clone();
 
+    let error = validate_start_player_structural_dismantling(
+        &registries,
+        &state,
+        element,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    )
+    .err()
+    .expect("an empty blueprint must not yield recovery material");
     assert_eq!(
-        validate_start_player_structural_dismantling(
-            &registries,
-            &state,
-            element,
-            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        error,
+        PlayerStructuralDismantlingError::ElementNotRecoverable { element }
+    );
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "structural member {} has no embodied material to recover",
+            element.value()
         )
-        .err(),
-        Some(PlayerStructuralDismantlingError::ElementNotRecoverable { element })
     );
     assert_eq!(state, before);
 }
@@ -447,6 +456,209 @@ fn active_grounded_member() -> (
     );
     assert_eq!(state.player_work().active(), None);
     (registries, state, element, carried)
+}
+
+#[test]
+fn authorized_structural_dismantling_survives_intervening_material_drop_without_panicking() {
+    use crate::content::{FORM_LUMP, MATERIAL_STONE};
+    use crate::simulation::advance_control_tick;
+    use crate::surface::validate_drop_player_material;
+
+    let (registries, mut state, element, carried) = active_grounded_member();
+    let stone = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        stone,
+        Mass::from_milligrams(2_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let initial_mass = calculate_matter_accounting(&state).unwrap().total();
+    let authorization = validate_start_player_structural_dismantling(
+        &registries,
+        &state,
+        element,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    )
+    .unwrap();
+    let previous_inventory_revision = state.inventory().revision();
+
+    // Player-controlled surface drop is a valid, separately owned custody
+    // transaction. It advances inventory without changing the structural target.
+    let dropped = validate_drop_player_material(&registries, &state, stone)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(dropped.dropped_mass(), Mass::from_milligrams(2_000));
+    assert_eq!(
+        state.inventory().revision(),
+        previous_inventory_revision + 1
+    );
+    assert_eq!(
+        state
+            .structures()
+            .get_element(element)
+            .unwrap()
+            .embodied_mass(),
+        MEMBER_MASS
+    );
+    let after_drop = state.clone();
+    let attempted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        authorization.commit(&mut state)
+    }));
+    assert!(
+        attempted.is_ok(),
+        "a stale dismantling reservation must return a typed error, not panic"
+    );
+    let error = attempted.unwrap().unwrap_err();
+    assert_eq!(
+        error,
+        PlayerStructuralDismantlingCommitError::StaleInventoryRevision {
+            expected: previous_inventory_revision,
+            actual: previous_inventory_revision + 1,
+        }
+    );
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "structural dismantling expected inventory revision {} but current revision is {}",
+            previous_inventory_revision,
+            previous_inventory_revision + 1
+        )
+    );
+    assert_eq!(state, after_drop);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, replay);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        initial_mass
+    );
+    let restarted = validate_start_player_structural_dismantling(
+        &registries,
+        &state,
+        element,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(restarted.element(), element);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    // The fresh recovery and the unrelated dropped parcel must both complete
+    // through the real 20 Hz pickup/slow-work path, with identical continuation.
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.tick() < restarted.completes_at() {
+        assert_eq!(
+            advance_control_tick(&registries, &mut state).unwrap(),
+            advance_control_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(state.player_work().active(), None);
+    assert!(state.structures().get_element(element).is_none());
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_LOG)),
+        MEMBER_MASS
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        initial_mass
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn structural_dismantling_busy_admission_reports_the_underlying_work_blocker() {
+    use std::error::Error as _;
+
+    let (registries, mut state, element, _) = active_grounded_member();
+    let started = validate_start_player_structural_dismantling(
+        &registries,
+        &state,
+        element,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let before = state.clone();
+
+    let error = validate_start_player_structural_dismantling(
+        &registries,
+        &state,
+        element,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    )
+    .err()
+    .expect("player cannot begin a second job while dismantling");
+    assert!(matches!(
+        error,
+        PlayerStructuralDismantlingError::Work(PlayerWorkStartError::Busy { .. })
+    ));
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "structural dismantling cannot begin player work: {}",
+            error.source().unwrap()
+        )
+    );
+    assert_eq!(started.element(), element);
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn structural_dismantling_control_time_staleness_preserves_nested_work_error() {
+    use crate::simulation::advance_control_tick;
+    use std::error::Error as _;
+
+    let (registries, mut state, element, _) = active_grounded_member();
+    let token = validate_start_player_structural_dismantling(
+        &registries,
+        &state,
+        element,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    )
+    .unwrap();
+    let original_control_tick = state.control_tick();
+    let _ = advance_control_tick(&registries, &mut state).unwrap();
+    let actual_control_tick = state.control_tick();
+    assert!(actual_control_tick > original_control_tick);
+    let before = state.clone();
+    let error = token.commit(&mut state).unwrap_err();
+    assert_eq!(
+        error,
+        PlayerStructuralDismantlingCommitError::Work(PlayerWorkCommitError::StaleControlTick {
+            expected: original_control_tick,
+            actual: actual_control_tick,
+        })
+    );
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "structural dismantling player-work authorization became stale: {}",
+            error.source().unwrap()
+        )
+    );
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]
