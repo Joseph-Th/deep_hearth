@@ -81,10 +81,147 @@ pub enum FluidTransferError {
 
 impl Display for FluidTransferError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{self:?}")
+        match self {
+            Self::PlayerNotAdmitted => {
+                formatter.write_str("fluid transfer requires an admitted player")
+            }
+            Self::PlayerDead => formatter.write_str("dead player cannot transfer fluid"),
+            Self::PlayerBusy => {
+                formatter.write_str("player cannot transfer fluid while work is active")
+            }
+            Self::PreparedStrikeActive => formatter
+                .write_str("player must lower the prepared weapon before transferring fluid"),
+            Self::SourceAccess(error) => write!(
+                formatter,
+                "source fluid store is not locally accessible: {error}"
+            ),
+            Self::DestinationAccess(error) => write!(
+                formatter,
+                "destination fluid store is not locally accessible: {error}"
+            ),
+            Self::InvalidGravityRoute {
+                source_position,
+                destination_position,
+            } => write!(
+                formatter,
+                "gravity feed must go directly down one voxel from ({},{},{}) to the lower store; destination is at ({},{},{})",
+                source_position.x(),
+                source_position.y(),
+                source_position.z(),
+                destination_position.x(),
+                destination_position.y(),
+                destination_position.z()
+            ),
+            Self::BlockedGravityDestination {
+                destination_position,
+            } => write!(
+                formatter,
+                "gravity feed destination ({},{},{}) is obstructed",
+                destination_position.x(),
+                destination_position.y(),
+                destination_position.z()
+            ),
+            Self::UnknownGravityTerrain {
+                destination_position,
+            } => write!(
+                formatter,
+                "gravity feed destination ({},{},{}) has unavailable terrain authority",
+                destination_position.x(),
+                destination_position.y(),
+                destination_position.z()
+            ),
+            Self::ObservedOutcomeChanged {
+                source,
+                destination,
+            } => write!(
+                formatter,
+                "observed transfer between fluid stores {} and {} is no longer current",
+                source.value(),
+                destination.value()
+            ),
+            Self::UnknownStore { store } => {
+                write!(formatter, "fluid store {} does not exist", store.value())
+            }
+            Self::SameStore => formatter.write_str("fluid transfer requires two distinct stores"),
+            Self::ZeroVolume => formatter.write_str("fluid transfer volume must be nonzero"),
+            Self::EmptySource { store } => {
+                write!(formatter, "source fluid store {} is empty", store.value())
+            }
+            Self::InsufficientVolume {
+                available,
+                requested,
+            } => write!(
+                formatter,
+                "fluid source holds {} µL but {} µL was requested",
+                available.microliters(),
+                requested.microliters()
+            ),
+            Self::UnknownDefinition { definition } => write!(
+                formatter,
+                "fluid definition {} does not exist",
+                definition.value()
+            ),
+            Self::IncompatibleFluid { expected, found } => write!(
+                formatter,
+                "cannot mix fluid definition {} with fluid definition {}",
+                found.value(),
+                expected.value()
+            ),
+            Self::UnrepresentableEquilibriumTemperature {
+                weighted_millikelvin_microliters,
+                combined_volume,
+            } => write!(
+                formatter,
+                "mixing would require sub-millikelvin rounding: {weighted_millikelvin_microliters} mK·µL across {} µL",
+                combined_volume.microliters()
+            ),
+            Self::DestinationOverflow => {
+                formatter.write_str("fluid destination volume would overflow")
+            }
+            Self::InsufficientCapacity {
+                available,
+                requested,
+            } => write!(
+                formatter,
+                "fluid destination has {} µL free but {} µL was requested",
+                available.microliters(),
+                requested.microliters()
+            ),
+            Self::RevisionExhausted => formatter.write_str("fluid revision space is exhausted"),
+            Self::StructuralLoad(error) => write!(
+                formatter,
+                "fluid transfer cannot satisfy structural load: {error}"
+            ),
+        }
     }
 }
-impl Error for FluidTransferError {}
+impl Error for FluidTransferError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::SourceAccess(error) | Self::DestinationAccess(error) => Some(error),
+            Self::StructuralLoad(error) => Some(error),
+            Self::PlayerNotAdmitted
+            | Self::PlayerDead
+            | Self::PlayerBusy
+            | Self::PreparedStrikeActive
+            | Self::InvalidGravityRoute { .. }
+            | Self::BlockedGravityDestination { .. }
+            | Self::UnknownGravityTerrain { .. }
+            | Self::ObservedOutcomeChanged { .. }
+            | Self::UnknownStore { .. }
+            | Self::SameStore
+            | Self::ZeroVolume
+            | Self::EmptySource { .. }
+            | Self::InsufficientVolume { .. }
+            | Self::UnknownDefinition { .. }
+            | Self::IncompatibleFluid { .. }
+            | Self::UnrepresentableEquilibriumTemperature { .. }
+            | Self::DestinationOverflow
+            | Self::InsufficientCapacity { .. }
+            | Self::RevisionExhausted => None,
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FluidTransferCommitError {
@@ -101,10 +238,62 @@ pub enum FluidTransferCommitError {
 
 impl Display for FluidTransferCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{self:?}")
+        match self {
+            Self::StaleFluidRevision { expected, actual } => write!(
+                formatter,
+                "fluid revision changed from {expected} to {actual} before transfer commit"
+            ),
+            Self::StaleWorldRevision { expected, actual } => write!(
+                formatter,
+                "world revision changed from {expected} to {actual} before transfer commit"
+            ),
+            Self::StaleStructureRevision { expected, actual } => write!(
+                formatter,
+                "structure revision changed from {expected} to {actual} before transfer commit"
+            ),
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "logistics revision changed from {expected} to {actual} before transfer commit"
+            ),
+            Self::StaleSurvivalRevision { expected, actual } => write!(
+                formatter,
+                "survival revision changed from {expected} to {actual} before transfer commit"
+            ),
+            Self::StalePlayerWorkRevision { expected, actual } => write!(
+                formatter,
+                "player work revision changed from {expected} to {actual} before transfer commit"
+            ),
+            Self::StaleCombatRevision { expected, actual } => write!(
+                formatter,
+                "combat revision changed from {expected} to {actual} before transfer commit"
+            ),
+            Self::ContentsChanged { store } => write!(
+                formatter,
+                "fluid store {} contents changed before transfer commit",
+                store.value()
+            ),
+            Self::Structure(error) => write!(
+                formatter,
+                "fluid transfer structural commit failed: {error}"
+            ),
+        }
     }
 }
-impl Error for FluidTransferCommitError {}
+impl Error for FluidTransferCommitError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Structure(error) => Some(error),
+            Self::StaleFluidRevision { .. }
+            | Self::StaleWorldRevision { .. }
+            | Self::StaleStructureRevision { .. }
+            | Self::StaleLogisticsRevision { .. }
+            | Self::StaleSurvivalRevision { .. }
+            | Self::StalePlayerWorkRevision { .. }
+            | Self::StaleCombatRevision { .. }
+            | Self::ContentsChanged { .. } => None,
+        }
+    }
+}
 
 mod catalog;
 

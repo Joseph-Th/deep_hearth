@@ -21,6 +21,9 @@ mod catalog;
 #[path = "transfer_tests/molten.rs"]
 mod molten;
 
+#[path = "transfer_tests/diagnostics.rs"]
+mod diagnostics;
+
 use super::*;
 use crate::content::{FLUID_WATER, build_registries};
 use crate::core::state::{AppState, validate_loaded_state};
