@@ -1176,6 +1176,75 @@ fn visible_scout_return_does_not_expose_cargo_abandoned_outside_sight() {
 }
 
 #[test]
+fn witnessed_abandoned_cargo_remains_reported_when_scout_retires_out_of_sight() {
+    let (registries, mut state, _) = generated_opening();
+    let [den, junction, tip] = colony(&state).route;
+    let cargo = place_loose_stone_drop(&registries, &mut state, tip);
+    advance_to_tick(&registries, &mut state, 190);
+    assert_eq!(colony(&state).scavenged_drop, Some(cargo));
+    assert_eq!(state.surface().get(cargo).unwrap().position(), junction);
+
+    // A full den forces an actual cargo release on the scout's return.
+    for _ in 0..2 {
+        place_loose_stone_drop(&registries, &mut state, den);
+    }
+    assert_eq!(
+        crate::kobolds::scavenging::den_cache_space(&state, den),
+        Mass::ZERO
+    );
+    let observer = VoxelCoord::new(
+        junction.x() + 2 * (junction.x() - den.x()),
+        junction.y(),
+        junction.z() + 2 * (junction.z() - den.z()),
+    );
+    assert!(crate::world::player_can_see_local_cell(
+        &registries,
+        &state,
+        observer,
+        junction
+    ));
+    assert!(!crate::world::player_can_see_local_cell(
+        &registries,
+        &state,
+        observer,
+        den
+    ));
+    validate_admit_player(&registries, &state, observer)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    advance_to_tick(&registries, &mut state, 194);
+
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let outcome = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(outcome, advance_tick(&registries, &mut replay).unwrap());
+    let event = outcome
+        .kobold_scout()
+        .expect("the abandoned parcel was released in the observer's sight");
+    assert_eq!(event.position(), junction);
+    assert_eq!(event.abandoned_drop(), Some(cargo));
+    assert_eq!(event.relocated_drop(), None);
+    assert!(!event.fled_player());
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(colony(&state).scavenged_drop, None);
+    assert_eq!(state.surface().get(cargo).unwrap().position(), junction);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(state, replay);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
 fn blocked_flight_releases_material_without_moving_or_multiplying_it() {
     let (registries, mut state, _) = generated_opening();
     let [den, junction, tip] = colony(&state).route;

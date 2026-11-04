@@ -259,8 +259,16 @@ pub(super) fn settle_scout_movement(
             split_drop: split_drop.filter(|_| destination_ground_visible),
             ..observed_care
         })
-        // Keep the witnessed action at its actual source location; do not
-        // disclose the new position, cargo route, or unseen patrol decision.
-        .or_else(|| observed_care.has_care().then_some(observed_care));
+        // Source-visible care and abandoned cargo remain observable even if
+        // the scout departs unseen. Report only facts from that source cell,
+        // never the new position, retreat decision, or hidden cargo route.
+        .or_else(|| {
+            (observed_care.has_care() || observed_abandoned_drop.is_some()).then_some(
+                KoboldScoutEvent {
+                    abandoned_drop: observed_abandoned_drop,
+                    ..observed_care
+                },
+            )
+        });
     (reported, alarm_pulses)
 }
