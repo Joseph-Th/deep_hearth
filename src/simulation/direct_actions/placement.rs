@@ -72,6 +72,7 @@ fn validate_structural_placement_position(
         .available_resources_at(Some(position))
         .next()
         .is_some()
+        || state.surface().rooted_biomass_occupies_voxel(position)
     {
         return Err(DirectPlacementTargetError::LocationOccupied { position });
     }

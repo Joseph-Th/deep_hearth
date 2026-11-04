@@ -999,6 +999,78 @@ fn approaching_a_loaded_scout_forces_it_to_abandon_recoverable_material() {
 }
 
 #[test]
+fn visible_scout_return_does_not_expose_cargo_abandoned_outside_sight() {
+    let (registries, mut state, _) = generated_opening();
+    let [den, junction, tip] = colony(&state).route;
+    let cargo = place_loose_stone_drop(&registries, &mut state, tip);
+    advance_to_tick(&registries, &mut state, 190);
+    assert_eq!(colony(&state).scavenged_drop, Some(cargo));
+    assert_eq!(state.surface().get(cargo).unwrap().position(), junction);
+
+    // The den fills while the scout is carrying a parcel elsewhere. Returning
+    // home releases the parcel at the junction rather than moving it into den.
+    for _ in 0..2 {
+        place_loose_stone_drop(&registries, &mut state, den);
+    }
+    assert_eq!(
+        crate::kobolds::scavenging::den_cache_space(&state, den),
+        Mass::ZERO
+    );
+    let observer = VoxelCoord::new(
+        den.x() + 2 * (den.x() - junction.x()),
+        den.y(),
+        den.z() + 2 * (den.z() - junction.z()),
+    );
+    assert!(crate::world::player_can_see_local_cell(
+        &registries,
+        &state,
+        observer,
+        den
+    ));
+    assert!(!crate::world::player_can_see_local_cell(
+        &registries,
+        &state,
+        observer,
+        junction
+    ));
+    validate_admit_player(&registries, &state, observer)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    advance_to_tick(&registries, &mut state, 194);
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let outcome = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(outcome, advance_tick(&registries, &mut replay).unwrap());
+    let event = outcome
+        .kobold_scout()
+        .expect("returning scout is visible at the den");
+    assert_eq!(event.position(), den);
+    assert_eq!(
+        event.abandoned_drop(),
+        None,
+        "the junction parcel is unseen"
+    );
+    assert_eq!(event.relocated_drop(), None);
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(colony(&state).scavenged_drop, None);
+    assert_eq!(state.surface().get(cargo).unwrap().position(), junction);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(state, replay);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
 fn blocked_flight_releases_material_without_moving_or_multiplying_it() {
     let (registries, mut state, _) = generated_opening();
     let [den, junction, tip] = colony(&state).route;

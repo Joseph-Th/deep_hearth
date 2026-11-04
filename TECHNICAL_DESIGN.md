@@ -123,8 +123,11 @@ structural footprint checks use the existing horizontal index and exact intersec
 including for broad geometry.
 On the 20 Hz direct-input frame, selected log, handle and board placement checks
 the currently carried stack, visible target and unoccupied placement geometry before
-buffering. Invalid aims and missing materials reject immediately; a feasible
-construction still waits for canonical slow-tick admission and revalidation.
+buffering. Invalid aims and missing materials reject immediately. Full-footprint
+cover panels also reject occupied loose-matter cells and living forage roots,
+including fruit-depleted shrubs. Narrow timber posts may share those cells under
+the canonical structural footprint rules. A feasible construction still waits
+for canonical slow-tick admission and revalidation.
 Selected food, local drinking, and surface gathering now admit on the
 20 Hz input frame through their canonical inventory, fluid, and labor
 validators. Valid actions immediately hold player attention and reserve or
@@ -167,6 +170,8 @@ a provenance-only perennial with neither fruit nor living roots does not.
 Generating full-cube terrain into an unloaded column also refuses depleted
 perennials with live root biomass; trusted-load validation rejects such buried
 roots rather than treating them as physically absent historical parcels.
+New tree trunks and trusted standing-tree checks likewise treat depleted-but-living
+roots as occupied cells, even when no fruit is available to gather.
 Materializing a full-footprint structural member also refuses the physical
 roots after fruit depletion; otherwise an ordinary construction would create
 an impossible overlapping-matter state that cannot survive trusted loading.

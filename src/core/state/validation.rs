@@ -212,6 +212,7 @@ fn validate_tree_integrations(
                         .available_resources_at(Some(voxel))
                         .next()
                         .is_some()
+                    || state.surface().rooted_biomass_occupies_voxel(voxel)
                     || crate::logistics::player_body_occupies_voxel(registries, state, voxel)
                     || crate::kobolds::opening_kobold_occupies_voxel(state, voxel)
                     || crate::kobolds::temple_caste_occupies_voxel(registries, state, voxel)

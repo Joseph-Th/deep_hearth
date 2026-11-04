@@ -43,6 +43,100 @@ fn pointed_placement_rejects_both_physical_tree_trunk_cells() {
 }
 
 #[test]
+fn depleted_living_forage_blocks_full_footprint_placement_preview() {
+    use crate::core::time::SimulationTick;
+    use crate::player::validate_admit_player;
+    use crate::surface::SurfaceResourceLifecycle;
+    use crate::world::{WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, validate_generate_player_neighborhood};
+
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x464F_5241_4745_434F);
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        crate::content::BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let spawn = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .map(|y| VoxelCoord::new(0, y, 0))
+        .find(|&voxel| {
+            state
+                .world()
+                .has_standing_clearance(registries.world(), voxel)
+        })
+        .expect("seeded origin has a supported air cell");
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_generate_player_neighborhood(&registries, &state)
+        .unwrap()
+        .expect("neighborhood must have ungenerated chunks")
+        .commit(&mut state)
+        .unwrap();
+    let source = state
+        .surface()
+        .perennial_resources()
+        .next()
+        .expect("seeded wilderness has a rooted edible patch");
+    let position = source.position();
+    let id = source.id();
+    assert_eq!(
+        super::validate_structural_placement_position(&state, position),
+        Err(DirectPlacementTargetError::LocationOccupied { position })
+    );
+
+    let mut plant = source.perennial.unwrap();
+    plant.root_reserve = plant
+        .root_reserve
+        .checked_add(source.remaining_mass())
+        .unwrap();
+    let revision = state.surface().revision() + 1;
+    state.surface_state_mut().apply_perennial_cycle(
+        vec![(
+            id,
+            plant,
+            crate::core::quantity::Mass::ZERO,
+            SurfaceResourceLifecycle::Depleted,
+            Some(SimulationTick::ZERO),
+        )],
+        revision,
+    );
+    assert!(
+        state
+            .surface()
+            .available_resources_at(Some(position))
+            .next()
+            .is_none()
+    );
+    assert!(state.surface().rooted_biomass_occupies_voxel(position));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let snapshot = state.clone();
+    assert_eq!(
+        super::validate_structural_placement_position(&state, position),
+        Err(DirectPlacementTargetError::LocationOccupied { position }),
+        "dead fruit does not make an occupied building site clear"
+    );
+    assert_eq!(state, snapshot);
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+    assert_eq!(
+        super::validate_structural_placement_position(&restored, position),
+        Err(DirectPlacementTargetError::LocationOccupied { position })
+    );
+}
+
+#[test]
 fn supported_timber_uses_only_live_face_neighbors_after_trusted_load() {
     let registries = build_registries();
     let mut state = AppState::new();

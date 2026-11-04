@@ -219,6 +219,14 @@ pub(super) fn settle_scout_movement(
         && observer.is_some_and(|player| {
             crate::world::player_can_see_local_cell(registries, state, player, scout_position)
         });
+    // A parcel released at the previous patrol cell remains there. Seeing
+    // the scout at its destination cannot reveal matter outside the player's
+    // actual sight envelope.
+    let observed_abandoned_drop = abandoned_drop.filter(|_| {
+        observer.is_some_and(|player| {
+            crate::world::player_can_see_local_cell(registries, state, player, from)
+        })
+    });
     let reported = visible
         .then_some(KoboldScoutEvent {
             position: scout_position,
@@ -233,7 +241,7 @@ pub(super) fn settle_scout_movement(
                 && can_move,
             turned_back_at_barrier: turned_back_at_barrier && can_move,
             cancelled_empty_cache_raid: cancelled_empty_cache_raid && can_move,
-            abandoned_drop,
+            abandoned_drop: observed_abandoned_drop,
             foraged_food,
             split_drop,
             ..observed_care

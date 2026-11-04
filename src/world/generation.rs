@@ -4,14 +4,25 @@ mod forage;
 pub(crate) use forage::seeded_perennial_matches;
 mod habitat;
 mod minerals;
+mod occupancy;
 mod springs;
 pub(super) mod temple;
+mod temple_presence;
 pub(in crate::world) mod terrain;
 
 pub(super) use habitat::habitat_at;
 pub use habitat::{HabitatKind, assess_player_habitat};
 pub(super) use minerals::seeded_mineral_state;
 use minerals::{seeded_surface_lode_state, select_mineral_grade};
+use occupancy::validate_generated_chunk_occupancy;
+pub(crate) use occupancy::{
+    first_buried_stationary_enclosure_in_world, first_embodied_structure_collision_in_world,
+    first_solid_block_in_structural_bounds,
+};
+use temple_presence::temple_site_for_chunk;
+pub(crate) use temple_presence::{
+    nearby_temple_residents, temple_residents_at, temple_warden_route_at,
+};
 use terrain::mix64;
 pub(super) use terrain::terrain_height;
 
@@ -26,18 +37,14 @@ use crate::fluid::{
     FluidGenerationCommitError, FluidGenerationError, ValidatedFluidGenerationBatch,
     validate_generate_fluid_stores,
 };
-use crate::logistics::first_player_body_collision_in_chunk;
 use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::Registries;
-use crate::spatial::{VoxelBounds, VoxelCoord};
+use crate::spatial::VoxelCoord;
 use crate::surface::{
     SurfaceResourceCreationError, SurfaceResourceSpec, ValidatedSurfaceResourceCreation,
 };
 
-use super::{
-    BlockCollisionShape, BlockStateId, CHUNK_SIDE, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y,
-    WorldChunk, WorldRegistry,
-};
+use super::{BlockStateId, CHUNK_SIDE, ChunkCoord, WORLD_MIN_Y, WorldChunk, WorldRegistry};
 
 const PLAYER_CHUNK_DEMAND_RADIUS: i64 = 1;
 
@@ -729,107 +736,6 @@ fn validate_forage_for_chunks(
     })
 }
 
-/// One shared physical admission for both direct and atomic neighborhood
-/// generation; future occupied-matter categories must be checked in both.
-fn validate_generated_chunk_occupancy(
-    registries: &Registries,
-    state: &AppState,
-    profile: WorldGenerationProfile,
-    chunk: &WorldChunk,
-) -> Result<(), ChunkGenerationError> {
-    let registry = registries.world();
-    if let Some(voxel) = first_surface_resource_collision(registry, state, chunk) {
-        return Err(ChunkGenerationError::SurfaceResourceCollision { voxel });
-    }
-    if let Some(voxel) = first_structure_collision_in_generated_chunk(registry, state, chunk) {
-        return Err(ChunkGenerationError::StructureBuriedByTerrain { voxel });
-    }
-    if let Some(voxel) =
-        first_stationary_enclosure_collision_in_generated_chunk(registry, state, chunk)
-    {
-        return Err(ChunkGenerationError::StorageEnclosureBuriedByTerrain { voxel });
-    }
-    if let Some(player) = state.logistics().player()
-        && let Some(voxel) = first_player_body_collision_in_chunk(
-            registry,
-            chunk,
-            player.body(),
-            registries.survival().physiology().locomotion(),
-        )
-    {
-        return Err(ChunkGenerationError::PlayerBodyCollision { voxel });
-    }
-    if let Some(voxel) = first_opening_resident_collision_in_chunk(registry, state, chunk) {
-        return Err(ChunkGenerationError::OpeningResidentBodyCollision { voxel });
-    }
-    let coord = chunk.coord();
-    if let Some(voxel) = first_prospective_temple_overlap(registry, profile, coord, |cell| {
-        crate::kobolds::opening_kobold_occupies_voxel(state, cell)
-    }) {
-        return Err(ChunkGenerationError::OpeningResidentTempleCasteCollision { voxel });
-    }
-    if let Some(voxel) =
-        first_player_prospective_temple_collision(registries, state, profile, coord)
-    {
-        return Err(ChunkGenerationError::PlayerBodyTempleCasteCollision { voxel });
-    }
-    if let Some(voxel) =
-        first_infrastructure_prospective_temple_collision(registries, state, profile, coord)
-    {
-        return Err(ChunkGenerationError::TempleCasteInfrastructureCollision { voxel });
-    }
-    if let Some(tree) = super::generated_tree(profile, chunk) {
-        for voxel in [
-            tree.root(),
-            VoxelCoord::new(tree.root().x(), tree.root().y() + 1, tree.root().z()),
-        ] {
-            if crate::logistics::player_body_occupies_voxel(registries, state, voxel)
-                || crate::kobolds::opening_kobold_occupies_voxel(state, voxel)
-                || crate::kobolds::temple_caste_occupies_voxel(registries, state, voxel)
-                || state.structures().has_embodied_member_at(voxel)
-                || state.logistics().has_stationary_occupant_at(voxel)
-                || state
-                    .surface()
-                    .available_resources_at(Some(voxel))
-                    .next()
-                    .is_some()
-            {
-                return Err(ChunkGenerationError::TreePlacementObstructed { voxel });
-            }
-        }
-    }
-    Ok(())
-}
-
-/// A live opening colony can inhabit authored route cells before chunk
-/// generation. Do not create full-cube terrain through the scout or the
-/// watchman's two-cell body; unoccupied future route cells remain subject
-/// to the ordinary movement clearance gate.
-fn first_opening_resident_collision_in_chunk(
-    registry: &WorldRegistry,
-    state: &AppState,
-    chunk: &WorldChunk,
-) -> Option<VoxelCoord> {
-    let residents = crate::kobolds::opening_kobold_positions(state)?;
-    for resident in residents {
-        for y in [Some(resident.y()), resident.y().checked_add(1)]
-            .into_iter()
-            .flatten()
-        {
-            let cell = VoxelCoord::new(resident.x(), y, resident.z());
-            if ChunkCoord::containing(cell) == chunk.coord()
-                && (!(WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&cell.y())
-                    || registry
-                        .block_for_state(chunk.block_at(cell))
-                        .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube))
-            {
-                return Some(cell);
-            }
-        }
-    }
-    None
-}
-
 fn validate_generation_profile(
     registry: &WorldRegistry,
     state: &AppState,
@@ -944,311 +850,4 @@ fn build_generated_chunk(
     }
     chunk.canonicalize_sections();
     Ok(chunk)
-}
-
-/// Newly generated solid cells must not conceal finite loose material that
-/// was already assigned surface custody in an ungenerated column. Depleted
-/// historical parcels have no physical residue to obstruct terrain admission.
-fn first_surface_resource_collision(
-    registry: &WorldRegistry,
-    state: &AppState,
-    chunk: &WorldChunk,
-) -> Option<VoxelCoord> {
-    state
-        .surface()
-        .available_resources_in_chunk(chunk.coord())
-        .filter(|resource| {
-            registry
-                .block_for_state(chunk.block_at(resource.position()))
-                .is_some_and(|block| block.collision() == super::BlockCollisionShape::FullCube)
-        })
-        // Report the lowest parcel ID when multiple resources conflict,
-        // independently of spatial-index traversal order.
-        .min_by_key(|resource| resource.id())
-        .map(|resource| resource.position())
-}
-
-/// Finished stationary enclosure bodies are physical custody, unlike loose
-/// unenclosed stockpiles. Only their actual located voxels obstruct a future
-/// full-cube terrain block; no remote stockpile inventory is scanned.
-fn first_stationary_enclosure_collision_in_generated_chunk(
-    registry: &WorldRegistry,
-    state: &AppState,
-    chunk: &WorldChunk,
-) -> Option<VoxelCoord> {
-    state
-        .logistics()
-        .stockpiles_in_chunk(chunk.coord())
-        .filter(|&(id, voxel)| {
-            state
-                .inventory()
-                .get_stockpile(id)
-                .is_some_and(|stockpile| stockpile.enclosure().is_some())
-                && (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&voxel.y())
-                && registry
-                    .block_for_state(chunk.block_at(voxel))
-                    .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
-        })
-        .min_by_key(|(id, _)| *id)
-        .map(|(_, voxel)| voxel)
-}
-
-/// A built member has physical matter even when its narrow cross-section
-/// does not fill the entire voxel. A newly generated full cube cannot
-/// intersect any such portion. Limit the scan to the finite new chunk rather
-/// than expanding potentially huge, user-authored member bounds.
-fn first_structure_collision_in_generated_chunk(
-    registry: &WorldRegistry,
-    state: &AppState,
-    chunk: &WorldChunk,
-) -> Option<VoxelCoord> {
-    let min_x = chunk.coord().world_min_x()?;
-    let min_z = chunk.coord().world_min_z()?;
-    let max_x = min_x + (CHUNK_SIDE - 1) as i64;
-    let max_z = min_z + (CHUNK_SIDE - 1) as i64;
-    state
-        .structures()
-        .elements_intersecting_horizontal_columns(min_x, max_x, min_z, max_z)
-        .filter(|element| !element.embodied_material().is_empty())
-        .find_map(|element| {
-            first_solid_block_intersecting_bounds(registry, chunk, element.bounds())
-        })
-}
-
-fn first_solid_block_intersecting_bounds(
-    registry: &WorldRegistry,
-    chunk: &WorldChunk,
-    bounds: VoxelBounds,
-) -> Option<VoxelCoord> {
-    let min_x = chunk.coord().world_min_x()?;
-    let min_z = chunk.coord().world_min_z()?;
-    let last_x = min_x + (CHUNK_SIDE - 1) as i64;
-    let last_z = min_z + (CHUNK_SIDE - 1) as i64;
-    let start = bounds.min();
-    let end = bounds.max_exclusive();
-    let x0 = start.x().max(min_x);
-    let x1 = (end.x() - 1).min(last_x);
-    let y0 = start.y().max(WORLD_MIN_Y);
-    let y1 = (end.y() - 1).min(WORLD_MAX_Y_EXCLUSIVE - 1);
-    let z0 = start.z().max(min_z);
-    let z1 = (end.z() - 1).min(last_z);
-    if x0 > x1 || y0 > y1 || z0 > z1 {
-        return None;
-    }
-    for z in z0..=z1 {
-        for x in x0..=x1 {
-            for y in y0..=y1 {
-                let voxel = VoxelCoord::new(x, y, z);
-                if registry
-                    .block_for_state(chunk.block_at(voxel))
-                    .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
-                {
-                    return Some(voxel);
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Prospective materialization clearance. Inert plans may overlap stone;
-/// embodying their material must first prove the entire reserved volume clear.
-pub(crate) fn first_solid_block_in_structural_bounds(
-    registries: &Registries,
-    state: &AppState,
-    bounds: VoxelBounds,
-) -> Option<VoxelCoord> {
-    if let Some(voxel) = state.world().first_tree_trunk_in_bounds(bounds) {
-        return Some(voxel);
-    }
-    state
-        .world()
-        .chunks_intersecting_horizontal_bounds(bounds)
-        .find_map(|chunk| first_solid_block_intersecting_bounds(registries.world(), chunk, bounds))
-}
-
-/// Trusted-load counterpart of prospective terrain admission. Both paths
-/// test the same physical bounds against exactly the existing block truth.
-pub(crate) fn first_embodied_structure_collision_in_world(
-    registries: &Registries,
-    state: &AppState,
-) -> Option<VoxelCoord> {
-    state.world().chunks().find_map(|chunk| {
-        first_structure_collision_in_generated_chunk(registries.world(), state, chunk)
-    })
-}
-
-/// Trusted-load counterpart of prospective enclosure terrain admission.
-/// Only generated block truth may bury a completed stationary enclosure.
-pub(crate) fn first_buried_stationary_enclosure_in_world(
-    registries: &Registries,
-    state: &AppState,
-) -> Option<VoxelCoord> {
-    // This validation runs on every trusted load, including worlds with many
-    // generated columns and no enclosures. Query each located enclosure against
-    // the indexed block world once instead of scanning every generated column.
-    // Preserve chunk-first, then stockpile-ID-first diagnostic ordering.
-    state
-        .logistics()
-        .stockpile_locations()
-        .filter(|&(stockpile, _)| {
-            state
-                .inventory()
-                .get_stockpile(stockpile)
-                .is_some_and(|record| record.enclosure().is_some())
-        })
-        .filter(|&(_, voxel)| {
-            state
-                .world()
-                .block_at(voxel)
-                .and_then(|block| registries.world().block_for_state(block))
-                .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
-        })
-        .min_by_key(|(stockpile, voxel)| (ChunkCoord::containing(*voxel), *stockpile))
-        .map(|(_, voxel)| voxel)
-}
-
-fn temple_site_for_chunk(
-    registry: &WorldRegistry,
-    profile: WorldGenerationProfile,
-    coord: ChunkCoord,
-) -> Option<temple::TempleSite> {
-    // Optional capability registries may omit this entire content set.
-    // Never instantiate only half a temple and then unwrap missing relic mass.
-    [
-        crate::content::BLOCK_STATE_TEMPLE_ARCHIVE,
-        crate::content::BLOCK_STATE_TEMPLE_DRIVE,
-        crate::content::BLOCK_STATE_TEMPLE_SEAL,
-        crate::content::BLOCK_STATE_TEMPLE_TIN_DATA_PLATE,
-        crate::content::BLOCK_STATE_TEMPLE_IRON_BEARING_HOUSING,
-        crate::content::BLOCK_STATE_TEMPLE_REFRACTORY_FIXTURE,
-        crate::content::BLOCK_STATE_TEMPLE_ZINC_CORROSION_PANEL,
-    ]
-    .into_iter()
-    .all(|state| registry.get_state(state).is_some())
-    .then(|| temple::TempleSite::for_chunk(profile.seed(), coord))
-    .flatten()
-}
-
-/// A not-yet-generated temple is already part of the deterministic world
-/// identity. Check its finite resident footprint before publishing the chunk,
-/// including when the prospective terrain cells themselves are air.
-fn first_player_prospective_temple_collision(
-    registries: &Registries,
-    state: &AppState,
-    profile: WorldGenerationProfile,
-    coord: ChunkCoord,
-) -> Option<VoxelCoord> {
-    state.logistics().player()?;
-    first_prospective_temple_overlap(registries.world(), profile, coord, |voxel| {
-        crate::logistics::player_body_occupies_voxel(registries, state, voxel)
-    })
-}
-
-fn first_infrastructure_prospective_temple_collision(
-    registries: &Registries,
-    state: &AppState,
-    profile: WorldGenerationProfile,
-    coord: ChunkCoord,
-) -> Option<VoxelCoord> {
-    first_prospective_temple_overlap(registries.world(), profile, coord, |voxel| {
-        state.logistics().has_stationary_occupant_at(voxel)
-            || state
-                .structures()
-                .elements_covering(voxel)
-                .any(|element| !element.embodied_material().is_empty())
-    })
-}
-
-/// Use one finite resident footprint for both player and durable-custody
-/// admission. All 36 candidate bounding cells are checked without scanning
-/// unrelated world history or constructing a temporary generated world.
-fn first_prospective_temple_overlap(
-    registry: &WorldRegistry,
-    profile: WorldGenerationProfile,
-    coord: ChunkCoord,
-    mut overlaps: impl FnMut(VoxelCoord) -> bool,
-) -> Option<VoxelCoord> {
-    let site = temple_site_for_chunk(registry, profile, coord)?;
-    let warden = site.warden();
-    let archivist = site.archivist();
-    for y in warden.y()..=warden.y() + 2 {
-        for x in warden.x()..=warden.x() + 1 {
-            for z in archivist.z() - 1..=warden.z() {
-                let voxel = VoxelCoord::new(x, y, z);
-                if crate::kobolds::initial_temple_caste_occupies_voxel(voxel, warden, archivist)
-                    && overlaps(voxel)
-                {
-                    return Some(voxel);
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Resolves one site in an already-generated seeded world column. Absent
-/// authored relic definitions never produce an ancient sanctuary.
-fn temple_site_in_chunk(
-    registries: &Registries,
-    state: &AppState,
-    coord: ChunkCoord,
-) -> Option<temple::TempleSite> {
-    let profile = state.world().generation_profile()?;
-    // A seeded site is deterministic, but its heavy occupants do not exist
-    // before the containing chunk is generated. Otherwise generating an
-    // unrelated distant chunk can retroactively overlap an admitted player
-    // at an unloaded sanctuary.
-    state.world().get_chunk(coord)?;
-    temple_site_for_chunk(registries.world(), profile, coord)
-}
-
-fn temple_site_at(
-    registries: &Registries,
-    state: &AppState,
-    observer: VoxelCoord,
-) -> Option<temple::TempleSite> {
-    temple_site_in_chunk(registries, state, ChunkCoord::containing(observer))
-}
-
-/// Returns original temple resident identities, not their current mutable
-/// positions. Kobold ownership resolves the warden's displacement; true
-/// local sight prevents obstructed or distant actors from being revealed.
-pub(crate) fn temple_residents_at(
-    registries: &Registries,
-    state: &AppState,
-    observer: VoxelCoord,
-) -> Option<[VoxelCoord; 2]> {
-    let site = temple_site_at(registries, state, observer)?;
-    Some([site.warden(), site.archivist()])
-}
-
-/// Resident candidates in the observer's column and its eight immediate neighbors.
-/// A caste may be only a few cells away across a chunk boundary. Return only
-/// already-generated sanctuaries; callers still enforce their own physical
-/// observation radius or occluded sight before any behavior or presentation.
-/// No world-wide temple index or distant generation is consulted.
-pub(crate) fn nearby_temple_residents<'a>(
-    registries: &'a Registries,
-    state: &'a AppState,
-    observer: VoxelCoord,
-) -> impl Iterator<Item = [VoxelCoord; 2]> + 'a {
-    let origin = ChunkCoord::containing(observer);
-    (-1_i64..=1).flat_map(move |dx| {
-        (-1_i64..=1).filter_map(move |dz| {
-            let chunk = ChunkCoord::new(origin.x().checked_add(dx)?, origin.z().checked_add(dz)?);
-            temple_site_in_chunk(registries, state, chunk)
-                .map(|site| [site.warden(), site.archivist()])
-        })
-    })
-}
-
-/// Three physically adjacent cells, entirely inside a generated ancient hall.
-/// The caller still checks collision and line of sight before moving a resident.
-pub(crate) fn temple_warden_route_at(
-    registries: &Registries,
-    state: &AppState,
-    position: VoxelCoord,
-) -> Option<[VoxelCoord; 3]> {
-    temple_site_at(registries, state, position).map(temple::TempleSite::warden_route)
 }

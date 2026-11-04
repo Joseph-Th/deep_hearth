@@ -6,7 +6,7 @@ use crate::content::{
 };
 use crate::core::quantity::{Energy, Mass, Temperature};
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
-use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, TickSpan};
+use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, SimulationTick, TickSpan};
 use crate::equipment::{EquipmentId, validate_assemble_equipment};
 use crate::inventory::{add_solid_stockpile_for_test, deposit_lot_for_test};
 use crate::labor::{EatingWork, PlayerWork, PlayerWorkStartError, PlayerWorkValidationError};
@@ -2471,6 +2471,102 @@ fn terrain_generation_rejects_burying_existing_exposed_surface_matter() {
         "generated full-cube terrain cannot bury an existing exposed material parcel"
     );
     assert_eq!(state, before);
+}
+
+#[test]
+fn terrain_generation_rejects_burying_depleted_forage_with_live_root_mass() {
+    let registries = build_registries();
+    let position = VoxelCoord::new(0, WORLD_MIN_Y, 0);
+    let state = depleted_unloaded_perennial(&registries, position);
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            SEED,
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE,
+        )
+        .err(),
+        Some(ChunkGenerationError::SurfaceResourceCollision { voxel: position }),
+        "depleted fruit must not make surviving root biomass disappear during chunk generation"
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn generated_tree_cannot_materialize_through_depleted_forage_roots() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(7);
+    let profile = WorldGenerationProfile::new(seed, BLOCK_STATE_STONE);
+    let tree = super::trees::seeded_tree_identity(profile, ChunkCoord::new(0, 0)).unwrap();
+    let root = tree.root();
+    let state = depleted_unloaded_perennial(&registries, root);
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            seed,
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE,
+        )
+        .err(),
+        Some(ChunkGenerationError::TreePlacementObstructed { voxel: root }),
+        "unharvestable but living roots must block a new tree trunk"
+    );
+    assert_eq!(state, before);
+}
+
+fn depleted_unloaded_perennial(registries: &Registries, position: VoxelCoord) -> AppState {
+    use crate::content::{FORM_FOOD, MATERIAL_BERRIES};
+    use crate::surface::SurfaceResourceLifecycle;
+
+    let mut state = AppState::new();
+    let source = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Opportunity,
+        position,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(25_000),
+        Temperature::from_millikelvin(293_150),
+        crate::material::MaterialComposition::pure(MATERIAL_BERRIES),
+    )
+    .unwrap()
+    .with_perennial_reserve(Mass::from_milligrams(12_500));
+    validate_create_surface_resources(registries, &state, [source])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    // Preserve the original finite matter as roots while the forage's visible
+    // crop becomes depleted. The root stays indexed but is no longer gatherable.
+    let record = state.surface().resources().next().unwrap();
+    let id = record.id();
+    let mut plant = record.perennial.unwrap();
+    plant.root_reserve = plant
+        .root_reserve
+        .checked_add(record.remaining_mass())
+        .unwrap();
+    let revision = state.surface().revision() + 1;
+    state.surface_state_mut().apply_perennial_cycle(
+        vec![(
+            id,
+            plant,
+            Mass::ZERO,
+            SurfaceResourceLifecycle::Depleted,
+            Some(SimulationTick::ZERO),
+        )],
+        revision,
+    );
+    assert!(
+        state
+            .surface()
+            .available_resources_at(Some(position))
+            .next()
+            .is_none()
+    );
+    assert!(state.surface().rooted_biomass_occupies_voxel(position));
+    state
 }
 
 fn add_unloaded_surface_drop(registries: &Registries, state: &mut AppState, position: VoxelCoord) {
