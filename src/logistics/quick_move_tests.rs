@@ -17,6 +17,192 @@ use crate::spatial::VoxelCoord;
 const POSITION: VoxelCoord = VoxelCoord::new(0, 0, 0);
 const TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 
+#[test]
+fn prepared_strike_blocks_exact_and_quick_ground_transfers_and_stales_prior_tokens() {
+    use crate::combat::{validate_cancel_primitive_preparation, validate_prepare_primitive_strike};
+    use crate::content::EQUIPMENT_WOODEN_CLUB;
+    use crate::core::state::validate_loaded_state;
+    use crate::equipment::validate_assemble_equipment;
+    use crate::inventory::MaterialLotSelection;
+    use crate::logistics::{
+        GroundMaterialTransferCommitError, GroundMaterialTransferError, PlayerActiveSelection,
+        validate_drop_to_ground, validate_pickup_equipment, validate_pickup_from_ground,
+        validate_set_active_selection,
+    };
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+    use crate::spatial::ViewDirection;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let ground = local_container_with_wood(
+        &registries,
+        &mut state,
+        Mass::from_milligrams(1_000_000),
+        Mass::ZERO,
+    );
+    let carried = validate_admit_player(&registries, &state, POSITION)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let assembly = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_WOODEN_CLUB)
+        .unwrap()
+        .assembly_profile()
+        .unwrap()
+        .clone();
+    for input in assembly.inputs() {
+        let _ = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            input.commodity(),
+            input.mass(),
+            TEMPERATURE,
+        )
+        .unwrap();
+    }
+    let club = validate_assemble_equipment(&registries, &state, EQUIPMENT_WOODEN_CLUB, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_pickup_equipment(&registries, &state, club)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::equipment(club)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let ground_mass = Mass::from_milligrams(150_000);
+    let carried_mass = Mass::from_milligrams(100_000);
+    let from_ground = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        ground,
+        commodity,
+        ground_mass,
+        TEMPERATURE,
+    )
+    .unwrap();
+    let from_carried = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        carried_mass,
+        TEMPERATURE,
+    )
+    .unwrap();
+    let ground_stack = project_material_stacks(&registries, &state, ground)
+        .unwrap()
+        .remove(0);
+    let carried_stack = project_material_stacks(&registries, &state, carried)
+        .unwrap()
+        .remove(0);
+    let amount = Mass::from_milligrams(50_000);
+    let pickup = validate_pickup_from_ground(
+        &registries,
+        &state,
+        ground,
+        &[MaterialLotSelection::new(from_ground, amount)],
+    )
+    .unwrap();
+    let drop = validate_drop_to_ground(
+        &registries,
+        &state,
+        ground,
+        &[MaterialLotSelection::new(from_carried, amount)],
+    )
+    .unwrap();
+    let quick_pickup =
+        validate_quick_move_player_stack(&registries, &state, &ground_stack, carried).unwrap();
+    let quick_drop =
+        validate_quick_move_player_stack(&registries, &state, &carried_stack, ground).unwrap();
+    let previous_combat_revision = state.combat().revision();
+    let _ = validate_prepare_primitive_strike(
+        &registries,
+        &state,
+        ViewDirection::new(1_000_000, 0, 0).unwrap(),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let combat_revision = state.combat().revision();
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    let prepared = state.clone();
+    let denial = GroundMaterialTransferError::PreparedStrikeActive;
+    assert_eq!(
+        validate_pickup_from_ground(
+            &registries,
+            &state,
+            ground,
+            &[MaterialLotSelection::new(from_ground, amount)],
+        )
+        .err(),
+        Some(denial.clone())
+    );
+    assert_eq!(
+        validate_drop_to_ground(
+            &registries,
+            &state,
+            ground,
+            &[MaterialLotSelection::new(from_carried, amount)],
+        )
+        .err(),
+        Some(denial.clone())
+    );
+    for (stack, destination) in [(&ground_stack, carried), (&carried_stack, ground)] {
+        assert_eq!(
+            validate_quick_move_player_stack(&registries, &state, stack, destination).err(),
+            Some(PlayerQuickMoveError::Transfer(denial.clone()))
+        );
+    }
+    let stale = GroundMaterialTransferCommitError::StaleCombatRevision {
+        expected: previous_combat_revision,
+        actual: combat_revision,
+    };
+    assert_eq!(pickup.commit(&mut state), Err(stale.clone()));
+    assert_eq!(drop.commit(&mut state), Err(stale.clone()));
+    assert_eq!(quick_pickup.commit(&mut state), Err(stale.clone()));
+    assert_eq!(quick_drop.commit(&mut state), Err(stale));
+    assert_eq!(state, prepared);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for game in [&mut state, &mut replay] {
+        let _ = validate_cancel_primitive_preparation(game)
+            .unwrap()
+            .commit(game)
+            .unwrap();
+        let moved = validate_quick_move_player_stack(&registries, game, &ground_stack, carried)
+            .unwrap()
+            .commit(game)
+            .unwrap();
+        assert_eq!(moved.mass(), ground_mass);
+    }
+    assert_eq!(replay, state);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
 fn local_container_with_wood(
     registries: &crate::registry::Registries,
     state: &mut AppState,

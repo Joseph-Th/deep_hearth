@@ -1198,7 +1198,10 @@ is initialized. Controlled capability fixtures may remain locationless only when
 player access.
 
 Ground pickup/drop requires player and loose stockpile at the same voxel and delegates exact matter relocation to
-inventory. Carried-load changes are immediate custody changes; continuous locomotion prices the resulting current
+inventory. Exact-lot, stack and quick-move ground transfers reject a raised melee weapon before inspecting material
+contents, and their commit tokens bind the combat revision so a weapon raised after authorization cannot permit a
+stale transfer. This excludes deliberate hand sorting, not automatic world-drop pickup.
+Carried-load changes are immediate custody changes; continuous locomotion prices the resulting current
 load on subsequent 20 Hz control samples rather than reserving a multi-tick movement budget. Equipment and
 energy-store disassembly recovery likewise uses current carried capacity and owner revisions. Mount/unmount changes
 support without teleporting an existing location. Assembly establishes player-local world custody for newly created

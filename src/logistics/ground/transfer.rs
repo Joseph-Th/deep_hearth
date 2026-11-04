@@ -24,6 +24,7 @@ pub enum GroundMaterialTransferError {
     PlayerUninitialized,
     PlayerDead,
     PlayerBusy,
+    PreparedStrikeActive,
     MaterialTooHot {
         commodity: CommodityKey,
         temperature: Temperature,
@@ -52,6 +53,9 @@ impl Display for GroundMaterialTransferError {
             Self::PlayerBusy => {
                 formatter.write_str("player cannot transfer ground material while work is active")
             }
+            Self::PreparedStrikeActive => formatter.write_str(
+                "player must lower the prepared weapon before transferring ground material",
+            ),
             Self::MaterialTooHot {
                 commodity,
                 temperature,
@@ -104,6 +108,7 @@ impl Error for GroundMaterialTransferError {
             Self::PlayerUninitialized
             | Self::PlayerDead
             | Self::PlayerBusy
+            | Self::PreparedStrikeActive
             | Self::MaterialTooHot { .. }
             | Self::GroundStockpileNotLocated { .. }
             | Self::GroundStockpileNotAtPlayer { .. } => None,
@@ -115,6 +120,7 @@ impl Error for GroundMaterialTransferError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GroundMaterialTransferCommitError {
     PlayerBecameBusy,
+    StaleCombatRevision { expected: u64, actual: u64 },
     StaleSurvivalRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
     Inventory(MaterialRelocationCommitError),
@@ -126,6 +132,10 @@ impl Display for GroundMaterialTransferCommitError {
             Self::PlayerBecameBusy => {
                 formatter.write_str("player work started before ground transfer commit")
             }
+            Self::StaleCombatRevision { expected, actual } => write!(
+                formatter,
+                "ground transfer expected combat revision {expected} but current revision is {actual}"
+            ),
             Self::StaleSurvivalRevision { expected, actual } => write!(
                 formatter,
                 "ground transfer expected survival revision {expected} but current revision is {actual}"
@@ -144,6 +154,7 @@ impl Error for GroundMaterialTransferCommitError {
         match self {
             Self::Inventory(error) => Some(error),
             Self::PlayerBecameBusy
+            | Self::StaleCombatRevision { .. }
             | Self::StaleSurvivalRevision { .. }
             | Self::StaleLogisticsRevision { .. } => None,
         }
@@ -156,6 +167,7 @@ impl Error for GroundMaterialTransferCommitError {
 pub struct ValidatedGroundMaterialTransfer {
     player_action: PlayerActionGuard,
     expected_logistics_revision: u64,
+    expected_combat_revision: u64,
     relocation: ValidatedMaterialRelocation,
 }
 
@@ -177,6 +189,13 @@ impl ValidatedGroundMaterialTransfer {
         if state.player_work().active().is_some() {
             return Err(GroundMaterialTransferCommitError::PlayerBecameBusy);
         }
+        let actual_combat_revision = state.combat().revision();
+        if actual_combat_revision != self.expected_combat_revision {
+            return Err(GroundMaterialTransferCommitError::StaleCombatRevision {
+                expected: self.expected_combat_revision,
+                actual: actual_combat_revision,
+            });
+        }
         self.relocation
             .commit(state)
             .map_err(GroundMaterialTransferCommitError::Inventory)
@@ -196,6 +215,9 @@ pub(in crate::logistics) fn validate_ground_access(
         .ok_or(GroundMaterialTransferError::PlayerUninitialized)?;
     if state.player_work().active().is_some() {
         return Err(GroundMaterialTransferError::PlayerBusy);
+    }
+    if state.combat().has_prepared_strike() {
+        return Err(GroundMaterialTransferError::PreparedStrikeActive);
     }
     let ground = state
         .logistics()
@@ -259,6 +281,7 @@ fn validate_pickup_selection(
     Ok(ValidatedGroundMaterialTransfer {
         player_action,
         expected_logistics_revision: state.logistics().revision(),
+        expected_combat_revision: state.combat().revision(),
         relocation,
     })
 }
@@ -325,6 +348,7 @@ fn validate_drop_selection(
     Ok(ValidatedGroundMaterialTransfer {
         player_action,
         expected_logistics_revision: state.logistics().revision(),
+        expected_combat_revision: state.combat().revision(),
         relocation,
     })
 }
