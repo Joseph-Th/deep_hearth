@@ -26,6 +26,7 @@ use super::{EnergyStoreId, energy_store_occupancy};
 pub enum CombustionError {
     PlayerDead,
     PlayerBusy,
+    PreparedStrikeActive,
     StoreAccess(PlayerEnergyStoreAccessError),
     SourceAccess(PlayerStockpileAccessError),
     UnknownStore {
@@ -71,6 +72,9 @@ impl Display for CombustionError {
         match self {
             Self::PlayerDead => formatter.write_str("dead player cannot combust fuel"),
             Self::PlayerBusy => formatter.write_str("player cannot tend fuel while work is active"),
+            Self::PreparedStrikeActive => {
+                formatter.write_str("player must lower the prepared weapon before tending fuel")
+            }
             Self::StoreAccess(error) => {
                 write!(formatter, "combustion store is inaccessible: {error}")
             }
@@ -158,6 +162,7 @@ impl Error for CombustionError {
             Self::StructuralLoad(error) => Some(error),
             Self::PlayerDead
             | Self::PlayerBusy
+            | Self::PreparedStrikeActive
             | Self::UnknownStore { .. }
             | Self::UnknownDefinition
             | Self::NoCombustionProfile { .. }
@@ -177,6 +182,7 @@ impl Error for CombustionError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CombustionCommitError {
     PlayerBecameBusy,
+    StaleCombatRevision { expected: u64, actual: u64 },
     StaleSurvival { expected: u64, actual: u64 },
     StaleLogistics { expected: u64, actual: u64 },
     StaleInventory { expected: u64, actual: u64 },
@@ -189,6 +195,10 @@ impl Display for CombustionCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerBecameBusy => formatter.write_str("player work started before fuel commit"),
+            Self::StaleCombatRevision { expected, actual } => write!(
+                formatter,
+                "combustion combat revision changed from {expected} to {actual} before commit"
+            ),
             Self::StaleSurvival { expected, actual } => write!(
                 formatter,
                 "combustion survival revision changed from {expected} to {actual} before commit"
@@ -223,6 +233,7 @@ impl Error for CombustionCommitError {
         match self {
             Self::Structure(error) => Some(error),
             Self::PlayerBecameBusy
+            | Self::StaleCombatRevision { .. }
             | Self::StaleSurvival { .. }
             | Self::StaleLogistics { .. }
             | Self::StaleInventory { .. }
@@ -243,6 +254,7 @@ pub struct ValidatedCombustion {
     expected_energy_revision: u64,
     next_energy_revision: u64,
     expected_logistics_revision: u64,
+    expected_combat_revision: u64,
     egress: ValidatedMaterialEgress,
     structural_load: Option<ValidatedStockpileStructuralLoad>,
 }
@@ -263,6 +275,12 @@ impl ValidatedCombustion {
         })?;
         if state.logistics().player().is_some() && state.player_work().active().is_some() {
             return Err(CombustionCommitError::PlayerBecameBusy);
+        }
+        if state.combat().revision() != self.expected_combat_revision {
+            return Err(CombustionCommitError::StaleCombatRevision {
+                expected: self.expected_combat_revision,
+                actual: state.combat().revision(),
+            });
         }
         if state.inventory().revision() != self.egress.expected_revision() {
             return Err(CombustionCommitError::StaleInventory {
@@ -335,6 +353,9 @@ fn validate_combust_fuel_selected(
         validate_optional_player_action(state).map_err(|_| CombustionError::PlayerDead)?;
     if state.logistics().player().is_some() && state.player_work().active().is_some() {
         return Err(CombustionError::PlayerBusy);
+    }
+    if state.logistics().player().is_some() && state.combat().has_prepared_strike() {
+        return Err(CombustionError::PreparedStrikeActive);
     }
     // Authorize both physical endpoints before exposing store identity or contents.
     validate_player_energy_store_access(state, store).map_err(CombustionError::StoreAccess)?;
@@ -444,6 +465,7 @@ fn validate_combust_fuel_selected(
         expected_energy_revision,
         next_energy_revision,
         expected_logistics_revision: state.logistics().revision(),
+        expected_combat_revision: state.combat().revision(),
         egress,
         structural_load,
     })

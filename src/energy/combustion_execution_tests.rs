@@ -29,6 +29,120 @@ use crate::energy::validate_assemble_energy_store;
 use super::{CombustionError, validate_combust_fuel, validate_combust_selected_fuel};
 
 #[test]
+fn prepared_weapon_prevents_firelighting_and_stales_prior_fuel_commit() {
+    use crate::combat::{validate_cancel_primitive_preparation, validate_prepare_primitive_strike};
+    use crate::content::EQUIPMENT_WOODEN_CLUB;
+    use crate::equipment::validate_assemble_equipment;
+    use crate::inventory::deposit_lot_for_test;
+    use crate::logistics::validate_pickup_equipment;
+
+    let (registries, mut state, carried, fire) = campfire_fixture();
+    let assembly = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_WOODEN_CLUB)
+        .unwrap()
+        .assembly_profile()
+        .unwrap()
+        .clone();
+    for input in assembly.inputs() {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            input.commodity(),
+            input.mass(),
+            crate::core::quantity::Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+    }
+    let club = validate_assemble_equipment(&registries, &state, EQUIPMENT_WOODEN_CLUB, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_pickup_equipment(&registries, &state, club)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::equipment(club)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+
+    let token = validate_combust_fuel(&registries, &state, fire, carried).unwrap();
+    let previous_combat_revision = state.combat().revision();
+    let facing = ViewDirection::new(1_000_000, 0, 0).unwrap();
+    let _ = validate_prepare_primitive_strike(&registries, &state, facing)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let current_combat_revision = state.combat().revision();
+    let material_before = calculate_matter_accounting(&state).unwrap().total();
+    let prepared = state.clone();
+    assert_eq!(
+        validate_combust_fuel(&registries, &state, fire, carried).err(),
+        Some(CombustionError::PreparedStrikeActive),
+    );
+    assert_eq!(
+        validate_combust_selected_fuel(
+            &registries,
+            &state,
+            fire,
+            carried,
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        )
+        .err(),
+        Some(CombustionError::PreparedStrikeActive),
+    );
+    assert_eq!(
+        token.commit(&mut state),
+        Err(super::CombustionCommitError::StaleCombatRevision {
+            expected: previous_combat_revision,
+            actual: current_combat_revision,
+        })
+    );
+    assert_eq!(state, prepared);
+    assert_eq!(
+        state.energy().get_store(fire).unwrap().stored(),
+        crate::core::quantity::Energy::ZERO
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        material_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(replay, state);
+    for game in [&mut state, &mut replay] {
+        let _ = validate_cancel_primitive_preparation(game)
+            .unwrap()
+            .commit(game)
+            .unwrap();
+        let _ = validate_combust_fuel(&registries, game, fire, carried)
+            .unwrap()
+            .commit(game)
+            .unwrap();
+        assert!(
+            game.energy().get_store(fire).unwrap().stored() > crate::core::quantity::Energy::ZERO
+        );
+    }
+    assert_eq!(replay, state);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        material_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn real_woodworking_chips_can_refuel_camp_without_consuming_reserved_logs() {
     let (registries, mut state, carried, fire) = campfire_fixture();
     let logs = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
