@@ -106,7 +106,9 @@ pub(in crate::kobolds) fn reachable_far_stockpile(
         .filter(|(first, goal)| {
             scout_visible_from(registries, state, junction, *goal)
                 && unguarded_unlit_cell(registries, state, junction, *first, player_position)
-                && unguarded_unlit_cell(registries, state, *first, *goal, player_position)
+                // Do not borrow sight from a future waypoint. The next actual
+                // patrol step observes threats again from its new position.
+                && unguarded_unlit_cell(registries, state, junction, *goal, player_position)
         })
         .min()
 }

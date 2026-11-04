@@ -1,6 +1,7 @@
 //! A witnessed workshop makes loose industrial stockpiles worth raiding,
 //! without allowing hidden caches, protected stores or instant den transfers.
 
+use super::super::scavenging::{ScavengeRoute, reachable_far_stockpile};
 use super::super::*;
 use crate::content::{
     ENERGY_ELECTRICAL_BUFFER, FORM_REINFORCEMENT, FORM_ROUGH_BOX_BODY, MATERIAL_COPPER,
@@ -108,6 +109,89 @@ fn advance_to(registries: &Registries, state: &mut AppState, until: u64) {
             let _ = advance_tick(registries, state).unwrap();
         }
     }
+}
+
+#[test]
+fn far_stockpile_raid_uses_current_visibility_for_guard_avoidance() {
+    let (registries, mut state, stockpile, _) = scenario_at(true, FAR);
+    let route = |player| ScavengeRoute::new([DEN, JUNCTION, TIP], player);
+    assert_eq!(
+        reachable_far_stockpile(&registries, &state, route(None), state.tick()),
+        Some((SIDE, FAR))
+    );
+
+    // The player guards the far store but is not visible from the junction.
+    // Looking ahead from the intermediate cell would give the scout knowledge
+    // it has not yet acquired. The scout can investigate the first edge and
+    // must re-evaluate the guarded goal on reaching that cell.
+    let player = VoxelCoord::new(FAR.x(), FAR.y(), FAR.z() + 1);
+    let _ = validate_admit_player(&registries, &state, player)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(super::super::patrol::scout_sees_guarded_cell(
+        &registries,
+        &state,
+        SIDE,
+        FAR
+    ));
+    assert!(!super::super::patrol::scout_sees_guarded_cell(
+        &registries,
+        &state,
+        JUNCTION,
+        FAR
+    ));
+    let before = state.clone();
+    assert_eq!(
+        reachable_far_stockpile(&registries, &state, route(Some(player)), state.tick()),
+        Some((SIDE, FAR)),
+        "a future waypoint cannot lend sight to the scout at the junction"
+    );
+    assert_eq!(state, before);
+
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 205);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        SIDE,
+        "the scout investigates the real intermediate edge"
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 210);
+    advance_to(&registries, &mut restored, 210);
+    assert_eq!(state, restored);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        JUNCTION,
+        "the newly visible player deters the next edge before theft"
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(stockpile)
+            .unwrap()
+            .get_mass(COPPER),
+        STORED
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]
