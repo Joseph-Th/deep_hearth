@@ -417,12 +417,9 @@ fn validate_material_profile(
     .map_err(|error| SurfaceResourceValidationError::InvalidParticleSizeState { resource, error })
 }
 
-pub(in crate::surface) fn validate_surface_resource_record(
-    materials: &MaterialRegistry,
+fn validate_resource_identity_and_mass(
     key: SurfaceResourceId,
     record: &SurfaceResourceRecord,
-    current: SimulationTick,
-    current_control: ControlTick,
 ) -> Result<(), SurfaceResourceValidationError> {
     if key.value() == 0 || record.id.value() == 0 {
         return Err(SurfaceResourceValidationError::ZeroResourceId);
@@ -439,6 +436,15 @@ pub(in crate::surface) fn validate_surface_resource_record(
     if record.remaining_mass() > record.initial_mass() {
         return Err(SurfaceResourceValidationError::RemainingMassExceedsInitial { resource: key });
     }
+    Ok(())
+}
+
+/// Perennial root, fruit and ripening clocks form one finite material budget.
+fn validate_perennial_budget(
+    key: SurfaceResourceId,
+    record: &SurfaceResourceRecord,
+    current: SimulationTick,
+) -> Result<(), SurfaceResourceValidationError> {
     if let Some(plant) = record.perennial {
         let original = plant.original_fruit.milligrams();
         let expected_total = original.checked_add(original / 2);
@@ -472,6 +478,15 @@ pub(in crate::surface) fn validate_surface_resource_record(
             return Err(SurfaceResourceValidationError::InvalidPerennialBudget { resource: key });
         }
     }
+    Ok(())
+}
+
+fn validate_resource_lifecycle_and_clocks(
+    key: SurfaceResourceId,
+    record: &SurfaceResourceRecord,
+    current: SimulationTick,
+    current_control: ControlTick,
+) -> Result<(), SurfaceResourceValidationError> {
     match record.lifecycle {
         SurfaceResourceLifecycle::Available if record.remaining_mass.is_zero() => {
             return Err(SurfaceResourceValidationError::AvailableWithoutMass { resource: key });
@@ -523,6 +538,14 @@ pub(in crate::surface) fn validate_surface_resource_record(
         }
         _ => {}
     }
+    Ok(())
+}
+
+fn validate_resource_material_history(
+    materials: &MaterialRegistry,
+    key: SurfaceResourceId,
+    record: &SurfaceResourceRecord,
+) -> Result<(), SurfaceResourceValidationError> {
     let latest_created_at = record.material_provenance().latest_created_at();
     if latest_created_at > record.created_at() {
         return Err(
@@ -558,6 +581,21 @@ pub(in crate::surface) fn validate_surface_resource_record(
         });
     }
     validate_material_profile(materials, key, record)
+}
+
+/// Validates identity, finite biomass, lifecycle, time and physical composition in stable
+/// rejection order. Runtime creation and trusted-load replay share this exact contract.
+pub(in crate::surface) fn validate_surface_resource_record(
+    materials: &MaterialRegistry,
+    key: SurfaceResourceId,
+    record: &SurfaceResourceRecord,
+    current: SimulationTick,
+    current_control: ControlTick,
+) -> Result<(), SurfaceResourceValidationError> {
+    validate_resource_identity_and_mass(key, record)?;
+    validate_perennial_budget(key, record, current)?;
+    validate_resource_lifecycle_and_clocks(key, record, current, current_control)?;
+    validate_resource_material_history(materials, key, record)
 }
 
 /// Shared physical world obstruction for new, relocated, and decoded loose custody.
