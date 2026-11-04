@@ -1,6 +1,7 @@
 //! One scheduled scout movement, conserved return cargo, and local event reporting.
 
 use super::*;
+use crate::kobolds::visibility::player_sees_opening_resident_at;
 
 /// Ephemeral facts settled by the scout's due-work and care coordinator.
 /// Movement may use only this local frame and the current authoritative owners.
@@ -217,14 +218,20 @@ pub(super) fn settle_scout_movement(
     .contains(&true);
     let visible = had_local_activity
         && observer.is_some_and(|player| {
-            crate::world::player_can_see_local_cell_at(
-                registries,
-                state,
-                player,
-                scout_position,
-                next_tick,
-            )
+            player_sees_opening_resident_at(registries, state, player, scout_position, next_tick)
         });
+    // An unobstructed head is enough to witness the walking resident,
+    // but the identity and mass of parcels on the ground still require
+    // their actual ground cell to be visible.
+    let destination_ground_visible = observer.is_some_and(|player| {
+        crate::world::player_can_see_local_cell_at(
+            registries,
+            state,
+            player,
+            scout_position,
+            next_tick,
+        )
+    });
     // A parcel released at the previous patrol cell remains there. Seeing
     // the scout at its destination cannot reveal matter outside the player's
     // actual sight envelope.
@@ -238,9 +245,9 @@ pub(super) fn settle_scout_movement(
             position: scout_position,
             heard_junk_alarm,
             defensive_contact: None,
-            discovered_player_drop: discovered,
+            discovered_player_drop: discovered && destination_ground_visible,
             raided_stockpile: None,
-            relocated_drop,
+            relocated_drop: relocated_drop.filter(|_| destination_ground_visible),
             fled_player: (pressured_by_player || pressured_by_noise || ahead_is_guarded)
                 && can_move,
             fled_light: (pressured_by_light || (turned_back_at_barrier && ahead_is_lit))
@@ -248,8 +255,8 @@ pub(super) fn settle_scout_movement(
             turned_back_at_barrier: turned_back_at_barrier && can_move,
             cancelled_empty_cache_raid: cancelled_empty_cache_raid && can_move,
             abandoned_drop: observed_abandoned_drop,
-            foraged_food,
-            split_drop,
+            foraged_food: foraged_food.filter(|_| destination_ground_visible),
+            split_drop: split_drop.filter(|_| destination_ground_visible),
             ..observed_care
         })
         // Keep the witnessed action at its actual source location; do not

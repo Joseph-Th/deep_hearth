@@ -1277,13 +1277,20 @@ fn opaque_terrain_conceals_a_close_scout_until_line_of_sight_is_cleared() {
     assert_eq!(visible.position(), tip);
     let conserved = calculate_matter_accounting(&state).unwrap().total();
 
+    let junction_head = VoxelCoord::new(junction.x(), junction.y() + 1, junction.z());
     set_generated_block_for_test(registries.world(), &mut state, junction, BLOCK_STATE_STONE);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        junction_head,
+        BLOCK_STATE_STONE,
+    );
     let hidden_scout = available_nearby_kobold_scouts(&registries, &state).collect::<Vec<_>>();
     assert!(
         hidden_scout
             .iter()
             .all(|resident| resident.role() != crate::kobolds::KoboldRole::Scout),
-        "a stone wall must conceal the scout across the junction"
+        "a full two-high stone wall must conceal the scout across the junction"
     );
     assert!(
         hidden_scout.iter().any(|resident| {
@@ -1293,6 +1300,12 @@ fn opaque_terrain_conceals_a_close_scout_until_line_of_sight_is_cleared() {
     );
 
     set_generated_block_for_test(registries.world(), &mut state, junction, BlockStateId::AIR);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        junction_head,
+        BlockStateId::AIR,
+    );
     assert_eq!(
         available_nearby_kobold_scouts(&registries, &state)
             .next()
@@ -1372,11 +1385,54 @@ fn opaque_wall_hides_a_moving_scout_event_without_blocking_its_actual_route() {
         .unwrap();
     crate::logistics::relocate_player_for_test(&mut state, observer);
     advance_to_tick(&registries, &mut state, 179);
+    let cargo = place_loose_stone_drop(&registries, &mut state, junction);
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    let mut waist_screen = state.clone();
     let mut concealed = state.clone();
+    let mid_head = VoxelCoord::new(mid.x(), mid.y() + 1, mid.z());
+    set_generated_block_for_test(
+        registries.world(),
+        &mut waist_screen,
+        mid,
+        BLOCK_STATE_STONE,
+    );
     set_generated_block_for_test(registries.world(), &mut concealed, mid, BLOCK_STATE_STONE);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut concealed,
+        mid_head,
+        BLOCK_STATE_STONE,
+    );
+    let waist_matter = calculate_matter_accounting(&waist_screen).unwrap().total();
+    let concealed_matter = calculate_matter_accounting(&concealed).unwrap().total();
     let clear_event = advance_tick(&registries, &mut state).unwrap();
-    assert_eq!(clear_event.kobold_scout().unwrap().position(), junction);
+    let clear = clear_event.kobold_scout().unwrap();
+    assert_eq!(clear.position(), junction);
+    assert!(clear.discovered_player_drop());
+    let waist_event = advance_tick(&registries, &mut waist_screen).unwrap();
+    let waist = waist_event
+        .kobold_scout()
+        .expect("a visible head witnesses the patrol");
+    assert_eq!(waist.position(), junction);
+    assert!(
+        !waist.discovered_player_drop(),
+        "seeing the head must not reveal a loose parcel hidden at its feet"
+    );
+    assert_eq!(waist.relocated_drop(), None);
+    assert_eq!(
+        state.surface().get(cargo),
+        waist_screen.surface().get(cargo)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&waist_screen).unwrap().total(),
+        waist_matter
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
     let concealed_event = advance_tick(&registries, &mut concealed).unwrap();
+    assert_eq!(
+        calculate_matter_accounting(&concealed).unwrap().total(),
+        concealed_matter
+    );
     assert!(
         concealed_event.kobold_scout().is_none(),
         "the same moving scout must not leak through a nearby opaque wall"
@@ -1392,6 +1448,12 @@ fn opaque_wall_hides_a_moving_scout_event_without_blocking_its_actual_route() {
             .is_none()
     );
     set_generated_block_for_test(registries.world(), &mut concealed, mid, BlockStateId::AIR);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut concealed,
+        mid_head,
+        BlockStateId::AIR,
+    );
     assert_eq!(
         available_nearby_kobold_scouts(&registries, &concealed)
             .next()

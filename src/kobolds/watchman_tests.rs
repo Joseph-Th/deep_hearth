@@ -1090,7 +1090,16 @@ fn den_watchman_observes_intrusion_only_after_an_opaque_corner_is_opened() {
         .commit(&mut state)
         .unwrap();
     let mut hidden = state.clone();
+    let corner_head = VoxelCoord::new(corner.x(), corner.y() + 1, corner.z());
+    // The observer must be hidden behind the whole two-high corner, not
+    // merely behind its lower voxel while both heads remain visible.
     set_generated_block_for_test(registries.world(), &mut hidden, corner, BLOCK_STATE_STONE);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut hidden,
+        corner_head,
+        BLOCK_STATE_STONE,
+    );
     assert!(crate::kobolds::visibility::scout_visible_from(
         &registries,
         &state,
@@ -1148,6 +1157,7 @@ fn den_watchman_observes_intrusion_only_after_an_opaque_corner_is_opened() {
         .unwrap();
     for resident in [&mut hidden, &mut replay] {
         set_generated_block_for_test(registries.world(), resident, corner, BlockStateId::AIR);
+        set_generated_block_for_test(registries.world(), resident, corner_head, BlockStateId::AIR);
     }
     advance_to(&registries, &mut hidden, 190);
     advance_to(&registries, &mut replay, 190);
