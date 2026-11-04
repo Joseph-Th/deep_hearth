@@ -25,6 +25,7 @@ use super::{EnergyStoreDefinitionId, EnergyStoreId};
 pub enum EnergyStoreAssemblyError {
     PlayerDead,
     PlayerBusy,
+    PreparedStrikeActive,
     Access(PlayerStockpileAccessError),
     UnknownDefinition {
         definition: EnergyStoreDefinitionId,
@@ -67,6 +68,9 @@ impl Display for EnergyStoreAssemblyError {
             Self::PlayerBusy => {
                 formatter.write_str("player cannot assemble energy storage while work is active")
             }
+            Self::PreparedStrikeActive => formatter.write_str(
+                "player must lower the prepared weapon before assembling energy storage",
+            ),
             Self::Access(error) => {
                 write!(formatter, "energy-store assembly access failed: {error}")
             }
@@ -145,6 +149,7 @@ impl Error for EnergyStoreAssemblyError {
             Self::StructuralLoad(error) => Some(error),
             Self::PlayerDead
             | Self::PlayerBusy
+            | Self::PreparedStrikeActive
             | Self::UnknownDefinition { .. }
             | Self::NoAssemblyProfile { .. }
             | Self::UnknownSource { .. }
@@ -163,6 +168,7 @@ impl Error for EnergyStoreAssemblyError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnergyStoreAssemblyCommitError {
     PlayerBecameBusy,
+    StaleCombatRevision { expected: u64, actual: u64 },
     StaleSurvival { expected: u64, actual: u64 },
     StaleLogistics { expected: u64, actual: u64 },
     StaleInventory { expected: u64, actual: u64 },
@@ -176,6 +182,10 @@ impl Display for EnergyStoreAssemblyCommitError {
             Self::PlayerBecameBusy => {
                 formatter.write_str("player work started before energy-store assembly commit")
             }
+            Self::StaleCombatRevision { expected, actual } => write!(
+                formatter,
+                "energy-store assembly expected combat revision {expected} but current revision is {actual}"
+            ),
             Self::StaleSurvival { expected, actual } => write!(
                 formatter,
                 "energy-store construction expected survival revision {expected} but current revision is {actual}"
@@ -205,6 +215,7 @@ impl Error for EnergyStoreAssemblyCommitError {
         match self {
             Self::Structure(error) => Some(error),
             Self::PlayerBecameBusy
+            | Self::StaleCombatRevision { .. }
             | Self::StaleSurvival { .. }
             | Self::StaleLogistics { .. }
             | Self::StaleInventory { .. }
@@ -220,6 +231,7 @@ pub struct ValidatedEnergyStoreAssembly {
     next_store_id: u64,
     expected_energy_revision: u64,
     expected_logistics_revision: u64,
+    expected_combat_revision: u64,
     logistics_placement: Option<(u64, crate::spatial::VoxelCoord)>,
     next_energy_revision: u64,
     egress: ValidatedMaterialEgress,
@@ -245,6 +257,13 @@ impl ValidatedEnergyStoreAssembly {
         })?;
         if state.logistics().player().is_some() && state.player_work().active().is_some() {
             return Err(EnergyStoreAssemblyCommitError::PlayerBecameBusy);
+        }
+        let actual_combat_revision = state.combat().revision();
+        if actual_combat_revision != self.expected_combat_revision {
+            return Err(EnergyStoreAssemblyCommitError::StaleCombatRevision {
+                expected: self.expected_combat_revision,
+                actual: actual_combat_revision,
+            });
         }
         if state.inventory().revision() != self.egress.expected_revision() {
             return Err(EnergyStoreAssemblyCommitError::StaleInventory {
@@ -298,6 +317,9 @@ pub fn validate_assemble_energy_store(
         validate_optional_player_action(state).map_err(|_| EnergyStoreAssemblyError::PlayerDead)?;
     if state.logistics().player().is_some() && state.player_work().active().is_some() {
         return Err(EnergyStoreAssemblyError::PlayerBusy);
+    }
+    if state.logistics().player().is_some() && state.combat().has_prepared_strike() {
+        return Err(EnergyStoreAssemblyError::PreparedStrikeActive);
     }
     let definition_record = registries
         .energy()
@@ -411,6 +433,7 @@ pub fn validate_assemble_energy_store(
         next_store_id,
         expected_energy_revision,
         expected_logistics_revision,
+        expected_combat_revision: state.combat().revision(),
         logistics_placement,
         next_energy_revision,
         egress,

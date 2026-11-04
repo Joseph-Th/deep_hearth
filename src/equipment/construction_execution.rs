@@ -75,6 +75,7 @@ pub(super) fn validate_assembly_material_selection(
 pub enum EquipmentAssemblyError {
     PlayerDead,
     PlayerBusy,
+    PreparedStrikeActive,
     Access(PlayerStockpileAccessError),
     UnknownDefinition {
         definition: EquipmentDefinitionId,
@@ -117,6 +118,8 @@ impl Display for EquipmentAssemblyError {
             Self::PlayerBusy => {
                 formatter.write_str("player cannot assemble equipment while work is active")
             }
+            Self::PreparedStrikeActive => formatter
+                .write_str("player must lower the prepared weapon before assembling equipment"),
             Self::Access(error) => write!(formatter, "equipment assembly access failed: {error}"),
             Self::UnknownDefinition { definition } => write!(
                 formatter,
@@ -191,6 +194,7 @@ impl Error for EquipmentAssemblyError {
             Self::StructuralLoad(error) => Some(error),
             Self::PlayerDead
             | Self::PlayerBusy
+            | Self::PreparedStrikeActive
             | Self::UnknownDefinition { definition: _ }
             | Self::NoAssemblyProfile { definition: _ }
             | Self::UnknownSource { stockpile: _ }
@@ -217,6 +221,7 @@ impl Error for EquipmentAssemblyError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentAssemblyCommitError {
     PlayerBecameBusy,
+    StaleCombatRevision { expected: u64, actual: u64 },
     StaleSurvival { expected: u64, actual: u64 },
     StaleLogistics { expected: u64, actual: u64 },
     StaleInventory { expected: u64, actual: u64 },
@@ -230,6 +235,10 @@ impl Display for EquipmentAssemblyCommitError {
             Self::PlayerBecameBusy => {
                 formatter.write_str("player work started before equipment assembly commit")
             }
+            Self::StaleCombatRevision { expected, actual } => write!(
+                formatter,
+                "equipment assembly expected combat revision {expected} but current revision is {actual}"
+            ),
             Self::StaleSurvival { expected, actual } => write!(
                 formatter,
                 "equipment assembly expected survival revision {expected} but current revision is {actual}"
@@ -258,6 +267,7 @@ impl Error for EquipmentAssemblyCommitError {
         match self {
             Self::Structure(error) => Some(error),
             Self::PlayerBecameBusy
+            | Self::StaleCombatRevision { .. }
             | Self::StaleSurvival { .. }
             | Self::StaleLogistics { .. }
             | Self::StaleInventory {
@@ -279,6 +289,7 @@ pub struct ValidatedEquipmentAssembly {
     next_equipment_id: u32,
     expected_equipment_revision: u64,
     expected_logistics_revision: u64,
+    expected_combat_revision: u64,
     logistics_placement: Option<(u64, crate::spatial::VoxelCoord)>,
     next_equipment_revision: u64,
     egress: ValidatedMaterialEgress,
@@ -301,6 +312,13 @@ impl ValidatedEquipmentAssembly {
         })?;
         if state.logistics().player().is_some() && state.player_work().active().is_some() {
             return Err(EquipmentAssemblyCommitError::PlayerBecameBusy);
+        }
+        let actual_combat_revision = state.combat().revision();
+        if actual_combat_revision != self.expected_combat_revision {
+            return Err(EquipmentAssemblyCommitError::StaleCombatRevision {
+                expected: self.expected_combat_revision,
+                actual: actual_combat_revision,
+            });
         }
         if state.inventory().revision() != self.egress.expected_revision() {
             return Err(EquipmentAssemblyCommitError::StaleInventory {
@@ -354,6 +372,9 @@ pub fn validate_assemble_equipment(
         validate_optional_player_action(state).map_err(|_| EquipmentAssemblyError::PlayerDead)?;
     if state.logistics().player().is_some() && state.player_work().active().is_some() {
         return Err(EquipmentAssemblyError::PlayerBusy);
+    }
+    if state.logistics().player().is_some() && state.combat().has_prepared_strike() {
+        return Err(EquipmentAssemblyError::PreparedStrikeActive);
     }
     let definition_record = registries
         .equipment()
@@ -436,6 +457,7 @@ pub fn validate_assemble_equipment(
         next_equipment_id,
         expected_equipment_revision,
         expected_logistics_revision,
+        expected_combat_revision: state.combat().revision(),
         logistics_placement,
         next_equipment_revision,
         egress,

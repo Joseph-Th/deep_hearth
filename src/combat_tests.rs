@@ -305,6 +305,127 @@ fn arm_player(
 }
 
 #[test]
+fn raised_weapon_blocks_material_backed_tool_and_energy_store_assembly() {
+    use crate::content::{ENERGY_STONE_RING_CAMPFIRE, EQUIPMENT_STONE_PICK, EQUIPMENT_WOODEN_CLUB};
+    use crate::core::quantity::Temperature;
+    use crate::energy::{
+        EnergyStoreAssemblyCommitError, EnergyStoreAssemblyError, validate_assemble_energy_store,
+    };
+    use crate::equipment::{
+        EquipmentAssemblyCommitError, EquipmentAssemblyError, validate_assemble_equipment,
+    };
+    use crate::inventory::deposit_lot_for_test;
+    use crate::matter::calculate_matter_accounting;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let carried = validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let club = arm_player(&registries, &mut state, EQUIPMENT_WOODEN_CLUB);
+    let tool_assembly = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_STONE_PICK)
+        .unwrap()
+        .assembly_profile()
+        .unwrap();
+    for input in tool_assembly.inputs() {
+        let _ = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            input.commodity(),
+            input.mass(),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+    }
+    let campfire_assembly = registries
+        .energy()
+        .get_store(ENERGY_STONE_RING_CAMPFIRE)
+        .unwrap()
+        .assembly_profile()
+        .unwrap();
+    for input in campfire_assembly.inputs() {
+        let _ = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            input.commodity(),
+            input.mass(),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+    }
+    let tool_token =
+        validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, carried).unwrap();
+    let store_token =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, carried)
+            .unwrap();
+    let previous = state.combat().revision();
+    let _ = validate_prepare_primitive_strike(&registries, &state, east())
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let actual = state.combat().revision();
+    let before = state.clone();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(state.combat().prepared.map(|p| p.weapon), Some(club));
+    assert_eq!(
+        validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, carried).err(),
+        Some(EquipmentAssemblyError::PreparedStrikeActive)
+    );
+    assert_eq!(
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, carried)
+            .err(),
+        Some(EnergyStoreAssemblyError::PreparedStrikeActive)
+    );
+    assert_eq!(
+        tool_token.commit(&mut state),
+        Err(EquipmentAssemblyCommitError::StaleCombatRevision {
+            expected: previous,
+            actual,
+        })
+    );
+    assert_eq!(
+        store_token.commit(&mut state),
+        Err(EnergyStoreAssemblyCommitError::StaleCombatRevision {
+            expected: previous,
+            actual,
+        })
+    );
+    assert_eq!(state, before);
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for game in [&mut state, &mut replay] {
+        let _ = validate_cancel_primitive_preparation(game)
+            .unwrap()
+            .commit(game)
+            .unwrap();
+        let _ = validate_assemble_equipment(&registries, game, EQUIPMENT_STONE_PICK, carried)
+            .unwrap()
+            .commit(game)
+            .unwrap();
+        let _ =
+            validate_assemble_energy_store(&registries, game, ENERGY_STONE_RING_CAMPFIRE, carried)
+                .unwrap()
+                .commit(game)
+                .unwrap();
+        assert_eq!(calculate_matter_accounting(game).unwrap().total(), total);
+        assert_eq!(validate_loaded_state(&registries, game), Ok(()));
+    }
+    assert_eq!(replay, state);
+}
+
+#[test]
 fn primitive_club_and_spear_have_real_material_reach_wear_and_recovery() {
     use crate::content::{EQUIPMENT_STONE_SPEAR, EQUIPMENT_WOODEN_CLUB};
     use crate::logistics::validate_set_active_selection;
