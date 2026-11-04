@@ -1,6 +1,9 @@
 //! Contracts for local observation, finite gathering, persistence, and exposed-matter age.
 
 use super::*;
+
+#[path = "mod_tests/scavenger_gathering.rs"]
+mod scavenger_gathering;
 use crate::content::{
     BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS,
     BASIC_TIMBER_POST_CROSS_SECTION, BASIC_TIMBER_POST_LENGTH, BLOCK_STATE_STONE,

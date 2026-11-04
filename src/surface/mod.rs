@@ -55,6 +55,20 @@ pub(crate) use state::{
     SurfaceResourceState, serialize_surface_resource_state, validate_loaded_surface_resources,
 };
 
+/// A timed player harvest has already reserved its exact source mass and
+/// physical position. All scout-owned surface transfers must honor the same
+/// exclusion as automatic player pickup, even when revision headroom remains.
+fn resource_reserved_for_player_gathering(
+    state: &crate::core::state::AppState,
+    resource: SurfaceResourceId,
+) -> bool {
+    state
+        .player_work()
+        .active()
+        .and_then(|work| work.surface_gathering())
+        .is_some_and(|work| work.resource() == resource)
+}
+
 /// Conserved relocation of an exposed player drop by an already-authorized adjacent scavenger.
 ///
 /// The surface owner retains matter and physical history. The caller owns creature movement
@@ -68,6 +82,7 @@ pub(crate) fn relocate_scavenged_drop_step(
     to: crate::spatial::VoxelCoord,
 ) -> bool {
     if !state.can_spend_surface_revisions(1)
+        || resource_reserved_for_player_gathering(state, resource)
         || !from.is_face_adjacent_to(to)
         || state::validation::surface_position_has_solid_world(
             registries.world(),
@@ -176,7 +191,10 @@ pub(crate) fn abrade_scavenged_tool_head(
     wear: crate::core::quantity::Mass,
     residue_form: crate::material::FormId,
 ) -> bool {
-    if !state.can_spend_surface_revisions(2) || wear.is_zero() {
+    if !state.can_spend_surface_revisions(2)
+        || resource_reserved_for_player_gathering(state, head)
+        || wear.is_zero()
+    {
         return false;
     }
     let Some(resource) = state.surface().get(head) else {
@@ -276,7 +294,11 @@ fn materialize_scavenged_portion(
         maximum_mass,
     } = request;
     let required_revisions = if head_wear.is_some() { 3 } else { 2 };
-    if !from.is_face_adjacent_to(to) || !state.can_spend_surface_revisions(required_revisions) {
+    if !from.is_face_adjacent_to(to)
+        || !state.can_spend_surface_revisions(required_revisions)
+        || resource_reserved_for_player_gathering(state, source)
+        || head_wear.is_some_and(|(head, _, _)| resource_reserved_for_player_gathering(state, head))
+    {
         return None;
     }
     let origin = state.surface().get(source)?;
