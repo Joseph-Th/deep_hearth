@@ -158,6 +158,162 @@ fn automatic_pickup_respects_tool_weight_across_fast_forward_and_recovery() {
 }
 
 #[test]
+fn exhausted_lot_ids_skip_incompatible_food_and_collect_later_mergeable_drop() {
+    use crate::content::{FORM_FOOD, MATERIAL_BERRIES};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let commodity = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
+    let ordinary = Temperature::from_millikelvin(293_150);
+    let differently_warm = Temperature::from_millikelvin(294_150);
+    let drop_mass = Mass::from_milligrams(30_000);
+    let blocked = insert_surface_resource_for_test(
+        &registries,
+        &mut state,
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            commodity,
+            drop_mass,
+            differently_warm,
+            MaterialComposition::pure(MATERIAL_BERRIES),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let aged = insert_surface_resource_for_test(
+        &registries,
+        &mut state,
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            commodity,
+            drop_mass,
+            ordinary,
+            MaterialComposition::pure(MATERIAL_BERRIES),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    // Food cohorts with equal temperature still cannot coalesce after
+    // accumulating different outdoor exposure histories.
+    for _ in 0..2 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    let mergeable = insert_surface_resource_for_test(
+        &registries,
+        &mut state,
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            commodity,
+            drop_mass,
+            ordinary,
+            MaterialComposition::pure(MATERIAL_BERRIES),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(blocked < aged && aged < mergeable);
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let original_lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        Mass::from_milligrams(20_000),
+        ordinary,
+    )
+    .unwrap();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+
+    // No new lot can be allocated. Exact food-temperature and storage
+    // exposure cohorts still permit merging the later parcel in place.
+    let mut serialized = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    serialized["state"]["systems"]["inventory"]["next_lot_id"] = serde_json::json!(u64::MAX);
+    let mut loaded = serde_json::from_value::<LoadedSaveEnvelope>(serialized)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &loaded), Ok(()));
+    let before = loaded.clone();
+    assert_eq!(
+        advance_tick(&registries, &mut loaded),
+        Err(TickError::ControlSteppingRequired {
+            current: before.control_tick(),
+        })
+    );
+    assert_eq!(loaded, before);
+
+    let pickup = advance_control_tick(&registries, &mut loaded)
+        .unwrap()
+        .surface_drop_pickup()
+        .unwrap();
+    assert_eq!(pickup.resource(), mergeable);
+    assert_eq!(pickup.lot(), original_lot);
+    assert_eq!(pickup.picked_mass(), drop_mass);
+    assert_eq!(
+        loaded.surface().get(blocked).unwrap().remaining_mass(),
+        drop_mass
+    );
+    assert_eq!(
+        loaded.surface().get(aged).unwrap().remaining_mass(),
+        drop_mass
+    );
+    assert_eq!(
+        loaded.surface().get(mergeable).unwrap().remaining_mass(),
+        Mass::ZERO
+    );
+    assert_eq!(
+        loaded
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(commodity),
+        Mass::from_milligrams(50_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&loaded).unwrap().total(),
+        conserved
+    );
+
+    // Once the older parcels cannot merge, skipping control samples
+    // is legal and bit-identical to their explicit neutral replay.
+    let mut replay = loaded.clone();
+    let fast = advance_tick(&registries, &mut loaded).unwrap();
+    let mut boundary = None;
+    for _ in 1..CONTROL_TICKS_PER_SIMULATION_TICK {
+        boundary = Some(advance_control_tick(&registries, &mut replay).unwrap());
+    }
+    assert_eq!(fast, *boundary.unwrap().simulation().unwrap());
+    assert_eq!(loaded, replay);
+    assert_eq!(
+        loaded.surface().get(blocked).unwrap().remaining_mass(),
+        drop_mass
+    );
+    assert_eq!(
+        loaded.surface().get(aged).unwrap().remaining_mass(),
+        drop_mass
+    );
+    assert_eq!(
+        calculate_matter_accounting(&loaded).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &loaded), Ok(()));
+    let json = serde_json::to_vec(&SaveEnvelope::new(&registries, &loaded)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&json)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, loaded);
+}
+
+#[test]
 fn carried_material_drop_cannot_reuse_an_earlier_control_sample_for_pickup_delay() {
     use crate::surface::available_player_world_drops;
 
