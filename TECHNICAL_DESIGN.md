@@ -1012,12 +1012,13 @@ When multiple straight shaft runs compete for a roller or an endpoint store, the
 compares their feasible whole-energy deliveries without reserving shared capacity first. Each
 connected conflict group of at most 16 candidate transfers is arbitrated for greatest aggregate
 useful delivery, then lowest aggregate source draw and stable candidate priority. Larger groups
-use deterministic greedy ranking followed by at most two rounds of beneficial single-shaft
-replacement and bounded paired replacement among the first 16 selected transfers. This avoids
-discarding additional useful work when two competing shafts together prevent three independent
-lower-output paths from operating; the larger-group search remains an approximation, not an
-unbounded exact solver. Disjoint runs can use distinct stores at the same endpoint, receipts retain
-stable physical-run order, and no roller or store contributes to more than one transfer in a tick.
+compare greedy ranking with an exact optimum of their first 16 ranked candidates, completed with
+any further compatible paths, before up to two rounds of beneficial single-shaft and bounded
+paired-shaft replacements. Retaining the small exact optimum prevents a weak seventeenth path
+from discarding the stronger four-path delivery that requires three incumbent paths to be released
+together. The larger-group search remains an approximation, not an unbounded exact solver.
+Disjoint runs can use distinct stores at the same endpoint, receipts retain stable physical-run
+order, and no roller or store contributes to more than one transfer in a tick.
 
 Slow-tick shaft transmission spends an energy-owner revision only after accounting for future
 production and manual-power completion reservations and unavoidable same-tick passive loss.

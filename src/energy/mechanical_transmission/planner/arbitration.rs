@@ -1,8 +1,10 @@
 //! Bounded aggregate-work arbitration for independent sets of physical shaft transfers.
 //!
 //! Small connected conflict groups are solved exactly. Exceptionally large
-//! groups use deterministic greedy selection followed by bounded replacements,
-//! including correlated shaft choices that require releasing two incumbents.
+//! groups retain an exact optimum over their first sixteen ranked candidates,
+//! then compare it with greedy selection and bounded replacements. This
+//! prevents adding a weak seventeenth option from destroying correlated choices
+//! that the exact solver had already established.
 
 use super::*;
 
@@ -89,7 +91,7 @@ fn conflict_masks(candidates: &[ShaftPair], runs: &[ShaftRun]) -> Vec<u32> {
     blocked
 }
 
-fn exact_group(pairs: &[ShaftPair], runs: &[ShaftRun], indices: &[usize]) -> Vec<ShaftPair> {
+fn exact_group_indices(pairs: &[ShaftPair], runs: &[ShaftRun], indices: &[usize]) -> Vec<usize> {
     let candidates = indices
         .iter()
         .map(|&index| pairs[index])
@@ -107,10 +109,17 @@ fn exact_group(pairs: &[ShaftPair], runs: &[ShaftRun], indices: &[usize]) -> Vec
         best,
         &mut best,
     );
-    candidates
-        .into_iter()
+    indices
+        .iter()
         .enumerate()
-        .filter_map(|(index, pair)| (best.mask & (1_u32 << index) != 0).then_some(pair))
+        .filter_map(|(index, &original)| (best.mask & (1_u32 << index) != 0).then_some(original))
+        .collect()
+}
+
+fn exact_group(pairs: &[ShaftPair], runs: &[ShaftRun], indices: &[usize]) -> Vec<ShaftPair> {
+    exact_group_indices(pairs, runs, indices)
+        .into_iter()
+        .map(|index| pairs[index])
         .collect()
 }
 
@@ -191,6 +200,20 @@ fn improved_completion(
 
 fn greedy_group(pairs: &[ShaftPair], runs: &[ShaftRun], indices: &[usize]) -> Vec<ShaftPair> {
     let mut selected = greedy_completion(pairs, runs, indices, &[], &[]);
+    // The exact solver's first sixteen ranked paths are still physically
+    // available when a seventeenth, weaker path appears. Preserve that
+    // solution as a bounded baseline, then greedily fill any free assets
+    // with remaining candidates. This catches correlated three-or-more-path
+    // exchanges without a combinatorial search over the entire large group.
+    let prefix = exact_group_indices(pairs, runs, &indices[..EXACT_CONFLICT_LIMIT]);
+    let baseline = greedy_completion(pairs, runs, indices, &prefix, &[]);
+    let (baseline_delivered, baseline_drawn) = aggregate_work(pairs, &baseline);
+    let (greedy_delivered, greedy_drawn) = aggregate_work(pairs, &selected);
+    if baseline_delivered > greedy_delivered
+        || (baseline_delivered == greedy_delivered && baseline_drawn < greedy_drawn)
+    {
+        selected = baseline;
+    }
     // A large group must not suddenly lose useful work when its seventeenth
     // candidate disables the exact solver. Some layouts need two shafts freed
     // together before three smaller independent paths improve delivery:

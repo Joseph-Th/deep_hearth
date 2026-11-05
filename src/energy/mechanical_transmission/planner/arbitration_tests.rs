@@ -221,3 +221,74 @@ fn two_shaft_replacement_recovers_three_independent_paths_in_large_groups() {
         "at identical delivered work and total draw, stable priority wins"
     );
 }
+
+#[test]
+fn weak_seventeenth_path_cannot_displace_four_path_allocation_needing_three_releases() {
+    // Three 80 J incumbent paths consume six distinct rollers. Four 65 J
+    // paths share no stores or rollers with each other, but one crosses all
+    // three incumbents. Releasing just one or two incumbents never improves
+    // the greedy 240 J allocation; releasing all three yields 260 J.
+    let mut runs = vec![
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(1), StructuralElementId::new(2)],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(3), StructuralElementId::new(4)],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(5), StructuralElementId::new(6)],
+        },
+        ShaftRun {
+            rollers: vec![
+                StructuralElementId::new(1),
+                StructuralElementId::new(3),
+                StructuralElementId::new(5),
+            ],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(2)],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(4)],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(6)],
+        },
+    ];
+    let mut pairs = (0..7)
+        .map(|run| {
+            let store = 2 * run as u64 + 1;
+            let delivered = if run < 3 { 80 } else { 65 };
+            candidate(
+                run,
+                run as u32 + 1,
+                store,
+                store + 1,
+                delivered,
+                delivered + 20,
+            )
+        })
+        .collect::<Vec<_>>();
+    for run in 7..=EXACT_CONFLICT_LIMIT {
+        runs.push(ShaftRun {
+            rollers: vec![StructuralElementId::new(1)],
+        });
+        let store = 2 * run as u64 + 1;
+        pairs.push(candidate(run, run as u32 + 1, store, store + 1, 1, 2));
+    }
+    let chosen = |selected: Vec<ShaftPair>| {
+        selected
+            .into_iter()
+            .map(|pair| pair.run)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        chosen(select_shaft_pairs(&pairs[..EXACT_CONFLICT_LIMIT], &runs)),
+        vec![3, 4, 5, 6]
+    );
+    assert_eq!(
+        chosen(select_shaft_pairs(&pairs, &runs)),
+        vec![3, 4, 5, 6],
+        "adding a weak candidate cannot reduce the physical work delivered"
+    );
+}
