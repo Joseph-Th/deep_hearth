@@ -12,8 +12,8 @@ const EXACT_CONFLICT_LIMIT: usize = 16;
 /// Double replacements are at most 120 trials per round, regardless of the
 /// number of candidate runs in a large generated workshop.
 const DOUBLE_REPLACEMENT_INCUMBENT_LIMIT: usize = 16;
-/// Probe at most four low-priority paths for graph-bridging effects. Dense
-/// conflicts retain bounded heuristics rather than exhaustive search.
+/// Probe at most four low-priority articulation paths. Dense conflicts retain
+/// bounded heuristics rather than exhaustive search.
 const WEAK_CONNECTOR_PROBES: usize = 4;
 
 /// An individual transfer fits `Energy`, but independent transfers need not
@@ -303,15 +303,15 @@ fn greedy_group_indices(
 }
 
 /// A weak connector can merge otherwise independent exact-search components.
-/// Probe a bounded low-priority suffix and keep the best physically compatible
-/// allocation; an even weaker local option must not hide the actual bridge.
+/// Probe the lowest-priority actual articulation paths, not an arbitrary suffix:
+/// non-bridging lower-ranked options cannot hide a useful group split.
 fn refine_weak_connector_splits(
     pairs: &[ShaftPair],
     runs: &[ShaftRun],
     indices: &[usize],
     mut selected: Vec<usize>,
 ) -> Vec<usize> {
-    for &connector in indices.iter().rev().take(WEAK_CONNECTOR_PROBES) {
+    for connector in weak_connector_candidates(pairs, runs, indices) {
         let Some(separated) = completion_without_weak_connector(pairs, runs, indices, connector)
         else {
             continue;
@@ -325,6 +325,116 @@ fn refine_weak_connector_splits(
         }
     }
     selected
+}
+
+/// A shared endpoint, roller, or run makes all its candidate shafts mutually
+/// conflicting. A cycle connects that owner's candidates in linear space and
+/// preserves their connectivity after removing any *one* candidate, unlike a
+/// star whose center would become a false articulation point.
+fn connect_owner_cycle(graph: &mut [Vec<usize>], members: &[usize]) {
+    let mut connect = |left: usize, right: usize| {
+        graph[left].push(right);
+        graph[right].push(left);
+    };
+    for edge in members.windows(2) {
+        connect(edge[0], edge[1]);
+    }
+    if members.len() > 2 {
+        connect(members[0], members[members.len() - 1]);
+    }
+}
+
+fn candidate_conflict_graph(
+    pairs: &[ShaftPair],
+    runs: &[ShaftRun],
+    indices: &[usize],
+) -> Vec<Vec<usize>> {
+    let mut stores = BTreeMap::<EnergyStoreId, Vec<usize>>::new();
+    let mut rollers = BTreeMap::<StructuralElementId, Vec<usize>>::new();
+    let mut same_run = BTreeMap::<usize, Vec<usize>>::new();
+    for (local, &original) in indices.iter().enumerate() {
+        let pair = pairs[original];
+        for store in [pair.transfer.source(), pair.transfer.destination()] {
+            stores.entry(store).or_default().push(local);
+        }
+        same_run.entry(pair.run).or_default().push(local);
+        for &roller in &runs[pair.run].rollers {
+            rollers.entry(roller).or_default().push(local);
+        }
+    }
+    let mut graph = vec![Vec::new(); indices.len()];
+    for members in stores
+        .values()
+        .chain(rollers.values())
+        .chain(same_run.values())
+    {
+        connect_owner_cycle(&mut graph, members);
+    }
+    graph
+}
+
+/// Iterative low-link search avoids stack overflow on long connected networks.
+/// A vertex is an articulation only if removing it separates other candidates;
+/// the owner cycles above prevent spurious bridges from high-degree rollers.
+fn articulation_candidates(graph: &[Vec<usize>]) -> Vec<bool> {
+    let mut visited = vec![0_usize; graph.len()];
+    let mut low = vec![0_usize; graph.len()];
+    let mut parent = vec![usize::MAX; graph.len()];
+    let mut children = vec![0_usize; graph.len()];
+    let mut articulation = vec![false; graph.len()];
+    let mut clock = 0_usize;
+    for start in 0..graph.len() {
+        if visited[start] != 0 {
+            continue;
+        }
+        clock += 1;
+        visited[start] = clock;
+        low[start] = clock;
+        let mut stack = vec![(start, 0_usize)];
+        while let Some(&(vertex, next)) = stack.last() {
+            if let Some(&neighbor) = graph[vertex].get(next) {
+                stack.last_mut().expect("active DFS frame").1 += 1;
+                if visited[neighbor] == 0 {
+                    parent[neighbor] = vertex;
+                    children[vertex] += 1;
+                    clock += 1;
+                    visited[neighbor] = clock;
+                    low[neighbor] = clock;
+                    stack.push((neighbor, 0));
+                } else if neighbor != parent[vertex] {
+                    low[vertex] = low[vertex].min(visited[neighbor]);
+                }
+            } else {
+                stack.pop();
+                let previous = parent[vertex];
+                if previous == usize::MAX {
+                    articulation[vertex] = children[vertex] > 1;
+                } else {
+                    low[previous] = low[previous].min(low[vertex]);
+                    if parent[previous] != usize::MAX && low[vertex] >= visited[previous] {
+                        articulation[previous] = true;
+                    }
+                }
+            }
+        }
+    }
+    articulation
+}
+
+fn weak_connector_candidates(
+    pairs: &[ShaftPair],
+    runs: &[ShaftRun],
+    indices: &[usize],
+) -> Vec<usize> {
+    let graph = candidate_conflict_graph(pairs, runs, indices);
+    let articulation = articulation_candidates(&graph);
+    indices
+        .iter()
+        .enumerate()
+        .rev()
+        .filter_map(|(local, &original)| articulation[local].then_some(original))
+        .take(WEAK_CONNECTOR_PROBES)
+        .collect()
 }
 
 /// Removing one candidate permits an independent exact solution in each

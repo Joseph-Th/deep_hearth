@@ -402,4 +402,134 @@ fn weak_connector_cannot_reduce_independent_groups_total_delivery() {
         expected_runs,
         "a non-bridging lowest-ranked shaft must not hide the true weak connector"
     );
+    // A crowded settlement may have many later alternatives sharing only
+    // a single independent shaft. Their number should not hide the actual
+    // connector by pushing it outside a fixed last-four candidate window.
+    for run in 19..=26 {
+        runs.push(ShaftRun {
+            rollers: vec![StructuralElementId::new(100)],
+        });
+        let store = 2 * run as u64 + 1;
+        pairs.push(candidate(run, run as u32 + 1, store, store + 1, 1, 2));
+    }
+    let with_many_weaker_nonbridges = select_shaft_pairs(&pairs, &runs);
+    assert_eq!(
+        chosen(&with_many_weaker_nonbridges),
+        expected_runs,
+        "non-bridging low-priority options must not hide a connector from arbitration"
+    );
+}
+
+#[test]
+fn articulation_probes_match_real_conflict_group_splits() {
+    // Candidate ownership may overlap through stores, rollers, and duplicate
+    // shaft runs. The sparse cycle graph must preserve connectivity after
+    // removing any one candidate from the original conflict graph.
+    let mut connected = 0;
+    let mut with_bridges = 0;
+    for pattern in 0..512_usize {
+        // Interleave sparse chains with denser overlapping candidate owners
+        // so both real articulations and non-bridging conflicts are checked.
+        let chain = pattern.is_multiple_of(16);
+        let runs = (0..9_usize)
+            .map(|index| {
+                let (primary, secondary) = if chain {
+                    (index as u32 + 1, index as u32 + 2)
+                } else {
+                    (
+                        (1 + (pattern + index * 3 + index * index) % 7) as u32,
+                        (1 + (pattern / 7 + index * 5) % 7) as u32,
+                    )
+                };
+                let primary = StructuralElementId::new(primary);
+                let secondary = StructuralElementId::new(secondary);
+                let mut rollers = vec![primary];
+                if chain || pattern & (1 << index) != 0 {
+                    rollers.push(secondary);
+                }
+                ShaftRun { rollers }
+            })
+            .collect::<Vec<_>>();
+        let pairs = (0..runs.len())
+            .map(|index| {
+                let run = if !chain && pattern.is_multiple_of(5) && index % 4 == 3 {
+                    index - 1
+                } else {
+                    index
+                };
+                let (source, destination) = if chain {
+                    let store = 2 * index as u64 + 1;
+                    (store, store + 1)
+                } else {
+                    (
+                        (1 + (pattern / 11 + index * 3) % 9) as u64,
+                        (10 + (pattern / 13 + index * 5) % 9) as u64,
+                    )
+                };
+                candidate(
+                    run,
+                    index as u32 + 1,
+                    source,
+                    destination,
+                    100 - index as u128,
+                    110 - index as u128,
+                )
+            })
+            .collect::<Vec<_>>();
+        if conflict_groups(&pairs, &runs).len() != 1 {
+            continue;
+        }
+        connected += 1;
+        let indices = (0..pairs.len()).collect::<Vec<_>>();
+        let expected = indices
+            .iter()
+            .rev()
+            .copied()
+            .filter(|&omitted| {
+                let remaining = pairs
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, pair)| (index != omitted).then_some(*pair))
+                    .collect::<Vec<_>>();
+                conflict_groups(&remaining, &runs).len() > 1
+            })
+            .take(WEAK_CONNECTOR_PROBES)
+            .collect::<Vec<_>>();
+        with_bridges += usize::from(!expected.is_empty());
+        assert_eq!(
+            weak_connector_candidates(&pairs, &runs, &indices),
+            expected,
+            "incorrect articulation detection for ownership pattern {pattern}"
+        );
+    }
+    assert!(connected > 0);
+    assert!(
+        with_bridges > 0,
+        "test patterns must include real graph bridges"
+    );
+}
+
+#[test]
+fn articulation_search_handles_long_connected_shaft_chain() {
+    // Physical networks may contain many paths. Low-link discovery must
+    // neither recurse per path nor probe all possible removals.
+    let count = 2_048_usize;
+    let runs = (0..count)
+        .map(|index| ShaftRun {
+            rollers: vec![
+                StructuralElementId::new(index as u32 + 1),
+                StructuralElementId::new(index as u32 + 2),
+            ],
+        })
+        .collect::<Vec<_>>();
+    let pairs = (0..count)
+        .map(|index| {
+            let store = 2 * index as u64 + 1;
+            candidate(index, index as u32 + 1, store, store + 1, 1, 2)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        weak_connector_candidates(&pairs, &runs, &(0..count).collect::<Vec<_>>()),
+        vec![count - 2, count - 3, count - 4, count - 5]
+    );
 }
