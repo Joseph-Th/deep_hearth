@@ -20,6 +20,68 @@ use super::{
     player_body_fits_continuous_world, player_body_is_grounded_at,
 };
 
+/// A destroyed spawn floor or an airborne corpse should not force a revived
+/// player back into the same fall when supported open ground is immediately
+/// nearby. Search only a small, deterministic, generated-world neighborhood.
+const SAFE_RESPAWN_OFFSETS: [(i64, i64); 8] = [
+    (1, 0),
+    (-1, 0),
+    (0, 1),
+    (0, -1),
+    (1, 1),
+    (1, -1),
+    (-1, 1),
+    (-1, -1),
+];
+const SAFE_RESPAWN_HEIGHT_OFFSETS: [i64; 3] = [0, -1, 1];
+
+fn respawn_body_is_clear(registries: &Registries, state: &AppState, body: PlayerBodyState) -> bool {
+    let locomotion = registries.survival().physiology().locomotion();
+    player_body_fits_continuous_world(body, locomotion)
+        && first_player_body_collision(registries.world(), state.world(), body, locomotion)
+            .is_none()
+        && first_player_temple_caste_collision(registries, state, body).is_none()
+        && first_player_structure_collision(registries, state, body).is_none()
+}
+
+fn grounded_respawn_body_at(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+) -> Option<PlayerBodyState> {
+    let body = PlayerBodyState::centered_on_voxel_floor(position)?;
+    (respawn_body_is_clear(registries, state, body)
+        && (!state.world().has_generated_terrain_at(position)
+            || player_body_is_grounded_at(registries, state, body)))
+    .then_some(body)
+}
+
+fn nearby_supported_respawn_body(
+    registries: &Registries,
+    state: &AppState,
+    origin: VoxelCoord,
+) -> Option<PlayerBodyState> {
+    for height in SAFE_RESPAWN_HEIGHT_OFFSETS {
+        let Some(y) = origin.y().checked_add(height) else {
+            continue;
+        };
+        for (dx, dz) in SAFE_RESPAWN_OFFSETS {
+            let (Some(x), Some(z)) = (origin.x().checked_add(dx), origin.z().checked_add(dz))
+            else {
+                continue;
+            };
+            let candidate = VoxelCoord::new(x, y, z);
+            if !state.world().has_generated_terrain_at(candidate) {
+                continue;
+            }
+            if let Some(body) = grounded_respawn_body_at(registries, state, candidate) {
+                return Some(body);
+            }
+        }
+    }
+    None
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PlayerLogisticsRespawnError {
     PlayerNotInitialized,
@@ -243,35 +305,29 @@ pub(crate) fn validate_player_logistics_respawn(
         .checked_add(1)
         .filter(|_| state.can_spend_logistics_revisions(1))
         .ok_or(PlayerLogisticsRespawnError::LogisticsRevisionExhausted)?;
-    let locomotion = registries.survival().physiology().locomotion();
-    let spawn_body = PlayerBodyState::centered_on_voxel_floor(player.respawn_position())
-        .filter(|body| player_body_fits_continuous_world(*body, locomotion))
-        .filter(|body| {
-            first_player_body_collision(registries.world(), state.world(), *body, locomotion)
-                .is_none()
-        })
-        .filter(|body| first_player_temple_caste_collision(registries, state, *body).is_none());
-    let spawn_body = spawn_body
-        .filter(|body| first_player_structure_collision(registries, state, *body).is_none())
-        // A clear anchor with its supporting floor mined away is no longer a
-        // viable recovery site. Ungenerated opening space has no terrain floor
-        // authority; retain its established authored spawn semantics.
-        .filter(|body| {
-            !state
-                .world()
-                .has_generated_terrain_at(player.respawn_position())
-                || player_body_is_grounded_at(registries, state, *body)
-        });
+    let spawn_body = grounded_respawn_body_at(registries, state, player.respawn_position());
     let (respawn_body, used_spawn_anchor) = spawn_body.map_or_else(
         || {
             let body = player.body();
+            // Preserve the exact corpse position when it is still a supported
+            // recovery site. Generated-world airborne deaths or an excavated
+            // death floor instead seek a nearby clear floor, first around the
+            // original anchor and then near the death cache. No unknown world
+            // space is treated as safe or materialized by this search.
+            let fallback = body.with_motion(
+                body.foot_position(),
+                HorizontalVelocity::ZERO,
+                VerticalVelocity::ZERO,
+                body.stance(),
+            );
+            let needs_ground = state.world().has_generated_terrain_at(player.position());
+            if !needs_ground || player_body_is_grounded_at(registries, state, fallback) {
+                return (fallback, false);
+            }
             (
-                body.with_motion(
-                    body.foot_position(),
-                    HorizontalVelocity::ZERO,
-                    VerticalVelocity::ZERO,
-                    body.stance(),
-                ),
+                nearby_supported_respawn_body(registries, state, player.respawn_position())
+                    .or_else(|| nearby_supported_respawn_body(registries, state, player.position()))
+                    .unwrap_or(fallback),
                 false,
             )
         },

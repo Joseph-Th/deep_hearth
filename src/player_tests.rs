@@ -341,6 +341,93 @@ fn respawn_falls_back_to_death_location_when_spawn_anchor_is_blocked_or_unsuppor
     }
 }
 
+#[test]
+fn airborne_death_avoids_a_second_fall_when_a_nearby_supported_respawn_exists() {
+    use crate::core::state::validate_loaded_state;
+    use crate::logistics::player_body_is_grounded;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x5253_5041_574E),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let floor_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| state.world().block_at(VoxelCoord::new(0, y, 0)) == Some(BLOCK_STATE_STONE))
+        .unwrap()
+        + 1;
+    for x in 0..=2 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(x, floor_y - 1, 0),
+            BLOCK_STATE_STONE,
+        );
+        for y in floor_y..=floor_y + 1 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut state,
+                VoxelCoord::new(x, y, 0),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    let spawn = VoxelCoord::new(0, floor_y, 0);
+    let nearby = VoxelCoord::new(1, floor_y, 0);
+    let death = VoxelCoord::new(2, floor_y, 0);
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    relocate_player_for_test(&mut state, death);
+    mark_player_dead(&mut state);
+    for position in [spawn, death] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(position.x(), floor_y - 1, 0),
+            BlockStateId::AIR,
+        );
+    }
+    assert!(!player_body_is_grounded(&registries, &state));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    let recovery = validate_respawn_player(&registries, &state)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(!recovery.used_spawn_anchor());
+    assert_eq!(recovery.position(), nearby);
+    assert_eq!(recovery.death_position(), death);
+    assert!(player_body_is_grounded(&registries, &state));
+    assert_eq!(
+        validate_respawn_player(&registries, &replay)
+            .unwrap()
+            .commit(&mut replay)
+            .unwrap(),
+        recovery
+    );
+    assert_eq!(state, replay);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
 fn respawn_fallback_after_spawn_damage(obstruct_with_stone: bool) {
     let registries = build_registries();
     let mut state = AppState::new();

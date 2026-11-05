@@ -721,9 +721,14 @@ become voxel-wide walls. Player admission and respawn bind the structural
 revision so a panel erected after clearance validation invalidates commit.
 Respawn also rechecks physical grounding at the original spawn wherever terrain
 is generated. A collision-free anchor whose floor was excavated is not a safe
-recovery site; the existing death-position fallback is used instead. The
-candidate check shares the control-rate floor solver, while ungenerated authored
-opening positions retain their non-terrain admission semantics. World revisions
+recovery site. When the death body remains grounded, its exact position is the
+fallback. An unsupported generated-world death instead searches immediate
+collision-free, supported neighbors at the same height or one voxel above or
+below, first around the original anchor and then around the death cache; the
+old death body is retained only if none of those physical sites is available.
+This bounded search never materializes unknown terrain. The candidate check
+shares the control-rate floor solver, while ungenerated authored opening
+positions retain their non-terrain admission semantics. World revisions
 invalidate earlier respawn clearance if the floor changes before commit.
 The smaller opening scout and watchman are close-contact actors, not full-cube
 movement obstacles: same-voxel melee and den recovery remain possible. Their
