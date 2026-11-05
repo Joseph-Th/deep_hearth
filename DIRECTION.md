@@ -29,55 +29,8 @@ Prefer a smaller connected graph over a larger disconnected catalog. A feature t
 no new owner interaction, decision surface, or recovery path has low priority unless it is required to close a
 specific vertical slice.
 
-The first physically built power coupling now connects opposed mechanical accumulators through
-an ordinary ground-set timber roller, converting a hand-charged local flywheel into a finite
-remote power source at bounded throughput and frictional loss. The connection is a structural
-member with actual material, support, construction time and recovery, not a free virtual bus.
-The connected generated-world worksite now demonstrates an actual production investment:
-from raw stone and logs the player hand-shapes a crusher body, jaw, wooden drive handles
-and a pick in 360 slow crafting ticks, preserving exact stone/wood chips. The player supplies
-500 J of finite hand-cranked work only after fabrication to avoid bearing losses, walks to
-the remote site with the parts, assembles the crusher/pick, excavates 100 g of 80%-grade
-galena from a represented mineral voxel, allocates finite stockpile bays, and deposits the
-mined ore. Three material-built rollers transmit shaft work across four cells with cumulative
-friction. The player starts 65 g of unattended crushing, walks away, returns to the
-recharged machine, and runs the remaining 35 g into a
-second bay. Equipment wear, mass, grade, particle size and save/replay survive; the
-crushing rate is unchanged. The test still seeds raw source stone/logs and a reachable
-mineral face. **Natural material discovery, source hauling, transport infrastructure,
-shaft branches/gearing and a renderer** remain gaps, not proven ordinary-play completion.
+Current integration frontier. Implemented slices and their limits are owned by [`STATUS.md`](STATUS.md) and [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md); this section keeps only what remains. The open gaps are natural material discovery, source hauling, transport infrastructure, shaft branching/gearing, and a renderer. [Combat and Kobold Cooperation](COMBAT_DESIGN.md) owns the combat sequence: first real nonlethal contact, then material-backed melee and defense, physical injury, ranged ammunition and supply, and only then voluntary allied roles and industrial formations; recruitment must not be a virtual army-unlock detached from den food and existing residents. Next prove an actual generated-world worksite fitting with ordinary player sabotage and visible injury, then extend to a genuinely carried, fitted and wearing kobold weapon before adding new residents. The stationary lever does not justify mobile pursuit. Then prove a small finite group that can provision and sustain a limited off-route raid with visible staging and meaningful counterplay. Only after that connect a surface witness/messenger to one existing temple district and an actual finite temple service operation.
 
-Short straight timber shaft runs now connect opposed mechanical stores across multiple
-cells when every span is an active, supported, sound and material-backed roller.
-Each 195 g roller consumes ordinary constructed timber and dissipates 20% of
-work that reaches its stage, so three sections deliver 51.2% of intake.
-A missing or dismantled middle section disconnects the line on its completion
-tick; no virtual connection remains. Crossings cannot spend any section or
-accumulator twice in a tick. This is not branching, rotary gearing or electrical
-transmission, and does not eliminate the raw-material/geology and renderer gaps.
-
-Combat's connected integration sequence is defined in [Combat and Kobold Cooperation](COMBAT_DESIGN.md):
-first real nonlethal contact, then material-backed melee and defense, physical injury, ranged
-ammunition and supply, and only then voluntary allied roles and industrial formations.
-Recruitment must not be a virtual army-unlock detached from den food and existing residents.
-
-The first informed-scavenger economic contest now has an ordinary generated-world
-continuation: a player makes a stone flywheel, the scout witnesses it and reports home,
-and the resulting raid can deprive an unattended worksite of recoverable stock.
-An unalerted colony cannot perform that raid. A real timber field box or an actively
-guarded approach protects the same material, with the enclosure requiring additional
-player work. An admitted player also now obtains and wields an actual wooden
-club in a generated-world scout encounter, establishing the actor-side melee
-baseline. A physically reported scout with a completed fitted metal-headed
-lever can now defend its **stationary** junction with finite, nonfatal blunt
-injury and conserved head wear in owner tests. Next prove an actual generated-world
-episode with worksite fitting, ordinary player sabotage and visible injury,
-then extend to a genuinely carried, fitted and wearing kobold weapon before
-adding new residents. The stationary lever does not justify mobile pursuit.
-Then prove a small finite group that can provision
-and sustain a limited off-route raid with visible staging and meaningful
-counterplay. Only after that connect a surface witness/messenger to one
-existing temple district and an actual finite temple service operation.
 Reopening a chamber or carrying an ancient part cannot produce unlimited
 replacement weapons or troops. Every slice should make a player upgrade
 solve a new contestable dependency rather than matching a virtual enemy level.
@@ -142,121 +95,7 @@ world alteration and chunk-granular persistence. Keep block identity, physical m
 attachments distinct so ordinary cells stay compact while exceptional temperature, damage, moisture, embodied
 matter or machine state can live in sparse owner-controlled state.
 
-The first storage slice now exists: `WorldState` owns persisted 16x16 chunk columns containing palette-compressed
-16-cubed sections, `WorldRegistry` owns authored block/state identity, and explicit-seed generation can commit
-deterministic stone terrain through a revision-bound transaction. That is infrastructure, not ordinary terrain
-play. The body path now persists a fixed-point bottom-center transform plus horizontal/vertical velocity in
-logistics and runs 20 Hz normalized walking input, authored acceleration/braking, gravity, and swept full-cube
-wall/floor/ceiling collision wherever the current footprint has generated chunk truth. Missing destination chunks
-remain hard authority boundaries rather than air, but the first terrain seed/state pair is now persisted as world
-generation identity and `validate_generate_player_neighborhood` can atomically fill the missing 3x3 neighborhood
-around the admitted player in one revision. The same body path owns stance, ledge-safe and load-limited crouching,
-load-limited walking and sprinting, and load-sensitive jumping. Adapter residency/unload remains open; the next gameplay slice can move to
-direct block action composition while streaming composition is added around this demand boundary. The core now
-accepts a normalized fixed-point view direction and deterministically raycasts from authored stance-specific eye
-height through generated full-cube terrain, with a 4.5 m authored reach and missing world truth treated as a hard
-authority boundary.
-
-The authoritative-time foundation separates a persisted 20 Hz `ControlTick` from the existing 3.6-second
-physical/accounting `SimulationTick`. `advance_control_tick` now owns both high-frequency progression and active
-generated-world body gravity/collision, running the slow transaction exactly every 72 control steps. `advance_tick`
-fails closed when that body physics is active instead of skipping intervening control semantics. Existing
-`TickSpan` work remains boundary-gated and generated-world slow work additionally requires ground contact.
-
-Direct player movement is now on the target authority path for basic terrestrial locomotion: fixed-point body
-position, horizontal/vertical velocity, persisted standing/crouching stance, load-limited walking,
-sprinting and crouching, grounded load-sensitive jumping, gravity, swept full-cube collision, crouched ledge protection, save/load
-continuation, and body/terrain race rejection are authoritative. Realized horizontal effort is speed- and
-load-sensitive and settles through the existing slow survival owner. Landing impact now derives from downward
-pre-collision speed: an authored safe threshold prevents ordinary jump injury, while harder impacts persist a
-bounded vitality loss that the next slow survival/death transaction settles atomically. Step-up, partial shapes,
-surface traction, general damage/protection, and adapter residency/unload remain open; deterministic player-neighborhood terrain demand now exists,
-and the timed one-voxel labor step is rejected once generated-world body
-physics is active. Deterministic player-eye targeting now feeds a conserved timed terrain-excavation owner path:
-authored mining physics binds portable tool throughput/hardness/wear, partial represented mass persists per cell,
-and completed fragments land in reserved carried custody when the complete batch fits, otherwise in finite loose
-surface custody at the player's work position. Player-created drops are persisted separately from natural
-opportunities and have an exact-local drop-only projection. Control-time pickup transfers as much mass as current
-carried capacity permits and leaves any remainder under the same conserved world identity; natural opportunities
-still require deliberate gathering.
-`PlayerDirectControlInput` now composes held primary excavation intent over that same owner path: any idle control
-step can choose the largest target/tool batch, typed rejection is observable, and a held action can start the next
-legal batch on the exact control step that completes the previous one. Excavation persists 20 Hz start/completion
-schedule and normalized progress while preserving authored mining duration, exertion, wear, custody, and save/load
-continuation. Logistics now persists nine semantic quick-access slots plus one selected slot over canonical carried
-custody. Equipment bindings still drive primary excavation and one-step equipment drop through the existing carry
-owner. Material bindings name authored carried commodities rather than transient lot identities; contextual secondary use
-composes that selection into canonical food consumption when one physical cohort is unambiguous, and can place
-an authored finished storage body into the generated-air voxel adjacent to the pointed block face. Placement
-rejects missing world authority, terrain occupancy, player-body overlap, and existing stationary object custody.
-Direct drop transfers the selected carried commodity into exact finite surface parcels without flattening
-temperature, composition, particulate state, provenance, or storage age, and uses a short control-time self-pickup
-delay before ordinary automatic recovery. Automatic pickup skips a drop needing an unavailable
-new lot identity when a later compatible drop can merge into carried custody, without discarding
-that blocked parcel. Inventory now also owns a revision-bound familiar material-stack projection derived from the same physical compatibility rules as lot coalescing, including current physical
-storage-age exposure for freshness presentation. A projected stack can drive partial same-voxel carried↔ground/storage
-transfer by mass while inventory privately resolves exact lot slices and rejects stale projections. A single
-player-facing inventory projection composes carrying state, all nine hotbar bindings, carried equipment/stacks,
-stationary equipment at the player's exact voxel, and only exact-local containers. Dropped portable equipment
-therefore remains visible through the same projection and still uses canonical pickup/drop validation.
-`validate_quick_move_player_stack` now composes the familiar maximum-fit transfer
-gesture between carried custody and one local container while exact relocation remains authoritative. Direct
-control can switch slots before primary/use/drop on the same 20 Hz sample.
-One-shot direct actions are retained when their canonical owner still requires a slow-simulation boundary.
-Logistics persists the minimum control context needed to re-resolve that action at the next legal boundary:
-contextual use keeps player voxel, active selection, and view direction, while structural break also pins the
-exact member identity so a stale request cannot fall through to terrain excavation. Save/load preserves an
-off-boundary request; changed locality, hotbar context, or structural target cancels buffered intent instead of
-authorizing stale state. Holding the same structural break or contextual use retains the existing queued action without repeated admission errors. A new aim, selection, or player position with fresh input replaces the obsolete queued context before the boundary; explicit combat replaces a pending structural break, while storage placement or dropping the active selection replaces pending contextual use. A simultaneous held use cannot defeat the drop gesture and requeue consumption. A fresh same-kind input on the due boundary also supersedes the older request. This removes
-held-input dependence without pretending affected slow work is a control-rate schedule; the gameplay report
-keeps the sub-quantum secondary-use admission wait visible.
-An explicit natural-source gather gesture can instead select one actor-observed local resource
-and physical mass. Its resource identity and amount survive off-boundary buffering and trusted
-reload, while the normal gathering owner rechecks current source, carrying, time, and work
-legality at admission. Co-located resources therefore remain ambiguous to unselected
-empty-hand use but are individually actionable from the observed source catalog.
-Projected edible stacks can now drive the default timed eating action directly, so two visible freshness cohorts
-remain a player choice while exact lot slices stay private to inventory/survival owners.
-Grounded structural construction now has the same stack-facing atomicity: one revision-bound carried stack plus
-authored local member geometry validates planning, exact materialization, and timed hand-setting as one player
-action, so stale matter cannot leave an orphan planned member. Direct secondary use now maps one unambiguous
-carried wood-log stack plus the top face of adjacent generated terrain to an authored 1 m timber post, after
-generated-air, body, object, and existing-structure vacancy checks. Side-supported geometry, terrain-owned
-structural support, panels/walls, general block placement, and deconstruction remain open.
-Personal manual crafting now composes the same carried custody into a stable recipe catalog plus recipe/batch
-start action. Durable homogeneous inputs resolve to exact lots privately; freshness-sensitive inputs keep one
-explicit revision-bound stack choice, optional equipment remains an exact revalidated provider, and output returns
-to carried custody through ordinary timed production. Adapter inventory/container/crafting rendering and input bindings,
-rendered/spatial drop presentation, broader structural placement, general block placement, and generic moving item
-entities remain open.
-
-Logistics still owns placement, carrying/haulage, delivery, access, path cost, and transport resource cost while
-inventory retains matter custody. AI routing and haulage should derive traversability from world geometry and
-movement capability rather than requiring hand-authored traversal edges.
-
-Fresh world generation authors a short six-edge opening opportunity graph used for bounded local orientation and
-planning. `AppState::available_adjacent_traversal_destinations` exposes only graph neighbors from the actor's current
-voxel, and immediate opening-source observation is gated by those same persisted logistics edges. Continuous 20 Hz
-body motion remains the sole ordinary player locomotion authority and derives legality from generated world geometry,
-collision, current work/custody constraints, physiology, and carried load rather than requiring traversal edges. AI and
-haulage may later derive discrete route cost from world geometry and movement capability instead of extending the
-opening observation graph into a hand-authored world network.
-The clay outcrop also contains a small independent native-copper surface float and a separate
-finite hard-rock copper-ore seam, generated atomically with opening residents through the geology
-owner. The float can supply 40 g for a copper-banded stone provisions crock or 20 g for an
-existing stone-tool reinforcement. A copper-reinforced woodworking adze repays its real extra
-acquisition work on roof-panel stock while the crock protects food longer at higher material cost.
-The ore seam is geological truth, not a visible free stockpile: field inspection and tool-backed
-sampling must first acquire positive locality and hardness evidence. A normal stone pick cannot
-excavate its 650 MPa rock, whereas the copper-reinforced pick can mine a real finite ore parcel and
-haul it home. Manual hand breaking and sorting now accept an observed, revision-bound inventory
-stack rather than asking a player to choose opaque lot identities. The returned ore can be
-selected and physically dressed in carried custody: a 100 g sample yields 32.5 g of native copper,
-67.5 g of copper-bearing rock residue, and leaves the other 100 g unworked, for 168 ticks of
-player labor. This is an expensive small-batch fallback: while the finite float still holds
-40 g, a matched 11-tick walk/forage alternative acquires more usable copper sooner. Ore dressing
-therefore pays off after exposed supplies become limiting, not as compulsory early busywork.
-Neither branch produces molten metal or bypasses the later furnace and casting requirements.
+Remaining integration work: adapter residency/unload, streaming composition around the existing demand boundary, direct block action composition, step-up, partial shapes, surface traction, general damage/protection, side-supported geometry, terrain-owned structural support, panels/walls, general block placement, and deconstruction. Current terrain, body, control-time action, inventory, and crafting slices and their limits are owned by [`STATUS.md`](STATUS.md) and [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md); this section keeps only the remaining priority.
 
 The direct-player surface uses familiar block-survival actions: active hotbar context, primary tool/break action,
 secondary place/interact/consume action, pickup/drop, and slot/container transfer. Exact mass, capacity,
@@ -279,50 +118,8 @@ crafting, equipment, storage, survival, fluid, thermal, and structural owners. F
 the entry point; exact physical consequences should remain consequences of those actions rather than
 prerequisites for learning a special interaction language.
 
-The current explicit-seed opening generator closes a bounded six-edge horizontal opportunity graph. Forage
-appears one step from spawn. From forage, a finite non-refilling water branch competes with a continuation to a
-material junction, where loose stone and timber are simultaneously visible on two adjacent leaves.
-The water branch has a separate reachable clay outcrop one leg beyond the drinkable source,
-so taking water does not ambiguously gather earth. Ordinary gathering, binder and board shaping,
-and player equipment assembly can build the clay-faced casting bed from a clean start without
-granting copper, stored melting energy, or a complete foundry. The lived
-wilderness episode proves that current physiology changes route choice: a rested actor skips the water detour,
-while a hydration-pressure actor chooses it and drinks before returning to the work path. Both reach the material
-junction through traversal-gated immediate observation and pay every load-sensitive step. Generated forage and
-water quantities are finite and seed-varied; their minimum opportunities exceed one resting day of basal need,
-while the lived actor deliberately gathers only a portable ration and leaves local surplus in world custody.
-Exact water quantity remains unknown unless the actor visits its branch. This closes a real
-distributed opening slice without claiming terrain geometry, general route generation/pathfinding, ecology,
-hydrology/flow/recharge, or broader world discovery.
+Current integration frontier. Implemented wilderness slices and their limits are owned by [`STATUS.md`](STATUS.md) and [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md). Open work: broader panels/walls/joints, general terrain-support physics, dependent demolition, weather, sleep, enclosure and insulation; an all-need branch that actually requires water; general route generation/pathfinding, ecology, hydrology/flow/recharge and broader world discovery; environmental heat transport, atmospheric chemistry, sky/block-light propagation or occlusion, and meshing.
 
-The worksite path also closes the first bounded fire/warmth/light edge. Ordinary unsheltered time drains a persisted
-thermal-comfort reserve; the existing long cache project naturally enters the chilly band. The actor prices the
-known fire response before committing, gathers exact local stone, assembles a stone-ring campfire, and burns one
-material-backed charge from staged timber into finite thermal storage. The same passive heat that leaves that
-co-located store restores player warmth, while remote heat does not. While stored heat remains, the located fire
-also exposes a renderer-neutral local light level with deterministic unoccluded falloff; extinguishing follows the
-same finite passive-energy loss rather than separate light state. Fuel mass remains conserved in an explicit
-combustion terminal account. One 1 kg charge now has an owner-derived 66.7-minute burn runway at the unchanged
-3 kW local warmth rate, so the fire is sustained camp infrastructure rather than a short recovery pulse; the
-wilderness harness reports that runway separately from the shorter, workload-dependent comfort-recovery interval. This is a primitive local heat/light source, not weather, environmental heat
-transport, atmospheric chemistry, sky/block-light propagation or occlusion, meshing, or shelter semantics.
-
-The structural owner now has an ordinary fresh-start overhead-refuge path below complete shelter semantics. An admitted
-player may hand-set one-voxel members anywhere inside the authored interaction-reach envelope, provided the target does
-not overlap the body and non-grounded work has a non-empty set of face-contacting active supports. All support links,
-exact material embodiment, attention and survival are prechecked before mutation, and in-progress work survives
-save/load before activating on completion. Selected logs place posts/framing; selected boards may place one solid
-1 m² × 10 mm, 6.5 kg timber panel on an existing active support. Only the completed panel counts as opaque overhead
-cover and reduces the existing thermal-exposure loss; it does not generate heat. The wilderness harness now carries
-the existing field-box-and-fire worksite state into a fresh-world long stay: after one fire charge leaves 5 kg of its
-staged timber reserve, the same actor consumes that cache first, gathers the remaining 14.75 kg timber plus 1 kg stone,
-builds three real support members, earns an adze from the panel's nine-batch board workload, completes the roof,
-conserves matter, and observes exposure fall from 1000 to 300 ppm per tick after finite fire warmth is gone. A covered
-player can defer fuel for a further hour, though an additional 1 kg fire charge in an unroofed camp
-still gives more warmth over that short interval. Broader panels/walls/joints, general terrain-support physics, dependent demolition, weather, sleep, enclosure
-and insulation remain open. The rested long-stay proof now combines food, storage, fire, toolmaking, and shelter in one
-state; the need-driven water detour remains separately covered, so one all-need branch that actually requires water is
-still open.
 
 Treat this as a substantive wilderness era, not a short bootstrap into copper. A normal opening should spend its
 first quarter-hour on the immediate camp economy: local acquisition, food/water, fire/shelter, storage, and a
