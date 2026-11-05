@@ -349,6 +349,23 @@ all branches pass trusted-state validation. These owner fixtures do *not*
 demonstrate a generated-world supply of fitted enemy iron equipment, a
 portable weapon or lethal injury.
 
+A second, generated-world integration branch establishes actual terrain **before**
+the scout's local machinery witness, den report and two consecutive fitting
+steps. A player initially beside the armed worksite then walks through
+generated air on ordinary 20 Hz input and automatically collects the
+physical 60 g wooden handle and 50 g iron head in separate control-rate
+transfers. The player walks back to the original face-adjacent threat
+cell, where the scout can no longer counterstrike after the head leaves
+its source. A matched walk with a full carried pack cannot collect that
+head: after returning to the same threatened cell, the scout still
+inflicts 12,000 ppm vitality loss and sheds 2 g of recoverable iron
+abrasion. Remaining adjacent without intervening has the same outcome.
+All three branches conserve matter and pass trusted-load validation;
+the moving/disarming branch replays exactly from a saved pre-contact state.
+The initial machine and two material parts are still controlled
+provisions, not ordinarily acquired ore, timber, or player-crafted
+industrial output; a portable armed scout is still absent.
+
 The negative control equips the same completed 50 g iron shoe without any
 machinery witness or den report. It retains the head and player vitality
 on the same adjacent confrontation: physical tool possession alone does not

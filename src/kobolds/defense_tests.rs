@@ -171,13 +171,375 @@ fn prepared_worksite_with_approach_edge(
     (registries, state, handle, head)
 }
 
-#[test]
-fn generated_unrouted_neighbor_can_receive_a_real_worksite_counterstroke() {
+/// Real generated floors and occupied air, not authored scout graph edges,
+/// provide collision and movement authority around the existing worksite.
+fn generate_worksite_terrain(registries: &Registries, state: &mut AppState) {
     use crate::content::BLOCK_STATE_STONE;
     use crate::world::{
         BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
         validate_generate_chunk,
     };
+
+    for chunk in [
+        ChunkCoord::containing(DEN),
+        ChunkCoord::containing(WORKSITE),
+    ] {
+        validate_generate_chunk(
+            registries,
+            state,
+            WorldGenerationSeed::new(7),
+            chunk,
+            BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(state)
+        .unwrap();
+    }
+    for voxel in [DEN, WORKSITE, TIP, APPROACH] {
+        set_generated_block_for_test(
+            registries.world(),
+            state,
+            VoxelCoord::new(voxel.x(), -1, voxel.z()),
+            BLOCK_STATE_STONE,
+        );
+        for y in 0..=2 {
+            set_generated_block_for_test(
+                registries.world(),
+                state,
+                VoxelCoord::new(voxel.x(), y, voxel.z()),
+                BlockStateId::AIR,
+            );
+        }
+    }
+}
+
+/// Complete the normal resident's witness/report/fitting sequence in generated
+/// terrain rather than moving a previously fitted authored opening into a world.
+fn prepared_generated_worksite() -> (Registries, AppState, SurfaceResourceId, SurfaceResourceId) {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    for (first, second) in [(DEN, WORKSITE), (WORKSITE, TIP)] {
+        add_traversable_edge_for_test(&mut state, first, second);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([DEN, WORKSITE, TIP]);
+    let machine = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_ELECTRICAL_BUFFER,
+        Energy::ZERO,
+    )
+    .unwrap();
+    place_energy_store_for_fixture(&mut state, machine, WORKSITE);
+    generate_worksite_terrain(&registries, &mut state);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    to_tick(&registries, &mut state, 200);
+    assert_eq!(
+        state.kobold_state().colony.as_ref().unwrap().mobilized_at,
+        Some(SimulationTick::new(195)),
+        "generated-world scout must actually report the worksite before fitting"
+    );
+    let handle = drop_part(
+        &registries,
+        &mut state,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+        Mass::from_milligrams(60_000),
+    );
+    let head = drop_part(
+        &registries,
+        &mut state,
+        CommodityKey::new(MATERIAL_IRON, FORM_INGOT),
+        Mass::from_milligrams(50_000),
+    );
+    (registries, state, handle, head)
+}
+
+#[test]
+fn ordinary_generated_walk_and_pickup_disarm_fitted_scout_before_counterstroke() {
+    use crate::logistics::{HorizontalControlInput, PlayerControlInput};
+    use crate::simulation::advance_control_tick_with_input;
+
+    let (registries, mut state, handle, head) = prepared_generated_worksite();
+    to_tick(&registries, &mut state, 210);
+    assert!(
+        ready_worksite_tool(
+            &registries,
+            &state,
+            state.kobold_state().colony.as_ref().unwrap(),
+            state.tick()
+        )
+        .is_some(),
+        "the scout must complete real fitting on generated ground"
+    );
+    validate_admit_player(&registries, &state, APPROACH)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert!(
+        ready_worksite_tool(
+            &registries,
+            &state,
+            state.kobold_state().colony.as_ref().unwrap(),
+            state.tick()
+        )
+        .is_some()
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let mut idle = state.clone();
+    let mut packed = state.clone();
+    let packed_carried = packed.logistics().player().unwrap().carried_stockpile();
+    let full_capacity = packed
+        .inventory()
+        .get_stockpile(packed_carried)
+        .unwrap()
+        .capacity();
+    crate::inventory::deposit_lot_for_test(
+        &registries,
+        &mut packed,
+        packed_carried,
+        CommodityKey::new(crate::content::MATERIAL_STONE, crate::content::FORM_LUMP),
+        full_capacity,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    assert_eq!(
+        packed
+            .inventory()
+            .get_stockpile(packed_carried)
+            .unwrap()
+            .available_capacity(),
+        Mass::ZERO
+    );
+    let packed_matter = calculate_matter_accounting(&packed).unwrap().total();
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    // The real input-frame motion, not a test relocation or custody grant,
+    // enters the scout's occupied junction in generated traversable air.
+    let walk = PlayerControlInput::new(HorizontalControlInput::new(0, -1_000_000).unwrap());
+    let mut entered = false;
+    for _ in 0..45 {
+        let outcome = advance_control_tick_with_input(&registries, &mut state, walk).unwrap();
+        assert_eq!(
+            outcome,
+            advance_control_tick_with_input(&registries, &mut replay, walk).unwrap()
+        );
+        if state.logistics().player().unwrap().position() == WORKSITE {
+            entered = true;
+            break;
+        }
+    }
+    assert!(
+        entered,
+        "normal 20 Hz walking must enter the real neighboring air cell"
+    );
+
+    // Two separate, source-local parcels require two actual pickup steps.
+    // Both become carried matter; the old fitted identities do not disappear
+    // from the save or become ghost equipment in the resident's hands.
+    let mut picked_head = false;
+    for _ in 0..32 {
+        let outcome = advance_control_tick(&registries, &mut state).unwrap();
+        assert_eq!(
+            outcome,
+            advance_control_tick(&registries, &mut replay).unwrap()
+        );
+        picked_head |= outcome
+            .surface_drop_pickup()
+            .is_some_and(|picked| picked.resource() == head);
+        if picked_head {
+            break;
+        }
+    }
+    assert!(
+        picked_head,
+        "the player must physically recover the fitted metal head"
+    );
+    assert_eq!(
+        state.surface().get(head).unwrap().remaining_mass(),
+        Mass::ZERO
+    );
+    assert_eq!(
+        state.surface().get(handle).unwrap().remaining_mass(),
+        Mass::ZERO
+    );
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(CommodityKey::new(MATERIAL_IRON, FORM_INGOT)),
+        Mass::from_milligrams(50_000)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE)),
+        Mass::from_milligrams(60_000)
+    );
+    assert!(
+        ready_worksite_tool(
+            &registries,
+            &state,
+            state.kobold_state().colony.as_ref().unwrap(),
+            state.tick()
+        )
+        .is_none()
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+
+    // Return to the original face-adjacent threatened cell after disarming.
+    // Remaining inside the scout's own cell would avoid the contact geometry
+    // even with an intact head, so it cannot establish that sabotage mattered.
+    let retreat = PlayerControlInput::new(HorizontalControlInput::new(0, 1_000_000).unwrap());
+    let mut withdrew = false;
+    for _ in 0..45 {
+        let outcome = advance_control_tick_with_input(&registries, &mut state, retreat).unwrap();
+        assert_eq!(
+            outcome,
+            advance_control_tick_with_input(&registries, &mut replay, retreat).unwrap()
+        );
+        if state.logistics().player().unwrap().position() == APPROACH {
+            withdrew = true;
+            break;
+        }
+    }
+    assert!(
+        withdrew,
+        "disarming player must walk back to the exposed neighboring cell"
+    );
+    for _ in 0..20 {
+        let outcome = advance_control_tick(&registries, &mut state).unwrap();
+        assert_eq!(
+            outcome,
+            advance_control_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state.logistics().player().unwrap().position(), APPROACH);
+    assert!(
+        state
+            .logistics()
+            .player()
+            .unwrap()
+            .body()
+            .horizontal_velocity()
+            .z_nanometers_per_second()
+            == 0
+    );
+    assert!(state.tick().value() < 215);
+
+    // Control for movement alone: with a genuinely full pack the player can
+    // walk through the same occupied worksite, but cannot collect the head.
+    // Returning to the identical adjacent threat cell must still incur injury.
+    let mut packed_entered = false;
+    for _ in 0..100 {
+        let _ = advance_control_tick_with_input(&registries, &mut packed, walk).unwrap();
+        if packed.logistics().player().unwrap().position() == WORKSITE {
+            packed_entered = true;
+            break;
+        }
+    }
+    assert!(
+        packed_entered,
+        "a heavy carried load slows but does not prohibit walking"
+    );
+    for _ in 0..20 {
+        let _ = advance_control_tick(&registries, &mut packed).unwrap();
+    }
+    assert_eq!(
+        packed.surface().get(head).unwrap().remaining_mass(),
+        Mass::from_milligrams(50_000)
+    );
+    let mut packed_withdrew = false;
+    for _ in 0..100 {
+        let _ = advance_control_tick_with_input(&registries, &mut packed, retreat).unwrap();
+        if packed.logistics().player().unwrap().position() == APPROACH {
+            packed_withdrew = true;
+            break;
+        }
+    }
+    assert!(packed_withdrew);
+    for _ in 0..25 {
+        let _ = advance_control_tick(&registries, &mut packed).unwrap();
+    }
+    assert_eq!(packed.logistics().player().unwrap().position(), APPROACH);
+    assert!(packed.tick().value() < 215);
+    assert_eq!(to_tick(&registries, &mut packed, 215), [(head, 12_000)]);
+    assert_eq!(
+        packed.surface().get(head).unwrap().remaining_mass(),
+        Mass::from_milligrams(48_000),
+        "a walk without physical pickup cannot disarm the worksite"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&packed).unwrap().total(),
+        packed_matter
+    );
+    assert_eq!(validate_loaded_state(&registries, &packed), Ok(()));
+
+    // The same adjacent encounter without approaching also receives injury.
+    // The disarmed route alone cannot spend a phantom head on contact.
+    assert_eq!(to_tick(&registries, &mut idle, 215), [(head, 12_000)]);
+    let mut contacts = Vec::new();
+    while state.tick().value() < 215 {
+        let result = advance_control_tick(&registries, &mut state).unwrap();
+        assert_eq!(
+            result,
+            advance_control_tick(&registries, &mut replay).unwrap()
+        );
+        if let Some(contact) = result
+            .simulation()
+            .and_then(|slow| slow.kobold_scout())
+            .and_then(|scout| scout.defensive_contact())
+        {
+            contacts.push(contact);
+        }
+    }
+    assert!(contacts.is_empty());
+    assert_eq!(
+        state
+            .survival()
+            .player()
+            .unwrap()
+            .vitality()
+            .parts_per_million(),
+        1_000_000
+    );
+    assert_eq!(
+        idle.survival()
+            .player()
+            .unwrap()
+            .vitality()
+            .parts_per_million(),
+        988_000
+    );
+    assert_eq!(state, replay);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        calculate_matter_accounting(&idle).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &idle), Ok(()));
+}
+
+#[test]
+fn generated_unrouted_neighbor_can_receive_a_real_worksite_counterstroke() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{BlockStateId, set_generated_block_for_test};
 
     let (registries, mut opening, _, head) = prepared_worksite_with_approach_edge(true, false);
     to_tick(&registries, &mut opening, 210);
@@ -214,37 +576,7 @@ fn generated_unrouted_neighbor_can_receive_a_real_worksite_counterstroke() {
     // The player is physically beside the fixed scout worksite in generated
     // terrain, but that side cell was never a kobold patrol destination.
     let mut generated = opening;
-    for chunk in [
-        ChunkCoord::containing(DEN),
-        ChunkCoord::containing(WORKSITE),
-    ] {
-        validate_generate_chunk(
-            &registries,
-            &generated,
-            WorldGenerationSeed::new(7),
-            chunk,
-            BLOCK_STATE_STONE,
-        )
-        .unwrap()
-        .commit(&mut generated)
-        .unwrap();
-    }
-    for voxel in [DEN, WORKSITE, TIP, APPROACH] {
-        set_generated_block_for_test(
-            registries.world(),
-            &mut generated,
-            VoxelCoord::new(voxel.x(), -1, voxel.z()),
-            BLOCK_STATE_STONE,
-        );
-        for y in 0..=2 {
-            set_generated_block_for_test(
-                registries.world(),
-                &mut generated,
-                VoxelCoord::new(voxel.x(), y, voxel.z()),
-                BlockStateId::AIR,
-            );
-        }
-    }
+    generate_worksite_terrain(&registries, &mut generated);
     assert!(crate::world::has_clear_two_step_sightline(
         &registries,
         &generated,
