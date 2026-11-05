@@ -18,6 +18,146 @@ use crate::spatial::VoxelCoord;
 use crate::survival::{Vitality, player_record_with_thermal_comfort};
 
 #[test]
+fn automatic_pickup_respects_tool_weight_across_fast_forward_and_recovery() {
+    use crate::content::{EQUIPMENT_STONE_PICK, FORM_HANDLE, FORM_TOOL};
+    use crate::equipment::validate_assemble_equipment;
+    use crate::inventory::add_solid_stockpile_for_test;
+    use crate::logistics::{
+        assess_player_carrying, place_equipment_for_fixture, validate_drop_equipment,
+        validate_pickup_equipment,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let material = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let dropped_mass = Mass::from_milligrams(25_000_000);
+    let source =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000)).unwrap();
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            source,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+    }
+    let tool = validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, source)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    place_equipment_for_fixture(&mut state, tool, position);
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        position,
+        material,
+        dropped_mass,
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let drop = insert_surface_resource_for_test(&registries, &mut state, spec).unwrap();
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    validate_pickup_equipment(&registries, &state, tool)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let carrying = assess_player_carrying(&state).unwrap();
+    assert_eq!(carrying.capacity(), dropped_mass);
+    assert_eq!(carrying.equipment(), Mass::from_milligrams(1_000_000));
+    assert_eq!(carrying.available(), Mass::from_milligrams(24_000_000));
+    let original_matter = calculate_matter_accounting(&state).unwrap().total();
+
+    let pickup = advance_control_tick(&registries, &mut state)
+        .unwrap()
+        .surface_drop_pickup()
+        .unwrap();
+    assert_eq!(pickup.resource(), drop);
+    assert_eq!(pickup.picked_mass(), Mass::from_milligrams(24_000_000));
+    assert_eq!(
+        state.surface().get(drop).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_000_000)
+    );
+    assert_eq!(
+        assess_player_carrying(&state).unwrap().available(),
+        Mass::ZERO
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        original_matter
+    );
+
+    // A full pack must not force 71 redundant 20 Hz pickup samples. The
+    // skipped neutral interval must match exactly replaying those samples.
+    let mut replay = state.clone();
+    let slow = advance_tick(&registries, &mut state).unwrap();
+    let mut last_control = None;
+    for _ in 1..CONTROL_TICKS_PER_SIMULATION_TICK {
+        last_control = Some(advance_control_tick(&registries, &mut replay).unwrap());
+    }
+    assert_eq!(slow, *last_control.unwrap().simulation().unwrap());
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(drop).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_000_000)
+    );
+
+    validate_drop_equipment(&registries, &state, tool)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let carrying = assess_player_carrying(&state).unwrap();
+    assert_eq!(carrying.capacity(), dropped_mass);
+    assert_eq!(carrying.equipment(), Mass::ZERO);
+    assert_eq!(carrying.available(), Mass::from_milligrams(1_000_000));
+    let rest = advance_control_tick(&registries, &mut state)
+        .unwrap()
+        .surface_drop_pickup()
+        .unwrap();
+    assert_eq!(rest.resource(), drop);
+    assert_eq!(rest.picked_mass(), Mass::from_milligrams(1_000_000));
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(material),
+        dropped_mass
+    );
+    assert_eq!(
+        assess_player_carrying(&state).unwrap().available(),
+        Mass::ZERO
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        original_matter
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, restored);
+}
+
+#[test]
 fn carried_material_drop_cannot_reuse_an_earlier_control_sample_for_pickup_delay() {
     use crate::surface::available_player_world_drops;
 
