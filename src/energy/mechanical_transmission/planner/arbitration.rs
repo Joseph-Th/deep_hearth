@@ -1,7 +1,8 @@
 //! Bounded aggregate-work arbitration for independent sets of physical shaft transfers.
 //!
 //! Small connected conflict groups are solved exactly. Exceptionally large
-//! groups retain deterministic greedy selection so ordinary tick cost remains bounded.
+//! groups use deterministic greedy selection followed by bounded replacements,
+//! so adding one weak candidate does not discard obvious aggregate-work gains.
 
 use super::*;
 
@@ -110,11 +111,28 @@ fn exact_group(pairs: &[ShaftPair], runs: &[ShaftRun], indices: &[usize]) -> Vec
         .collect()
 }
 
-fn greedy_group(pairs: &[ShaftPair], runs: &[ShaftRun], indices: &[usize]) -> Vec<ShaftPair> {
+/// Complete a compatible set in useful-work order, optionally leaving one
+/// incumbent out so other physical shaft paths may use its freed assets.
+fn greedy_completion(
+    pairs: &[ShaftPair],
+    runs: &[ShaftRun],
+    indices: &[usize],
+    fixed: &[usize],
+    excluded: Option<usize>,
+) -> Vec<usize> {
     let mut used_stores = BTreeSet::new();
     let mut used_rollers = BTreeSet::new();
-    let mut selected = Vec::new();
+    let mut selected = fixed.to_vec();
+    for &index in fixed {
+        let pair = pairs[index];
+        used_stores.insert(pair.transfer.source());
+        used_stores.insert(pair.transfer.destination());
+        used_rollers.extend(runs[pair.run].rollers.iter().copied());
+    }
     for &index in indices {
+        if excluded == Some(index) || fixed.binary_search(&index).is_ok() {
+            continue;
+        }
         let pair = pairs[index];
         if used_stores.contains(&pair.transfer.source())
             || used_stores.contains(&pair.transfer.destination())
@@ -128,9 +146,56 @@ fn greedy_group(pairs: &[ShaftPair], runs: &[ShaftRun], indices: &[usize]) -> Ve
         used_stores.insert(pair.transfer.source());
         used_stores.insert(pair.transfer.destination());
         used_rollers.extend(runs[pair.run].rollers.iter().copied());
-        selected.push(pair);
+        selected.push(index);
     }
+    selected.sort_unstable();
     selected
+}
+
+fn aggregate_work(pairs: &[ShaftPair], indices: &[usize]) -> (u128, u128) {
+    indices
+        .iter()
+        .fold((0_u128, 0_u128), |(delivered, drawn), &index| {
+            let transfer = pairs[index].transfer;
+            (
+                delivered.saturating_add(transfer.delivered().nanojoules()),
+                drawn.saturating_add(transfer.drawn().nanojoules()),
+            )
+        })
+}
+
+fn greedy_group(pairs: &[ShaftPair], runs: &[ShaftRun], indices: &[usize]) -> Vec<ShaftPair> {
+    let mut selected = greedy_completion(pairs, runs, indices, &[], None);
+    let mut current_work = aggregate_work(pairs, &selected);
+    // A large group must not suddenly lose useful work when its seventeenth
+    // candidate disables the exact solver. A high-output shaft can monopolize
+    // two rollers even when two independent lower-output shafts deliver more.
+    // Consider at most two rounds of single-shaft replacement, retaining the
+    // bounded tick cost and accepting only strictly better aggregate physics.
+    for _ in 0..2 {
+        let mut improved = false;
+        for incumbent in selected.iter().copied() {
+            let retained = selected
+                .iter()
+                .copied()
+                .filter(|&index| index != incumbent)
+                .collect::<Vec<_>>();
+            let alternative = greedy_completion(pairs, runs, indices, &retained, Some(incumbent));
+            let alternative_work = aggregate_work(pairs, &alternative);
+            if alternative_work.0 > current_work.0
+                || (alternative_work.0 == current_work.0 && alternative_work.1 < current_work.1)
+            {
+                selected = alternative;
+                current_work = alternative_work;
+                improved = true;
+                break;
+            }
+        }
+        if !improved {
+            break;
+        }
+    }
+    selected.into_iter().map(|index| pairs[index]).collect()
 }
 
 fn root(parents: &mut [usize], index: usize) -> usize {
@@ -191,8 +256,8 @@ fn conflict_groups(pairs: &[ShaftPair], runs: &[ShaftRun]) -> Vec<Vec<usize>> {
 }
 
 /// Select the greatest combined useful energy for compact conflicting groups.
-/// All groups are physically disjoint; large or unusually dense groups fall
-/// back to the original stable per-transfer ranking.
+/// All groups are physically disjoint; large or unusually dense groups use
+/// bounded local improvements rather than exponential subset enumeration.
 pub(super) fn select_shaft_pairs(pairs: &[ShaftPair], runs: &[ShaftRun]) -> Vec<ShaftPair> {
     let mut selected = Vec::new();
     for indices in conflict_groups(pairs, runs) {

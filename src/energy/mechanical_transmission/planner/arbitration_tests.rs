@@ -85,3 +85,51 @@ fn crowded_shared_roller_group_uses_bounded_stable_fallback() {
     assert_eq!(selected[0].run, 0);
     assert_eq!(selected[0].transfer.delivered().nanojoules(), 17);
 }
+
+#[test]
+fn weak_extra_candidate_does_not_reduce_useful_work_at_exact_solver_limit() {
+    let runs = (0..=EXACT_CONFLICT_LIMIT)
+        .map(|index| ShaftRun {
+            rollers: match index {
+                0 => vec![StructuralElementId::new(1), StructuralElementId::new(2)],
+                2 => vec![StructuralElementId::new(2)],
+                _ => vec![StructuralElementId::new(1)],
+            },
+        })
+        .collect::<Vec<_>>();
+    // The largest individual shaft monopolizes both rollers. Two smaller
+    // shafts deliver more useful work together and draw correspondingly more.
+    let mut pairs = vec![
+        candidate(0, 1, 1, 2, 100, 125),
+        candidate(1, 1, 3, 4, 60, 75),
+        candidate(2, 2, 5, 6, 60, 75),
+    ];
+    for run in 3..=EXACT_CONFLICT_LIMIT {
+        let store = 2 * run as u64 + 1;
+        pairs.push(candidate(run, 1, store, store + 1, 1, 2));
+    }
+    let exact = select_shaft_pairs(&pairs[..EXACT_CONFLICT_LIMIT], &runs);
+    let fallback = select_shaft_pairs(&pairs, &runs);
+    let selected_runs = |selected: Vec<ShaftPair>| {
+        selected
+            .into_iter()
+            .map(|pair| pair.run)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(selected_runs(exact), vec![1, 2]);
+    assert_eq!(selected_runs(fallback.clone()), vec![1, 2]);
+    assert_eq!(
+        fallback
+            .iter()
+            .map(|pair| pair.transfer.delivered().nanojoules())
+            .sum::<u128>(),
+        120
+    );
+
+    // At equal aggregate delivery, shaft friction is still a real energy
+    // cost: two independent shafts should win when they draw less in total.
+    pairs[0] = candidate(0, 1, 1, 2, 100, 160);
+    pairs[1] = candidate(1, 1, 3, 4, 50, 60);
+    pairs[2] = candidate(2, 2, 5, 6, 50, 60);
+    assert_eq!(selected_runs(select_shaft_pairs(&pairs, &runs)), vec![1, 2]);
+}
