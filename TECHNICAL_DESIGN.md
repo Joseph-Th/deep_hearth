@@ -265,6 +265,11 @@ Full block excavation cannot remove a floor beneath either resident, including w
 the occupant changes after excavation validation; the scout and watchman also avoid
 a floor already reserved for complete removal. Partial cuts retain collision and
 remain admissible.
+The ordinary held-pick batch selector preserves that same distinction: when a full
+cut would undermine an occupied resident, rooted tree, finished storage enclosure,
+or embodied grounded member, it retries smaller amounts through the exact mining
+validator. The last represented milligram remains solid and protected rather than
+making the entire cell unmineable or permitting unsupported construction.
 
 An opening den watchman's food-funded patrol takes exactly 20 g of fresh local
 food from recoverable surface custody. One sufficient parcel is preferred;

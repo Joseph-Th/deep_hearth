@@ -206,6 +206,68 @@ fn grounded_member_protects_last_floor_mass_but_not_partial_excavation() {
 }
 
 #[test]
+fn held_pick_partially_excavates_supported_foundation_without_undermining_it() {
+    let (registries, mut state, pick, target) = almost_excavated_foundation();
+    let post = build_ground_anchor(&registries, &mut state, target, true);
+    assert_eq!(
+        validate_start_player_block_excavation(&registries, &state, dig_request(pick, 2)).err(),
+        Some(BlockExcavationError::GroundedStructureRequiresFloor {
+            target,
+            element: post,
+        })
+    );
+    assert!(
+        validate_start_player_block_excavation(&registries, &state, dig_request(pick, 1)).is_ok(),
+        "explicit mining permits removing one milligram while leaving the footing in place"
+    );
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    let control = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_primary(PrimaryControlIntent::break_target(positive_x_view())),
+    )
+    .unwrap();
+    let started = match control.primary_action() {
+        Some(PrimaryActionOutcome::BlockExcavationStarted(started)) => *started,
+        other => panic!("held pick should admit a supported partial cut: {other:?}"),
+    };
+    assert_eq!(started.target(), target);
+    assert_eq!(started.excavated_mass(), Mass::from_milligrams(1));
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.control_tick() < started.completes_at() {
+        let actual = advance_control_tick(&registries, &mut state).unwrap();
+        assert_eq!(
+            actual,
+            advance_control_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state
+            .world()
+            .represented_mass_at(registries.world(), target),
+        Some(Mass::from_milligrams(1))
+    );
+    assert_eq!(state.world().block_at(target), Some(BLOCK_STATE_STONE));
+    assert_eq!(
+        validate_start_player_block_excavation_active(&registries, &state, positive_x_view()).err(),
+        Some(BlockExcavationError::GroundedStructureRequiresFloor {
+            target,
+            element: post,
+        }),
+        "the last milligram remains protected from held mining"
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn opening_resident_footing_invalidates_an_earlier_full_excavation_plan() {
     let (registries, mut state, pick, target) = almost_excavated_foundation();
     let den = VoxelCoord::new(target.x(), target.y() + 1, target.z());
@@ -248,6 +310,25 @@ fn opening_resident_footing_invalidates_an_earlier_full_excavation_plan() {
         validate_start_player_block_excavation(&registries, &state, dig_request(pick, 1)).is_ok(),
         "removing one milligram must not remove the resident's supporting voxel"
     );
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    let started =
+        validate_start_player_block_excavation_active(&registries, &state, positive_x_view())
+            .expect("held input must find an authorized partial cut below the scout")
+            .commit(&mut state)
+            .unwrap();
+    assert_eq!(started.excavated_mass(), Mass::from_milligrams(1));
+    while state.control_tick() < started.completes_at() {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(
+        state
+            .world()
+            .represented_mass_at(registries.world(), target),
+        Some(Mass::from_milligrams(1))
+    );
+    assert_eq!(state.world().block_at(target), Some(BLOCK_STATE_STONE));
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

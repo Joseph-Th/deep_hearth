@@ -43,6 +43,13 @@ fn batch_size_can_resolve(error: &BlockExcavationError) -> bool {
         BlockExcavationError::Physics(
             MiningPhysicsError::Duration(_) | MiningPhysicsError::ConditionDuration(_)
         ) | BlockExcavationError::ScheduleOverflow
+            // Only removal of the *last* represented mass destroys the solid
+            // footing. A smaller authorized cut keeps the load-bearing cell,
+            // so the held-tool resolver must try it before giving up.
+            | BlockExcavationError::StorageEnclosureRequiresFloor { .. }
+            | BlockExcavationError::StandingTreeRequiresFloor { .. }
+            | BlockExcavationError::OpeningResidentRequiresFloor { .. }
+            | BlockExcavationError::GroundedStructureRequiresFloor { .. }
             | BlockExcavationError::SurfaceRevisionExhausted
             | BlockExcavationError::SurfaceResourceIdExhausted
             | BlockExcavationError::PlayerWork(

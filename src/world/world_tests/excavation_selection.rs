@@ -10,6 +10,94 @@ use crate::registry::{Registries, RegistryDomains, RegistryPresentation};
 use crate::survival::SurvivalExertion;
 
 #[test]
+fn held_pick_keeps_finished_storage_supported_while_recovering_partial_stone() {
+    use crate::content::{FORM_ROUGH_BOX_BODY, STORAGE_ROUGH_TIMBER_FIELD_BOX};
+    use crate::inventory::validate_place_player_storage_at;
+
+    let (registries, mut state, pick, target) = generated_excavation_fixture();
+    let full = registries
+        .world()
+        .represented_mass_for_state(BLOCK_STATE_STONE)
+        .unwrap();
+    let revision = state.world().revision();
+    state.world_state_mut().apply_excavated_cell_mass(
+        revision,
+        revision + 1,
+        target,
+        BLOCK_STATE_STONE,
+        full,
+        Mass::from_milligrams(2),
+    );
+    let enclosure_definition = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
+        enclosure_definition.assembly_profile().input_mass(),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let storage_at = VoxelCoord::new(target.x(), target.y() + 1, target.z());
+    let box_id = validate_place_player_storage_at(
+        &registries,
+        &state,
+        STORAGE_ROUGH_TIMBER_FIELD_BOX,
+        storage_at,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(
+        validate_start_player_block_excavation(
+            &registries,
+            &state,
+            BlockExcavationRequest::new(
+                positive_x_view(),
+                MINING_METHOD_HAND_PICK,
+                pick,
+                Mass::from_milligrams(2),
+            ),
+        )
+        .err(),
+        Some(BlockExcavationError::StorageEnclosureRequiresFloor {
+            target,
+            stockpile: box_id,
+        })
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let started =
+        validate_start_player_block_excavation_active(&registries, &state, positive_x_view())
+            .expect("held mining should reduce a batch rather than refuse safe work")
+            .commit(&mut state)
+            .unwrap();
+    assert_eq!(started.excavated_mass(), Mass::from_milligrams(1));
+    while state.control_tick() < started.completes_at() {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(
+        state
+            .world()
+            .represented_mass_at(registries.world(), target),
+        Some(Mass::from_milligrams(1))
+    );
+    assert_eq!(
+        state.logistics().stationary_stockpile_position(box_id),
+        Some(storage_at),
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn block_excavation_preserves_the_floor_of_a_completed_storage_enclosure() {
     use crate::content::{FORM_ROUGH_BOX_BODY, STORAGE_ROUGH_TIMBER_FIELD_BOX};
     use crate::inventory::validate_place_player_storage_at;
