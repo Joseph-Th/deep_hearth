@@ -49,7 +49,7 @@ pub enum KoboldFootfallBearing {
     Below,
 }
 
-/// A short-lived auditory clue from one physically recorded resident step.
+/// A short-lived auditory clue from a real resident movement or source-local action.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct KoboldFootfall {
@@ -164,35 +164,53 @@ pub fn available_nearby_kobold_footfalls(
     let Some(colony) = state.kobold_state().colony.as_ref() else {
         return Vec::new();
     };
-    let mut heard = [colony.tracks.last(), colony.watch_tracks.last()]
+    let mut heard = Vec::new();
+    for track in [colony.tracks.last(), colony.watch_tracks.last()]
         .into_iter()
         .flatten()
-        .filter_map(|track| {
-            let age = state.tick().checked_duration_since(track.left_at())?;
-            if age.value() > FOOTFALL_AUDIBLE_TICKS {
-                return None;
+    {
+        if !state
+            .tick()
+            .checked_duration_since(track.left_at())
+            .is_some_and(|age| age.value() <= FOOTFALL_AUDIBLE_TICKS)
+        {
+            continue;
+        }
+        let activity = track.observed_activity();
+        // A resident who eats or drinks at the departure cell still makes a
+        // real movement to the arrival cell. Its louder or more local source
+        // action cannot erase footsteps from a listener who hears only the
+        // returning body. Use the same source-local physics for both sounds.
+        if matches!(
+            activity,
+            KoboldTrailKind::Drinking | KoboldTrailKind::Foraging
+        ) && let Some(footsteps) = audible_activity(
+            registries,
+            state,
+            track.toward(),
+            listener,
+            track.left_at(),
+            KoboldTrailKind::Walking,
+        ) {
+            heard.push(footsteps);
+        }
+        let source = match activity {
+            KoboldTrailKind::Drinking | KoboldTrailKind::Foraging => track.position(),
+            KoboldTrailKind::Walking | KoboldTrailKind::Hauling | KoboldTrailKind::Fleeing => {
+                track.toward()
             }
-            // Water is consumed and forage is harvested at the departure cell
-            // before the scout takes its next edge. Movement noise instead
-            // follows the moving resident to the arrival cell. Using arrival
-            // for every activity can erase real splashes or send misleading
-            // bearings through a nearby wall.
-            let source = match track.observed_activity() {
-                KoboldTrailKind::Drinking | KoboldTrailKind::Foraging => track.position(),
-                KoboldTrailKind::Walking | KoboldTrailKind::Hauling | KoboldTrailKind::Fleeing => {
-                    track.toward()
-                }
-            };
-            audible_activity(
-                registries,
-                state,
-                source,
-                listener,
-                track.left_at(),
-                track.observed_activity(),
-            )
-        })
-        .collect::<Vec<_>>();
+        };
+        if let Some(cue) = audible_activity(
+            registries,
+            state,
+            source,
+            listener,
+            track.left_at(),
+            activity,
+        ) {
+            heard.push(cue);
+        }
+    }
     // One return edge can both haul a real parcel and drink at its departure
     // cell. The physical track records hauling, but the separate persisted
     // drinking event remains audible; neither action suppresses the other.

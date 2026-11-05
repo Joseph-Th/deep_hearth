@@ -98,16 +98,40 @@ fn witnessed_outer_patrol_drink_survives_unseen_return_without_disclosing_destin
         crate::kobolds::KoboldTrailKind::Drinking
     );
     let heard = crate::kobolds::available_nearby_kobold_footfalls(&registries, &listening);
-    assert_eq!(heard.len(), 1, "a real source-local splash must be audible");
     assert_eq!(
-        heard[0].kind(),
-        crate::kobolds::KoboldFootfallKind::Splashing
+        heard.len(),
+        2,
+        "both the water visit and actual return step are audible"
     );
+    let splash = heard
+        .iter()
+        .find(|cue| cue.kind() == crate::kobolds::KoboldFootfallKind::Splashing)
+        .expect("a real source-local splash must remain audible");
     assert_eq!(
-        heard[0].bearing(),
+        splash.bearing(),
         crate::kobolds::KoboldFootfallBearing::West
     );
-    assert_eq!(heard[0].occurred_at(), SimulationTick::new(990));
+    assert_eq!(splash.occurred_at(), SimulationTick::new(990));
+    assert!(
+        heard
+            .iter()
+            .any(|cue| cue.kind() == crate::kobolds::KoboldFootfallKind::Footsteps)
+    );
+    // The actual return edge reaches the listener even where the splash
+    // cannot. A drinking activity label must not silence that real movement.
+    let mut footsteps_only = listening.clone();
+    crate::logistics::relocate_player_for_test(&mut footsteps_only, VoxelCoord::new(-3, 0, 0));
+    let footsteps = crate::kobolds::available_nearby_kobold_footfalls(&registries, &footsteps_only);
+    assert_eq!(
+        footsteps.len(),
+        1,
+        "the resident's return footsteps must remain audible"
+    );
+    assert_eq!(
+        footsteps[0].kind(),
+        crate::kobolds::KoboldFootfallKind::Footsteps
+    );
+    assert_eq!(footsteps[0].occurred_at(), SimulationTick::new(990));
     let saved_listener = serde_json::to_vec(&SaveEnvelope::new(&registries, &listening)).unwrap();
     let restored_listener = serde_json::from_slice::<LoadedSaveEnvelope>(&saved_listener)
         .unwrap()

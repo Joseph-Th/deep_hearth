@@ -331,13 +331,16 @@ persisted drink event, distinguishing walking, hauling, foraging, splashing
 and flight without exposing a hidden resident position or route. Movement
 scuffs originate at the actual arrival cell; foraging and drinking originate
 at the source cell where food or water was taken before that movement.
-A drink while hauling remains a separate splash instead of being lost under
-the hauling trail, and an immobile drink remains audible without a fabricated
-footstep. The real drink time prevents duplicates when the track already
-records that splash. Sound follows bounded face-connected air corridors,
-not rock, standing trunks, built walls or unknown generated terrain. Only
-events up to two slow ticks old can be queried; their original tick lets
-an adapter play each actual event once. The scout likewise reacts to actual
+A real step after foraging or drinking has both arrival-cell footsteps and
+source-cell activity, so a listener outside the shorter action-sound radius
+can still hear the departing resident. A drink while hauling likewise remains
+a separate splash instead of being lost under the hauling trail; an immobile
+drink is audible without fabricating footsteps. The real drink time prevents
+duplicates when the track already records that splash. Sound follows bounded
+face-connected air corridors, not rock, standing trunks, built walls or
+unknown generated terrain. Only events up to two slow ticks old can be
+queried. Distinct kinds can share an original tick, so an audio adapter must
+not deduplicate solely by timestamp. The scout likewise reacts to actual
 grounded sprint-speed player movement audible from its current position, not
 to remote player coordinates or stationary intent. Outdoor regional gusts
 reduce footfall and running-hearing distance, using wind at the real sound

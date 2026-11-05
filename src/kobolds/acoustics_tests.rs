@@ -804,10 +804,35 @@ fn real_foraging_sound_origin_is_the_harvest_site_not_the_drop_destination() {
     assert_eq!(trail.toward(), junction);
     assert_eq!(trail.observed_activity(), KoboldTrailKind::Foraging);
     let heard = available_nearby_kobold_footfalls(&registries, &state);
-    assert_eq!(heard.len(), 1, "source-local harvesting is audible");
-    assert_eq!(heard[0].kind(), KoboldFootfallKind::Foraging);
-    assert_eq!(heard[0].bearing(), KoboldFootfallBearing::North);
-    assert_eq!(heard[0].occurred_at(), SimulationTick::new(590));
+    assert_eq!(
+        heard.len(),
+        2,
+        "harvesting and the return edge are both audible"
+    );
+    let rustle = heard
+        .iter()
+        .find(|cue| cue.kind() == KoboldFootfallKind::Foraging)
+        .expect("source-local harvesting must be audible");
+    assert_eq!(rustle.bearing(), KoboldFootfallBearing::North);
+    assert_eq!(rustle.occurred_at(), SimulationTick::new(590));
+    assert!(
+        heard
+            .iter()
+            .any(|cue| cue.kind() == KoboldFootfallKind::Footsteps)
+    );
+    // Harvesting is a source-local rustle, but the same return edge also
+    // moves a body. Beyond rustle reach, that movement must remain audible.
+    let mut return_listener = state.clone();
+    crate::logistics::relocate_player_for_test(&mut return_listener, VoxelCoord::new(0, 0, -3));
+    let return_steps = available_nearby_kobold_footfalls(&registries, &return_listener);
+    assert_eq!(
+        return_steps.len(),
+        1,
+        "real return footsteps are not masked by harvest"
+    );
+    assert_eq!(return_steps[0].kind(), KoboldFootfallKind::Footsteps);
+    assert_eq!(return_steps[0].bearing(), KoboldFootfallBearing::South);
+    assert_eq!(return_steps[0].occurred_at(), SimulationTick::new(590));
     assert_eq!(
         available_nearby_kobold_footfalls(&registries, &replay),
         heard
