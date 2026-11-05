@@ -1,4 +1,4 @@
-//! Neutral fast-forward must not erase control-rate falling when timed work removes the floor.
+//! Neutral fast-forward must retain control-rate falling when a slow event removes support.
 
 use super::*;
 use crate::content::{
@@ -104,6 +104,87 @@ fn due_dismantling_of_the_player_floor_must_replay_control_rate_gravity() {
         "dismantling transfers embodied matter to the reserved carried inventory"
     );
     assert_eq!(validate_loaded_state(&registries, &replay), Ok(()));
+}
+
+#[test]
+fn temple_warden_departing_under_player_requires_boundary_gravity_step() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::player::validate_admit_player;
+    use crate::world::{
+        ChunkCoord, WorldGenerationSeed, temple_warden_route_at, validate_generate_chunk,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let route = temple_warden_route_at(&registries, &state, VoxelCoord::new(8, -19, 8))
+        .expect("authored temple route");
+    let post = route[0];
+    // Stand on the warden's upper occupied voxel, with no stone floor:
+    // the resident's real body is the only support at this height.
+    for y in post.y() + 2..=post.y() + 4 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(post.x(), y, post.z()),
+            BlockStateId::AIR,
+        );
+    }
+    let perch = VoxelCoord::new(post.x(), post.y() + 2, post.z());
+    validate_admit_player(&registries, &state, perch)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(player_body_is_grounded(&registries, &state));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    // Quiet resident ticks retain the fast path and remain bit-identical
+    // to the actual 20 Hz neutral sequence.
+    let mut neutral = state.clone();
+    while state.tick().value() < 4 {
+        let fast = advance_tick(&registries, &mut state).unwrap();
+        let mut boundary = None;
+        for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK {
+            boundary = Some(advance_control_tick(&registries, &mut neutral).unwrap());
+        }
+        assert_eq!(fast, *boundary.unwrap().simulation().unwrap());
+        assert_eq!(state, neutral);
+    }
+    let before = state.clone();
+    let mut control = serde_json::from_slice::<LoadedSaveEnvelope>(
+        &serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap(),
+    )
+    .unwrap()
+    .into_state(&registries)
+    .unwrap();
+    let skipped = advance_tick(&registries, &mut state);
+    let mut final_control = None;
+    for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK {
+        final_control = Some(advance_control_tick(&registries, &mut control).unwrap());
+    }
+    assert!(
+        !crate::kobolds::temple_caste_occupies_voxel(&registries, &control, post),
+        "a real warden step must remove the moving floor"
+    );
+    assert!(final_control.unwrap().body_motion().is_some());
+    assert!(!player_body_is_grounded(&registries, &control));
+    assert_eq!(
+        skipped,
+        Err(TickError::ControlSteppingRequired {
+            current: before.control_tick()
+        })
+    );
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &control), Ok(()));
 }
 
 #[test]

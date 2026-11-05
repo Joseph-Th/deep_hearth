@@ -95,6 +95,36 @@ pub(crate) fn player_body_stands_above_structure(
         && max.z() > min_z
 }
 
+/// An actually occupied temple resident cell can support the player's
+/// continuous footprint. Unlike terrain, that floor can leave on a slow
+/// resident step, so the boundary's gravity sample cannot be skipped.
+///
+/// Use the same horizontal bounds and occupied-cell query as motion itself.
+/// Checking only the central voxel would miss a partly supported player.
+pub(crate) fn player_body_stands_above_temple_caste(
+    registries: &Registries,
+    state: &AppState,
+) -> bool {
+    let Some(player) = state.logistics().player() else {
+        return false;
+    };
+    let Some((min_x, max_x, min_z, max_z)) = horizontal_voxel_bounds(
+        player.body(),
+        registries.survival().physiology().locomotion(),
+    ) else {
+        return true;
+    };
+    let Some(below_y) = player.body().foot_position().y_nanometers().checked_sub(1) else {
+        return true;
+    };
+    let y = below_y.div_euclid(NANOMETERS_PER_VOXEL);
+    (min_z..=max_z).any(|z| {
+        (min_x..=max_x).any(|x| {
+            crate::kobolds::temple_caste_occupies_voxel(registries, state, VoxelCoord::new(x, y, z))
+        })
+    })
+}
+
 pub(crate) fn first_player_body_collision(
     registry: &WorldRegistry,
     world: &WorldState,

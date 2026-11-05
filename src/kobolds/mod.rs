@@ -67,6 +67,15 @@ fn living_player_observer(state: &AppState) -> Option<VoxelCoord> {
 
 const FIRST_SCOUT_TICK: u64 = 180;
 const SCOUT_STEP_TICKS: u64 = 5;
+
+/// Both kinds of generated temple resident move only on this sparse
+/// authoritative clock; the slower archivist uses every second beat.
+/// A player standing on their occupied upper cell needs the boundary's
+/// control-rate gravity sample whenever a movement beat is due.
+pub(crate) fn temple_resident_step_due(at: crate::core::time::SimulationTick) -> bool {
+    at.value().is_multiple_of(SCOUT_STEP_TICKS)
+}
+
 /// One scout moves a portable parcel, not an arbitrarily heavy abandoned bulk pile.
 const SCOUT_CARRY_LIMIT: Mass = Mass::from_milligrams(1_000_000);
 /// Bare-handed scavengers cannot safely retrieve hot workshop output.

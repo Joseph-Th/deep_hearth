@@ -20,7 +20,8 @@ use crate::core::time::{ControlTick, SimulationTick};
 use crate::labor::{PlayerWork, apply_player_work_tick, decide_player_work_control_tick};
 use crate::logistics::{
     PlayerControlInput, PlayerStance, apply_player_body_motion, decide_player_body_motion,
-    player_body_is_grounded, player_body_stands_above_structure, player_body_uses_generated_world,
+    player_body_is_grounded, player_body_stands_above_structure,
+    player_body_stands_above_temple_caste, player_body_uses_generated_world,
 };
 use crate::registry::Registries;
 use crate::surface::{
@@ -309,6 +310,19 @@ fn control_stepping_required(registries: &Registries, state: &AppState) -> bool 
         // control sample. Skipping that sample would erase the first fall step.
         return true;
     }
+    // A real temple resident is a solid vertical support, but can walk away
+    // during the slow phase. The final control sample must then start the
+    // player's fall instead of leaving a falsely grounded frozen body.
+    if state
+        .tick()
+        .value()
+        .checked_add(1)
+        .map(SimulationTick::new)
+        .is_some_and(crate::kobolds::temple_resident_step_due)
+        && player_body_stands_above_temple_caste(registries, state)
+    {
+        return true;
+    }
     let body = player.body();
     let horizontal = body.horizontal_velocity();
     player.pending_fall_vitality_loss_ppm() != 0
@@ -325,8 +339,9 @@ fn control_stepping_required(registries: &Registries, state: &AppState) -> bool 
 ///
 /// Headless/process-only states, players outside generated body truth, and a standing grounded
 /// motionless generated-world player with settled locomotion may use this fast path. Buffered
-/// input, unsettled fall injury, crouch/air/motion, control-rate excavation, and local drops that
-/// can enter the player's pack still require exact 50 ms stepping and return
+/// input, unsettled fall injury, crouch/air/motion, control-rate excavation, movable temple
+/// support on a due resident step, and local drops that can enter the player's pack still require
+/// exact 50 ms stepping and return
 /// `TickError::ControlSteppingRequired`.
 pub fn advance_tick(
     registries: &Registries,
