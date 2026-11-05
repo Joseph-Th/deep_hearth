@@ -171,6 +171,13 @@ impl PassiveEnergyDissipationPlan {
             .chain(&self.additional)
     }
 
+    fn finalize_lookup(&mut self) {
+        // Entries arrive grouped by store definition, not by physical store
+        // identity. Keep the two common no-allocation slots and index only
+        // the uncommon larger tail for repeated shaft and warmth queries.
+        self.additional.sort_unstable_by_key(|entry| entry.store);
+    }
+
     fn is_empty(&self) -> bool {
         self.first.is_none()
     }
@@ -180,8 +187,15 @@ impl PassiveEnergyDissipationPlan {
     }
 
     pub(crate) fn dissipated_for_store(&self, store: EnergyStoreId) -> Energy {
-        self.entries()
-            .find(|entry| entry.store == store)
+        self.first
+            .filter(|entry| entry.store == store)
+            .or_else(|| self.second.filter(|entry| entry.store == store))
+            .or_else(|| {
+                self.additional
+                    .binary_search_by_key(&store, |entry| entry.store)
+                    .ok()
+                    .map(|index| self.additional[index])
+            })
             .map_or(Energy::ZERO, |entry| entry.dissipated)
     }
 }
@@ -215,6 +229,7 @@ pub(crate) fn decide_passive_energy_dissipation(
             });
         }
     }
+    plan.finalize_lookup();
     plan
 }
 

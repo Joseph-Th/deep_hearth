@@ -181,6 +181,67 @@ fn passive_dissipation_batches_multiple_stores_under_one_owner_revision() {
 }
 
 #[test]
+fn many_store_passive_lookup_preserves_every_exact_loss_and_application() {
+    let registries = registries();
+    let mut state = AppState::new();
+    let initial = Energy::from_nanojoules(5_000_000_000_000_000);
+    let stores = (0..12)
+        .map(|_| {
+            add_energy_store_with_initial_for_fixture(
+                &registries,
+                &mut state,
+                DISSIPATIVE_STORE,
+                initial,
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let plan = decide_passive_energy_dissipation(&registries, &state);
+    let per_tick = registries
+        .energy()
+        .passive_dissipation_per_tick(DISSIPATIVE_STORE);
+    for id in stores.iter().rev() {
+        assert_eq!(plan.dissipated_for_store(*id), per_tick);
+    }
+    assert_eq!(
+        plan.dissipated_for_store(EnergyStoreId::new(99_999)),
+        Energy::ZERO,
+    );
+    let old_revision = state.energy().revision();
+    apply_passive_energy_dissipation(&mut state, plan);
+    assert_eq!(state.energy().revision(), old_revision + 1);
+    for id in stores {
+        assert_eq!(
+            state.energy().get_store(id).unwrap().stored(),
+            initial.checked_sub(per_tick).unwrap()
+        );
+    }
+}
+
+#[test]
+fn passive_lookup_handles_definition_order_different_from_store_identity() {
+    let mut plan = PassiveEnergyDissipationPlan::default();
+    for id in [10, 2, 8, 4, 6, 12] {
+        plan.push(PassiveEnergyDissipationEntry {
+            store: EnergyStoreId::new(id),
+            stored_before: Energy::from_nanojoules(100),
+            dissipated: Energy::from_nanojoules(u128::from(id)),
+        });
+    }
+    plan.finalize_lookup();
+    for id in [2, 4, 6, 8, 10, 12] {
+        assert_eq!(
+            plan.dissipated_for_store(EnergyStoreId::new(id)),
+            Energy::from_nanojoules(u128::from(id)),
+        );
+    }
+    assert_eq!(
+        plan.dissipated_for_store(EnergyStoreId::new(9)),
+        Energy::ZERO
+    );
+}
+
+#[test]
 fn same_tick_ingress_is_not_erased_by_pre_tick_passive_dissipation() {
     let registries = registries();
     let mut state = AppState::new();
