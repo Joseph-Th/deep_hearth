@@ -326,11 +326,17 @@ cleanup or map-wide scans. Their departure direction can lead toward a den but n
 a current remote scout location, cargo manifest, or hidden resource inventory.
 
 `available_nearby_kobold_footfalls` also derives short-lived auditory clues
-from those same authoritative scout/watchman step records, distinguishing
-ordinary walking, hauling, foraging and flight without exposing a hidden
-resident position or route. Sound follows bounded face-connected air corridors,
+from those same authoritative scout/watchman step records and the scout's
+persisted drink event, distinguishing walking, hauling, foraging, splashing
+and flight without exposing a hidden resident position or route. Movement
+scuffs originate at the actual arrival cell; foraging and drinking originate
+at the source cell where food or water was taken before that movement.
+A drink while hauling remains a separate splash instead of being lost under
+the hauling trail, and an immobile drink remains audible without a fabricated
+footstep. The real drink time prevents duplicates when the track already
+records that splash. Sound follows bounded face-connected air corridors,
 not rock, standing trunks, built walls or unknown generated terrain. Only
-footfalls up to two slow ticks old can be queried; their original tick lets
+events up to two slow ticks old can be queried; their original tick lets
 an adapter play each actual event once. The scout likewise reacts to actual
 grounded sprint-speed player movement audible from its current position, not
 to remote player coordinates or stationary intent. Outdoor regional gusts

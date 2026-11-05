@@ -72,6 +72,53 @@ fn witnessed_outer_patrol_drink_survives_unseen_return_without_disclosing_destin
         .unwrap()
         .commit(&mut state)
         .unwrap();
+
+    // A listener three cells from the real spring but four cells from the
+    // scout's next patrol stop must hear the water action at its source.
+    // Only actual movement sounds can originate at the arrival cell.
+    let mut listening = state.clone();
+    validate_admit_player(&registries, &listening, VoxelCoord::new(4, 0, 0))
+        .unwrap()
+        .commit(&mut listening)
+        .unwrap();
+    let _ = advance_tick(&registries, &mut listening).unwrap();
+    let last = listening
+        .kobold_state()
+        .colony
+        .as_ref()
+        .unwrap()
+        .tracks
+        .last()
+        .copied()
+        .unwrap();
+    assert_eq!(last.position(), tip);
+    assert_eq!(last.toward(), junction);
+    assert_eq!(
+        last.observed_activity(),
+        crate::kobolds::KoboldTrailKind::Drinking
+    );
+    let heard = crate::kobolds::available_nearby_kobold_footfalls(&registries, &listening);
+    assert_eq!(heard.len(), 1, "a real source-local splash must be audible");
+    assert_eq!(
+        heard[0].kind(),
+        crate::kobolds::KoboldFootfallKind::Splashing
+    );
+    assert_eq!(
+        heard[0].bearing(),
+        crate::kobolds::KoboldFootfallBearing::West
+    );
+    assert_eq!(heard[0].occurred_at(), SimulationTick::new(990));
+    let saved_listener = serde_json::to_vec(&SaveEnvelope::new(&registries, &listening)).unwrap();
+    let restored_listener = serde_json::from_slice::<LoadedSaveEnvelope>(&saved_listener)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(
+        crate::kobolds::available_nearby_kobold_footfalls(&registries, &restored_listener),
+        heard
+    );
+    assert_eq!(validate_loaded_state(&registries, &listening), Ok(()));
+
     // The player sees the outer water visit from two cells away, but
     // the scout's next return cell is outside local sight. The den guard
     // is also too distant to witness the player or warn the scout.
@@ -204,6 +251,17 @@ fn thirsty_scout_can_drink_at_reached_water_without_abandoning_carried_cargo() {
         .unwrap()
         .commit(&mut state)
         .unwrap();
+    // Hear the spring without standing close enough to interrupt the returning
+    // scout. Drinking can happen on the very edge that hauls a parcel home.
+    let listener = VoxelCoord::new(
+        water_position.x(),
+        water_position.y(),
+        water_position.z() + 3,
+    );
+    crate::player::validate_admit_player(&registries, &state, listener)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
     let water_before = calculate_fluid_volume_accounting(&state).unwrap();
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
@@ -219,6 +277,42 @@ fn thirsty_scout_can_drink_at_reached_water_without_abandoning_carried_cargo() {
         );
     }
     assert_eq!(state, replay);
+    let last = state
+        .kobold_state()
+        .colony
+        .as_ref()
+        .unwrap()
+        .tracks
+        .last()
+        .copied()
+        .unwrap();
+    assert_eq!(last.position(), water_position);
+    assert_eq!(
+        last.observed_activity(),
+        crate::kobolds::KoboldTrailKind::Hauling
+    );
+    let heard = crate::kobolds::available_nearby_kobold_footfalls(&registries, &state);
+    assert_eq!(
+        heard.len(),
+        2,
+        "one hauled parcel and one actual water visit"
+    );
+    assert!(
+        heard
+            .iter()
+            .any(|cue| cue.kind() == crate::kobolds::KoboldFootfallKind::Dragging),
+        "recorded cargo movement remains audible alongside the drink",
+    );
+    assert!(
+        heard
+            .iter()
+            .any(|cue| cue.kind() == crate::kobolds::KoboldFootfallKind::Splashing),
+        "the real water visit must remain audible when the scout also hauls its parcel",
+    );
+    assert_eq!(
+        crate::kobolds::available_nearby_kobold_footfalls(&registries, &replay),
+        heard,
+    );
     assert_eq!(
         state
             .kobold_state()
@@ -242,6 +336,19 @@ fn thirsty_scout_can_drink_at_reached_water_without_abandoning_carried_cargo() {
         water_before
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    for _ in 0..3 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap(),
+        );
+    }
+    assert_eq!(state, replay);
+    assert!(
+        crate::kobolds::available_nearby_kobold_footfalls(&registries, &state)
+            .iter()
+            .all(|cue| cue.kind() != crate::kobolds::KoboldFootfallKind::Splashing),
+        "the combined water sound fades on the same bounded clock as other activities",
+    );
 }
 
 #[test]

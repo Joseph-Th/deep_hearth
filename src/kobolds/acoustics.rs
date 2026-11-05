@@ -131,7 +131,26 @@ fn footfall_bearing(source: VoxelCoord, listener: VoxelCoord) -> KoboldFootfallB
     }
 }
 
-/// Present only real footfalls on the current resident clock, with bounded
+/// All activity cues use one source-local outdoor wind and physical sound path
+/// projection; tracking a second simultaneous activity must not bypass either.
+fn audible_activity(
+    registries: &Registries,
+    state: &AppState,
+    source: VoxelCoord,
+    listener: VoxelCoord,
+    at: SimulationTick,
+    activity: KoboldTrailKind,
+) -> Option<KoboldFootfall> {
+    let (kind, nominal_reach) = footfall_kind(activity);
+    let reach = wind_masked_reach(registries, state, source, at, nominal_reach);
+    audible_with_reach(registries, state, source, listener, reach).then_some(KoboldFootfall {
+        kind,
+        bearing: footfall_bearing(source, listener),
+        occurred_at: at,
+    })
+}
+
+/// Present only real resident activity on the current resident clock, with bounded
 /// propagation through the same physical air as a material-built den alarm.
 /// The speaker's role and exact location are deliberately not returned.
 #[must_use]
@@ -145,7 +164,7 @@ pub fn available_nearby_kobold_footfalls(
     let Some(colony) = state.kobold_state().colony.as_ref() else {
         return Vec::new();
     };
-    [colony.tracks.last(), colony.watch_tracks.last()]
+    let mut heard = [colony.tracks.last(), colony.watch_tracks.last()]
         .into_iter()
         .flatten()
         .filter_map(|track| {
@@ -153,19 +172,60 @@ pub fn available_nearby_kobold_footfalls(
             if age.value() > FOOTFALL_AUDIBLE_TICKS {
                 return None;
             }
-            let source = track.toward();
-            let (kind, nominal_reach) = footfall_kind(track.observed_activity());
-            let reach =
-                wind_masked_reach(registries, state, source, track.left_at(), nominal_reach);
-            audible_with_reach(registries, state, source, listener, reach).then_some(
-                KoboldFootfall {
-                    kind,
-                    bearing: footfall_bearing(source, listener),
-                    occurred_at: track.left_at(),
-                },
+            // Water is consumed and forage is harvested at the departure cell
+            // before the scout takes its next edge. Movement noise instead
+            // follows the moving resident to the arrival cell. Using arrival
+            // for every activity can erase real splashes or send misleading
+            // bearings through a nearby wall.
+            let source = match track.observed_activity() {
+                KoboldTrailKind::Drinking | KoboldTrailKind::Foraging => track.position(),
+                KoboldTrailKind::Walking | KoboldTrailKind::Hauling | KoboldTrailKind::Fleeing => {
+                    track.toward()
+                }
+            };
+            audible_activity(
+                registries,
+                state,
+                source,
+                listener,
+                track.left_at(),
+                track.observed_activity(),
             )
         })
-        .collect()
+        .collect::<Vec<_>>();
+    // One return edge can both haul a real parcel and drink at its departure
+    // cell. The physical track records hauling, but the separate persisted
+    // drinking event remains audible; neither action suppresses the other.
+    // An unmoving drink also has a source even when no step trace was recorded.
+    if let Some(drink_at) = colony.last_drink_at
+        && state
+            .tick()
+            .checked_duration_since(drink_at)
+            .is_some_and(|age| age.value() <= FOOTFALL_AUDIBLE_TICKS)
+        && !colony.tracks.last().is_some_and(|track| {
+            track.left_at() == drink_at && track.observed_activity() == KoboldTrailKind::Drinking
+        })
+    {
+        // The next scout departure is at least five slow ticks later, beyond
+        // the two-tick sound lifetime. When this drink has no matching step,
+        // its current position is still the actual water source.
+        let source = colony
+            .tracks
+            .last()
+            .filter(|track| track.left_at() == drink_at)
+            .map_or_else(|| colony.scout_position(), |track| track.position());
+        if let Some(splash) = audible_activity(
+            registries,
+            state,
+            source,
+            listener,
+            drink_at,
+            KoboldTrailKind::Drinking,
+        ) {
+            heard.push(splash);
+        }
+    }
+    heard
 }
 
 /// A sprinting player's actual grounded body motion can alert a nearby scout

@@ -737,6 +737,93 @@ fn unseen_scout_footsteps_change_to_real_cargo_dragging_and_then_fall_silent() {
 }
 
 #[test]
+fn real_foraging_sound_origin_is_the_harvest_site_not_the_drop_destination() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let [den, junction, tip] = [
+        VoxelCoord::new(-1, 0, 0),
+        VoxelCoord::new(0, 0, 0),
+        VoxelCoord::new(0, 0, 1),
+    ];
+    for (from, to) in [(den, junction), (junction, tip)] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    while state.tick().value() < 579 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    // A fresh opportunity appears only after the scout becomes hungry. An
+    // earlier patch would already have been consumed by previous patrols.
+    let crop = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Opportunity,
+        tip,
+        CommodityKey::new(
+            crate::content::MATERIAL_WILD_NUTS,
+            crate::content::FORM_FOOD,
+        ),
+        Mass::from_milligrams(300_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(crate::content::MATERIAL_WILD_NUTS),
+    )
+    .unwrap();
+    let planted = validate_create_surface_resources(&registries, &state, [crop]).unwrap();
+    let crop_id = planted.first_resource_id();
+    planted.commit(&mut state).unwrap();
+    // Tip to listener is three steps; the junction, where the scout leaves
+    // its newly gathered parcel, is four steps away. Only the harvest can be
+    // heard at this position, without visually revealing the crop.
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 4))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.tick().value() < 590 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    let trail = state
+        .kobold_state()
+        .colony
+        .as_ref()
+        .unwrap()
+        .tracks
+        .last()
+        .copied()
+        .unwrap();
+    assert_eq!(trail.position(), tip);
+    assert_eq!(trail.toward(), junction);
+    assert_eq!(trail.observed_activity(), KoboldTrailKind::Foraging);
+    let heard = available_nearby_kobold_footfalls(&registries, &state);
+    assert_eq!(heard.len(), 1, "source-local harvesting is audible");
+    assert_eq!(heard[0].kind(), KoboldFootfallKind::Foraging);
+    assert_eq!(heard[0].bearing(), KoboldFootfallBearing::North);
+    assert_eq!(heard[0].occurred_at(), SimulationTick::new(590));
+    assert_eq!(
+        available_nearby_kobold_footfalls(&registries, &replay),
+        heard
+    );
+    assert_eq!(
+        state.surface().get(crop_id).unwrap().remaining_mass(),
+        Mass::from_milligrams(200_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn real_generated_scout_footsteps_can_be_heard_around_stone_but_not_through_it() {
     let (registries, mut state) = solid_generated_chunk();
     let den = VoxelCoord::new(7, -10, 8);
