@@ -133,15 +133,16 @@ pub(crate) fn automatic_surface_pickup_requires_control_stepping(
     else {
         return false;
     };
-    // This drop is reserved while hand gathering is active, but its unclaimed
-    // remainder becomes eligible again on the completion boundary. Neutral
-    // fast-forward must not skip that control-rate pickup; conservatively step
-    // until the job releases its source.
+    // A reserved loose parcel cannot be picked up during hand gathering.
+    // Intermediate slow ticks may skip neutral control samples; on the due
+    // boundary, the final control sample releases the work reservation and
+    // must be retained to collect any unclaimed remainder immediately.
     if let Some(crate::labor::PlayerWork::SurfaceGathering { work }) = state.player_work().active()
         && let Some(resource) = state.surface().get(work.resource())
         && resource.kind() == SurfaceResourceKind::Drop
         && resource.remaining_mass() > work.gathered_mass()
         && resource.temperature() <= MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE
+        && work.completes_at().value() == state.tick().value().saturating_add(1)
     {
         return true;
     }

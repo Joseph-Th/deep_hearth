@@ -1735,6 +1735,118 @@ fn control_pickup_skips_the_drop_reserved_by_an_active_hand_gathering_job() {
 }
 
 #[test]
+fn reserved_loose_remainder_allows_slow_stepping_until_its_release_boundary() {
+    let registries = build_registries();
+    let position = VoxelCoord::new(0, 0, 0);
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let total = Mass::from_milligrams(2_000_000);
+    let gathering = Mass::from_milligrams(1_000_000);
+    let mut fast = AppState::new();
+    let source = insert_surface_resource_for_test(
+        &registries,
+        &mut fast,
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            commodity,
+            total,
+            TEMPERATURE,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let carried = admit_player(&registries, &mut fast, position);
+    validate_start_player_surface_gathering(
+        &registries,
+        &fast,
+        SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
+        source,
+        gathering,
+    )
+    .unwrap()
+    .commit(&mut fast)
+    .unwrap();
+    let completes_at = fast
+        .player_work()
+        .active()
+        .and_then(|work| work.surface_gathering())
+        .unwrap()
+        .completes_at();
+    assert!(completes_at.value() >= fast.tick().value() + 3);
+    let conserved = calculate_matter_accounting(&fast).unwrap().total();
+    assert_eq!(validate_loaded_state(&registries, &fast), Ok(()));
+    let mut control = fast.clone();
+
+    // Fast-forward must match every intermediate fully sampled boundary.
+    while fast.tick().value() + 1 < completes_at.value() {
+        let _ = advance_tick(&registries, &mut fast).unwrap();
+        for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK {
+            assert!(
+                advance_control_tick(&registries, &mut control)
+                    .unwrap()
+                    .surface_drop_pickup()
+                    .is_none()
+            );
+        }
+        assert_eq!(fast, control);
+        assert_eq!(fast.surface().get(source).unwrap().remaining_mass(), total);
+        assert_eq!(validate_loaded_state(&registries, &fast), Ok(()));
+    }
+
+    let before = fast.clone();
+    assert_eq!(
+        advance_tick(&registries, &mut fast),
+        Err(crate::simulation::TickError::ControlSteppingRequired {
+            current: before.control_tick(),
+        }),
+        "the release boundary still requires control-rate pickup"
+    );
+    assert_eq!(fast, before);
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &fast)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let mut picked_remainder = false;
+    for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let result = advance_control_tick(&registries, &mut fast).unwrap();
+        assert_eq!(
+            result,
+            advance_control_tick(&registries, &mut control).unwrap()
+        );
+        assert_eq!(
+            result,
+            advance_control_tick(&registries, &mut replay).unwrap()
+        );
+        picked_remainder |= result
+            .surface_drop_pickup()
+            .is_some_and(|pickup| pickup.resource() == source);
+        assert_eq!(fast, control);
+        assert_eq!(fast, replay);
+    }
+    assert!(picked_remainder);
+    assert_eq!(fast.tick(), completes_at);
+    assert_eq!(fast.player_work().active(), None);
+    assert_eq!(
+        fast.surface().get(source).unwrap().remaining_mass(),
+        Mass::ZERO
+    );
+    assert_eq!(
+        fast.inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(commodity),
+        total
+    );
+    assert_eq!(
+        calculate_matter_accounting(&fast).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &fast), Ok(()));
+}
+
+#[test]
 fn exposed_residue_footing_counts_distinct_densities_without_treating_nature_as_disposal() {
     let registries = build_registries();
     let mut state = AppState::new();
