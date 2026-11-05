@@ -133,3 +133,91 @@ fn weak_extra_candidate_does_not_reduce_useful_work_at_exact_solver_limit() {
     pairs[2] = candidate(2, 2, 5, 6, 50, 60);
     assert_eq!(selected_runs(select_shaft_pairs(&pairs, &runs)), vec![1, 2]);
 }
+
+#[test]
+fn two_shaft_replacement_recovers_three_independent_paths_in_large_groups() {
+    // Two top-ranked runs consume rollers 1..4. Three smaller crossing/side
+    // runs collectively deliver more, but releasing either incumbent alone
+    // frees only one of the three smaller runs.
+    let mut runs = vec![
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(1), StructuralElementId::new(2)],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(3), StructuralElementId::new(4)],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(1), StructuralElementId::new(3)],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(2)],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(4)],
+        },
+    ];
+    let mut pairs = (0..5)
+        .map(|run| {
+            let store = 2 * run as u64 + 1;
+            let useful = if run < 2 { 80 } else { 60 };
+            candidate(run, run as u32 + 1, store, store + 1, useful, useful + 20)
+        })
+        .collect::<Vec<_>>();
+    // Weak paths sharing roller 1 connect the fallback conflict group,
+    // without changing its physically best allocation.
+    for run in 5..=35 {
+        runs.push(ShaftRun {
+            rollers: vec![StructuralElementId::new(1)],
+        });
+        let store = 2 * run as u64 + 1;
+        pairs.push(candidate(run, run as u32 + 1, store, store + 1, 1, 2));
+    }
+    let selected_runs = |selected: Vec<ShaftPair>| {
+        selected
+            .into_iter()
+            .map(|pair| pair.run)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        selected_runs(select_shaft_pairs(&pairs[..EXACT_CONFLICT_LIMIT], &runs)),
+        vec![2, 3, 4]
+    );
+    assert_eq!(
+        selected_runs(select_shaft_pairs(
+            &pairs[..EXACT_CONFLICT_LIMIT + 1],
+            &runs
+        )),
+        vec![2, 3, 4],
+        "crossing the exact-solver threshold must not reduce useful work"
+    );
+    let crowded = select_shaft_pairs(&pairs, &runs);
+    assert_eq!(selected_runs(crowded.clone()), vec![2, 3, 4]);
+    assert_eq!(
+        crowded
+            .iter()
+            .map(|pair| pair.transfer.delivered().nanojoules())
+            .sum::<u128>(),
+        180
+    );
+
+    // When both choices deliver 180 J, minimizing actual lost source work
+    // must still outweigh the high per-shaft priority of the two incumbents.
+    let mut less_friction = pairs.clone();
+    less_friction[0] = candidate(0, 1, 1, 2, 90, 130);
+    less_friction[1] = candidate(1, 2, 3, 4, 90, 130);
+    for (run, pair) in less_friction.iter_mut().enumerate().skip(2).take(3) {
+        let store = 2 * run as u64 + 1;
+        *pair = candidate(run, run as u32 + 1, store, store + 1, 60, 80);
+    }
+    assert_eq!(
+        selected_runs(select_shaft_pairs(&less_friction, &runs)),
+        vec![2, 3, 4]
+    );
+    less_friction[0] = candidate(0, 1, 1, 2, 90, 120);
+    less_friction[1] = candidate(1, 2, 3, 4, 90, 120);
+    assert_eq!(
+        selected_runs(select_shaft_pairs(&less_friction, &runs)),
+        vec![0, 1],
+        "at identical delivered work and total draw, stable priority wins"
+    );
+}

@@ -2,11 +2,14 @@
 //!
 //! Small connected conflict groups are solved exactly. Exceptionally large
 //! groups use deterministic greedy selection followed by bounded replacements,
-//! so adding one weak candidate does not discard obvious aggregate-work gains.
+//! including correlated shaft choices that require releasing two incumbents.
 
 use super::*;
 
 const EXACT_CONFLICT_LIMIT: usize = 16;
+/// Double replacements are at most 120 trials per round, regardless of the
+/// number of candidate runs in a large generated workshop.
+const DOUBLE_REPLACEMENT_INCUMBENT_LIMIT: usize = 16;
 
 #[derive(Clone, Copy)]
 struct Allocation {
@@ -111,14 +114,14 @@ fn exact_group(pairs: &[ShaftPair], runs: &[ShaftRun], indices: &[usize]) -> Vec
         .collect()
 }
 
-/// Complete a compatible set in useful-work order, optionally leaving one
-/// incumbent out so other physical shaft paths may use its freed assets.
+/// Complete a compatible set in useful-work order, leaving up to two
+/// incumbents out so other physical shaft paths may use their freed assets.
 fn greedy_completion(
     pairs: &[ShaftPair],
     runs: &[ShaftRun],
     indices: &[usize],
     fixed: &[usize],
-    excluded: Option<usize>,
+    excluded: &[usize],
 ) -> Vec<usize> {
     let mut used_stores = BTreeSet::new();
     let mut used_rollers = BTreeSet::new();
@@ -130,7 +133,7 @@ fn greedy_completion(
         used_rollers.extend(runs[pair.run].rollers.iter().copied());
     }
     for &index in indices {
-        if excluded == Some(index) || fixed.binary_search(&index).is_ok() {
+        if excluded.contains(&index) || fixed.binary_search(&index).is_ok() {
             continue;
         }
         let pair = pairs[index];
@@ -164,36 +167,67 @@ fn aggregate_work(pairs: &[ShaftPair], indices: &[usize]) -> (u128, u128) {
         })
 }
 
+/// Refill available paths after releasing one or two incumbents. An equal
+/// delivery with greater source draw is not an improvement.
+fn improved_completion(
+    pairs: &[ShaftPair],
+    runs: &[ShaftRun],
+    indices: &[usize],
+    selected: &[usize],
+    excluded: &[usize],
+    current_work: (u128, u128),
+) -> Option<Vec<usize>> {
+    let retained = selected
+        .iter()
+        .copied()
+        .filter(|index| !excluded.contains(index))
+        .collect::<Vec<_>>();
+    let alternative = greedy_completion(pairs, runs, indices, &retained, excluded);
+    let alternative_work = aggregate_work(pairs, &alternative);
+    (alternative_work.0 > current_work.0
+        || (alternative_work.0 == current_work.0 && alternative_work.1 < current_work.1))
+        .then_some(alternative)
+}
+
 fn greedy_group(pairs: &[ShaftPair], runs: &[ShaftRun], indices: &[usize]) -> Vec<ShaftPair> {
-    let mut selected = greedy_completion(pairs, runs, indices, &[], None);
-    let mut current_work = aggregate_work(pairs, &selected);
+    let mut selected = greedy_completion(pairs, runs, indices, &[], &[]);
     // A large group must not suddenly lose useful work when its seventeenth
-    // candidate disables the exact solver. A high-output shaft can monopolize
-    // two rollers even when two independent lower-output shafts deliver more.
-    // Consider at most two rounds of single-shaft replacement, retaining the
-    // bounded tick cost and accepting only strictly better aggregate physics.
+    // candidate disables the exact solver. Some layouts need two shafts freed
+    // together before three smaller independent paths improve delivery:
+    // neither single replacement alone helps. Limit pair trials to sixteen
+    // incumbents and two rounds to bound the per-tick search.
     for _ in 0..2 {
-        let mut improved = false;
+        let current_work = aggregate_work(pairs, &selected);
+        let mut alternative = None;
         for incumbent in selected.iter().copied() {
-            let retained = selected
-                .iter()
-                .copied()
-                .filter(|&index| index != incumbent)
-                .collect::<Vec<_>>();
-            let alternative = greedy_completion(pairs, runs, indices, &retained, Some(incumbent));
-            let alternative_work = aggregate_work(pairs, &alternative);
-            if alternative_work.0 > current_work.0
-                || (alternative_work.0 == current_work.0 && alternative_work.1 < current_work.1)
-            {
-                selected = alternative;
-                current_work = alternative_work;
-                improved = true;
+            alternative =
+                improved_completion(pairs, runs, indices, &selected, &[incumbent], current_work);
+            if alternative.is_some() {
                 break;
             }
         }
-        if !improved {
-            break;
+        if alternative.is_none() {
+            let limit = selected.len().min(DOUBLE_REPLACEMENT_INCUMBENT_LIMIT);
+            'replacement: for first in 0..limit {
+                for second in first + 1..limit {
+                    alternative = improved_completion(
+                        pairs,
+                        runs,
+                        indices,
+                        &selected,
+                        &[selected[first], selected[second]],
+                        current_work,
+                    );
+                    if alternative.is_some() {
+                        break 'replacement;
+                    }
+                }
+            }
         }
+        let Some(improved) = alternative else {
+            break;
+        };
+        selected = improved;
     }
     selected.into_iter().map(|index| pairs[index]).collect()
 }
