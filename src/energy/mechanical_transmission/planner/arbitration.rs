@@ -13,11 +13,36 @@ const EXACT_CONFLICT_LIMIT: usize = 16;
 /// number of candidate runs in a large generated workshop.
 const DOUBLE_REPLACEMENT_INCUMBENT_LIMIT: usize = 16;
 
+/// An individual transfer fits `Energy`, but independent transfers need not
+/// fit in one `u128` when ranked together. Saturation would tie physically
+/// unequal allocations and could prefer less delivered work just because it
+/// draws less after both totals had already hit the ceiling.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+struct AggregateWork {
+    upper: u128,
+    lower: u128,
+}
+
+impl AggregateWork {
+    const ZERO: Self = Self { upper: 0, lower: 0 };
+
+    fn with_added(self, amount: u128) -> Self {
+        let (lower, carry) = self.lower.overflowing_add(amount);
+        // Each addition carries at most one unit into the high word, and
+        // at most `usize::MAX` candidates can be held in the input slice.
+        let upper = self
+            .upper
+            .checked_add(u128::from(carry))
+            .expect("aggregate candidate count fits the high word");
+        Self { upper, lower }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Allocation {
     mask: u32,
-    delivered: u128,
-    drawn: u128,
+    delivered: AggregateWork,
+    drawn: AggregateWork,
 }
 
 fn is_better(candidate: Allocation, current: Allocation) -> bool {
@@ -58,8 +83,8 @@ fn best_independent_set(
             mask: allocation.mask | bit,
             delivered: allocation
                 .delivered
-                .saturating_add(pair.delivered().nanojoules()),
-            drawn: allocation.drawn.saturating_add(pair.drawn().nanojoules()),
+                .with_added(pair.delivered().nanojoules()),
+            drawn: allocation.drawn.with_added(pair.drawn().nanojoules()),
         },
         best,
     );
@@ -99,8 +124,8 @@ fn exact_group_indices(pairs: &[ShaftPair], runs: &[ShaftRun], indices: &[usize]
     let blockers = conflict_masks(&candidates, runs);
     let mut best = Allocation {
         mask: 0,
-        delivered: 0,
-        drawn: 0,
+        delivered: AggregateWork::ZERO,
+        drawn: AggregateWork::ZERO,
     };
     best_independent_set(
         &candidates,
@@ -164,16 +189,17 @@ fn greedy_completion(
     selected
 }
 
-fn aggregate_work(pairs: &[ShaftPair], indices: &[usize]) -> (u128, u128) {
-    indices
-        .iter()
-        .fold((0_u128, 0_u128), |(delivered, drawn), &index| {
+fn aggregate_work(pairs: &[ShaftPair], indices: &[usize]) -> (AggregateWork, AggregateWork) {
+    indices.iter().fold(
+        (AggregateWork::ZERO, AggregateWork::ZERO),
+        |(delivered, drawn), &index| {
             let transfer = pairs[index].transfer;
             (
-                delivered.saturating_add(transfer.delivered().nanojoules()),
-                drawn.saturating_add(transfer.drawn().nanojoules()),
+                delivered.with_added(transfer.delivered().nanojoules()),
+                drawn.with_added(transfer.drawn().nanojoules()),
             )
-        })
+        },
+    )
 }
 
 /// Refill available paths after releasing one or two incumbents. An equal
@@ -184,7 +210,7 @@ fn improved_completion(
     indices: &[usize],
     selected: &[usize],
     excluded: &[usize],
-    current_work: (u128, u128),
+    current_work: (AggregateWork, AggregateWork),
 ) -> Option<Vec<usize>> {
     let retained = selected
         .iter()

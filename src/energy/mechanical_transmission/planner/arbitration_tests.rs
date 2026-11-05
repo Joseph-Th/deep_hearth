@@ -24,6 +24,33 @@ fn candidate(
 }
 
 #[test]
+fn exact_arbitration_compares_total_work_beyond_one_energy_value() {
+    let runs = vec![
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(1), StructuralElementId::new(2)],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(1)],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(2)],
+        },
+    ];
+    let half_plus = u128::MAX / 2 + 100;
+    let pairs = vec![
+        candidate(0, 1, 1, 2, u128::MAX, u128::MAX),
+        candidate(1, 2, 3, 4, half_plus, half_plus),
+        candidate(2, 3, 5, 6, half_plus, half_plus),
+    ];
+    let selected = select_shaft_pairs(&pairs, &runs);
+    assert_eq!(
+        selected.iter().map(|pair| pair.run).collect::<Vec<_>>(),
+        vec![1, 2],
+        "the two independent shafts deliver more energy than the single full-width shaft"
+    );
+}
+
+#[test]
 fn equal_aggregate_delivery_prefers_less_friction_then_stable_physical_order() {
     let runs = vec![
         ShaftRun {
