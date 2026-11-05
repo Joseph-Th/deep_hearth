@@ -326,6 +326,63 @@ fn hungry_scout_compares_side_forage_with_side_food_when_junction_is_empty() {
 }
 
 #[test]
+fn hungry_scout_recovers_full_bulk_ration_before_a_tiny_portable_crumb() {
+    let (registries, mut state, route) = setup();
+    let sources = seed(
+        &registries,
+        &mut state,
+        [
+            SurfaceResourceSpec::new(
+                SurfaceResourceKind::Drop,
+                route.junction,
+                CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+                Mass::from_milligrams(1_000),
+                Temperature::from_millikelvin(293_150),
+                MaterialComposition::pure(MATERIAL_BERRIES),
+            )
+            .unwrap(),
+            SurfaceResourceSpec::new(
+                SurfaceResourceKind::Drop,
+                route.junction,
+                CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+                Mass::from_milligrams(700_000),
+                Temperature::from_millikelvin(293_150),
+                MaterialComposition::pure(MATERIAL_BERRIES),
+            )
+            .unwrap(),
+        ],
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 585);
+    advance_to(&registries, &mut replay, 585);
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(sources[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_000),
+        "a small intact crumb must not hide a complete splittable meal",
+    );
+    assert_eq!(
+        state.surface().get(sources[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(450_000),
+        "the return edge should recover the larger physically available serving",
+    );
+    advance_to(&registries, &mut state, 600);
+    advance_to(&registries, &mut replay, 600);
+    assert_eq!(state, replay);
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn hungry_scout_prefers_splittable_junction_food_to_a_distant_forage_patch() {
     let (registries, mut state, route) = setup();
     let bulk_food = SurfaceResourceSpec::new(
@@ -388,6 +445,88 @@ fn hungry_scout_prefers_splittable_junction_food_to_a_distant_forage_patch() {
     assert_eq!(
         state.surface().get(sources[2]).unwrap().remaining_mass(),
         Mass::from_milligrams(300_000),
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn hungry_scout_turns_back_for_new_full_bulk_food_at_intermediate_raid_cell() {
+    let (registries, mut state, route) = setup();
+    let far = VoxelCoord::new(2, 0, 0);
+    add_traversable_edge_for_test(&mut state, route.side, far);
+    let distant = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        far,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(700_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_BERRIES),
+    )
+    .unwrap();
+    let distant_id = seed(&registries, &mut state, [distant])[0];
+    advance_to(&registries, &mut state, 585);
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(colony.scout_position(), route.side);
+    assert_eq!(colony.detour_goal, Some(far));
+
+    // The intermediate cell gains a whole meal's worth of physically splittable
+    // food after route selection. Walking farther cannot improve the ration.
+    let local = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        route.side,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(700_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_BERRIES),
+    )
+    .unwrap();
+    let crumb = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        route.side,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(1_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_BERRIES),
+    )
+    .unwrap();
+    let local_ids = seed(&registries, &mut state, [local, crumb]);
+    let local_id = local_ids[0];
+    let crumb_id = local_ids[1];
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 590);
+    advance_to(&registries, &mut replay, 590);
+    assert_eq!(state, replay);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route.junction,
+        "the scout should return with the accessible local serving, not extend the raid",
+    );
+    assert_eq!(
+        state.surface().get(local_id).unwrap().remaining_mass(),
+        Mass::from_milligrams(450_000),
+    );
+    assert_eq!(
+        state.surface().get(distant_id).unwrap().remaining_mass(),
+        Mass::from_milligrams(700_000),
+    );
+    assert_eq!(
+        state.surface().get(crumb_id).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_000),
+        "an unrelated tiny parcel at the waypoint must not divert the full local meal",
     );
     assert_eq!(
         calculate_matter_accounting(&state).unwrap().total(),

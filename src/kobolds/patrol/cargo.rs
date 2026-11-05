@@ -14,6 +14,45 @@ pub(super) struct CargoDecision {
     pub(super) at: SimulationTick,
 }
 
+/// Actual return-edge handling favors an intact meal, but never a tiny intact
+/// crumb over a full serving obtainable by one local split. Route planning must
+/// consult this same rule rather than forecast a transfer the edge will not make.
+pub(super) fn full_bulk_ration_over_portable(
+    registries: &Registries,
+    state: &AppState,
+    colony: &KoboldColony,
+    position: VoxelCoord,
+    den_space: Mass,
+    at: SimulationTick,
+    portable: Option<SurfaceResourceId>,
+) -> Option<Mass> {
+    let whole = state.surface().get(portable?)?;
+    if whole.commodity().form() != crate::content::FORM_FOOD {
+        return None;
+    }
+    let shortage = super::super::SCOUT_MEAL_MASS
+        .checked_sub(colony.partial_meal)
+        .expect("trusted scout's credited partial ration is below one full meal");
+    if whole.remaining_mass() >= shortage {
+        return None;
+    }
+    let bulk = local_split_source(
+        registries,
+        state,
+        position,
+        den_space,
+        at,
+        true,
+        colony.mobilized_at.is_some(),
+    )
+    .and_then(|id| state.surface().get(id))?;
+    let recoverable = bulk
+        .remaining_mass()
+        .min(colony.salvage_batch())
+        .min(den_space);
+    (recoverable >= shortage).then_some(recoverable)
+}
+
 /// Existing carried matter must be checked for identity and location before
 /// selecting new loot. Capacity limits the last den edge, not intermediate
 /// carriage: a newly filled den cannot cause a parcel to drop miles away.
@@ -74,7 +113,27 @@ pub(super) fn plan_returning_cargo(
             choice.mobilized,
         )
     };
-    (carried, blocked_at_den, candidate)
+    // This edge can transfer only one parcel. Release a partial whole candidate
+    // when a single real split yields the full remaining meal instead.
+    let prioritize_bulk_meal = choice.returning
+        && !choice.frightened
+        && choice.food_only
+        && (carried.is_none() || switching_from_inert)
+        && full_bulk_ration_over_portable(
+            registries,
+            state,
+            colony,
+            choice.from,
+            choice.den_space,
+            choice.at,
+            candidate,
+        )
+        .is_some();
+    (
+        carried,
+        blocked_at_den,
+        candidate.filter(|_| !prioritize_bulk_meal),
+    )
 }
 
 fn scout_releases_cargo(frightened: bool, den_full: bool, can_move: bool) -> bool {

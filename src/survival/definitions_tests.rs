@@ -316,6 +316,23 @@ fn physiology_exposes_explicit_body_kinematics() {
         Speed::from_nanometers_per_second(3_000_000_000),
     );
     assert_eq!(
+        locomotion.crouching_speed_for_load(Mass::ZERO, capacity),
+        locomotion.crouching_speed(),
+    );
+    assert_eq!(
+        locomotion.crouching_speed_for_load(Mass::from_milligrams(5), capacity),
+        Speed::from_nanometers_per_second(1_103_488_372),
+    );
+    assert_eq!(
+        locomotion.crouching_speed_for_load(capacity, capacity),
+        Speed::from_nanometers_per_second(906_976_744),
+    );
+    assert!(
+        locomotion.crouching_speed_for_load(capacity, capacity)
+            < locomotion.crouching_speed_for_load(Mass::from_milligrams(5), capacity),
+        "crouched hauling must have a real speed cost",
+    );
+    assert_eq!(
         locomotion.sprinting_speed_for_load(Mass::ZERO, capacity),
         locomotion.sprinting_speed(),
     );

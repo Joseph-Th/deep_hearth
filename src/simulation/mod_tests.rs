@@ -795,6 +795,7 @@ fn sprint_and_crouch_use_distinct_authored_speeds_and_persist_stance() {
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("loaded sprint carried matter failed: {error}"));
+    let mut loaded_crouching = loaded_sprinting.clone();
     let horizontal = HorizontalControlInput::new(1_000_000, 0)
         .unwrap_or_else(|error| panic!("locomotion mode input failed: {error}"));
     let sprint = PlayerControlInput::new(horizontal).with_sprint(true);
@@ -811,6 +812,8 @@ fn sprint_and_crouch_use_distinct_authored_speeds_and_persist_stance() {
     for _ in 0..2 {
         let _ = advance_control_tick_with_input(&registries, &mut crouching, crouch)
             .unwrap_or_else(|error| panic!("crouch control tick failed: {error}"));
+        let _ = advance_control_tick_with_input(&registries, &mut loaded_crouching, crouch)
+            .unwrap_or_else(|error| panic!("loaded crouch control tick failed: {error}"));
     }
 
     let sprinting_body = sprinting
@@ -851,6 +854,31 @@ fn sprint_and_crouch_use_distinct_authored_speeds_and_persist_stance() {
             .horizontal_velocity()
             .x_nanometers_per_second(),
         1_300_000_000
+    );
+    let loaded_crouching_body = loaded_crouching
+        .logistics()
+        .player()
+        .copied()
+        .expect("loaded crouched player disappeared")
+        .body();
+    let carried = assess_player_carrying(&loaded_crouching)
+        .expect("loaded crouched player must retain carrying custody");
+    let expected = registries
+        .survival()
+        .physiology()
+        .locomotion()
+        .crouching_speed_for_load(carried.stored(), carried.capacity());
+    assert_eq!(loaded_crouching_body.stance(), PlayerStance::Crouching);
+    assert_eq!(
+        loaded_crouching_body
+            .horizontal_velocity()
+            .x_nanometers_per_second(),
+        expected.nanometers_per_second() as i64,
+    );
+    assert!(
+        loaded_crouching_body.foot_position().x_nanometers()
+            < crouching_body.foot_position().x_nanometers(),
+        "crouching cannot bypass the real mass-dependent travel penalty"
     );
 
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &crouching))

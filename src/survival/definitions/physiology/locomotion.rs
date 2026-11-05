@@ -523,20 +523,35 @@ impl LocomotionDefinition {
         )
     }
 
+    /// The same load fraction slows a crouched body as a standing body. A full
+    /// pack must not become weightless merely by entering the lower stance.
+    #[must_use]
+    pub fn crouching_speed_for_load(self, carried: Mass, capacity: Mass) -> Speed {
+        self.load_scaled_horizontal_speed(self.crouching_speed(), carried, capacity)
+    }
+
     #[must_use]
     pub fn sprinting_speed_for_load(self, carried: Mass, capacity: Mass) -> Speed {
-        // Sprinting must retain the same encumbrance penalty as walking.
-        // Using unloaded walking as the baseline restores that lost speed
-        // at full capacity, making sprinting an unintended load bypass.
+        self.load_scaled_horizontal_speed(self.sprinting_speed(), carried, capacity)
+    }
+
+    /// Share the authored walking encumbrance ratio across both alternate stances.
+    /// Compute in nanometers per second without truncating the load ratio first.
+    fn load_scaled_horizontal_speed(
+        self,
+        unloaded_speed: Speed,
+        carried: Mass,
+        capacity: Mass,
+    ) -> Speed {
         let loaded_walking = u128::from(
             self.walking_speed_for_load(carried, capacity)
                 .nanometers_per_second(),
         );
         let unloaded_walking = u128::from(self.walking_speed().nanometers_per_second());
-        let sprinting = u128::from(self.sprinting_speed().nanometers_per_second());
+        let unloaded = u128::from(unloaded_speed.nanometers_per_second());
         Speed::from_nanometers_per_second(
-            u64::try_from(sprinting * loaded_walking / unloaded_walking)
-                .unwrap_or_else(|_| unreachable!("authored sprint speed fits u64")),
+            u64::try_from((unloaded * loaded_walking / unloaded_walking).max(1))
+                .unwrap_or_else(|_| unreachable!("authored horizontal speed fits u64")),
         )
     }
 

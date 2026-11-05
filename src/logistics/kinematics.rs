@@ -341,21 +341,17 @@ fn resolve_desired_horizontal_velocity(
     if input.horizontal().is_neutral() {
         return Ok(HorizontalVelocity::ZERO);
     }
+    let (carried, capacity) = projected_load.unwrap_or_else(|| {
+        let carrying = assess_player_carrying(state)
+            .unwrap_or_else(|| unreachable!("generated body motion requires admitted carrying"));
+        (carrying.stored(), carrying.capacity())
+    });
     let target_speed = match stance {
-        PlayerStance::Crouching => locomotion.crouching_speed(),
-        PlayerStance::Standing => {
-            let (carried, capacity) = projected_load.unwrap_or_else(|| {
-                let carrying = assess_player_carrying(state).unwrap_or_else(|| {
-                    unreachable!("generated body motion requires admitted carrying")
-                });
-                (carrying.stored(), carrying.capacity())
-            });
-            if input.sprint() {
-                locomotion.sprinting_speed_for_load(carried, capacity)
-            } else {
-                locomotion.walking_speed_for_load(carried, capacity)
-            }
+        PlayerStance::Crouching => locomotion.crouching_speed_for_load(carried, capacity),
+        PlayerStance::Standing if input.sprint() => {
+            locomotion.sprinting_speed_for_load(carried, capacity)
         }
+        PlayerStance::Standing => locomotion.walking_speed_for_load(carried, capacity),
     };
     desired_horizontal_velocity(target_speed.nanometers_per_second(), input.horizontal())
 }
