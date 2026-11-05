@@ -61,6 +61,18 @@ fn nearby_supported_respawn_body(
     state: &AppState,
     origin: VoxelCoord,
 ) -> Option<PlayerBodyState> {
+    // A new block or floor may have raised the safe standing height without
+    // changing the original spawn column. Prefer its raised surface before
+    // moving horizontally, but never climb down a mined-out hole while a
+    // supported neighbor remains at the actor's original height.
+    if let Some(y) = origin.y().checked_add(1) {
+        let candidate = VoxelCoord::new(origin.x(), y, origin.z());
+        if state.world().has_generated_terrain_at(candidate)
+            && let Some(body) = grounded_respawn_body_at(registries, state, candidate)
+        {
+            return Some(body);
+        }
+    }
     for height in SAFE_RESPAWN_HEIGHT_OFFSETS {
         let Some(y) = origin.y().checked_add(height) else {
             continue;
@@ -77,6 +89,17 @@ fn nearby_supported_respawn_body(
             if let Some(body) = grounded_respawn_body_at(registries, state, candidate) {
                 return Some(body);
             }
+        }
+    }
+    // If neither the raised anchor nor its neighbors provide safe support,
+    // an intact lower floor in the same column is still preferable to a
+    // respawn that immediately resumes the fall at the death location.
+    if let Some(y) = origin.y().checked_sub(1) {
+        let candidate = VoxelCoord::new(origin.x(), y, origin.z());
+        if state.world().has_generated_terrain_at(candidate)
+            && let Some(body) = grounded_respawn_body_at(registries, state, candidate)
+        {
+            return Some(body);
         }
     }
     None

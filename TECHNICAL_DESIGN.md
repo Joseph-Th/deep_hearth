@@ -722,10 +722,12 @@ revision so a panel erected after clearance validation invalidates commit.
 Respawn also rechecks physical grounding at the original spawn wherever terrain
 is generated. A collision-free anchor whose floor was excavated is not a safe
 recovery site. When the death body remains grounded, its exact position is the
-fallback. An unsupported generated-world death instead searches immediate
-collision-free, supported neighbors at the same height or one voxel above or
-below, first around the original anchor and then around the death cache; the
-old death body is retained only if none of those physical sites is available.
+fallback. An unsupported generated-world death instead checks a supported position
+directly above the original anchor first, followed by immediate collision-free,
+supported horizontal neighbors at the same height or one voxel above or below.
+Only then does it try the lower original column, followed by the death-cache
+neighborhood. The old death body is retained only if none of those physical
+sites is available.
 This bounded search never materializes unknown terrain. The candidate check
 shares the control-rate floor solver, while ungenerated authored opening
 positions retain their non-terrain admission semantics. World revisions
@@ -973,7 +975,7 @@ inventory traces -> equipment / energy store / storage enclosure / structural em
 player locality + carried rigid matter -> grounded planned structural member -> timed hand-setting -> active load-bearing member
 finite loose surface matter -> timed same-voxel gathering -> inventory lot
 explicit fresh-world seed + spawn voxel -> deterministic opening-graph forage/stone/timber -> SurfaceResourceState
-explicit fresh-world seed + spawn voxel -> finite optional-branch water + five traversal edges -> FluidState + LogisticsState
+explicit fresh-world seed + spawn voxel -> finite optional-branch water + six traversal edges -> FluidState + LogisticsState
 explicit fresh-world seed + chunk coordinate + authored solid block state + material density -> deterministic mass-backed terrain chunk -> WorldState
 player-eye target + carried tool + mining physics -> timed block excavation -> reduced cell mass + carried inventory lot or local loose surface matter
 pointed face + selected finished storage body -> validated adjacent generated-air placement -> located ground storage; exact-local pickup/drop <-> player-carried inventory lot
