@@ -319,3 +319,87 @@ fn weak_seventeenth_path_cannot_displace_four_path_allocation_needing_three_rele
         "adding a weak candidate cannot reduce the physical work delivered"
     );
 }
+
+#[test]
+fn weak_connector_cannot_reduce_independent_groups_total_delivery() {
+    // Ten independent high-priority shafts coexist with a seven-candidate
+    // conflict group whose exact optimum needs all four smaller paths.
+    // A nearly useless extra shaft shares one roller with each side. It
+    // must not make the former groups lose their proven useful work merely
+    // by joining them into one group beyond the exact-search limit.
+    let mut runs = (0..10)
+        .map(|index| ShaftRun {
+            rollers: vec![StructuralElementId::new(100 + index)],
+        })
+        .collect::<Vec<_>>();
+    runs.extend([
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(1), StructuralElementId::new(2)],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(3), StructuralElementId::new(4)],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(5), StructuralElementId::new(6)],
+        },
+        ShaftRun {
+            rollers: vec![
+                StructuralElementId::new(1),
+                StructuralElementId::new(3),
+                StructuralElementId::new(5),
+            ],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(2)],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(4)],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(6)],
+        },
+    ]);
+    let mut pairs = (0..runs.len())
+        .map(|run| {
+            let useful = match run {
+                0..10 => 100,
+                10..13 => 80,
+                _ => 65,
+            };
+            let store = 2 * run as u64 + 1;
+            candidate(run, run as u32 + 1, store, store + 1, useful, useful + 20)
+        })
+        .collect::<Vec<_>>();
+    let expected_runs = (0..10).chain(13..17).collect::<Vec<_>>();
+    let chosen =
+        |choices: &[ShaftPair]| choices.iter().map(|choice| choice.run).collect::<Vec<_>>();
+    let original = select_shaft_pairs(&pairs, &runs);
+    assert_eq!(chosen(&original), expected_runs);
+
+    let connecting_rollers = std::iter::once(StructuralElementId::new(1))
+        .chain((100..110).map(StructuralElementId::new))
+        .collect::<Vec<_>>();
+    runs.push(ShaftRun {
+        rollers: connecting_rollers,
+    });
+    pairs.push(candidate(17, 18, 35, 36, 1, 2));
+    let connected = select_shaft_pairs(&pairs, &runs);
+    assert_eq!(
+        chosen(&connected),
+        expected_runs,
+        "one weak connector must not reduce total delivery or displace independent shafts"
+    );
+    // The connector need not be last. Another even weaker run can share a
+    // roller with only one side without connecting those two components.
+    pairs[17] = candidate(17, 18, 35, 36, 2, 3);
+    runs.push(ShaftRun {
+        rollers: vec![StructuralElementId::new(100)],
+    });
+    pairs.push(candidate(18, 19, 37, 38, 1, 2));
+    let with_weaker_tail = select_shaft_pairs(&pairs, &runs);
+    assert_eq!(
+        chosen(&with_weaker_tail),
+        expected_runs,
+        "a non-bridging lowest-ranked shaft must not hide the true weak connector"
+    );
+}

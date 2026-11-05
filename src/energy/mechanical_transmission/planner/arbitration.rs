@@ -12,6 +12,9 @@ const EXACT_CONFLICT_LIMIT: usize = 16;
 /// Double replacements are at most 120 trials per round, regardless of the
 /// number of candidate runs in a large generated workshop.
 const DOUBLE_REPLACEMENT_INCUMBENT_LIMIT: usize = 16;
+/// Probe at most four low-priority paths for graph-bridging effects. Dense
+/// conflicts retain bounded heuristics rather than exhaustive search.
+const WEAK_CONNECTOR_PROBES: usize = 4;
 
 /// An individual transfer fits `Energy`, but independent transfers need not
 /// fit in one `u128` when ranked together. Saturation would tie physically
@@ -224,27 +227,17 @@ fn improved_completion(
         .then_some(alternative)
 }
 
-fn greedy_group(pairs: &[ShaftPair], runs: &[ShaftRun], indices: &[usize]) -> Vec<ShaftPair> {
-    let mut selected = greedy_completion(pairs, runs, indices, &[], &[]);
-    // The exact solver's first sixteen ranked paths are still physically
-    // available when a seventeenth, weaker path appears. Preserve that
-    // solution as a bounded baseline, then greedily fill any free assets
-    // with remaining candidates. This catches correlated three-or-more-path
-    // exchanges without a combinatorial search over the entire large group.
-    let prefix = exact_group_indices(pairs, runs, &indices[..EXACT_CONFLICT_LIMIT]);
-    let baseline = greedy_completion(pairs, runs, indices, &prefix, &[]);
-    let (baseline_delivered, baseline_drawn) = aggregate_work(pairs, &baseline);
-    let (greedy_delivered, greedy_drawn) = aggregate_work(pairs, &selected);
-    if baseline_delivered > greedy_delivered
-        || (baseline_delivered == greedy_delivered && baseline_drawn < greedy_drawn)
-    {
-        selected = baseline;
-    }
-    // A large group must not suddenly lose useful work when its seventeenth
-    // candidate disables the exact solver. Some layouts need two shafts freed
-    // together before three smaller independent paths improve delivery:
-    // neither single replacement alone helps. Limit pair trials to sixteen
-    // incumbents and two rounds to bound the per-tick search.
+/// Local one- and two-shaft exchanges cannot solve arbitrary dense conflicts,
+/// but recover useful alternatives without unbounded subset enumeration.
+fn refine_bounded_replacements(
+    pairs: &[ShaftPair],
+    runs: &[ShaftRun],
+    indices: &[usize],
+    mut selected: Vec<usize>,
+) -> Vec<usize> {
+    // Some layouts need two shafts freed together before three smaller
+    // independent paths improve delivery. Limit pair trials to sixteen
+    // incumbents and two rounds to bound each physical tick's search.
     for _ in 0..2 {
         let current_work = aggregate_work(pairs, &selected);
         let mut alternative = None;
@@ -278,7 +271,98 @@ fn greedy_group(pairs: &[ShaftPair], runs: &[ShaftRun], indices: &[usize]) -> Ve
         };
         selected = improved;
     }
-    selected.into_iter().map(|index| pairs[index]).collect()
+    selected
+}
+
+fn greedy_group_indices(
+    pairs: &[ShaftPair],
+    runs: &[ShaftRun],
+    indices: &[usize],
+    consider_weak_connector: bool,
+) -> Vec<usize> {
+    let mut selected = greedy_completion(pairs, runs, indices, &[], &[]);
+    // The exact solver's first sixteen ranked paths are still physically
+    // available when a seventeenth, weaker path appears. Preserve that
+    // solution as a bounded baseline, then greedily fill any free assets
+    // with remaining candidates. This catches correlated three-or-more-path
+    // exchanges without a combinatorial search over the entire large group.
+    let prefix = exact_group_indices(pairs, runs, &indices[..EXACT_CONFLICT_LIMIT]);
+    let baseline = greedy_completion(pairs, runs, indices, &prefix, &[]);
+    let (baseline_delivered, baseline_drawn) = aggregate_work(pairs, &baseline);
+    let (greedy_delivered, greedy_drawn) = aggregate_work(pairs, &selected);
+    if baseline_delivered > greedy_delivered
+        || (baseline_delivered == greedy_delivered && baseline_drawn < greedy_drawn)
+    {
+        selected = baseline;
+    }
+    selected = refine_bounded_replacements(pairs, runs, indices, selected);
+    if consider_weak_connector {
+        selected = refine_weak_connector_splits(pairs, runs, indices, selected);
+    }
+    selected
+}
+
+/// A weak connector can merge otherwise independent exact-search components.
+/// Probe a bounded low-priority suffix and keep the best physically compatible
+/// allocation; an even weaker local option must not hide the actual bridge.
+fn refine_weak_connector_splits(
+    pairs: &[ShaftPair],
+    runs: &[ShaftRun],
+    indices: &[usize],
+    mut selected: Vec<usize>,
+) -> Vec<usize> {
+    for &connector in indices.iter().rev().take(WEAK_CONNECTOR_PROBES) {
+        let Some(separated) = completion_without_weak_connector(pairs, runs, indices, connector)
+        else {
+            continue;
+        };
+        let current_work = aggregate_work(pairs, &selected);
+        let separated_work = aggregate_work(pairs, &separated);
+        if separated_work.0 > current_work.0
+            || (separated_work.0 == current_work.0 && separated_work.1 < current_work.1)
+        {
+            selected = separated;
+        }
+    }
+    selected
+}
+
+/// Removing one candidate permits an independent exact solution in each
+/// disconnected component. Still-large components keep the bounded fallback,
+/// without recursively probing additional bridges.
+fn completion_without_weak_connector(
+    pairs: &[ShaftPair],
+    runs: &[ShaftRun],
+    indices: &[usize],
+    connector: usize,
+) -> Option<Vec<usize>> {
+    let without_connector = indices
+        .iter()
+        .copied()
+        .filter(|&index| index != connector)
+        .collect::<Vec<_>>();
+    let candidates = without_connector
+        .iter()
+        .map(|&index| pairs[index])
+        .collect::<Vec<_>>();
+    let groups = conflict_groups(&candidates, runs);
+    if groups.len() < 2 {
+        return None;
+    }
+    let mut selected = Vec::new();
+    for group in groups {
+        let original_indices = group
+            .into_iter()
+            .map(|index| without_connector[index])
+            .collect::<Vec<_>>();
+        if original_indices.len() <= EXACT_CONFLICT_LIMIT {
+            selected.extend(exact_group_indices(pairs, runs, &original_indices));
+        } else {
+            selected.extend(greedy_group_indices(pairs, runs, &original_indices, false));
+        }
+    }
+    selected.sort_unstable();
+    Some(selected)
 }
 
 fn root(parents: &mut [usize], index: usize) -> usize {
@@ -347,7 +431,11 @@ pub(super) fn select_shaft_pairs(pairs: &[ShaftPair], runs: &[ShaftRun]) -> Vec<
         if indices.len() <= EXACT_CONFLICT_LIMIT {
             selected.extend(exact_group(pairs, runs, &indices));
         } else {
-            selected.extend(greedy_group(pairs, runs, &indices));
+            selected.extend(
+                greedy_group_indices(pairs, runs, &indices, true)
+                    .into_iter()
+                    .map(|index| pairs[index]),
+            );
         }
     }
     selected.sort_unstable_by_key(|pair| pair.run);
