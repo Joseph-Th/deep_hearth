@@ -21,14 +21,16 @@ pub(crate) struct LocomotionExertionAccumulator {
 
 /// Persisted one-shot structural-break input waiting for the next slow-simulation boundary.
 ///
-/// The exact structural identity is retained so delayed admission cannot fall through to terrain
-/// excavation or a replacement member if the originally pointed structure changes.
+/// The exact structural identity and active selection are retained so delayed admission cannot
+/// fall through to terrain excavation, a replacement member, or a different selected tool.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct PlayerPendingPrimaryBreak {
     requested_at: ControlTick,
     position: WorldPoint,
     element: StructuralElementId,
+    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
+    selection: Option<PlayerActiveSelection>,
     direction_x_ppm: i32,
     direction_y_ppm: i32,
     direction_z_ppm: i32,
@@ -39,12 +41,14 @@ impl PlayerPendingPrimaryBreak {
         requested_at: ControlTick,
         position: WorldPoint,
         element: StructuralElementId,
+        selection: Option<PlayerActiveSelection>,
         direction: ViewDirection,
     ) -> Self {
         Self {
             requested_at,
             position,
             element,
+            selection,
             direction_x_ppm: direction.x_parts_per_million(),
             direction_y_ppm: direction.y_parts_per_million(),
             direction_z_ppm: direction.z_parts_per_million(),
@@ -64,6 +68,11 @@ impl PlayerPendingPrimaryBreak {
     #[must_use]
     pub(crate) const fn element(self) -> StructuralElementId {
         self.element
+    }
+
+    #[must_use]
+    pub(crate) const fn selection(self) -> Option<PlayerActiveSelection> {
+        self.selection
     }
 
     #[must_use]

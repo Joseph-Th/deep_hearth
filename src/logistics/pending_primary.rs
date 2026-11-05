@@ -138,6 +138,7 @@ pub(crate) fn validate_buffer_player_primary_break(
             state.control_tick(),
             player.body().foot_position(),
             element,
+            state.logistics().active_selection(),
             direction,
         ),
     })

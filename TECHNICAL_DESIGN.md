@@ -87,6 +87,13 @@ still expose no production `Clone` or whole-world data access to adapters.
 A known due tick is a bound, not permission to skip intervening semantics. Semantic fast-forward requires a
 separate authoritative transition with proved equivalence across every skipped phase.
 
+Buffered structural breaks retain the exact target member, player body origin,
+view direction and active quick-access selection. A change in selection cancels
+the old request on its due slow boundary; a freshly held break can replace the
+old request before that boundary. Current-schema saves require the selection
+field even when the original hand was empty, just as buffered contextual use
+already does. Neither delayed action may execute under a different hand context.
+
 ### Cross-owner edge contract
 
 Each implemented cross-owner handoff has these contract elements where applicable:

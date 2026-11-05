@@ -46,6 +46,178 @@ fn materialized_break_target(
 }
 
 #[test]
+fn queued_structural_break_cannot_survive_a_due_frame_quick_access_change() {
+    use crate::core::state::validate_loaded_state;
+    use crate::logistics::{PlayerQuickAccessSlot, validate_set_quick_access_slot};
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+
+    let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
+    let panel = materialized_break_target(&registries, &mut state, floor_y);
+    let initial_structures = state.structures().clone();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        Mass::from_milligrams(1_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let second = PlayerQuickAccessSlot::new(1).unwrap();
+    validate_set_quick_access_slot(
+        &registries,
+        &state,
+        second,
+        Some(PlayerActiveSelection::material(commodity)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(state.logistics().active_selection(), None);
+    let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
+    let queued = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_primary(PrimaryControlIntent::break_target(direction)),
+    )
+    .unwrap();
+    assert_eq!(
+        queued.primary_action(),
+        Some(&PrimaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    assert_eq!(
+        state
+            .logistics()
+            .pending_primary_break()
+            .map(|pending| pending.element()),
+        Some(panel)
+    );
+    let mut incomplete = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    assert!(
+        incomplete["state"]["systems"]["logistics"]["pending_primary_break"]
+            .as_object_mut()
+            .unwrap()
+            .remove("selection")
+            .is_some()
+    );
+    assert!(
+        serde_json::from_value::<LoadedSaveEnvelope>(incomplete).is_err(),
+        "omitting a buffered hand selection must not authorize a structural break"
+    );
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.control_tick().value() + 1 < CONTROL_TICKS_PER_SIMULATION_TICK {
+        assert_eq!(
+            advance_control_tick(&registries, &mut state).unwrap(),
+            advance_control_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    let switch = PlayerDirectControlInput::NEUTRAL.with_quick_access_slot(second);
+    let outcome = advance_control_tick_with_direct_input(&registries, &mut state, switch).unwrap();
+    assert_eq!(
+        outcome,
+        advance_control_tick_with_direct_input(&registries, &mut replay, switch).unwrap()
+    );
+    assert!(outcome.simulation().is_some());
+    assert_eq!(
+        state.logistics().active_selection(),
+        Some(PlayerActiveSelection::material(commodity))
+    );
+    assert_eq!(
+        outcome.primary_action(),
+        Some(&PrimaryActionOutcome::BufferedContextChanged),
+        "switching the active item must cancel a previously queued structural action"
+    );
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(state.structures(), &initial_structures);
+    assert!(state.logistics().pending_primary_break().is_none());
+    assert_eq!(state, replay);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn held_break_requeues_after_selection_change_before_its_due_boundary() {
+    use crate::core::state::validate_loaded_state;
+    use crate::logistics::{
+        PlayerQuickAccessSlot, validate_select_quick_access_slot, validate_set_quick_access_slot,
+    };
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+
+    let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
+    let panel = materialized_break_target(&registries, &mut state, floor_y);
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        Mass::from_milligrams(1_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let second = PlayerQuickAccessSlot::new(1).unwrap();
+    validate_set_quick_access_slot(
+        &registries,
+        &state,
+        second,
+        Some(PlayerActiveSelection::material(commodity)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
+    let hold = PlayerDirectControlInput::NEUTRAL
+        .with_primary(PrimaryControlIntent::break_target(direction));
+    assert_eq!(
+        advance_control_tick_with_direct_input(&registries, &mut state, hold)
+            .unwrap()
+            .primary_action(),
+        Some(&PrimaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    let original = state.logistics().pending_primary_break().unwrap();
+    assert_eq!(original.element(), panel);
+    assert_eq!(original.selection(), None);
+    validate_select_quick_access_slot(&state, second)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        state.logistics().active_selection(),
+        Some(PlayerActiveSelection::material(commodity))
+    );
+    let resampled = advance_control_tick_with_direct_input(&registries, &mut state, hold).unwrap();
+    assert_eq!(
+        resampled.primary_action(),
+        Some(&PrimaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    let revised = state.logistics().pending_primary_break().unwrap();
+    assert_eq!(revised.element(), panel);
+    assert_eq!(revised.requested_at(), state.control_tick());
+    assert_ne!(revised.requested_at(), original.requested_at());
+    assert_eq!(revised.selection(), state.logistics().active_selection());
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.logistics().pending_primary_break().is_some() {
+        assert_eq!(
+            advance_control_tick(&registries, &mut state).unwrap(),
+            advance_control_tick(&registries, &mut replay).unwrap(),
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn queued_use_does_not_erase_movement_on_its_due_control_sample() {
     use crate::core::state::validate_loaded_state;
     use crate::logistics::validate_buffer_player_secondary_use;

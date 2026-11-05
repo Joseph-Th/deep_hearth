@@ -346,7 +346,9 @@ pub(super) fn attempt_pending_primary_break(
         .logistics()
         .player()
         .map(|player| player.body().foot_position());
-    if current_position != Some(pending.position()) {
+    if current_position != Some(pending.position())
+        || state.logistics().active_selection() != pending.selection()
+    {
         return Some(PrimaryActionOutcome::BufferedContextChanged);
     }
     let direction = pending.direction().unwrap_or_else(|| {
@@ -390,6 +392,7 @@ fn attempt_primary_break(
     }
     if let Some(pending) = state.logistics().pending_primary_break() {
         if pending.direction() == Some(direction)
+            && pending.selection() == state.logistics().active_selection()
             && state
                 .logistics()
                 .player()
@@ -400,7 +403,7 @@ fn attempt_primary_break(
             // Target/world changes are still revalidated on its due boundary.
             return PrimaryActionOutcome::QueuedUntilSimulationBoundary;
         }
-        // A new direction or actor location replaces the stale one-shot request.
+        // A new direction, hand selection or actor location replaces the stale request.
         let _ = take_player_pending_primary_break(state);
     }
     let element = match resolve_direct_structural_target(registries, state, direction) {
