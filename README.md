@@ -12,8 +12,7 @@ game. It owns headless state, authored definitions, and simulation rules; adapte
 3. Read that owner and adjacent tests; consult [`STATUS.md`](STATUS.md) when scope or reachability matters.
 4. Verify with the smallest complete lane in [`TESTING.md`](TESTING.md).
 
-Read authority pages only when the task crosses them; for consequential work identify the owner, operation stage,
-crossed flow, and proof before search.
+Read only crossed authorities; identify the owner, operation stage, flow, and proof before search.
 
 ## Authority map
 
@@ -30,8 +29,7 @@ crossed flow, and proof before search.
 | How may automated gameplay actors reason and what can their evidence establish? | [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) |
 | How are tests selected and work completed? | [`TESTING.md`](TESTING.md) |
 
-Code and adjacent tests own concrete operation behavior and typed edge cases. Design and direction pages do not
-establish current reachability.
+Code and tests own concrete behavior and typed edge cases. Design, direction, and [dated player-experience evidence](history/PLAYER_EXPERIENCE_REVIEW_2026-11.md) do not establish current reachability.
 
 ## Source role map
 

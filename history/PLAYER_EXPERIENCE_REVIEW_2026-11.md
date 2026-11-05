@@ -1,8 +1,9 @@
 # Player Experience Review
 
+**Document role:** Dated player-experience evidence and review conclusions, October–November 2026. This is a non-operative evidence record, not current capability, implementation, or evaluation-policy authority. Current reachability is owned by [`../STATUS.md`](../STATUS.md), intended experience by [`../GAME_DESIGN.md`](../GAME_DESIGN.md), evaluation policy by [`../GAMEPLAY_EVALUATION.md`](../GAMEPLAY_EVALUATION.md), and future priority by [`../DIRECTION.md`](../DIRECTION.md).
+
 **Evidence:** local gameplay reports and replayable simulation, October–November 2026.
-**Scope:** gameplay and evaluation quality, not implementation authority. Current feature
-reachability remains in [STATUS.md](STATUS.md); intent remains in [GAME_DESIGN.md](GAME_DESIGN.md).
+**Scope:** gameplay and evaluation quality, not implementation authority.
 
 ## What the player gets to be
 
@@ -18,7 +19,7 @@ Successful play should repeatedly move from an observed inconvenience or opportu
 self-chosen improvement that changes what the player can do next. More steps in a recipe chain,
 larger ledgers, longer waits, and more forced survival tasks do not automatically serve it.
 
-## What the harness actually showed
+## Dated episode evidence (October–November 2026)
 
 | Episode | Observed experience | Player-design conclusion |
 | --- | --- | --- |
@@ -47,7 +48,9 @@ only where an episode actually executes them; the harness also contains capabili
 modeled handoffs, and independent worlds. Those are useful but **do not prove one uninterrupted
 character grew from the first berry patch into the foundry**.
 
-## What works and what does not yet
+## Review conclusions from that evidence
+
+These conclusions describe the reviewed build; current reachability is rechecked in [`../STATUS.md`](../STATUS.md).
 
 **Works:** exact finite ownership, material conservation, differentiated labor and transport,
 observable equipment economics, local shelter, heat and light, scout reactions, mineral
@@ -82,7 +85,9 @@ thermal model: there is still no rain, humidity, wet clothing, wind shielding by
 thermal insulation beyond overhead cover. The weather-aware forecast reports when its
 assumptions can change, rather than promising a fixed first-warning time.
 
-## Design changes and next highest-value experiment
+## Review recommendations (not a priority authority)
+
+[`../DIRECTION.md`](../DIRECTION.md) owns current integration priority; this section records what the dated review recommended.
 
 The gameplay read surface exposes conservative *conditional* resting hunger/thirst and
 cover-aware unheated warmth runways, alongside exact-local gathering options with projected

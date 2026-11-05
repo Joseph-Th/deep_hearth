@@ -4,8 +4,7 @@
 
 Use [`TESTING.md`](TESTING.md) for test selection and completion,
 [`STATUS.md`](STATUS.md) for reachability, and [`README.md`](README.md) for project routing.
-For the cross-system player-fantasy assessment, observed weak points, and high-fidelity
-experiment criteria, see [`PLAYER_EXPERIENCE_REVIEW.md`](PLAYER_EXPERIENCE_REVIEW.md).
+For dated cross-system player-experience evidence and review conclusions (non-authoritative), see [`history/PLAYER_EXPERIENCE_REVIEW_2026-11.md`](history/PLAYER_EXPERIENCE_REVIEW_2026-11.md).
 
 `tests/gameplay_harness/` evaluates player-facing behavior through production APIs. Controlled setup may create
 capability-only state; setup never establishes ordinary reachability.
