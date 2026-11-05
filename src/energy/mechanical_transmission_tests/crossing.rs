@@ -17,7 +17,7 @@ use crate::structural::{
     validate_activate_structural_element,
 };
 
-fn materialize_roller_at(
+pub(super) fn materialize_roller_at(
     registries: &Registries,
     state: &mut AppState,
     x: i64,

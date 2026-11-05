@@ -4,6 +4,8 @@ use super::*;
 
 #[path = "mechanical_transmission_tests/crossing.rs"]
 mod crossing;
+#[path = "mechanical_transmission_tests/crowded.rs"]
+mod crowded;
 
 fn roller_set(cells: &[(i64, i64)]) -> BTreeMap<VoxelCoord, StructuralElementId> {
     cells
