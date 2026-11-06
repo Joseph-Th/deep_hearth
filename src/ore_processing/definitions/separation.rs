@@ -201,11 +201,15 @@ fn minimum_batched_homogeneous_feed_mass_for_target_recovery(
     }
 
     let mut upper = lower;
-    loop {
-        upper = Mass::from_milligrams(upper.milligrams().checked_mul(2)?);
-        if sufficient(upper) {
-            break;
+    while !sufficient(upper) {
+        if upper.milligrams() == u64::MAX {
+            return None;
         }
+        // This is a read-only search bound, not matter being created. A doubling
+        // above the representation limit must still test the finite maximum:
+        // a feasible target may require less than u64::MAX even when the next
+        // exponential probe is unrepresentable.
+        upper = Mass::from_milligrams(upper.milligrams().saturating_mul(2));
     }
 
     let mut lower_milligrams = lower.milligrams().checked_add(1)?;
@@ -327,3 +331,7 @@ impl ConstituentSeparationPhysics {
         self.recovery.non_target_ppm()
     }
 }
+
+#[cfg(test)]
+#[path = "separation_tests.rs"]
+mod tests;
