@@ -14,6 +14,7 @@ use crate::labor::{
     ValidatedPlayerWorkStart, validate_player_work_start,
 };
 use crate::logistics::validate_player_stockpile_access;
+use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
@@ -170,11 +171,19 @@ pub fn validate_start_player_structural_dismantling(
     element: StructuralElementId,
     method: StructuralConstructionMethodId,
 ) -> Result<ValidatedPlayerStructuralDismantlingStart, PlayerStructuralDismantlingError> {
+    // Do not expose a target's existence or embodied contents to an obsolete
+    // actor. The later player-work admission still owns the actual transaction.
+    validate_player_action(state).map_err(|error| match error {
+        PlayerActionValidationError::PlayerNotAdmitted => {
+            PlayerStructuralDismantlingError::PlayerNotAdmitted
+        }
+        PlayerActionValidationError::PlayerDead => PlayerStructuralDismantlingError::PlayerDead,
+    })?;
     let player = state
         .logistics()
         .player()
         .copied()
-        .ok_or(PlayerStructuralDismantlingError::PlayerNotAdmitted)?;
+        .unwrap_or_else(|| unreachable!("validated structural actor has logistics"));
     let record = target_record(state, element)?;
     if !bounds_are_within_player_reach(registries, state, record.bounds()) {
         return Err(PlayerStructuralDismantlingError::ElementOutOfReach { element });

@@ -57,6 +57,66 @@ fn elevated_member_geometry() -> StructuralElementGeometry {
 }
 
 #[test]
+fn dead_player_cannot_probe_structural_construction_target_before_authorization() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let missing = StructuralElementId::new(98_711);
+    assert_eq!(
+        validate_start_player_structural_construction(
+            &registries,
+            &state,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+            missing,
+            &[],
+        )
+        .err(),
+        Some(PlayerStructuralConstructionError::PlayerNotAdmitted),
+    );
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        validate_start_player_structural_construction(
+            &registries,
+            &state,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+            missing,
+            &[],
+        )
+        .err(),
+        Some(PlayerStructuralConstructionError::UnknownElement { element: missing }),
+    );
+    let player = state.survival().player().copied().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record(
+            player.metabolic_energy(),
+            player.hydration(),
+            Vitality::ZERO,
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+        ),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_start_player_structural_construction(
+            &registries,
+            &state,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+            missing,
+            &[],
+        )
+        .err(),
+        Some(PlayerStructuralConstructionError::PlayerDead),
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn persisted_empty_supported_blueprint_can_be_cancelled_without_matter_change() {
     let registries = build_registries();
     let mut state = AppState::new();

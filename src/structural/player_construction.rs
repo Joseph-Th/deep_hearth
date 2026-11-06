@@ -12,6 +12,7 @@ use crate::labor::{
     StructuralConstructionMethodId, StructuralConstructionWork, ValidatedPlayerWorkStart,
     validate_player_work_start,
 };
+use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
@@ -27,6 +28,7 @@ use super::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerStructuralConstructionError {
     PlayerNotAdmitted,
+    PlayerDead,
     UnknownMethod {
         method: StructuralConstructionMethodId,
     },
@@ -61,6 +63,7 @@ impl Display for PlayerStructuralConstructionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerNotAdmitted => formatter.write_str("structural construction requires an admitted player"),
+            Self::PlayerDead => formatter.write_str("dead player cannot construct structure"),
             Self::UnknownMethod { method } => write!(formatter, "unknown structural construction method {}", method.value()),
             Self::UnknownElement { element } => write!(formatter, "unknown structural element {}", element.value()),
             Self::ElementNotPlanned { element } => write!(formatter, "structural element {} is not awaiting construction", element.value()),
@@ -89,6 +92,7 @@ impl Error for PlayerStructuralConstructionError {
             Self::Material(error) => Some(error),
             Self::Work(error) => Some(error),
             Self::PlayerNotAdmitted
+            | Self::PlayerDead
             | Self::UnknownMethod { .. }
             | Self::UnknownElement { .. }
             | Self::ElementNotPlanned { .. }
@@ -270,6 +274,22 @@ struct PlayerStructuralConstructionContext {
     completes_at: SimulationTick,
 }
 
+fn authorized_structural_builder(
+    state: &AppState,
+) -> Result<crate::logistics::PlayerLogisticsRecord, PlayerStructuralConstructionError> {
+    validate_player_action(state).map_err(|error| match error {
+        PlayerActionValidationError::PlayerNotAdmitted => {
+            PlayerStructuralConstructionError::PlayerNotAdmitted
+        }
+        PlayerActionValidationError::PlayerDead => PlayerStructuralConstructionError::PlayerDead,
+    })?;
+    Ok(state
+        .logistics()
+        .player()
+        .copied()
+        .unwrap_or_else(|| unreachable!("validated structural builder has logistics")))
+}
+
 fn validate_player_structural_construction_context(
     registries: &Registries,
     state: &AppState,
@@ -277,16 +297,12 @@ fn validate_player_structural_construction_context(
     record: &StructuralElementRecord,
     transient_supports: Option<&[StructuralElementId]>,
 ) -> Result<PlayerStructuralConstructionContext, PlayerStructuralConstructionError> {
+    let player = authorized_structural_builder(state)?;
     let definition = registries
         .labor()
         .get_structural_construction(method)
         .copied()
         .ok_or(PlayerStructuralConstructionError::UnknownMethod { method })?;
-    let player = state
-        .logistics()
-        .player()
-        .copied()
-        .ok_or(PlayerStructuralConstructionError::PlayerNotAdmitted)?;
     let element = record.id();
     if record.lifecycle() != StructuralLifecycle::Planned {
         return Err(PlayerStructuralConstructionError::ElementNotPlanned { element });
@@ -353,6 +369,8 @@ pub fn validate_start_player_structural_construction(
     element: StructuralElementId,
     selections: &[MaterialLotSelection],
 ) -> Result<ValidatedPlayerStructuralConstructionStart, PlayerStructuralConstructionError> {
+    // Target lookup is actor-owned observation, even for an obsolete blueprint ID.
+    let _ = authorized_structural_builder(state)?;
     let record = state
         .structures()
         .get_element(element)

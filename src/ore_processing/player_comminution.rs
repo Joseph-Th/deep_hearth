@@ -14,6 +14,7 @@ use crate::equipment::EquipmentId;
 use crate::inventory::{MaterialStackProjection, MaterialStackProjectionError, StockpileId};
 use crate::logistics::{PlayerInventoryProjectionError, project_player_inventory};
 use crate::material::CommodityKey;
+use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::production::{
     ProcessId, StartPlayerProcessError, StartProcessError, ValidatedStartProcess,
     validate_start_player_process,
@@ -145,26 +146,38 @@ pub fn player_local_powered_comminution_options(
     Ok(options)
 }
 
+/// Shared process, machine, and power limit for every destination of one ore stack.
+/// Destination capacity changes the selected mass, not the provider's physical envelope.
+#[derive(Clone, Copy)]
+struct AvailableComminutionCapacity {
+    process: ProcessId,
+    machine: EquipmentId,
+    store: EnergyStoreId,
+    maximum_mass: Mass,
+}
+
 /// Each combination is checked by canonical process admission rather than by
 /// guessing whether a container can accept a future product lot.
 fn ready_option_for_route(
     registries: &Registries,
     state: &AppState,
     stack: &MaterialStackProjection,
-    process: ProcessId,
-    machine: EquipmentId,
-    store: EnergyStoreId,
+    capacity: AvailableComminutionCapacity,
     destination: StockpileId,
 ) -> Option<PlayerComminutionOption> {
-    let envelope =
-        assess_powered_ore_mass_envelope(registries, state, process, machine, store).ok()?;
+    let AvailableComminutionCapacity {
+        process,
+        machine,
+        store,
+        maximum_mass,
+    } = capacity;
     let stockpile = state.inventory().get_stockpile(destination)?;
     let headroom = if destination == stack.stockpile() {
         stockpile.available_capacity().checked_add(stack.mass())?
     } else {
         stockpile.available_capacity()
     };
-    let mass = stack.mass().min(envelope.maximum_mass()).min(headroom);
+    let mass = stack.mass().min(maximum_mass).min(headroom);
     if mass.is_zero() {
         return None;
     }
@@ -216,16 +229,31 @@ fn options_for_stack(
         }
         for machine in equipment {
             for store in stores {
+                // Pure equipment and supply checks are identical for every local output
+                // container. Resolve once, then price each destination's real headroom.
+                let Some(envelope) = assess_powered_ore_mass_envelope(
+                    registries,
+                    state,
+                    definition.process(),
+                    *machine,
+                    *store,
+                )
+                .ok() else {
+                    continue;
+                };
+                let capacity = AvailableComminutionCapacity {
+                    process: definition.process(),
+                    machine: *machine,
+                    store: *store,
+                    maximum_mass: envelope.maximum_mass(),
+                };
+                if capacity.maximum_mass.is_zero() {
+                    continue;
+                }
                 for destination in destinations {
-                    if let Some(option) = ready_option_for_route(
-                        registries,
-                        state,
-                        stack,
-                        definition.process(),
-                        *machine,
-                        *store,
-                        *destination,
-                    ) {
+                    if let Some(option) =
+                        ready_option_for_route(registries, state, stack, capacity, *destination)
+                    {
                         options.push(option);
                     }
                 }
@@ -243,6 +271,16 @@ pub fn validate_start_player_comminution_option(
     option: &PlayerComminutionOption,
     mass: Mass,
 ) -> Result<ValidatedStartProcess, PlayerComminutionOptionError> {
+    // An observed menu row is not an authorization. Recheck the living actor
+    // before exposing its quantity limit or the private inventory revision.
+    validate_player_action(state).map_err(|error| {
+        PlayerComminutionOptionError::Start(match error {
+            PlayerActionValidationError::PlayerNotAdmitted => {
+                StartPlayerProcessError::PlayerNotAdmitted
+            }
+            PlayerActionValidationError::PlayerDead => StartPlayerProcessError::PlayerDead,
+        })
+    })?;
     if mass.is_zero() {
         return Err(PlayerComminutionOptionError::ZeroMass);
     }
@@ -277,3 +315,7 @@ pub fn validate_start_player_comminution_option(
     )
     .map_err(PlayerComminutionOptionError::Start)
 }
+
+#[cfg(test)]
+#[path = "player_comminution_tests.rs"]
+mod tests;

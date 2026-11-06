@@ -48,6 +48,63 @@ fn local_member_plan() -> GroundedStructuralElementPlan {
 }
 
 #[test]
+fn dead_player_cannot_probe_structural_recovery_target_before_authorization() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let unknown = StructuralElementId::new(9_871);
+    assert_eq!(
+        validate_start_player_structural_dismantling(
+            &registries,
+            &state,
+            unknown,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        )
+        .err(),
+        Some(PlayerStructuralDismantlingError::PlayerNotAdmitted),
+    );
+    validate_admit_player(&registries, &state, ORIGIN)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        validate_start_player_structural_dismantling(
+            &registries,
+            &state,
+            unknown,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        )
+        .err(),
+        Some(PlayerStructuralDismantlingError::UnknownElement { element: unknown }),
+    );
+    let player = state.survival().player().copied().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record(
+            player.metabolic_energy(),
+            player.hydration(),
+            Vitality::ZERO,
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+        ),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_start_player_structural_dismantling(
+            &registries,
+            &state,
+            unknown,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        )
+        .err(),
+        Some(PlayerStructuralDismantlingError::PlayerDead),
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn interrupted_planned_member_can_be_recovered_after_respawn() {
     let registries = build_registries();
     let mut state = AppState::new();

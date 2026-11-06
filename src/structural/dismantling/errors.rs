@@ -12,6 +12,7 @@ use super::StructuralElementId;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerStructuralDismantlingError {
     PlayerNotAdmitted,
+    PlayerDead,
     UnknownElement {
         element: StructuralElementId,
     },
@@ -59,6 +60,7 @@ impl Display for PlayerStructuralDismantlingError {
             Self::PlayerNotAdmitted => {
                 formatter.write_str("structural dismantling requires an admitted player")
             }
+            Self::PlayerDead => formatter.write_str("dead player cannot dismantle structure"),
             Self::UnknownElement { element } => write!(
                 formatter,
                 "structural dismantling member {} does not exist",
@@ -143,6 +145,7 @@ impl Error for PlayerStructuralDismantlingError {
             Self::RecoveryAccess(error) => Some(error),
             Self::Work(error) => Some(error),
             Self::PlayerNotAdmitted
+            | Self::PlayerDead
             | Self::UnknownElement { .. }
             | Self::ElementNotRecoverable { .. }
             | Self::ElementOutOfReach { .. }
