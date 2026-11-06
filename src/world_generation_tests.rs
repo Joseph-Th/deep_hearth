@@ -436,7 +436,7 @@ fn terrain_generation_preserves_completed_enclosure_in_open_air() {
 fn trusted_load_rejects_stationary_enclosure_embedded_in_generated_stone() {
     let registries = build_registries();
     let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
-    let at = VoxelCoord::new(5, WORLD_MIN_Y, 5);
+    let at = VoxelCoord::new(5, WORLD_MIN_Y + 1, 5);
     let mut state = AppState::new();
     validate_generate_chunk(
         &registries,
@@ -482,9 +482,10 @@ fn trusted_load_enclosure_overlap_chooses_chunk_first_then_identity_after_recons
     let registries = build_registries();
     let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
     let mut state = AppState::new();
-    let later_chunk = VoxelCoord::new(33, WORLD_MIN_Y, 0);
-    let early_chunk_late_id = VoxelCoord::new(1, WORLD_MIN_Y, 0);
-    let early_chunk_last_id = VoxelCoord::new(2, WORLD_MIN_Y, 0);
+    // These cells must keep their stone footing when cleared for construction.
+    let later_chunk = VoxelCoord::new(33, WORLD_MIN_Y + 1, 0);
+    let early_chunk_late_id = VoxelCoord::new(1, WORLD_MIN_Y + 1, 0);
+    let early_chunk_last_id = VoxelCoord::new(2, WORLD_MIN_Y + 1, 0);
     for chunk in [ChunkCoord::new(0, 0), ChunkCoord::new(2, 0)] {
         validate_generate_chunk(&registries, &state, seed, chunk, BLOCK_STATE_STONE)
             .unwrap()

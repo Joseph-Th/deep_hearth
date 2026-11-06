@@ -42,7 +42,18 @@ fn finite_local_light_cannot_pass_through_a_living_tree_trunk() {
     .unwrap();
     let root = state.world().trees().next().unwrap().root();
     let trunk = VoxelCoord::new(root.x(), root.y() + 1, root.z());
-    let source = VoxelCoord::new(root.x() - 1, root.y() + 1, root.z());
+    // Assemble the light source on a real floor beside the living trunk.
+    let source = (root.y() - 2..=root.y() + 1)
+        .rev()
+        .map(|y| VoxelCoord::new(root.x() - 1, y, root.z()))
+        .find(|&cell| {
+            state.world().block_at(cell) == Some(BlockStateId::AIR)
+                && state
+                    .world()
+                    .block_at(VoxelCoord::new(cell.x(), cell.y() - 1, cell.z()))
+                    == Some(BLOCK_STATE_STONE)
+        })
+        .expect("generated tree has nearby solid ground for the light fixture");
     assert_eq!(state.world().block_at(trunk), Some(BlockStateId::AIR));
     assert_eq!(state.world().block_at(source), Some(BlockStateId::AIR));
     assert!(state.world().tree_trunk_at(trunk).is_some());

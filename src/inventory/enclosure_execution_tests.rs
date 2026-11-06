@@ -724,7 +724,8 @@ fn player_storage_placement_rejects_generated_rock_and_stale_world_truth() {
         TEMPERATURE,
     )
     .unwrap();
-    let position = VoxelCoord::new(6, crate::world::WORLD_MIN_Y, 5);
+    // Clear a cell with a solid floor, so the stale-world test reaches commit.
+    let position = VoxelCoord::new(6, crate::world::WORLD_MIN_Y + 1, 5);
     validate_generate_chunk(
         &registries,
         &state,
