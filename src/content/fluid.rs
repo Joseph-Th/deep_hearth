@@ -1,4 +1,4 @@
-//! Built-in finite fluid identities; runtime world-source generation is not implemented.
+//! Built-in fluid identities; generated spring basins hold finite water in runtime custody.
 
 use crate::fluid::{FluidDefinition, FluidDefinitionId, FluidRegistry};
 

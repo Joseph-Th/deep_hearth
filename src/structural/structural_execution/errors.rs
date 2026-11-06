@@ -123,7 +123,7 @@ impl Display for StructuralMutationError {
             ),
             Self::ElementOwnsMatter { element, mass } => write!(
                 formatter,
-                "structural element {} owns {} mg of embodied matter and cannot be generically removed; demolition and recovery are not implemented",
+                "structural element {} owns {} mg of embodied matter and cannot be generically removed; use player structural dismantling to recover an unloaded, accessible member",
                 element.value(),
                 mass.milligrams()
             ),

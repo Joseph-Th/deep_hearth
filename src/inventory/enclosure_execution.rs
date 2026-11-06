@@ -348,7 +348,8 @@ impl ValidatedStorageEnclosureConstruction {
 
 /// Validates enclosing one existing ambient solid stockpile with an authored material-backed store.
 ///
-/// Construction is intentionally in-place because general world-space haulage is not implemented.
+/// Construction consumes staged material at the target's exact location. Player carrying and
+/// ground transfers move stock between sites; enclosure construction does not haul remote inputs.
 /// Existing lot exposure is checkpointed at the construction tick before the improved preservation
 /// multiplier begins, so infrastructure never retroactively restores freshness.
 pub fn validate_build_storage_enclosure(
