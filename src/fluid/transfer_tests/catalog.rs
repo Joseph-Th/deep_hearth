@@ -9,6 +9,39 @@ use crate::fluid::{
 const BELOW: VoxelCoord = VoxelCoord::new(0, -1, 0);
 
 #[test]
+fn catalog_reports_unprotected_hot_pours_as_blocked_without_changing_custody() {
+    let hot = Temperature::from_millikelvin(353_151);
+    let fixture = fixture(Some((Volume::from_microliters(100_000), hot)));
+    let before = fixture.state.clone();
+    let options = player_fluid_transfer_options(
+        &fixture.registries,
+        &fixture.state,
+        Volume::from_microliters(100_000),
+    )
+    .unwrap();
+    assert_eq!(options.len(), 2);
+    let into_hot = options
+        .iter()
+        .find(|option| option.source() == fixture.source)
+        .unwrap();
+    assert!(!into_hot.is_ready());
+    assert_eq!(
+        into_hot.blocker(),
+        Some(&FluidTransferError::UnsafeHandTemperature {
+            store: fixture.destination,
+            temperature: hot,
+            maximum: crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+        })
+    );
+    assert_eq!(
+        validate_player_fluid_transfer_option(&fixture.registries, &fixture.state, into_hot).err(),
+        into_hot.blocker().cloned()
+    );
+    assert!(options.iter().all(|option| !option.is_ready()));
+    assert_eq!(fixture.state, before);
+}
+
+#[test]
 fn local_and_downhill_options_are_discoverable_and_executable_without_remote_leaks() {
     let mut fixture = fixture_at(None, BELOW);
     let local = add_fluid_store(&mut fixture.state, Volume::from_microliters(500_000)).unwrap();

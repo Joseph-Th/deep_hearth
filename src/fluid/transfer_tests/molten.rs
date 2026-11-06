@@ -1,4 +1,4 @@
-//! Generic same-fluid heat equilibrium must conserve molten phase energy too.
+//! Molten-phase heat equilibrium remains exact, but unprotected handling is unsafe.
 
 use super::*;
 use crate::content::{MATERIAL_COPPER, make_test_registries_with_fluids};
@@ -6,7 +6,7 @@ use crate::energy::calculate_explicit_energy_accounting;
 use crate::fluid::{FluidDefinition, FluidDefinitionId};
 
 #[test]
-fn molten_metal_decant_keeps_phase_latent_heat_and_fluid_identity() {
+fn molten_metal_equilibrium_is_exact_but_hand_decant_is_rejected() {
     let molten_copper = FluidDefinitionId::new(912_401);
     let registries = make_test_registries_with_fluids(vec![FluidDefinition::new(
         molten_copper,
@@ -47,28 +47,39 @@ fn molten_metal_decant_keeps_phase_latent_heat_and_fluid_identity() {
         .unwrap()
         .total()
         .unwrap();
-    let _ = validate_transfer_fluid_between_local_stores(
-        &registries,
-        &state,
-        source,
-        destination,
-        Volume::from_microliters(100),
-    )
-    .unwrap()
-    .commit(&mut state)
-    .unwrap();
-    let mixed = state
+    let source_contents = state.fluid().get_store(source).unwrap().contents().unwrap();
+    let destination_contents = state
         .fluid()
         .get_store(destination)
         .unwrap()
         .contents()
         .unwrap();
-    assert_eq!(mixed.fluid(), molten_copper);
-    assert_eq!(mixed.volume(), Volume::from_microliters(200));
+    let moved = Volume::from_microliters(100);
+    let combined = destination_contents.volume().checked_add(moved).unwrap();
+    assert_eq!(source_contents.fluid(), molten_copper);
+    assert_eq!(destination_contents.fluid(), molten_copper);
     assert_eq!(
-        mixed.temperature(),
-        Temperature::from_millikelvin(1_357_772)
+        equilibrium_temperature(source_contents, destination_contents, moved, combined),
+        Ok(Temperature::from_millikelvin(1_357_772)),
+        "thermally exact molten mixing must remain available to protected industrial owners"
     );
+    let unchanged = state.clone();
+    assert_eq!(
+        validate_transfer_fluid_between_local_stores(
+            &registries,
+            &state,
+            source,
+            destination,
+            moved,
+        )
+        .err(),
+        Some(FluidTransferError::UnsafeHandTemperature {
+            store: source,
+            temperature: source_contents.temperature(),
+            maximum: crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+        })
+    );
+    assert_eq!(state, unchanged);
     assert_eq!(
         calculate_fluid_volume_accounting(&state).unwrap(),
         mass_before
@@ -79,7 +90,7 @@ fn molten_metal_decant_keeps_phase_latent_heat_and_fluid_identity() {
             .total()
             .unwrap(),
         heat_before,
-        "molten-fluid latent heat and sensible heat must both be conserved"
+        "rejecting an unprotected molten pour must conserve latent and sensible heat"
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }

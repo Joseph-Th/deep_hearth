@@ -6,6 +6,107 @@ use crate::energy::calculate_explicit_energy_accounting;
 const WARM_TEMPERATURE: Temperature = Temperature::from_millikelvin(303_150);
 
 #[test]
+fn local_pour_rejects_hot_receiving_vessel_but_allows_exact_boundary_temperature() {
+    let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    let too_hot = Temperature::from_millikelvin(maximum.millikelvin() + 1);
+    let blocked = fixture(Some((Volume::from_microliters(100_000), too_hot)));
+    let before = blocked.state.clone();
+    assert_eq!(
+        validate_transfer_fluid_between_local_stores(
+            &blocked.registries,
+            &blocked.state,
+            blocked.source,
+            blocked.destination,
+            Volume::from_microliters(100_000),
+        )
+        .err(),
+        Some(FluidTransferError::UnsafeHandTemperature {
+            store: blocked.destination,
+            temperature: too_hot,
+            maximum,
+        })
+    );
+    assert_eq!(blocked.state, before);
+
+    let mut boundary = fixture(Some((Volume::from_microliters(100_000), maximum)));
+    let _ = validate_transfer_fluid_between_local_stores(
+        &boundary.registries,
+        &boundary.state,
+        boundary.source,
+        boundary.destination,
+        Volume::from_microliters(100_000),
+    )
+    .unwrap()
+    .commit(&mut boundary.state)
+    .unwrap();
+    assert_eq!(
+        boundary
+            .state
+            .fluid()
+            .get_store(boundary.destination)
+            .unwrap()
+            .contents()
+            .unwrap()
+            .temperature(),
+        Temperature::from_millikelvin(323_150)
+    );
+    assert_eq!(
+        validate_loaded_state(&boundary.registries, &boundary.state),
+        Ok(())
+    );
+}
+
+#[test]
+fn downhill_pour_does_not_handle_a_hot_lower_receiving_vessel() {
+    let hot_destination = Temperature::from_millikelvin(353_152);
+    let mut fixture = fixture_at(
+        Some((Volume::from_microliters(100_000), hot_destination)),
+        VoxelCoord::new(0, -1, 0),
+    );
+    let initial = calculate_fluid_volume_accounting(&fixture.state).unwrap();
+    let heat = calculate_explicit_energy_accounting(&fixture.registries, &fixture.state)
+        .unwrap()
+        .total()
+        .unwrap();
+    let _ = validate_gravity_feed_fluid_to_lower_store(
+        &fixture.registries,
+        &fixture.state,
+        fixture.source,
+        fixture.destination,
+        Volume::from_microliters(100_000),
+    )
+    .unwrap()
+    .commit(&mut fixture.state)
+    .unwrap();
+    assert_eq!(
+        fixture
+            .state
+            .fluid()
+            .get_store(fixture.destination)
+            .unwrap()
+            .contents()
+            .unwrap()
+            .temperature(),
+        Temperature::from_millikelvin(323_151)
+    );
+    assert_eq!(
+        calculate_fluid_volume_accounting(&fixture.state).unwrap(),
+        initial
+    );
+    assert_eq!(
+        calculate_explicit_energy_accounting(&fixture.registries, &fixture.state)
+            .unwrap()
+            .total()
+            .unwrap(),
+        heat
+    );
+    assert_eq!(
+        validate_loaded_state(&fixture.registries, &fixture.state),
+        Ok(())
+    );
+}
+
+#[test]
 fn exact_temperature_equilibrium_preserves_total_heat_and_water_across_replay() {
     let mut fixture = fixture(Some((Volume::from_microliters(100_000), WARM_TEMPERATURE)));
     let water_before = calculate_fluid_volume_accounting(&fixture.state).unwrap();

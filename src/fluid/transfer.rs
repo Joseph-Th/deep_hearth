@@ -1,7 +1,9 @@
 //! Exact hand-decant and one-voxel downward gravity feed between finite fluid stores.
 //!
 //! This is a player-local operation, not a pipe, pump, or remote fluid network.
-//! Neither endpoint may disappear, change its phase, or silently round away
+//! Unprotected hands cannot manipulate dangerously hot source vessels, and
+//! local decanting also requires a safe receiving vessel. Neither endpoint may
+//! disappear, change its phase, or silently round away
 //! thermal energy during a temperature blend. Both stores and supported weights
 //! change atomically, and exact explicit heat is conserved.
 
@@ -11,6 +13,7 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::{Temperature, Volume};
 use crate::core::state::AppState;
 use crate::logistics::{PlayerFluidStoreAccessError, validate_player_fluid_store_access};
+use crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
 use crate::player::{PlayerActionGuard, validate_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -65,6 +68,11 @@ pub enum FluidTransferError {
     IncompatibleFluid {
         expected: FluidDefinitionId,
         found: FluidDefinitionId,
+    },
+    UnsafeHandTemperature {
+        store: FluidStoreId,
+        temperature: Temperature,
+        maximum: Temperature,
     },
     UnrepresentableEquilibriumTemperature {
         weighted_millikelvin_microliters: u128,
@@ -167,6 +175,17 @@ impl Display for FluidTransferError {
                 found.value(),
                 expected.value()
             ),
+            Self::UnsafeHandTemperature {
+                store,
+                temperature,
+                maximum,
+            } => write!(
+                formatter,
+                "fluid store {} is at {} mK, above the unprotected handling limit of {} mK",
+                store.value(),
+                temperature.millikelvin(),
+                maximum.millikelvin()
+            ),
             Self::UnrepresentableEquilibriumTemperature {
                 weighted_millikelvin_microliters,
                 combined_volume,
@@ -215,6 +234,7 @@ impl Error for FluidTransferError {
             | Self::InsufficientVolume { .. }
             | Self::UnknownDefinition { .. }
             | Self::IncompatibleFluid { .. }
+            | Self::UnsafeHandTemperature { .. }
             | Self::UnrepresentableEquilibriumTemperature { .. }
             | Self::DestinationOverflow
             | Self::InsufficientCapacity { .. }
@@ -632,6 +652,31 @@ fn validate_transfer_fluid(
             expected: existing.fluid(),
             found: before_source.fluid(),
         });
+    }
+    // This is unprotected pouring, not an industrial ladle or pump. The source
+    // is always held; a same-voxel receiver is handled as well. Gravity feeding
+    // a vessel one voxel below does not require touching that receiver.
+    // No heat is silently discarded in either route.
+    for (store, contents) in [
+        (source, Some(before_source)),
+        (
+            destination,
+            if matches!(geometry, TransferGeometry::Local) {
+                before_destination
+            } else {
+                None
+            },
+        ),
+    ] {
+        if let Some(contents) = contents
+            && contents.temperature() > MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE
+        {
+            return Err(FluidTransferError::UnsafeHandTemperature {
+                store,
+                temperature: contents.temperature(),
+                maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+            });
+        }
     }
     let available = destination_record
         .capacity()
