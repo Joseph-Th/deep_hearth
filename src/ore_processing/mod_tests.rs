@@ -6,25 +6,191 @@ use crate::content::{
     PROCESS_SEPARATE_NATIVE_COPPER, build_registries,
 };
 use crate::core::quantity::{Mass, Temperature};
-use crate::core::state::AppState;
+use crate::core::state::{AppState, validate_loaded_state};
 use crate::inventory::{
-    MaterialStackProjectionError, add_solid_stockpile_for_test, deposit_lot_for_test,
-    project_material_stacks,
+    MaterialLotSelection, MaterialStackProjectionError, add_solid_stockpile_for_test,
+    deposit_lot_for_test, project_material_stacks,
 };
 use crate::logistics::{PlayerStockpileAccessError, validate_place_ground_stockpile};
 use crate::material::CommodityKey;
 use crate::player::validate_admit_player;
 use crate::production::{ProcessDefinition, ProductionRegistry};
 use crate::spatial::VoxelCoord;
+use crate::survival::{Vitality, player_record_with_thermal_comfort};
 
 use super::{
     ConstituentRecoveryProfile, ConstituentSeparationProcessDefinition,
-    ManualComminutionProcessDefinition, ManualComminutionResolutionError,
+    ManualComminutionProcessDefinition, ManualComminutionRequest, ManualComminutionResolutionError,
     ManualConstituentSeparationResolutionError, ManualOrePhysicsError, ManualOreProcessProfile,
     OreProcessingRegistry, PoweredOreProcessProfile, ScreeningProcessDefinition,
-    project_manual_ore_duration, resolve_manual_comminution_from_stack,
-    resolve_manual_constituent_separation_from_stack,
+    StartManualComminutionError, project_manual_ore_duration,
+    resolve_manual_comminution_from_stack, resolve_manual_comminution_process,
+    resolve_manual_constituent_separation_from_stack, validate_start_manual_comminution,
 };
+
+#[test]
+fn dead_actor_cannot_submit_previously_resolved_manual_breaking_to_probe_output_custody() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let mass = Mass::from_milligrams(100_000);
+    let source = add_solid_stockpile_for_test(&mut state, mass).unwrap();
+    let destination = add_solid_stockpile_for_test(&mut state, mass).unwrap();
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let here = VoxelCoord::new(0, 0, 0);
+    validate_place_ground_stockpile(&state, source, here)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_place_ground_stockpile(&state, destination, VoxelCoord::new(1, 0, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_admit_player(&registries, &state, here)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let selected = [MaterialLotSelection::new(lot, mass)];
+    let resolved = resolve_manual_comminution_process(
+        &registries,
+        &state,
+        ManualComminutionRequest::new(PROCESS_HAND_BREAK_ORE, source, &selected),
+    )
+    .unwrap();
+    assert!(matches!(
+        validate_start_manual_comminution(&registries, &state, &resolved, source, destination),
+        Err(StartManualComminutionError::StockpileAccess(
+            PlayerStockpileAccessError::RemoteKnownStockpile { .. }
+        ))
+    ));
+    let player = state.survival().player().copied().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            player.metabolic_energy(),
+            player.hydration(),
+            Vitality::ZERO,
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+            player.thermal_comfort_ppm(),
+        ),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_start_manual_comminution(&registries, &state, &resolved, source, destination)
+            .err(),
+        Some(StartManualComminutionError::PlayerDead),
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn dead_actor_cannot_reuse_manual_ore_stacks_to_probe_remote_custody() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(300_000)).unwrap();
+    let ore = CommodityKey::new(MATERIAL_COPPER, FORM_ORE);
+    let mass = Mass::from_milligrams(100_000);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        ore,
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let local = VoxelCoord::new(0, 0, 0);
+    let remote = VoxelCoord::new(1, 0, 0);
+    validate_place_ground_stockpile(&state, source, remote)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_admit_player(&registries, &state, local)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let stack = project_material_stacks(&registries, &state, source)
+        .unwrap()
+        .into_iter()
+        .find(|stack| stack.commodity() == ore)
+        .unwrap();
+    // A living player may learn that an already-known stockpile has moved out of reach.
+    assert!(matches!(
+        resolve_manual_comminution_from_stack(
+            &registries,
+            &state,
+            PROCESS_HAND_BREAK_ORE,
+            &stack,
+            mass
+        ),
+        Err(ManualComminutionResolutionError::StockpileAccess(
+            PlayerStockpileAccessError::RemoteKnownStockpile { .. }
+        ))
+    ));
+    let player = state.survival().player().copied().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            player.metabolic_energy(),
+            player.hydration(),
+            Vitality::ZERO,
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+            player.thermal_comfort_ppm(),
+        ),
+    );
+    // Invalidate the old stack as well. Neither location nor cohort freshness
+    // should be inspected before the old actor is rejected.
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        ore,
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    for requested in [Mass::ZERO, mass] {
+        assert_eq!(
+            resolve_manual_comminution_from_stack(
+                &registries,
+                &state,
+                PROCESS_HAND_BREAK_ORE,
+                &stack,
+                requested,
+            )
+            .err(),
+            Some(ManualComminutionResolutionError::PlayerDead),
+        );
+        assert_eq!(
+            resolve_manual_constituent_separation_from_stack(
+                &registries,
+                &state,
+                PROCESS_HAND_SORT_NATIVE_COPPER,
+                &stack,
+                requested,
+            )
+            .err(),
+            Some(ManualConstituentSeparationResolutionError::PlayerDead),
+        );
+    }
+    assert_eq!(state, before);
+}
 
 #[test]
 fn actor_selected_manual_ore_stacks_reject_remote_custody_before_stale_projection() {

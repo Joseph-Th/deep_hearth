@@ -18,6 +18,7 @@ use crate::logistics::{
     PlayerEquipmentAccessError, PlayerStockpileAccessError, validate_player_equipment_access,
     validate_player_stockpile_access,
 };
+use crate::player::validate_optional_player_action;
 use crate::production::{
     ProcessId, ProcessInputError, ProcessOutputStream, ProcessOutputStreamId, ProcessResolution,
     ProcessResolutionError, ProductionJobId, StartProcessCommitError, StartProcessError,
@@ -68,6 +69,7 @@ impl<'selection> ManualComminutionRequest<'selection> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ManualComminutionResolutionError {
     UnknownProcess { process: ProcessId },
+    PlayerDead,
     StockpileAccess(PlayerStockpileAccessError),
     Stack(MaterialStackProjectionError),
     Input(ProcessInputError),
@@ -85,6 +87,9 @@ impl Display for ManualComminutionResolutionError {
                 "process {} has no authored manual comminution semantics",
                 process.value()
             ),
+            Self::PlayerDead => {
+                formatter.write_str("dead player cannot resolve manual comminution")
+            }
             Self::StockpileAccess(error) => {
                 write!(
                     formatter,
@@ -120,7 +125,7 @@ impl Error for ManualComminutionResolutionError {
             Self::Physics(error) => Some(error),
             Self::Batch(error) => Some(error),
             Self::Resolution(error) => Some(error),
-            Self::UnknownProcess { .. } => None,
+            Self::UnknownProcess { .. } | Self::PlayerDead => None,
         }
     }
 }
@@ -226,8 +231,11 @@ pub fn resolve_manual_comminution_from_stack(
     stack: &MaterialStackProjection,
     mass: Mass,
 ) -> Result<ResolvedManualComminution, ManualComminutionResolutionError> {
-    // This actor-facing stack is not proof of physical access. Capability-level
-    // resolution remains independent of player logistics.
+    // A retained actor-selected stack cannot disclose remote stockpile coordinates
+    // or stale inventory history after that player dies. Capability-level
+    // process resolution remains available without full player admission.
+    validate_optional_player_action(state)
+        .map_err(|_| ManualComminutionResolutionError::PlayerDead)?;
     validate_player_stockpile_access(state, stack.stockpile())
         .map_err(ManualComminutionResolutionError::StockpileAccess)?;
     let selections = stack
@@ -243,6 +251,7 @@ pub fn resolve_manual_comminution_from_stack(
 /// Failure while reserving a resolved hand-breaking job and exclusive player labor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StartManualComminutionError {
+    PlayerDead,
     StockpileAccess(PlayerStockpileAccessError),
     EquipmentAccess(PlayerEquipmentAccessError),
     Process(StartProcessError),
@@ -252,6 +261,7 @@ pub enum StartManualComminutionError {
 impl Display for StartManualComminutionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerDead => formatter.write_str("dead player cannot start manual comminution"),
             Self::StockpileAccess(error) => {
                 write!(
                     formatter,
@@ -276,6 +286,7 @@ impl Display for StartManualComminutionError {
 impl Error for StartManualComminutionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::PlayerDead => None,
             Self::StockpileAccess(error) => Some(error),
             Self::EquipmentAccess(error) => Some(error),
             Self::Process(error) => Some(error),
@@ -357,6 +368,9 @@ pub fn validate_start_manual_comminution(
     source: StockpileId,
     destination: StockpileId,
 ) -> Result<ValidatedManualComminutionStart, StartManualComminutionError> {
+    // Resolution is read-only and may have been retained from a living actor.
+    // Reject dead-player work before inspecting output custody or process details.
+    validate_optional_player_action(state).map_err(|_| StartManualComminutionError::PlayerDead)?;
     let process_id = resolved.process_resolution().process();
     let definition = registries
         .ore_processing()

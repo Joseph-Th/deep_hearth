@@ -34,7 +34,9 @@ use crate::player::validate_admit_player;
 use crate::production::{ProcessOutputRoute, StartProcessError, validate_start_process_routed};
 use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
-use crate::survival::{assess_survival, initialize_player_survival};
+use crate::survival::{
+    Vitality, assess_survival, initialize_player_survival, player_record_with_thermal_comfort,
+};
 
 const TEMPERATURE: Temperature = Temperature::from_millikelvin(300_000);
 
@@ -1034,6 +1036,64 @@ fn resolve_manual(fixture: &ManualFixture, mass: Mass) -> ResolvedManualConstitu
         ),
     )
     .unwrap_or_else(|error| panic!("manual separation resolution failed: {error}"))
+}
+
+#[test]
+fn dead_actor_cannot_submit_resolved_manual_sorting_to_inspect_output_location() {
+    let mass = Mass::from_milligrams(100_000);
+    let mut fixture = unadmitted_manual_fixture(mass, copper_stone_composition(400_000));
+    admit_manual_separation_fixture(&mut fixture, &[]);
+    let remote = add_solid_stockpile_for_test(&mut fixture.state, mass).unwrap();
+    validate_place_ground_stockpile(&fixture.state, remote, VoxelCoord::new(1, 0, 0))
+        .unwrap()
+        .commit(&mut fixture.state)
+        .unwrap();
+    let resolved = resolve_manual(&fixture, mass);
+    assert!(matches!(
+        validate_start_manual_constituent_separation(
+            &fixture.registries,
+            &fixture.state,
+            &resolved,
+            fixture.source,
+            remote,
+            fixture.residue,
+        ),
+        Err(StartManualConstituentSeparationError::StockpileAccess(
+            PlayerStockpileAccessError::RemoteKnownStockpile { .. }
+        ))
+    ));
+    let player = fixture.state.survival().player().copied().unwrap();
+    let revision = fixture.state.survival().revision();
+    fixture.state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            player.metabolic_energy(),
+            player.hydration(),
+            Vitality::ZERO,
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+            player.thermal_comfort_ppm(),
+        ),
+    );
+    assert_eq!(
+        validate_loaded_state(&fixture.registries, &fixture.state),
+        Ok(())
+    );
+    let before = fixture.state.clone();
+    assert_eq!(
+        validate_start_manual_constituent_separation(
+            &fixture.registries,
+            &fixture.state,
+            &resolved,
+            fixture.source,
+            remote,
+            fixture.residue,
+        )
+        .err(),
+        Some(StartManualConstituentSeparationError::PlayerDead),
+    );
+    assert_eq!(fixture.state, before);
 }
 
 #[test]

@@ -18,6 +18,7 @@ use crate::logistics::{
     PlayerEquipmentAccessError, PlayerStockpileAccessError, validate_player_equipment_access,
     validate_player_stockpile_access,
 };
+use crate::player::validate_optional_player_action;
 use crate::production::{
     ProcessId, ProcessInputError, ProcessOutputRoute, ProcessOutputStream, ProcessResolution,
     ProcessResolutionError, ProductionJobId, StartProcessCommitError, StartProcessError,
@@ -68,6 +69,7 @@ impl<'selection> ManualConstituentSeparationRequest<'selection> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ManualConstituentSeparationResolutionError {
     UnknownProcess { process: ProcessId },
+    PlayerDead,
     StockpileAccess(PlayerStockpileAccessError),
     Stack(MaterialStackProjectionError),
     Input(ProcessInputError),
@@ -85,6 +87,7 @@ impl Display for ManualConstituentSeparationResolutionError {
                 "process {} has no authored manual constituent-separation semantics",
                 process.value()
             ),
+            Self::PlayerDead => formatter.write_str("dead player cannot resolve manual separation"),
             Self::StockpileAccess(error) => {
                 write!(
                     formatter,
@@ -123,7 +126,7 @@ impl Error for ManualConstituentSeparationResolutionError {
             Self::Physics(error) => Some(error),
             Self::Batch(error) => Some(error),
             Self::Resolution(error) => Some(error),
-            Self::UnknownProcess { .. } => None,
+            Self::UnknownProcess { .. } | Self::PlayerDead => None,
         }
     }
 }
@@ -261,8 +264,10 @@ pub fn resolve_manual_constituent_separation_from_stack(
     stack: &MaterialStackProjection,
     mass: Mass,
 ) -> Result<ResolvedManualConstituentSeparation, ManualConstituentSeparationResolutionError> {
-    // Actor-facing stack selection must establish accessible custody first.
-    // Pure process resolution remains independent of player logistics.
+    // A dead actor's prior stack is not permission to inspect current world
+    // custody or inventory revisions. Pure process resolution remains separate.
+    validate_optional_player_action(state)
+        .map_err(|_| ManualConstituentSeparationResolutionError::PlayerDead)?;
     validate_player_stockpile_access(state, stack.stockpile())
         .map_err(ManualConstituentSeparationResolutionError::StockpileAccess)?;
     let selections = stack
@@ -278,6 +283,7 @@ pub fn resolve_manual_constituent_separation_from_stack(
 /// Failure while reserving a resolved manual separation job and exclusive player labor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StartManualConstituentSeparationError {
+    PlayerDead,
     StockpileAccess(PlayerStockpileAccessError),
     EquipmentAccess(PlayerEquipmentAccessError),
     Process(StartProcessError),
@@ -287,6 +293,7 @@ pub enum StartManualConstituentSeparationError {
 impl Display for StartManualConstituentSeparationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PlayerDead => formatter.write_str("dead player cannot start manual separation"),
             Self::StockpileAccess(error) => {
                 write!(
                     formatter,
@@ -310,6 +317,7 @@ impl Display for StartManualConstituentSeparationError {
 impl Error for StartManualConstituentSeparationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::PlayerDead => None,
             Self::StockpileAccess(error) => Some(error),
             Self::EquipmentAccess(error) => Some(error),
             Self::Process(error) => Some(error),
@@ -393,6 +401,10 @@ pub fn validate_start_manual_constituent_separation(
     target_destination: StockpileId,
     residue_destination: StockpileId,
 ) -> Result<ValidatedManualConstituentSeparationStart, StartManualConstituentSeparationError> {
+    // A retained resolution from a prior living actor does not authorize
+    // checking either output route after player death.
+    validate_optional_player_action(state)
+        .map_err(|_| StartManualConstituentSeparationError::PlayerDead)?;
     let process_id = resolved.process_resolution().process();
     let definition = registries
         .ore_processing()
