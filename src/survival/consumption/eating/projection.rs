@@ -166,13 +166,18 @@ pub fn project_minimum_meal_to_metabolic_target(
         }
 
         let energy_offered = food.dietary_energy_for_mass(mass);
+        // The fixed point proves that the offer covers both the deficit and eating cost.
+        // Subtract that cost before adding the net gain: the uncapped intermediate
+        // current + full offer may exceed u128 even though the capped reserve is valid.
+        let net_gain = energy_offered
+            .checked_sub(meal_cost)
+            .unwrap_or_else(|| unreachable!("feasible meal covers its own metabolic cost"));
+        let headroom = maximum
+            .checked_sub(current)
+            .unwrap_or_else(|| unreachable!("validated current energy fits authored reserve"));
         let metabolic_energy_after = current
-            .checked_add(energy_offered)
-            .and_then(|value| value.checked_sub(meal_cost))
-            .map(|value| value.min(maximum))
-            .unwrap_or_else(|| {
-                unreachable!("feasible meal projection has represented final metabolic energy")
-            });
+            .checked_add(net_gain.min(headroom))
+            .unwrap_or_else(|| unreachable!("bounded meal net gain fits authored reserve"));
         debug_assert!(metabolic_energy_after >= target);
         return Ok(Some(MinimumMealMetabolicProjection {
             mass,
