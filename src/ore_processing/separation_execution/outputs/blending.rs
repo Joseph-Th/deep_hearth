@@ -11,6 +11,10 @@ use crate::ore_processing::definitions::ConstituentSeparationPhysics;
 
 use super::ConstituentSeparationBatchError;
 
+#[cfg(test)]
+#[path = "blending_tests.rs"]
+mod tests;
+
 pub(super) type ParticulateOutputKey = (
     CommodityKey,
     Temperature,
@@ -224,22 +228,24 @@ where
     Ok(())
 }
 
+/// Classify each final quantized residue lot by matter it actually contains.
+/// An aggregate assay can have a dominant trace gangue that rounds to zero
+/// in some of the exact ppm-remainder intervals.
 fn dominant_non_target_material(
-    constituent_numerators: &BTreeMap<MaterialId, u128>,
+    composition: &MaterialComposition,
     target_material: MaterialId,
 ) -> MaterialId {
-    constituent_numerators
+    composition
+        .components()
         .iter()
-        .filter(|(material, numerator)| **material != target_material && **numerator != 0)
-        .max_by(
-            |(left_material, left_numerator), (right_material, right_numerator)| {
-                left_numerator
-                    .cmp(right_numerator)
-                    .then_with(|| right_material.cmp(left_material))
-            },
-        )
-        .map(|(material, _)| *material)
-        .unwrap_or_else(|| unreachable!("separation residue must retain non-target gangue"))
+        .filter(|component| component.material() != target_material)
+        .max_by(|left, right| {
+            left.parts_per_million()
+                .cmp(&right.parts_per_million())
+                .then_with(|| right.material().cmp(&left.material()))
+        })
+        .map(|component| component.material())
+        .unwrap_or_else(|| unreachable!("separation residue lot must retain non-target gangue"))
 }
 
 pub(super) fn add_blended_residue(
@@ -252,14 +258,16 @@ pub(super) fn add_blended_residue(
 ) -> Result<(), ConstituentSeparationBatchError> {
     let target_material = definition.target_material();
     let residue_form = definition.residue_output_form();
-    let host = dominant_non_target_material(&constituent_numerators, target_material);
     add_blended_particulate_stream(
         grouped,
         temperature,
         particle_size,
         constituent_numerators,
         residue_mass,
-        |_| CommodityKey::new(host, residue_form),
+        |composition| {
+            let host = dominant_non_target_material(composition, target_material);
+            CommodityKey::new(host, residue_form)
+        },
     )
 }
 

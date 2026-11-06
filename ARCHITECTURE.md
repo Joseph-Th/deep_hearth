@@ -280,6 +280,8 @@ For every consequential edge:
 - identify the owner before and after the transition;
 - make admission capacity and exclusivity explicit;
 - preserve exact represented quantities or an explicit modeled sink/source;
+- when exact quantization splits a material stream into multiple output lots, derive each lot's
+  commodity host from its own final represented composition, not from the pre-split aggregate assay;
 - persist any custody that survives beyond the command;
 - when delayed work retains an endpoint assumption that is not recomputed into its completion transaction,
   block canonical mutations that would invalidate that assumption for the work interval; otherwise compose the
