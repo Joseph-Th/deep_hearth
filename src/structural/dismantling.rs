@@ -193,7 +193,7 @@ pub fn validate_start_player_structural_dismantling(
     )?;
     let completes_at = state
         .tick()
-        .checked_add_span(duration)
+        .checked_add_executable_span(duration)
         .ok_or(PlayerStructuralDismantlingError::CompletionTickOverflow)?;
     let recovery_destination = player.carried_stockpile();
     validate_player_stockpile_access(state, recovery_destination)

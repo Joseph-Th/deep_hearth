@@ -306,7 +306,7 @@ pub fn validate_start_field_prospecting(
     }
     let completes_at = state
         .tick()
-        .checked_add_span(method.duration())
+        .checked_add_executable_span(method.duration())
         .ok_or(FieldProspectingStartError::CompletionTickOverflow)?;
     let work = ProspectingWork::new(
         request.method,

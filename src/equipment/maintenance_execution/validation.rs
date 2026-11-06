@@ -149,7 +149,7 @@ pub fn validate_equipment_maintenance(
     let exertion = resolution.exertion;
     let material = validate_maintenance_material(registries, state, record, resolution)
         .map_err(EquipmentMaintenanceError::Material)?;
-    let completes_at = state.tick().checked_add_span(duration).ok_or(
+    let completes_at = state.tick().checked_add_executable_span(duration).ok_or(
         EquipmentMaintenanceError::CompletionTickOverflow {
             current: state.tick(),
             duration,

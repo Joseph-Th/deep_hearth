@@ -175,7 +175,7 @@ pub(in crate::labor) fn validate_start_manual_power_with_bindings(
     let duration = schedule.duration();
     let sink = validate_energy_sink_release(registries, bindings.sink(), request.energy, duration)
         .map_err(ManualPowerError::EnergySink)?;
-    let completes_at = state.tick().checked_add_span(duration).ok_or(
+    let completes_at = state.tick().checked_add_executable_span(duration).ok_or(
         ManualPowerError::CompletionTickOverflow {
             method: request.method,
         },

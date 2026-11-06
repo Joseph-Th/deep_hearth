@@ -378,12 +378,28 @@ impl SimulationTick {
         self.0
     }
 
-    /// Adds a relative duration without allowing authoritative time to wrap.
+    /// Adds a relative duration without allowing absolute tick arithmetic to wrap.
+    ///
+    /// Future calendar and resident-policy deadlines may extend beyond the
+    /// executable control horizon. Actual job completions must instead use
+    /// `checked_add_executable_span`.
     #[must_use]
     pub const fn checked_add_span(self, span: TickSpan) -> Option<Self> {
         match self.0.checked_add(span.0) {
             Some(value) => Some(Self(value)),
             None => None,
+        }
+    }
+
+    /// Adds an executable duration bounded by the final 20 Hz control boundary.
+    ///
+    /// Unlike a future observation or resident-policy deadline, a job may
+    /// reserve physical custody only if its completion can actually be reached.
+    #[must_use]
+    pub const fn checked_add_executable_span(self, span: TickSpan) -> Option<Self> {
+        match self.checked_add_span(span) {
+            Some(tick) if tick.0 <= Self::MAX_CONTROL_ALIGNED.0 => Some(tick),
+            _ => None,
         }
     }
 

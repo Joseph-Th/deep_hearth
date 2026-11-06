@@ -122,7 +122,7 @@ pub(super) fn validate_durable_schedule_history(
         .schedule
         .started_at
         .checked_add_span(job.schedule.active_duration)
-        .and_then(|base| base.checked_add_span(job.schedule.completed_suspension_time))
+        .and_then(|base| base.checked_add_executable_span(job.schedule.completed_suspension_time))
         .ok_or(ProductionValidationError::CompletionScheduleOverflow { job: id })?;
     if expected_due != job.schedule.completes_at {
         return Err(ProductionValidationError::CompletionScheduleMismatch {

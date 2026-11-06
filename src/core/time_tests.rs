@@ -25,6 +25,25 @@ fn control_clock_is_exactly_twenty_hertz_and_maps_to_slow_boundaries() {
 }
 
 #[test]
+fn scheduled_simulation_time_cannot_exceed_the_last_control_boundary() {
+    let last = SimulationTick::MAX_CONTROL_ALIGNED.value();
+    assert_eq!(
+        SimulationTick::new(last - 2).checked_add_executable_span(TickSpan::new(2)),
+        Some(SimulationTick::MAX_CONTROL_ALIGNED),
+    );
+    assert_eq!(
+        SimulationTick::new(last - 2).checked_add_executable_span(TickSpan::new(3)),
+        None,
+        "a tick beyond the last 20 Hz boundary cannot ever be executed",
+    );
+    assert_eq!(
+        SimulationTick::new(last).checked_add_span(TickSpan::new(1)),
+        Some(SimulationTick::new(last + 1)),
+        "future policy deadlines retain general checked arithmetic",
+    );
+}
+
+#[test]
 fn absolute_tick_and_relative_span_add_without_wraparound() {
     assert_eq!(
         SimulationTick::new(10).checked_add_span(TickSpan::new(7)),

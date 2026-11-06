@@ -312,7 +312,7 @@ pub(super) fn validate_eat_with_mode(
     let duration = validate_meal_duration(physiology.direct_consumption(), total_mass)?;
     let completes_at = state
         .tick()
-        .checked_add_span(duration)
+        .checked_add_executable_span(duration)
         .ok_or(EatError::CompletionTickOverflow { duration })?;
     let attention = attention
         .hold(PlayerWork::Eating {

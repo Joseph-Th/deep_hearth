@@ -357,7 +357,7 @@ pub fn validate_start_mining(
     )?;
     let completes_at = state
         .tick()
-        .checked_add_span(equipment_plan.duration)
+        .checked_add_executable_span(equipment_plan.duration)
         .ok_or(MiningStartError::CompletionTickOverflow)?;
     let output_mass = Mass::from_milligrams(
         mass.milligrams()

@@ -215,7 +215,7 @@ pub(super) fn validate_drink_with_mode(
     let duration = validate_drink_duration(physiology.direct_consumption(), volume)?;
     let completes_at = state
         .tick()
-        .checked_add_span(duration)
+        .checked_add_executable_span(duration)
         .ok_or(DrinkError::CompletionTickOverflow { duration })?;
     let attention = attention
         .hold(PlayerWork::Drinking {

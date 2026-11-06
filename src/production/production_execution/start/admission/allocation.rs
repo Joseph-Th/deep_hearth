@@ -21,12 +21,12 @@ pub(in super::super) fn validate_job_allocation(
     resolution: &ProcessResolution,
 ) -> Result<ValidatedJobAllocation, StartProcessError> {
     let current = state.tick();
-    let completes_at = current.checked_add_span(resolution.duration()).ok_or(
-        StartProcessError::CompletionTickOverflow {
+    let completes_at = current
+        .checked_add_executable_span(resolution.duration())
+        .ok_or(StartProcessError::CompletionTickOverflow {
             current,
             duration_ticks: resolution.duration().value(),
-        },
-    )?;
+        })?;
     let job_value = state.production().next_job_id();
     let next_job_id = job_value
         .checked_add(1)

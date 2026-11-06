@@ -399,7 +399,7 @@ fn validate_start_surface_gathering_with_mode(
         .unwrap_or_else(|| unreachable!("validated gathering mass has an authored duration"));
     let completes_at = state
         .tick()
-        .checked_add_span(duration)
+        .checked_add_executable_span(duration)
         .ok_or(SurfaceGatheringError::CompletionTickOverflow)?;
     let entry = MaterialIngressEntry::from_surface_parcel(
         request.mass,

@@ -9,6 +9,45 @@ use crate::survival::{
 };
 
 #[test]
+fn drinking_rejects_completion_after_the_last_representable_control_tick() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let serving = registries
+        .survival()
+        .physiology()
+        .direct_consumption()
+        .minimum_drink_volume();
+    let duration = registries
+        .survival()
+        .physiology()
+        .direct_consumption()
+        .drink_duration(serving)
+        .expect("built-in minimum serving has a duration");
+    let store = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        serving,
+        FLUID_WATER,
+        serving,
+        Temperature::from_millikelvin(293_150),
+    )
+    .expect("finite drink fixture");
+    initialize_player_survival(&registries, &mut state).expect("player survival fixture");
+    let last_start = SimulationTick::MAX_CONTROL_ALIGNED.value() - duration.value();
+    apply_clock_advance(&mut state, SimulationTick::new(last_start));
+    assert!(
+        validate_drink(&registries, &state, store, serving).is_ok(),
+        "a drink ending exactly at the last boundary should be admissible",
+    );
+    apply_clock_advance(&mut state, SimulationTick::new(last_start + 1));
+    assert_eq!(
+        validate_drink(&registries, &state, store, serving).err(),
+        Some(DrinkError::CompletionTickOverflow { duration }),
+        "do not consume finite water for drinking that can never finish",
+    );
+}
+
+#[test]
 fn minimum_drink_projection_prices_its_own_consumption_time() {
     let registries = build_registries();
     let physiology = registries.survival().physiology();

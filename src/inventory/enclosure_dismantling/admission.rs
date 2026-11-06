@@ -198,7 +198,7 @@ pub fn validate_start_storage_enclosure_dismantling(
         .get(definition)
         .ok_or(StorageEnclosureDismantlingError::UnknownDefinition { definition })?;
     let duration = definition_record.dismantle_duration();
-    let completes_at = state.tick().checked_add_span(duration).ok_or(
+    let completes_at = state.tick().checked_add_executable_span(duration).ok_or(
         StorageEnclosureDismantlingError::CompletionTickOverflow {
             current: state.tick(),
             duration,

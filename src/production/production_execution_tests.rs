@@ -63,6 +63,31 @@ fn wood_log() -> CommodityKey {
 }
 
 #[test]
+fn production_cannot_reserve_an_unreachable_completion_clock_tick() {
+    let (registries, mut state, source, destination) = unstarted_process_fixture();
+    let resolved = make_test_resolution(&registries, &mut state, source);
+    let duration = resolved.duration();
+    assert!(!duration.is_zero());
+    let last_start = SimulationTick::MAX_CONTROL_ALIGNED.value() - duration.value();
+    apply_clock_advance(&mut state, SimulationTick::new(last_start));
+    assert!(
+        validate_start_process(&registries, &state, &resolved, source, destination).is_ok(),
+        "a production job ending on the final slow boundary remains executable",
+    );
+    apply_clock_advance(&mut state, SimulationTick::new(last_start + 1));
+    let before = state.clone();
+    assert_eq!(
+        validate_start_process(&registries, &state, &resolved, source, destination).err(),
+        Some(StartProcessError::CompletionTickOverflow {
+            current: state.tick(),
+            duration_ticks: duration.value(),
+        }),
+        "production cannot reserve material and energy for a job the control clock cannot finish",
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn player_process_start_requires_complete_player_admission() {
     let (registries, mut state, source, destination) = unstarted_process_fixture();
     let resolved = make_test_resolution(&registries, &mut state, source);

@@ -377,7 +377,7 @@ pub fn validate_start_player_tree_felling(
     }
     let completes_at = state
         .tick()
-        .checked_add_span(duration)
+        .checked_add_executable_span(duration)
         .ok_or(TreeFellingStartError::CompletionTickOverflow)?;
     let work = TreeFellingWork::new(root, trace, state.tick(), completes_at);
     let work_start = validate_player_work_start_control_rate(

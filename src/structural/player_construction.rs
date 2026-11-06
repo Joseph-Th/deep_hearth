@@ -334,7 +334,7 @@ fn validate_player_structural_construction_context(
     )?;
     let completes_at = state
         .tick()
-        .checked_add_span(duration)
+        .checked_add_executable_span(duration)
         .ok_or(PlayerStructuralConstructionError::CompletionTickOverflow)?;
     Ok(PlayerStructuralConstructionContext {
         definition,

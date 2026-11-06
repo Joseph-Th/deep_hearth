@@ -208,7 +208,7 @@ fn plan_availability_change(
         }
         (Some(suspension), None) => {
             let remaining = suspension.remaining_active_time();
-            let Some(scheduled_completion) = current.checked_add_span(remaining) else {
+            let Some(scheduled_completion) = current.checked_add_executable_span(remaining) else {
                 return Err(CompletionPlanError::ResumeTickOverflow {
                     job: job.id(),
                     current,
