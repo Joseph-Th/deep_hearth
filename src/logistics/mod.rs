@@ -76,8 +76,8 @@ pub(crate) use initialization::{
     ValidatedPlayerLogisticsInitialization, validate_player_logistics_initialization,
 };
 pub use inventory_view::{
-    PlayerCarriedEquipmentProjection, PlayerInventoryProjection, PlayerInventoryProjectionError,
-    PlayerLocalEquipmentProjection, PlayerStockpileProjection, project_player_inventory,
+    PlayerEquipmentProjection, PlayerInventoryProjection, PlayerInventoryProjectionError,
+    PlayerStockpileProjection, project_player_inventory,
 };
 pub use kinematics::{
     PlayerBodyMotionError, PlayerBodyMotionOutcome, PlayerFallImpactOutcome,

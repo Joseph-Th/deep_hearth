@@ -15,6 +15,86 @@ use crate::player::validate_admit_player;
 use crate::spatial::VoxelCoord;
 
 #[test]
+fn one_equipment_projection_preserves_carried_local_and_remote_custody() {
+    use crate::content::{EQUIPMENT_STONE_PICK, FORM_HANDLE, FORM_TOOL, MATERIAL_STONE};
+    use crate::core::state::validate_loaded_state;
+    use crate::equipment::validate_assemble_equipment;
+    use crate::logistics::{place_equipment_for_fixture, validate_pickup_equipment};
+    use crate::maintenance::Condition;
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let source =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(3_000_000)).unwrap();
+    for (commodity, milligrams) in [
+        (CommodityKey::new(MATERIAL_STONE, FORM_TOOL), 2_400_000),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE), 600_000),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            source,
+            commodity,
+            Mass::from_milligrams(milligrams),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+    }
+    let [carried, local, remote] = [(); 3].map(|_| {
+        validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, source)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap()
+    });
+    for (equipment, at) in [
+        (carried, position),
+        (local, position),
+        (remote, VoxelCoord::new(3, 0, 0)),
+    ] {
+        place_equipment_for_fixture(&mut state, equipment, at);
+    }
+    validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_pickup_equipment(&registries, &state, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    let view = project_player_inventory(&registries, &state).unwrap();
+    assert_eq!(view.equipment().len(), 1);
+    assert_eq!(view.local_equipment().len(), 1);
+    for (projection, id) in [
+        (view.equipment()[0], carried),
+        (view.local_equipment()[0], local),
+    ] {
+        assert_eq!(projection.equipment(), id);
+        assert_eq!(projection.definition(), EQUIPMENT_STONE_PICK);
+        assert_eq!(projection.condition(), Condition::PRISTINE);
+        assert_eq!(
+            projection.mass(),
+            state.equipment().get_equipment(id).unwrap().embodied_mass()
+        );
+    }
+    assert!(
+        view.equipment()
+            .iter()
+            .chain(view.local_equipment())
+            .all(|item| item.equipment() != remote)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(project_player_inventory(&registries, &replay), Ok(view));
+}
+
+#[test]
 fn logistics_only_inventory_observation_remains_available_without_survival_actor() {
     use crate::logistics::validate_initialize_player_logistics;
 

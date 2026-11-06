@@ -26,21 +26,21 @@ pub enum PlayerInventoryProjectionError {
     Stack(MaterialStackProjectionError),
 }
 
-/// One stationary equipment instance at the player's exact voxel.
+/// One equipment instance in either carried custody or the player's exact voxel.
 ///
-/// This is the world-local counterpart to carried equipment presentation. Pickup legality remains
-/// owned by `validate_pickup_equipment`; the projection does not imply portability, free capacity,
-/// lack of occupancy, or structural detachment.
+/// Both collections use the same physical identity, definition, condition, and embodied mass.
+/// The containing collection distinguishes custody; a projection never authorizes pickup,
+/// carrying capacity, structural detachment, or other equipment actions.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PlayerLocalEquipmentProjection {
+pub struct PlayerEquipmentProjection {
     equipment: EquipmentId,
     definition: EquipmentDefinitionId,
     condition: Condition,
     mass: Mass,
 }
 
-impl PlayerLocalEquipmentProjection {
+impl PlayerEquipmentProjection {
     #[must_use]
     pub const fn equipment(self) -> EquipmentId {
         self.equipment
@@ -78,38 +78,6 @@ impl Error for PlayerInventoryProjectionError {
             Self::PlayerNotAdmitted | Self::PlayerDead => None,
             Self::Stack(error) => Some(error),
         }
-    }
-}
-
-/// One carried durable equipment instance rendered alongside material stacks.
-#[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PlayerCarriedEquipmentProjection {
-    equipment: EquipmentId,
-    definition: EquipmentDefinitionId,
-    condition: Condition,
-    mass: Mass,
-}
-
-impl PlayerCarriedEquipmentProjection {
-    #[must_use]
-    pub const fn equipment(self) -> EquipmentId {
-        self.equipment
-    }
-
-    #[must_use]
-    pub const fn definition(self) -> EquipmentDefinitionId {
-        self.definition
-    }
-
-    #[must_use]
-    pub const fn condition(self) -> Condition {
-        self.condition
-    }
-
-    #[must_use]
-    pub const fn mass(self) -> Mass {
-        self.mass
     }
 }
 
@@ -173,8 +141,8 @@ pub struct PlayerInventoryProjection {
     quick_access_slots: [Option<PlayerActiveSelection>; PLAYER_QUICK_ACCESS_SLOT_COUNT],
     active_quick_access_slot: PlayerQuickAccessSlot,
     carried: PlayerStockpileProjection,
-    equipment: Vec<PlayerCarriedEquipmentProjection>,
-    local_equipment: Vec<PlayerLocalEquipmentProjection>,
+    equipment: Vec<PlayerEquipmentProjection>,
+    local_equipment: Vec<PlayerEquipmentProjection>,
     local_containers: Vec<PlayerStockpileProjection>,
 }
 
@@ -198,11 +166,11 @@ impl PlayerInventoryProjection {
         &self.carried
     }
 
-    pub fn equipment(&self) -> &[PlayerCarriedEquipmentProjection] {
+    pub fn equipment(&self) -> &[PlayerEquipmentProjection] {
         &self.equipment
     }
 
-    pub fn local_equipment(&self) -> &[PlayerLocalEquipmentProjection] {
+    pub fn local_equipment(&self) -> &[PlayerEquipmentProjection] {
         &self.local_equipment
     }
 
@@ -263,7 +231,7 @@ pub fn project_player_inventory(
                 .unwrap_or_else(|| {
                     panic!("runtime invariant broken: carried equipment disappeared")
                 });
-            PlayerCarriedEquipmentProjection {
+            PlayerEquipmentProjection {
                 equipment,
                 definition: record.definition(),
                 condition: record.condition(),
@@ -274,7 +242,7 @@ pub fn project_player_inventory(
     let local_equipment = state
         .available_local_equipment()
         .filter(|record| !state.logistics().is_equipment_carried(record.id()))
-        .map(|record| PlayerLocalEquipmentProjection {
+        .map(|record| PlayerEquipmentProjection {
             equipment: record.id(),
             definition: record.definition(),
             condition: record.condition(),

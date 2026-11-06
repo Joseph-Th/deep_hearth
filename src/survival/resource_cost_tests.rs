@@ -166,6 +166,32 @@ fn duration_projection_matches_exact_tick_cost_multiplication() {
 }
 
 #[test]
+fn zero_duration_projection_never_evaluates_an_unrepresentable_tick_cost() {
+    let definition = physiology(
+        Energy::from_nanojoules(u128::MAX),
+        Volume::from_microliters(u64::MAX),
+        Energy::from_nanojoules(u128::MAX),
+        Volume::from_microliters(u64::MAX),
+    );
+    let energy_overflow = SurvivalExertion::new(Energy::from_nanojoules(1), Volume::ZERO);
+    let hydration_overflow = SurvivalExertion::new(Energy::ZERO, Volume::from_microliters(1));
+    for exertion in [energy_overflow, hydration_overflow] {
+        assert_eq!(
+            project_survival_resource_budget(definition, exertion, TickSpan::ZERO),
+            Ok(SurvivalResourceBudget::ZERO),
+        );
+    }
+    assert_eq!(
+        project_survival_resource_budget(definition, energy_overflow, TickSpan::new(1)),
+        Err(SurvivalResourceProjectionError::EnergyOverflow),
+    );
+    assert_eq!(
+        project_survival_resource_budget(definition, hydration_overflow, TickSpan::new(1)),
+        Err(SurvivalResourceProjectionError::HydrationOverflow),
+    );
+}
+
+#[test]
 fn duration_projection_reports_multiplication_overflow() {
     let definition = physiology(
         Energy::from_nanojoules(u128::MAX / 2 + 1),

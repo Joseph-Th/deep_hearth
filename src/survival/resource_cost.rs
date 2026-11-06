@@ -147,6 +147,11 @@ pub fn project_survival_resource_budget(
     exertion: SurvivalExertion,
     duration: TickSpan,
 ) -> Result<SurvivalResourceBudget, SurvivalResourceProjectionError> {
+    // No tick consumes no resources, even when the hypothetical per-tick
+    // combination would be too large to represent for a nonempty interval.
+    if duration.is_zero() {
+        return Ok(SurvivalResourceBudget::ZERO);
+    }
     let per_tick =
         resolve_survival_tick_resource_cost(physiology, exertion).map_err(|error| match error {
             SurvivalTickResourceCostError::EnergyOverflow => {
