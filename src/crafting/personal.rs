@@ -73,11 +73,17 @@ impl Error for PlayerManualCraftError {
 fn carried_stockpile(
     state: &AppState,
 ) -> Result<crate::inventory::StockpileId, PlayerManualCraftError> {
-    state
+    let carried = state
         .logistics()
         .player()
-        .map(|player| player.carried_stockpile())
-        .ok_or(PlayerManualCraftError::PlayerNotAdmitted)
+        .ok_or(PlayerManualCraftError::PlayerNotAdmitted)?
+        .carried_stockpile();
+    // Logistics-only capability fixtures can inspect catalogs without a survival actor.
+    // A dead admitted actor cannot inspect inputs through any personal start path.
+    if state.player_observation_position().is_none() {
+        return Err(PlayerManualCraftError::PlayerDead);
+    }
+    Ok(carried)
 }
 
 fn with_optional_equipment(
@@ -99,11 +105,6 @@ pub fn player_manual_craft_options(
     state: &AppState,
 ) -> Result<Vec<ManualCraftStockpileOption>, PlayerManualCraftError> {
     let carried = carried_stockpile(state)?;
-    // Carried matter remains physically owned after death, but an obsolete
-    // actor cannot inspect its live recipe availability before respawning.
-    if state.player_observation_position().is_none() {
-        return Err(PlayerManualCraftError::PlayerDead);
-    }
     manual_craft_options_from_stockpile(registries, state, carried)
         .map_err(PlayerManualCraftError::InputPlan)
 }

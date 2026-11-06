@@ -160,6 +160,7 @@ pub fn player_equipment_maintenance_options(
 #[derive(Debug)]
 pub enum PlayerEquipmentMaintenanceStartError {
     PlayerNotAdmitted,
+    PlayerDead,
     Resolution(EquipmentMaintenanceResolutionError),
     Validation(EquipmentMaintenanceError),
 }
@@ -168,6 +169,7 @@ impl Display for PlayerEquipmentMaintenanceStartError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerNotAdmitted => formatter.write_str("player is not admitted"),
+            Self::PlayerDead => formatter.write_str("player is dead"),
             Self::Resolution(error) => {
                 write!(formatter, "equipment service resolution failed: {error}")
             }
@@ -181,7 +183,7 @@ impl Display for PlayerEquipmentMaintenanceStartError {
 impl Error for PlayerEquipmentMaintenanceStartError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::PlayerNotAdmitted => None,
+            Self::PlayerNotAdmitted | Self::PlayerDead => None,
             Self::Resolution(error) => Some(error),
             Self::Validation(error) => Some(error),
         }
@@ -203,6 +205,9 @@ pub fn validate_start_player_equipment_maintenance(
         .player()
         .map(|player| player.carried_stockpile())
         .ok_or(PlayerEquipmentMaintenanceStartError::PlayerNotAdmitted)?;
+    if state.player_observation_position().is_none() {
+        return Err(PlayerEquipmentMaintenanceStartError::PlayerDead);
+    }
     let resolution = resolve_equipment_maintenance(
         registries,
         state,

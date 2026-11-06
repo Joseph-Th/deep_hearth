@@ -257,3 +257,47 @@ fn maintenance_uses_newer_cool_replacement_without_consuming_hot_material() {
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
+
+#[test]
+fn dead_player_cannot_inspect_maintenance_replacement_stock_during_start() {
+    use crate::survival::{Vitality, player_record_with_thermal_comfort};
+
+    let (registries, mut state, pick) = worn_pick_with_player();
+    let ready_before = player_equipment_maintenance_options(&registries, &state)
+        .unwrap()
+        .into_iter()
+        .find(|option| option.equipment() == pick)
+        .unwrap();
+    assert!(!ready_before.replacement_ready());
+    assert!(matches!(
+        validate_start_player_equipment_maintenance(&registries, &state, pick),
+        Err(PlayerEquipmentMaintenanceStartError::Resolution(
+            EquipmentMaintenanceResolutionError::InsufficientReplacementMaterial { .. }
+        ))
+    ));
+    let player = *state.survival().player().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            player.metabolic_energy(),
+            player.hydration(),
+            Vitality::ZERO,
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+            player.thermal_comfort_ppm(),
+        ),
+    );
+    let snapshot = state.clone();
+    assert!(matches!(
+        player_equipment_maintenance_options(&registries, &state),
+        Err(PlayerEquipmentMaintenanceCatalogError::PlayerDead)
+    ));
+    assert!(matches!(
+        validate_start_player_equipment_maintenance(&registries, &state, pick),
+        Err(PlayerEquipmentMaintenanceStartError::PlayerDead)
+    ));
+    assert_eq!(state, snapshot);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}

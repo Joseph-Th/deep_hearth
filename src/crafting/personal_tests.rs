@@ -474,3 +474,85 @@ fn explicit_personal_stack_choice_is_revision_bound_and_must_match_recipe_input(
         ))
     ));
 }
+
+#[test]
+fn dead_actor_cannot_expose_recipe_inputs_through_personal_crafting() {
+    use crate::survival::{Vitality, player_record_with_thermal_comfort};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let carried = validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(1_000_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+    let before = *state.survival().player().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            before.metabolic_energy(),
+            before.hydration(),
+            Vitality::ZERO,
+            before.nutrition(),
+            before.vitality_recovery_remainder(),
+            before.thermal_comfort_ppm(),
+        ),
+    );
+    let snapshot = state.clone();
+    assert_eq!(
+        player_manual_craft_options(&registries, &state),
+        Err(PlayerManualCraftError::PlayerDead)
+    );
+    assert_eq!(
+        validate_start_player_manual_craft(
+            &registries,
+            &state,
+            PROCESS_KNAP_STONE_TOOL,
+            one_batch(),
+            None
+        )
+        .err(),
+        Some(PlayerManualCraftError::PlayerDead)
+    );
+    assert_eq!(
+        validate_start_player_manual_craft_with_residue_destination(
+            &registries,
+            &state,
+            PROCESS_KNAP_STONE_TOOL,
+            one_batch(),
+            None,
+            carried
+        )
+        .err(),
+        Some(PlayerManualCraftError::PlayerDead)
+    );
+    assert_eq!(
+        validate_start_player_manual_craft_from_stack(
+            &registries,
+            &state,
+            PROCESS_KNAP_STONE_TOOL,
+            one_batch(),
+            &stack,
+            None
+        )
+        .err(),
+        Some(PlayerManualCraftError::PlayerDead)
+    );
+    assert_eq!(state, snapshot);
+}

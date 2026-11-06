@@ -116,6 +116,16 @@ impl Error for PlayerPoweredCraftOptionError {
     }
 }
 
+fn require_visible_player(state: &AppState) -> Result<(), PlayerPoweredCraftOptionError> {
+    if state.logistics().player().is_none() {
+        return Err(PlayerPoweredCraftOptionError::PlayerNotAdmitted);
+    }
+    if state.player_observation_position().is_none() {
+        return Err(PlayerPoweredCraftOptionError::PlayerDead);
+    }
+    Ok(())
+}
+
 /// Discovers executable one-batch machine variants from a manual transform and local custody.
 ///
 /// A machine or energy source that cannot physically support the work is omitted, while missing
@@ -127,12 +137,7 @@ pub fn player_powered_craft_options(
     source: StockpileId,
     transform: ProcessId,
 ) -> Result<Vec<PlayerPoweredCraftOption>, PlayerPoweredCraftOptionError> {
-    if state.logistics().player().is_none() {
-        return Err(PlayerPoweredCraftOptionError::PlayerNotAdmitted);
-    }
-    if state.player_observation_position().is_none() {
-        return Err(PlayerPoweredCraftOptionError::PlayerDead);
-    }
+    require_visible_player(state)?;
     validate_player_stockpile_access(state, source)
         .map_err(PlayerPoweredCraftOptionError::StockpileAccess)?;
     let input = assess_manual_craft_inputs(registries, state, transform, source)
@@ -179,6 +184,7 @@ pub fn validate_start_player_powered_craft_option(
     option: PlayerPoweredCraftOption,
     destination: StockpileId,
 ) -> Result<ValidatedStartProcess, PlayerPoweredCraftOptionError> {
+    require_visible_player(state)?;
     validate_player_stockpile_access(state, option.source)
         .map_err(PlayerPoweredCraftOptionError::StockpileAccess)?;
     let craft = plan_manual_craft_from_stockpile(
@@ -203,3 +209,7 @@ pub fn validate_start_player_powered_craft_option(
     )
     .map_err(PlayerPoweredCraftOptionError::Start)
 }
+
+#[cfg(test)]
+#[path = "player_options_tests.rs"]
+mod tests;
