@@ -95,6 +95,56 @@ fn control_exertion_splits_preserve_exact_authored_total() {
 }
 
 #[test]
+fn control_exertion_near_clock_limit_charges_only_the_covered_interval() {
+    let rate = SurvivalExertion::new(
+        Energy::from_nanojoules(u128::MAX),
+        Volume::from_microliters(u64::MAX),
+    );
+    let start = u64::MAX - CONTROL_TICKS_PER_SIMULATION_TICK;
+    let middle = start + 37;
+    let end = u64::MAX;
+
+    let first = control_exertion_between(rate, start, middle)
+        .expect("the first bounded interval must not overflow its lifetime cumulative cost");
+    let second = control_exertion_between(rate, middle, end)
+        .expect("the remaining bounded interval must not overflow its lifetime cumulative cost");
+    assert_eq!(
+        first
+            .energy_cost_per_tick()
+            .checked_add(second.energy_cost_per_tick()),
+        Some(rate.energy_cost_per_tick()),
+    );
+    assert_eq!(
+        first
+            .hydration_loss_per_tick()
+            .checked_add(second.hydration_loss_per_tick()),
+        Some(rate.hydration_loss_per_tick()),
+    );
+    assert_eq!(control_exertion_between(rate, start, end), Some(rate));
+}
+
+#[test]
+fn control_exertion_rejects_an_unrepresentable_interval_not_a_large_offset() {
+    let duration = 2 * CONTROL_TICKS_PER_SIMULATION_TICK;
+    assert_eq!(
+        control_exertion_between(
+            SurvivalExertion::new(Energy::from_nanojoules(u128::MAX), Volume::ZERO),
+            0,
+            duration,
+        ),
+        None,
+    );
+    assert_eq!(
+        control_exertion_between(
+            SurvivalExertion::new(Energy::ZERO, Volume::from_microliters(u64::MAX)),
+            0,
+            duration,
+        ),
+        None,
+    );
+}
+
+#[test]
 fn duration_projection_matches_exact_tick_cost_multiplication() {
     let definition = physiology(
         Energy::from_nanojoules(10),

@@ -19,60 +19,48 @@ pub struct SurvivalExertion {
     hydration_loss_per_tick: Volume,
 }
 
-fn cumulative_control_energy(rate: Energy, elapsed_control_ticks: u64) -> Option<Energy> {
+/// Floor-difference of the cumulative per-control-tick exertion from a single work start.
+///
+/// The preceding fractional remainder is the only history required. Resolving
+/// the interval directly avoids overflowing a lifetime cumulative quantity
+/// when the actual next installment is still representable.
+fn control_interval_share(rate: u128, elapsed_before: u64, elapsed_after: u64) -> Option<u128> {
+    let elapsed = elapsed_after.checked_sub(elapsed_before)?;
     let denominator = u128::from(CONTROL_TICKS_PER_SIMULATION_TICK);
-    let whole_ticks = elapsed_control_ticks / CONTROL_TICKS_PER_SIMULATION_TICK;
-    let remainder = elapsed_control_ticks % CONTROL_TICKS_PER_SIMULATION_TICK;
-    let rate_nj = rate.nanojoules();
-    let whole = rate_nj.checked_mul(u128::from(whole_ticks))?;
-    let quotient = rate_nj / denominator;
-    let modulus = rate_nj % denominator;
-    let fractional = quotient.checked_mul(u128::from(remainder))?.checked_add(
-        modulus
-            .checked_mul(u128::from(remainder))?
-            .checked_div(denominator)?,
-    )?;
-    whole.checked_add(fractional).map(Energy::from_nanojoules)
-}
-
-fn cumulative_control_hydration(rate: Volume, elapsed_control_ticks: u64) -> Option<Volume> {
-    let rate_ul = u128::from(rate.microliters());
-    let denominator = u128::from(CONTROL_TICKS_PER_SIMULATION_TICK);
-    let whole_ticks = elapsed_control_ticks / CONTROL_TICKS_PER_SIMULATION_TICK;
-    let remainder = elapsed_control_ticks % CONTROL_TICKS_PER_SIMULATION_TICK;
-    let total = rate_ul.checked_mul(u128::from(whole_ticks))?.checked_add(
-        (rate_ul / denominator)
-            .checked_mul(u128::from(remainder))?
-            .checked_add(
-                (rate_ul % denominator)
-                    .checked_mul(u128::from(remainder))?
-                    .checked_div(denominator)?,
-            )?,
-    )?;
-    u64::try_from(total).ok().map(Volume::from_microliters)
+    let prior_remainder = (rate % denominator)
+        * u128::from(elapsed_before % CONTROL_TICKS_PER_SIMULATION_TICK)
+        % denominator;
+    crate::core::arithmetic::checked_mul_div_with_remainder(
+        rate,
+        u128::from(elapsed),
+        denominator,
+        prior_remainder,
+    )
+    .map(|(whole, _)| whole)
 }
 
 /// Exact incremental exertion accrued between two control-time offsets from the same work start.
 ///
-/// Cumulative-difference rounding preserves the authored slow-tick total even when one active
+/// Interval rounding preserves the authored slow-tick total even when one active
 /// interval is split across a leading partial slow tick and a trailing control-time completion.
 pub(crate) fn control_exertion_between(
     exertion: SurvivalExertion,
     elapsed_before: u64,
     elapsed_after: u64,
 ) -> Option<SurvivalExertion> {
-    if elapsed_after < elapsed_before {
-        return None;
-    }
-    let energy_before = cumulative_control_energy(exertion.energy_cost_per_tick(), elapsed_before)?;
-    let energy_after = cumulative_control_energy(exertion.energy_cost_per_tick(), elapsed_after)?;
-    let hydration_before =
-        cumulative_control_hydration(exertion.hydration_loss_per_tick(), elapsed_before)?;
-    let hydration_after =
-        cumulative_control_hydration(exertion.hydration_loss_per_tick(), elapsed_after)?;
+    let energy = control_interval_share(
+        exertion.energy_cost_per_tick().nanojoules(),
+        elapsed_before,
+        elapsed_after,
+    )?;
+    let hydration = control_interval_share(
+        u128::from(exertion.hydration_loss_per_tick().microliters()),
+        elapsed_before,
+        elapsed_after,
+    )?;
     Some(SurvivalExertion::new(
-        energy_after.checked_sub(energy_before)?,
-        hydration_after.checked_sub(hydration_before)?,
+        Energy::from_nanojoules(energy),
+        Volume::from_microliters(u64::try_from(hydration).ok()?),
     ))
 }
 
