@@ -331,6 +331,17 @@ pub fn validate_start_manual_craft(
     state: &AppState,
     request: ManualCraftStartRequest,
 ) -> Result<ValidatedManualCraftStart, StartManualCraftError> {
+    // A selected craft may outlive its actor. Reject terminal vitality before
+    // consulting the current locations of its source, outputs, or equipment.
+    if state
+        .survival()
+        .player()
+        .is_some_and(|player| player.vitality() == Vitality::ZERO)
+    {
+        return Err(StartManualCraftError::Resolution(
+            ManualCraftError::PlayerDead,
+        ));
+    }
     let ManualCraftStartRequest {
         craft,
         destination,

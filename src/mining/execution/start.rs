@@ -13,12 +13,13 @@ use crate::inventory::{
     validate_inbound_reservation, validate_stockpile_storage,
     validate_stockpile_support_for_new_inbound,
 };
-use crate::labor::{PlayerWork, validate_player_work_start};
+use crate::labor::{PlayerWork, PlayerWorkStartError, validate_player_work_start};
 use crate::logistics::{validate_player_equipment_access, validate_player_stockpile_access};
 use crate::maintenance::Condition;
 use crate::material::{MaterialLotSpec, MaterialPhase};
 use crate::registry::Registries;
 use crate::spatial::VoxelBounds;
+use crate::survival::Vitality;
 
 use super::errors::MiningStartError;
 use crate::mining::physics::{MiningPhysicsError, resolve_mining_physics};
@@ -330,6 +331,15 @@ pub fn validate_start_mining(
     equipment: EquipmentId,
     mass: Mass,
 ) -> Result<ValidatedMiningStart, MiningStartError> {
+    // A retained geological target does not authorize further inspection once
+    // the player dies. Reject before resolving geology, equipment, or output custody.
+    if state
+        .survival()
+        .player()
+        .is_some_and(|player| player.vitality() == Vitality::ZERO)
+    {
+        return Err(MiningStartError::Work(PlayerWorkStartError::PlayerDead));
+    }
     if mass.is_zero() {
         return Err(MiningStartError::ZeroMass);
     }

@@ -6,14 +6,16 @@ use crate::equipment::{
     equipment_occupancy, resolve_equipment_provider_with_occupancy,
 };
 use crate::labor::{
-    PlayerWork, PlayerWorkResourceBudget, ProspectingDefinition, ProspectingMethodId,
-    ProspectingRegionError, ProspectingWork, ValidatedPlayerWorkStart, validate_player_work_start,
+    PlayerWork, PlayerWorkResourceBudget, PlayerWorkStartError, ProspectingDefinition,
+    ProspectingMethodId, ProspectingRegionError, ProspectingWork, ValidatedPlayerWorkStart,
+    validate_player_work_start,
 };
 use crate::logistics::validate_player_equipment_access;
 use crate::maintenance::{Condition, calculate_usable_condition_after_active_ticks};
 use crate::material::MaterialId;
 use crate::registry::Registries;
 use crate::spatial::VoxelBounds;
+use crate::survival::Vitality;
 
 use super::errors::{FieldProspectingCommitError, FieldProspectingStartError};
 
@@ -274,6 +276,17 @@ pub fn validate_start_field_prospecting(
     state: &AppState,
     request: FieldProspectingRequest,
 ) -> Result<ValidatedFieldProspectingStart, FieldProspectingStartError> {
+    // A dead actor cannot inspect equipment placement or local prospecting
+    // eligibility through a previously selected survey request.
+    if state
+        .survival()
+        .player()
+        .is_some_and(|player| player.vitality() == Vitality::ZERO)
+    {
+        return Err(FieldProspectingStartError::Work(
+            PlayerWorkStartError::PlayerDead,
+        ));
+    }
     let method = registries
         .labor()
         .get_prospecting(request.method)

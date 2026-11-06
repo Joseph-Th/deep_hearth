@@ -1208,6 +1208,70 @@ fn ordinary_unstarted_mining_fixture() -> (
     (registries, state, deposit, destination, pick)
 }
 
+#[test]
+fn dead_actor_cannot_use_retained_mining_target_to_inspect_remote_output_custody() {
+    use crate::survival::player_record_with_thermal_comfort;
+
+    let (registries, mut state, deposit, _destination, pick) = ordinary_unstarted_mining_fixture();
+    let record = state.geology().get_deposit(deposit).unwrap();
+    let target = resolve_mining_target(
+        &state,
+        MiningTargetRequest::new(record.bounds(), record.commodity().material()),
+    )
+    .unwrap();
+    let remote = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000)).unwrap();
+    let remote_position = VoxelCoord::new(8, 0, 0);
+    validate_place_ground_stockpile(&state, remote, remote_position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let mass = Mass::from_milligrams(100_000);
+    assert!(matches!(
+        validate_start_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            target,
+            remote,
+            pick,
+            mass,
+        ),
+        Err(MiningStartError::DestinationAccess(
+            PlayerStockpileAccessError::RemoteKnownStockpile { .. }
+        ))
+    ));
+    let player = state.survival().player().copied().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            player.metabolic_energy(),
+            player.hydration(),
+            Vitality::ZERO,
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+            player.thermal_comfort_ppm(),
+        ),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_start_mining(
+            &registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            target,
+            remote,
+            pick,
+            mass,
+        )
+        .err(),
+        Some(MiningStartError::Work(PlayerWorkStartError::PlayerDead)),
+    );
+    assert_eq!(state, before);
+}
+
 fn awaiting_carried_mining_settlement_fixture()
 -> (Registries, AppState, MiningJobId, StockpileId, VoxelCoord) {
     let registries = build_registries();

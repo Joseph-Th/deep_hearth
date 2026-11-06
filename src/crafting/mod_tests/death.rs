@@ -3,6 +3,55 @@
 use super::*;
 
 #[test]
+fn dead_manual_craft_actor_cannot_inspect_remote_destination_before_liveness() {
+    use crate::survival::player_record_with_thermal_comfort;
+
+    let (registries, mut state, source, lot, _destination) = make_fixture();
+    let remote =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000)).unwrap();
+    let remote_position = VoxelCoord::new(1, 0, 0);
+    validate_place_ground_stockpile(&state, remote, remote_position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let request = ManualCraftStartRequest::single(
+        PROCESS_KNAP_STONE_TOOL,
+        source,
+        MaterialLotSelection::new(lot, Mass::from_milligrams(1_000_000)),
+        remote,
+    );
+    assert!(matches!(
+        validate_start_manual_craft(&registries, &state, request.clone()),
+        Err(StartManualCraftError::StockpileAccess(
+            crate::logistics::PlayerStockpileAccessError::RemoteKnownStockpile { .. }
+        ))
+    ));
+    let player = state.survival().player().copied().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            player.metabolic_energy(),
+            player.hydration(),
+            Vitality::ZERO,
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+            player.thermal_comfort_ppm(),
+        ),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_start_manual_craft(&registries, &state, request).err(),
+        Some(StartManualCraftError::Resolution(
+            ManualCraftError::PlayerDead
+        )),
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn fatal_tick_does_not_restart_a_suspended_manual_craft() {
     use crate::player::validate_respawn_player;
     use crate::survival::player_record_with_thermal_comfort;

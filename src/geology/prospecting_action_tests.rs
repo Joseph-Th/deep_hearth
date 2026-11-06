@@ -231,6 +231,57 @@ fn instrumented_prospecting_rejects_known_remote_hammer() {
 }
 
 #[test]
+fn dead_player_cannot_inspect_remote_sampling_equipment_during_prospecting_start() {
+    use crate::survival::player_record_with_thermal_comfort;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let hammer = assemble_sampling_hammer(&registries, &mut state);
+    let region = one_voxel(42);
+    let equipment_position = VoxelCoord::new(43, -1, 0);
+    place_equipment_for_fixture(&mut state, hammer, equipment_position);
+    validate_admit_player(&registries, &state, region.min())
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let request = FieldProspectingRequest::new_with_equipment(
+        PROSPECTING_DETAILED_FIELD_SURVEY,
+        region,
+        MATERIAL_COPPER,
+        hammer,
+    );
+    assert!(matches!(
+        validate_start_field_prospecting(&registries, &state, request),
+        Err(FieldProspectingStartError::EquipmentAccess(
+            PlayerEquipmentAccessError::RemoteKnownEquipment { .. }
+        ))
+    ));
+    let player = state.survival().player().copied().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            player.metabolic_energy(),
+            player.hydration(),
+            Vitality::ZERO,
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+            player.thermal_comfort_ppm(),
+        ),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_start_field_prospecting(&registries, &state, request).err(),
+        Some(FieldProspectingStartError::Work(
+            crate::labor::PlayerWorkStartError::PlayerDead,
+        )),
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn prospecting_token_rejects_logistics_change_before_commit() {
     let registries = build_registries();
     let mut state = AppState::new();

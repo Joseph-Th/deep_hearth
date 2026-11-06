@@ -666,9 +666,14 @@ fn powered_craft_rejects_dead_fully_admitted_player_without_mutation() {
     encoded["state"]["systems"]["survival"]["player"]["vitality"] = serde_json::json!(0);
     let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded)
         .unwrap_or_else(|error| panic!("dead powered-craft decode failed: {error}"));
-    let dead = decoded.into_state(&registries).unwrap_or_else(|error| {
+    let mut dead = decoded.into_state(&registries).unwrap_or_else(|error| {
         panic!("idle dead powered-craft player should remain a valid persisted state: {error}")
     });
+    let remote = stockpile(&mut dead, 20_000);
+    validate_place_ground_stockpile(&dead, remote, VoxelCoord::new(1, 0, 0))
+        .unwrap()
+        .commit(&mut dead)
+        .unwrap();
     let before = dead.clone();
 
     assert_eq!(
@@ -686,6 +691,24 @@ fn powered_craft_rejects_dead_fully_admitted_player_without_mutation() {
         )
         .err(),
         Some(StartPoweredCraftError::PlayerDead)
+    );
+    assert_eq!(dead, before);
+
+    assert_eq!(
+        validate_start_powered_craft(
+            &registries,
+            &dead,
+            PoweredCraftRequest::single(
+                PROCESS_POWER_DRILL_COPPER_SCREEN_PLATE,
+                source,
+                MaterialLotSelection::new(reinforcement, Mass::from_milligrams(20_000)),
+                drill,
+                drive,
+            ),
+            remote,
+        )
+        .err(),
+        Some(StartPoweredCraftError::PlayerDead),
     );
     assert_eq!(dead, before);
 }

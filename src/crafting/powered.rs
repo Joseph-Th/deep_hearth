@@ -23,7 +23,7 @@ use crate::logistics::{
 use crate::maintenance::{
     ActiveConditionDurationError, Condition, calculate_usable_condition_after_active_ticks,
 };
-use crate::player::{PlayerAdmissionState, player_admission_state};
+use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::production::{
     ProcessId, ProcessOutputRoute, ProcessOutputStreamId, ProcessResolution,
     StartPlayerProcessError, ValidatedStartProcess, validate_process_inputs,
@@ -478,9 +478,12 @@ fn validate_start_powered_craft_internal(
     destination: StockpileId,
     residue_destination: Option<StockpileId>,
 ) -> Result<ValidatedStartProcess, StartPoweredCraftError> {
-    if player_admission_state(state) != PlayerAdmissionState::Admitted {
-        return Err(StartPoweredCraftError::PlayerNotAdmitted);
-    }
+    // Do not disclose endpoint locations to a dead actor before the production
+    // admission layer's eventual vitality check.
+    validate_player_action(state).map_err(|error| match error {
+        PlayerActionValidationError::PlayerNotAdmitted => StartPoweredCraftError::PlayerNotAdmitted,
+        PlayerActionValidationError::PlayerDead => StartPoweredCraftError::PlayerDead,
+    })?;
     let source = request.source;
     validate_player_stockpile_access(state, source)
         .map_err(StartPoweredCraftError::StockpileAccess)?;
