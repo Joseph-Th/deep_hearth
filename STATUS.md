@@ -12,7 +12,7 @@ Progression:
 
 | Area | Reachable capability |
 | --- | --- |
-| Survival and labor | Metabolism, hydration, vitality, diet, spoilage, timed intake, exertion, preservation, warmth and exclusive work. |
+| Survival and labor | Metabolism, hydration, vitality, diet, spoilage, timed intake, exertion, exclusive work, roof and upwind shelter. |
 | Materials and inventory | Exact lots, finite storage/reservations, conservation, preservation, classified residues and waste-only spoil bays. |
 | Prospecting and mining | Opening hard-copper seam requires acquired survey evidence and a reinforced pick. Ore is finite and must be hauled; reserves stay private. |
 | Crafting and equipment | Flint/copper tools, kiln, cooling bed, fired ceramic casting mold, maintenance and upgrades; finite waste storage. |

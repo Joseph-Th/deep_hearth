@@ -256,3 +256,111 @@ fn a_generated_world_weather_front_changes_survival_on_its_actual_boundary_and_r
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
+
+#[test]
+fn upwind_terrain_reduces_actual_cooling_and_the_player_forecast_without_changing_weather() {
+    use crate::core::state::apply_clock_advance;
+    use crate::survival::PlayerWindShelter;
+    use crate::world::{BlockStateId, set_generated_block_for_test};
+
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5745_4154_4845_5253);
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let position = VoxelCoord::new(
+        8,
+        super::super::generation::terrain_height(seed, 8, 8) + 1,
+        8,
+    );
+    assert!(
+        state
+            .world()
+            .has_standing_clearance(registries.world(), position)
+    );
+    validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    let front = (0..20)
+        .map(|index| SimulationTick::new(index * WEATHER_FRONT_TICKS))
+        .find(|&at| {
+            weather_at(&registries, seed.value(), position, at)
+                .wind_direction()
+                .is_some()
+        })
+        .expect("local weather has a windy front");
+    apply_clock_advance(&mut state, front);
+    let weather = assess_player_weather(&registries, &state).unwrap();
+    let (dx, dz) = weather.wind_direction().unwrap().delta();
+    let lower = VoxelCoord::new(position.x() - dx, position.y(), position.z() - dz);
+    let upper = VoxelCoord::new(lower.x(), lower.y() + 1, lower.z());
+    assert!(state.world().tree_trunk_at(lower).is_none());
+    assert!(state.world().tree_trunk_at(upper).is_none());
+    // Establish a clear upwind air column before comparing the same physical
+    // actor against a one- and two-block natural stone windbreak.
+    for cell in [lower, upper] {
+        set_generated_block_for_test(registries.world(), &mut state, cell, BlockStateId::AIR);
+    }
+
+    let mut outcomes = Vec::new();
+    for (blocked, shelter) in [
+        (0, PlayerWindShelter::Exposed),
+        (1, PlayerWindShelter::Partial),
+        (2, PlayerWindShelter::Sheltered),
+    ] {
+        let mut actor = state.clone();
+        if blocked >= 1 {
+            set_generated_block_for_test(registries.world(), &mut actor, lower, BLOCK_STATE_STONE);
+        }
+        if blocked == 2 {
+            set_generated_block_for_test(registries.world(), &mut actor, upper, BLOCK_STATE_STONE);
+        }
+        assert_eq!(assess_player_weather(&registries, &actor), Some(weather));
+        let forecast = assess_player_unheated_comfort_runway(&registries, &actor).unwrap();
+        assert_eq!(forecast.wind_shelter(), Some(shelter));
+        assert_eq!(
+            forecast.overhead_cover(),
+            crate::logistics::PlayerOverheadCoverAssessment::Open
+        );
+        let cooling = weather.felt_cooling_multiplier_ppm(&registries, &actor);
+        let before = actor.survival().player().unwrap().thermal_comfort_ppm();
+        let expected_loss = registries
+            .survival()
+            .physiology()
+            .thermal_comfort()
+            .exposure_loss_ppm_per_tick(ThermalExposure::GeneratedOpen {
+                cooling_multiplier_ppm: cooling,
+            });
+        let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &actor)).unwrap();
+        let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        for _ in 0..crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK {
+            let _ = advance_control_tick(&registries, &mut actor).unwrap();
+            let _ = advance_control_tick(&registries, &mut replay).unwrap();
+        }
+        assert_eq!(actor, replay);
+        assert_eq!(
+            actor.survival().player().unwrap().thermal_comfort_ppm(),
+            before - expected_loss,
+            "the actual next survival tick must use the same windbreak as the forecast"
+        );
+        assert_eq!(validate_loaded_state(&registries, &actor), Ok(()));
+        outcomes.push((cooling, expected_loss, forecast.current().unwrap()));
+    }
+    assert_eq!(outcomes[0].0, weather.cooling_multiplier_ppm());
+    assert!(outcomes[0].0 > outcomes[1].0 && outcomes[1].0 > outcomes[2].0);
+    assert!(outcomes[0].1 > outcomes[1].1 && outcomes[1].1 > outcomes[2].1);
+    assert!(outcomes[0].2 < outcomes[1].2 && outcomes[1].2 < outcomes[2].2);
+}

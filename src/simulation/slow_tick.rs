@@ -225,10 +225,10 @@ fn advance_simulation_tick_unstaged(
         assess_player_weather_at(registries, state, next_tick),
     ) {
         (true, Some(weather)) => ThermalExposure::GeneratedOverheadCover {
-            cooling_multiplier_ppm: weather.cooling_multiplier_ppm(),
+            cooling_multiplier_ppm: weather.felt_cooling_multiplier_ppm(registries, state),
         },
         (false, Some(weather)) => ThermalExposure::GeneratedOpen {
-            cooling_multiplier_ppm: weather.cooling_multiplier_ppm(),
+            cooling_multiplier_ppm: weather.felt_cooling_multiplier_ppm(registries, state),
         },
         (true, None) => ThermalExposure::OverheadCover,
         (false, None) => ThermalExposure::Open,

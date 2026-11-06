@@ -20,10 +20,21 @@ use super::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PlayerUnheatedComfortRunway {
     overhead_cover: PlayerOverheadCoverAssessment,
+    wind_shelter: Option<PlayerWindShelter>,
     current: Option<TickSpan>,
     if_open: Option<TickSpan>,
     if_covered: Option<TickSpan>,
     weather_changes_in: Option<TickSpan>,
+}
+
+/// Extent to which solid material immediately upwind shields the standing body.
+/// Shelter changes the wind surcharge, not the ambient temperature or sky cover.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlayerWindShelter {
+    Calm,
+    Exposed,
+    Partial,
+    Sheltered,
 }
 
 /// Time until a living player's first hunger/thirst warning while resting without intake.
@@ -99,6 +110,12 @@ impl PlayerUnheatedComfortRunway {
         self.overhead_cover
     }
 
+    /// `None` denotes an ungenerated opening without a regional wind field.
+    #[must_use]
+    pub const fn wind_shelter(self) -> Option<PlayerWindShelter> {
+        self.wind_shelter
+    }
+
     /// Ticks until the first chilly/cold state if today's exposure and zero heat persist.
     /// `None` means either unknown terrain/roof truth or zero ongoing cooling.
     /// `overhead_cover()` distinguishes unavailable world truth from a known
@@ -142,14 +159,23 @@ pub fn assess_player_unheated_comfort_runway(
     let cover = assess_player_overhead_cover(registries, state)?;
     let comfort = registries.survival().physiology().thermal_comfort();
     let weather = crate::world::assess_player_weather(registries, state);
+    let wind_shelter = weather.map(|weather| match weather.wind_direction() {
+        None => PlayerWindShelter::Calm,
+        Some(_) => match weather.upwind_windbreak_levels(registries, state) {
+            0 => PlayerWindShelter::Exposed,
+            1 => PlayerWindShelter::Partial,
+            2 => PlayerWindShelter::Sheltered,
+            _ => unreachable!("a standing body has exactly two wind-facing levels"),
+        },
+    });
     let exposure_open = weather.map_or(ThermalExposure::Open, |weather| {
         ThermalExposure::GeneratedOpen {
-            cooling_multiplier_ppm: weather.cooling_multiplier_ppm(),
+            cooling_multiplier_ppm: weather.felt_cooling_multiplier_ppm(registries, state),
         }
     });
     let exposure_covered = weather.map_or(ThermalExposure::OverheadCover, |weather| {
         ThermalExposure::GeneratedOverheadCover {
-            cooling_multiplier_ppm: weather.cooling_multiplier_ppm(),
+            cooling_multiplier_ppm: weather.felt_cooling_multiplier_ppm(registries, state),
         }
     });
     let if_open =
@@ -163,6 +189,7 @@ pub fn assess_player_unheated_comfort_runway(
     };
     Some(PlayerUnheatedComfortRunway {
         overhead_cover: cover,
+        wind_shelter,
         current,
         if_open,
         if_covered,

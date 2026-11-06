@@ -22,6 +22,25 @@ const GUST_COOLING_PPM: u32 = 400_000;
 const MINIMUM_COOLING_PPM: u32 = 400_000;
 const MAXIMUM_COOLING_PPM: u32 = 2_500_000;
 
+fn wind_cooling_ppm(wind: WindCondition) -> u32 {
+    match wind {
+        WindCondition::Calm => 0,
+        WindCondition::Breeze => BREEZE_COOLING_PPM,
+        WindCondition::Gusting => GUST_COOLING_PPM,
+    }
+}
+
+fn air_cooling_multiplier_ppm(celsius: i32, wind_cooling_ppm: u32) -> u32 {
+    let cooling = (1_000_000_i64
+        + i64::from(COOLING_REFERENCE_CELSIUS - celsius) * i64::from(COOLING_PER_DEGREE_PPM)
+        + i64::from(wind_cooling_ppm))
+    .clamp(
+        i64::from(MINIMUM_COOLING_PPM),
+        i64::from(MAXIMUM_COOLING_PPM),
+    );
+    u32::try_from(cooling).expect("authored weather cooling bound fits u32")
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WindCondition {
     Calm,
@@ -138,6 +157,55 @@ impl PlayerWeather {
     pub const fn cooling_multiplier_ppm(self) -> u32 {
         self.cooling_multiplier_ppm
     }
+
+    /// Number of player-height cells shielded directly upwind (zero, one or two).
+    /// A one-voxel berm protects the lower body; a two-voxel wall or standing
+    /// tree trunk blocks wind across the whole standing profile. Missing terrain
+    /// is never treated as a protective wall.
+    pub(crate) fn upwind_windbreak_levels(self, registries: &Registries, state: &AppState) -> u8 {
+        let (Some(direction), Some(player)) = (self.wind_direction, state.logistics().player())
+        else {
+            return 0;
+        };
+        let (dx, dz) = direction.delta();
+        let position = player.position();
+        let (Some(x), Some(z), Some(head_y)) = (
+            position.x().checked_sub(dx),
+            position.z().checked_sub(dz),
+            position.y().checked_add(1),
+        ) else {
+            return 0;
+        };
+        [position.y(), head_y]
+            .into_iter()
+            .filter(|&y| {
+                let voxel = VoxelCoord::new(x, y, z);
+                state
+                    .world()
+                    .full_cell_collision_at(registries.world(), voxel)
+                    == Some(true)
+                    || state.structures().blocks_full_cell(voxel)
+            })
+            .count() as u8
+    }
+
+    /// Ambient temperature remains unchanged behind a windbreak. Only the
+    /// convective wind surcharge is reduced, by half per sheltered body level;
+    /// both the survival tick and the player's forecast use this same rule.
+    pub(crate) fn felt_cooling_multiplier_ppm(
+        self,
+        registries: &Registries,
+        state: &AppState,
+    ) -> u32 {
+        let wind = wind_cooling_ppm(self.wind);
+        let exposed_levels = 2 - u32::from(self.upwind_windbreak_levels(registries, state));
+        let celsius = (i64::from(self.ambient_temperature.millikelvin()) - 273_150) / 1_000;
+        air_cooling_multiplier_ppm(
+            i32::try_from(celsius).expect("authored weather temperature fits i32 Celsius"),
+            wind * exposed_levels / 2,
+        )
+    }
+
     /// Earliest possible change from a new regional weather front or day phase.
     #[must_use]
     pub const fn changes_in(self) -> TickSpan {
@@ -225,18 +293,7 @@ pub(super) fn weather_at(
             HabitatKind::DryScrub => 2,
         };
     let celsius = base_celsius + ((hash >> 20) % 5) as i32 - 2 + local_ground_delta;
-    let wind_cooling = match wind {
-        WindCondition::Calm => 0,
-        WindCondition::Breeze => BREEZE_COOLING_PPM,
-        WindCondition::Gusting => GUST_COOLING_PPM,
-    };
-    let cooling = (1_000_000_i64
-        + i64::from(COOLING_REFERENCE_CELSIUS - celsius) * i64::from(COOLING_PER_DEGREE_PPM)
-        + i64::from(wind_cooling))
-    .clamp(
-        i64::from(MINIMUM_COOLING_PPM),
-        i64::from(MAXIMUM_COOLING_PPM),
-    );
+    let cooling = air_cooling_multiplier_ppm(celsius, wind_cooling_ppm(wind));
     let front_in = WEATHER_FRONT_TICKS - at.value() % WEATHER_FRONT_TICKS;
     let day_phase_end = ((u128::from(phase_index) + 1) * u128::from(day_ticks))
         .div_ceil(4)
@@ -250,8 +307,7 @@ pub(super) fn weather_at(
         ),
         wind,
         wind_direction,
-        cooling_multiplier_ppm: u32::try_from(cooling)
-            .expect("authored weather cooling bound fits u32"),
+        cooling_multiplier_ppm: cooling,
         changes_in: TickSpan::new(front_in.min(day_phase_end - day_tick)),
     }
 }
