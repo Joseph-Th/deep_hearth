@@ -209,34 +209,35 @@ impl WorldChunk {
     }
 }
 
-// Preserve compact canonical arrays on disk, but use an ordered map for logarithmic
-// insertion, felling, and trunk collision queries in the live simulation.
-trait RootedRecord {
-    fn root(&self) -> VoxelCoord;
+// Preserve compact canonical arrays on disk, but index living trees by occupied root
+// and felled trees by immutable seed origin. Different trees may occupy and later be
+// felled at the same physical site; their biological histories must not collide.
+trait TreeIndexRecord {
+    fn index_key(&self) -> VoxelCoord;
 }
 
-impl RootedRecord for TreeRecord {
-    fn root(&self) -> VoxelCoord {
+impl TreeIndexRecord for TreeRecord {
+    fn index_key(&self) -> VoxelCoord {
         (*self).root()
     }
 }
 
-impl RootedRecord for FelledTreeRecord {
-    fn root(&self) -> VoxelCoord {
-        (*self).root()
+impl TreeIndexRecord for FelledTreeRecord {
+    fn index_key(&self) -> VoxelCoord {
+        (*self).origin_root()
     }
 }
 
-fn serialize_root_index<T: Serialize, S: Serializer>(
+fn serialize_tree_index<T: Serialize, S: Serializer>(
     index: &BTreeMap<VoxelCoord, T>,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     serializer.collect_seq(index.values())
 }
 
-fn deserialize_btree_map_no_duplicates_root_index<
+fn deserialize_btree_map_no_duplicates_tree_index<
     'de,
-    T: Deserialize<'de> + RootedRecord,
+    T: Deserialize<'de> + TreeIndexRecord,
     D: Deserializer<'de>,
 >(
     deserializer: D,
@@ -245,14 +246,14 @@ fn deserialize_btree_map_no_duplicates_root_index<
     let mut index = BTreeMap::new();
     let mut previous = None;
     for record in records {
-        let root = record.root();
-        if previous.is_some_and(|previous| previous >= root) {
+        let key = record.index_key();
+        if previous.is_some_and(|previous| previous >= key) {
             return Err(serde::de::Error::custom(
-                "tree records must have strictly increasing roots without duplicates",
+                "tree records must have strictly increasing identities without duplicates",
             ));
         }
-        index.insert(root, record);
-        previous = Some(root);
+        index.insert(key, record);
+        previous = Some(key);
     }
     Ok(index)
 }
@@ -267,16 +268,17 @@ pub struct WorldState {
     generation_profile: Option<WorldGenerationProfile>,
     chunks: Vec<WorldChunk>,
     #[serde(
-        serialize_with = "serialize_root_index",
-        deserialize_with = "deserialize_btree_map_no_duplicates_root_index"
+        serialize_with = "serialize_tree_index",
+        deserialize_with = "deserialize_btree_map_no_duplicates_tree_index"
     )]
     trees: BTreeMap<VoxelCoord, TreeRecord>,
     /// Dry wood synthesized from the environment and already transferred out of trees.
     assimilated_wood_milligrams: u128,
-    /// Seed-verifiable felling receipts account for absorbed carbon after timber changes owner.
+    /// Seed-origin-indexed felling receipts account for absorbed carbon after timber changes owner.
+    /// A location may appear in multiple receipts when different trees are planted there.
     #[serde(
-        serialize_with = "serialize_root_index",
-        deserialize_with = "deserialize_btree_map_no_duplicates_root_index"
+        serialize_with = "serialize_tree_index",
+        deserialize_with = "deserialize_btree_map_no_duplicates_tree_index"
     )]
     felled_trees: BTreeMap<VoxelCoord, FelledTreeRecord>,
     /// Append-only authoritative path of seed-origin-preserving sapling relocations.

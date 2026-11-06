@@ -3,6 +3,7 @@
 use super::felling::validate_fell_tree;
 use super::*;
 use crate::content::{BLOCK_STATE_STONE, build_registries};
+use crate::core::quantity::Mass;
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
@@ -340,6 +341,129 @@ fn transplanted_felling_receipt_cannot_claim_an_unrecorded_destination() {
             StateValidationError::World(WorldValidationError::InvalidFelledTree { .. })
         ))
     ));
+}
+
+#[test]
+fn different_seeded_trees_can_be_felled_at_the_same_replanted_site() {
+    use crate::logistics::relocate_player_for_test;
+    use crate::simulation::advance_control_tick;
+
+    // Two juvenile seed identities share one supported straight planting path.
+    // The second is physically transplanted into the first tree's harvested root.
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(48_219);
+    let first = VoxelCoord::new(11, 3, 7);
+    let second = VoxelCoord::new(19, 3, 7);
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(12, 3, 7))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    for chunk in [ChunkCoord::new(0, 0), ChunkCoord::new(1, 0)] {
+        validate_generate_chunk(&registries, &state, seed, chunk, BLOCK_STATE_STONE)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    }
+    assert_eq!(
+        state.world().tree_at(first).unwrap().initial_wood(),
+        Mass::from_milligrams(8_000_000)
+    );
+    assert_eq!(
+        state.world().tree_at(second).unwrap().initial_wood(),
+        Mass::from_milligrams(8_000_000)
+    );
+    let original_matter = calculate_matter_accounting(&state).unwrap().total();
+
+    let first_felling = validate_fell_tree(&registries, &state, first)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    // Recover the actual parcel, freeing the original planting position.
+    relocate_player_for_test(&mut state, first);
+    let picked = advance_control_tick(&registries, &mut state)
+        .unwrap()
+        .surface_drop_pickup()
+        .unwrap();
+    assert_eq!(picked.resource(), first_felling.drop());
+    assert_eq!(picked.picked_mass(), first_felling.wood());
+
+    for from_x in [19, 17, 15, 13] {
+        let from = VoxelCoord::new(from_x, 3, 7);
+        let to = VoxelCoord::new(from_x - 2, 3, 7);
+        relocate_player_for_test(&mut state, VoxelCoord::new(from_x - 1, 3, 7));
+        let moved = validate_transplant_juvenile(&registries, &state, from, to)
+            .unwrap()
+            .commit(&registries, &mut state)
+            .unwrap();
+        assert_eq!((moved.from(), moved.to()), (from, to));
+    }
+    assert_eq!(state.world().tree_at(first).unwrap().origin_root(), second);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        original_matter
+    );
+
+    // A save must not move the first harvest into a future tick after the second
+    // tree already occupied that same root. Check both the still-living successor
+    // and the case where both trees have since been felled.
+    let reject_forged_overlap = |game: &AppState| {
+        let mut later = game.clone();
+        let _ = crate::simulation::advance_tick(&registries, &mut later).unwrap();
+        assert_eq!(later.tick(), crate::core::time::SimulationTick::new(1));
+        let mut value = serde_json::to_value(SaveEnvelope::new(&registries, &later)).unwrap();
+        value["state"]["systems"]["world"]["felled_trees"][0]["felled_at"] =
+            serde_json::json!(1u64);
+        let loaded = serde_json::from_value::<LoadedSaveEnvelope>(value)
+            .unwrap()
+            .into_state(&registries);
+        assert!(matches!(
+            loaded,
+            Err(crate::persistence::LoadError::InvalidState(
+                StateValidationError::World(WorldValidationError::InvalidFelledTree { root })
+            )) if root == first
+        ));
+    };
+    reject_forged_overlap(&state);
+
+    // The save must retain both the old felling and the new live biological identity.
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, replay);
+    for game in [&mut state, &mut replay] {
+        let second_felling = validate_fell_tree(&registries, game, first)
+            .unwrap()
+            .commit(game)
+            .unwrap();
+        assert_eq!(second_felling.root(), first);
+        assert_eq!(second_felling.wood(), Mass::from_milligrams(8_000_000));
+        assert_eq!(
+            game.world()
+                .felled_trees()
+                .map(|record| (record.origin_root(), record.root()))
+                .collect::<Vec<_>>(),
+            vec![(first, first), (second, first)]
+        );
+        assert_eq!(validate_loaded_state(&registries, game), Ok(()));
+        assert_eq!(
+            calculate_matter_accounting(game).unwrap().total(),
+            original_matter
+        );
+    }
+    assert_eq!(state, replay);
+    reject_forged_overlap(&state);
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap(),
+        state
+    );
 }
 
 #[test]

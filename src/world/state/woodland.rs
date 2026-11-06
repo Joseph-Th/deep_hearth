@@ -151,7 +151,7 @@ impl WorldState {
             .expect("validated tree felling must retain external biosynthesis headroom");
         assert!(
             self.felled_trees
-                .insert(root, FelledTreeRecord::new(tree, at))
+                .insert(tree.origin_root(), FelledTreeRecord::new(tree, at))
                 .is_none(),
             "one generated tree may only be felled once"
         );
