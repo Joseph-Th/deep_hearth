@@ -40,6 +40,8 @@ mod direct_consumption;
 mod direct_gathering;
 #[path = "mod_tests/mechanical_worksite.rs"]
 mod mechanical_worksite;
+#[path = "mod_tests/neutral_fast_path_parity.rs"]
+mod neutral_fast_path_parity;
 #[path = "mod_tests/overhead_cover.rs"]
 mod overhead_cover;
 #[path = "mod_tests/slow_boundary_support.rs"]

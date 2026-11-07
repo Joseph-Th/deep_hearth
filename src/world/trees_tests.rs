@@ -720,3 +720,86 @@ fn trusted_load_rejects_malformed_tree_mass_and_unsupported_roots() {
         ));
     }
 }
+
+#[test]
+fn juvenile_wood_growth_crosses_stage_exactly_and_saturates_at_max_clock() {
+    let tree = trees::TreeRecord::new(VoxelCoord::new(0, 1, 0), Mass::from_milligrams(8_000_000));
+    let quarter_year = BIOLOGICAL_YEAR_TICKS / 4;
+    for (tick, expected) in [
+        (0, 8_000_000),
+        (quarter_year, 9_000_000),
+        (quarter_year * 2 - 1, 9_999_999),
+        (quarter_year * 2, 10_000_000),
+        (quarter_year * 2 + 1, 10_000_002),
+        (BIOLOGICAL_YEAR_TICKS, 19_000_000),
+    ] {
+        assert_eq!(
+            tree.wood_at(SimulationTick::new(tick)),
+            Mass::from_milligrams(expected),
+            "exact stage transition at tick {tick}"
+        );
+    }
+    let checkpoints = [
+        0,
+        quarter_year,
+        BIOLOGICAL_YEAR_TICKS,
+        BIOLOGICAL_YEAR_TICKS * 10,
+        BIOLOGICAL_YEAR_TICKS * 100,
+        BIOLOGICAL_YEAR_TICKS * 1_000,
+        u64::MAX,
+    ];
+    let mut previous = Mass::ZERO;
+    for tick in checkpoints {
+        let actual = tree.wood_at(SimulationTick::new(tick));
+        assert!(actual >= previous, "wood declined at tick {tick}");
+        assert!(actual <= Mass::from_milligrams(1_600_000_000));
+        previous = actual;
+    }
+    assert_eq!(previous, Mass::from_milligrams(1_600_000_000));
+}
+
+#[test]
+fn grown_tree_felling_preserves_exact_external_biomass_after_save_and_load() {
+    use crate::core::state::apply_clock_advance;
+
+    let (registries, mut state, root) = standing_tree_fixture();
+    let initial = state.world().tree_at(root).unwrap().initial_wood();
+    let at = SimulationTick::new(BIOLOGICAL_YEAR_TICKS * 2);
+    apply_clock_advance(&mut state, at);
+    let grown = state.world().tree_at(root).unwrap().wood_at(state.tick());
+    assert!(grown > initial);
+    let ambient = state.world().assimilated_wood_at(at).unwrap();
+    let accounting_before = calculate_matter_accounting(&state).unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let harvested = validate_fell_tree(&registries, &state, root)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(harvested.wood(), grown);
+    assert_eq!(
+        state
+            .surface()
+            .get(harvested.drop())
+            .unwrap()
+            .remaining_mass(),
+        grown
+    );
+    assert!(state.world().tree_at(root).is_none());
+    assert_eq!(state.world().assimilated_wood_at(at), Some(ambient));
+    let accounting_after = calculate_matter_accounting(&state).unwrap();
+    assert_eq!(accounting_after.total(), accounting_before.total());
+    assert_eq!(
+        accounting_after.surface().milligrams(),
+        accounting_before.surface().milligrams() + u128::from(grown.milligrams())
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+    assert_eq!(loaded.world().assimilated_wood_at(at), Some(ambient));
+}
