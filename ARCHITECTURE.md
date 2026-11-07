@@ -133,6 +133,9 @@ local graph and built structures even when distant terrain is streamed. Generate
 provide physical collision or opacity; a sight, sound, or light path with a generated endpoint
 must treat intervening missing terrain as unknown, not free air. A remote generated chunk must
 not change local patrol, lighting, or fluid-transfer feasibility on an untouched opening graph.
+Located fluid vessels have physical presence even when empty: generated full-cube terrain cannot
+overwrite their voxels, bootstrap placement cannot enter solid terrain, and trusted load rejects
+either overlap.
 
 ## Abstraction and dependency direction
 

@@ -147,7 +147,7 @@ fn terrain_generation_cannot_bury_a_completed_stationary_storage_enclosure() {
 }
 
 #[test]
-fn generated_stone_seals_a_located_fluid_vessel_without_discarding_its_contents() {
+fn generated_stone_cannot_bury_a_located_fluid_vessel() {
     let registries = build_registries();
     let mut state = AppState::new();
     let at = VoxelCoord::new(5, WORLD_MIN_Y, 5);
@@ -169,17 +169,19 @@ fn generated_stone_seals_a_located_fluid_vessel_without_discarding_its_contents(
         crate::core::state::validate_loaded_state(&registries, &state),
         Ok(())
     );
-    validate_generate_chunk(
-        &registries,
-        &state,
-        WorldGenerationSeed::new(0x5749_4C44_4552_4E53),
-        ChunkCoord::containing(at),
-        BLOCK_STATE_STONE,
-    )
-    .unwrap()
-    .commit(&mut state)
-    .unwrap();
-    assert_eq!(state.world().block_at(at), Some(BLOCK_STATE_STONE));
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            WorldGenerationSeed::new(0x5749_4C44_4552_4E53),
+            ChunkCoord::containing(at),
+            BLOCK_STATE_STONE,
+        )
+        .err(),
+        Some(ChunkGenerationError::FluidStoreBuriedByTerrain { voxel: at })
+    );
+    assert_eq!(state, before);
     assert_eq!(state.logistics().fluid_store_position(vessel), Some(at));
     assert_eq!(
         state.fluid().get_store(vessel).unwrap().stored_volume(),
@@ -195,6 +197,141 @@ fn generated_stone_seals_a_located_fluid_vessel_without_discarding_its_contents(
         .into_state(&registries)
         .unwrap();
     assert_eq!(loaded, state);
+}
+
+#[test]
+fn fluid_vessel_placement_rejects_existing_solid_terrain() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let at = VoxelCoord::new(5, WORLD_MIN_Y, 5);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x5749_4C44_4552_4E53),
+        ChunkCoord::containing(at),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let vessel = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        Volume::from_microliters(1_000_000),
+        FLUID_WATER,
+        Volume::from_microliters(500_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let before = state.clone();
+    assert_eq!(
+        validate_place_fluid_store(&state, vessel, at).err(),
+        Some(crate::logistics::FluidStorePlacementError::SolidTerrainOccupied { position: at })
+    );
+    assert_eq!(state, before);
+    let clear = VoxelCoord::new(5, WORLD_MAX_Y_EXCLUSIVE - 1, 5);
+    validate_place_fluid_store(&state, vessel, clear)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn trusted_load_rejects_fluid_vessel_encased_in_generated_stone() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let at = VoxelCoord::new(5, WORLD_MIN_Y, 5);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x5749_4C44_4552_4E53),
+        ChunkCoord::containing(at),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let vessel = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        Volume::from_microliters(1_000_000),
+        FLUID_WATER,
+        Volume::from_microliters(500_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    set_generated_block_for_test(registries.world(), &mut state, at, BlockStateId::AIR);
+    validate_place_fluid_store(&state, vessel, at)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    set_generated_block_for_test(registries.world(), &mut state, at, BLOCK_STATE_STONE);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Err(StateValidationError::Logistics(
+            LogisticsValidationError::LocatedFluidStoreIntersectsSolidTerrain { voxel: at }
+        ))
+    );
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+            .unwrap()
+            .into_state(&registries)
+            .is_err(),
+        "trusted save admission must reject an encased fluid vessel"
+    );
+}
+
+#[test]
+fn terrain_generation_reports_lowest_fluid_id_in_chunk_not_nearest_voxel() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let first = VoxelCoord::new(15, WORLD_MIN_Y, 15);
+    let later = VoxelCoord::new(0, WORLD_MIN_Y, 0);
+    let remote = VoxelCoord::new(0, WORLD_MIN_Y, 32);
+    for position in [first, later, remote] {
+        let vessel = add_fluid_store_with_contents_for_fixture(
+            &registries,
+            &mut state,
+            Volume::from_microliters(1_000_000),
+            FLUID_WATER,
+            Volume::from_microliters(500_000),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+        validate_place_fluid_store(&state, vessel, position)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    }
+    assert_eq!(
+        state
+            .logistics()
+            .fluid_stores_in_chunk(ChunkCoord::new(0, 0))
+            .count(),
+        2
+    );
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            WorldGenerationSeed::new(0x5749_4C44_4552_4E53),
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE,
+        )
+        .err(),
+        Some(ChunkGenerationError::FluidStoreBuriedByTerrain { voxel: first })
+    );
+    assert_eq!(state, before);
 }
 
 #[test]

@@ -35,6 +35,9 @@ pub(super) fn validate_generated_chunk_occupancy(
     {
         return Err(ChunkGenerationError::StorageEnclosureBuriedByTerrain { voxel });
     }
+    if let Some(voxel) = first_fluid_store_collision_in_generated_chunk(registry, state, chunk) {
+        return Err(ChunkGenerationError::FluidStoreBuriedByTerrain { voxel });
+    }
     if let Some(player) = state.logistics().player()
         && let Some(voxel) = first_player_body_collision_in_chunk(
             registry,
@@ -140,6 +143,26 @@ fn first_surface_resource_collision(
         // independently of spatial-index traversal order.
         .min_by_key(|resource| resource.id())
         .map(|resource| resource.position())
+}
+
+/// A located fluid vessel has physical presence even if its contents are empty.
+/// New solid rock cannot appear around an already-located vessel.
+fn first_fluid_store_collision_in_generated_chunk(
+    registry: &WorldRegistry,
+    state: &AppState,
+    chunk: &WorldChunk,
+) -> Option<VoxelCoord> {
+    state
+        .logistics()
+        .fluid_stores_in_chunk(chunk.coord())
+        .filter(|&(_, voxel)| {
+            (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&voxel.y())
+                && registry
+                    .block_for_state(chunk.block_at(voxel))
+                    .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+        })
+        .min_by_key(|(id, _)| *id)
+        .map(|(_, voxel)| voxel)
 }
 
 /// Finished stationary enclosure bodies are physical custody, unlike loose

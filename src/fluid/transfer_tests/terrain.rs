@@ -222,6 +222,14 @@ fn known_generated_stone_blocks_gravity_delivery_without_consuming_water() {
     )
     .unwrap();
     let destination = add_fluid_store(&mut state, Volume::from_microliters(1_000_000)).unwrap();
+    // Place both vessels into clear terrain. The solid blocker is deliberately
+    // forged afterward to exercise the defensive gravity gate, not a legal world.
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        destination_position,
+        BlockStateId::AIR,
+    );
     for (store, position) in [
         (source, source_position),
         (destination, destination_position),
@@ -235,6 +243,21 @@ fn known_generated_stone_blocks_gravity_delivery_without_consuming_water() {
         .unwrap()
         .commit(&mut state)
         .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        destination_position,
+        BLOCK_STATE_STONE,
+    );
+    assert_eq!(
+        validate_loaded_state(&registries, &state),
+        Err(crate::core::state::StateValidationError::Logistics(
+            crate::logistics::LogisticsValidationError::LocatedFluidStoreIntersectsSolidTerrain {
+                voxel: destination_position,
+            },
+        ))
+    );
     let before = state.clone();
     assert_eq!(
         validate_gravity_feed_fluid_to_lower_store(

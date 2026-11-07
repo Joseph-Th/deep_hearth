@@ -105,6 +105,7 @@ pub enum ChunkGenerationError {
     TempleCasteInfrastructureCollision { voxel: VoxelCoord },
     StructureBuriedByTerrain { voxel: VoxelCoord },
     StorageEnclosureBuriedByTerrain { voxel: VoxelCoord },
+    FluidStoreBuriedByTerrain { voxel: VoxelCoord },
     SurfaceResourceCollision { voxel: VoxelCoord },
     TreePlacementObstructed { voxel: VoxelCoord },
     PlayerDemandCoordinateOverflow { center: ChunkCoord },
@@ -192,6 +193,13 @@ impl Display for ChunkGenerationError {
             Self::StorageEnclosureBuriedByTerrain { voxel } => write!(
                 formatter,
                 "terrain generation would bury a completed storage enclosure at voxel ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
+            Self::FluidStoreBuriedByTerrain { voxel } => write!(
+                formatter,
+                "terrain generation would bury a located fluid vessel at voxel ({},{},{})",
                 voxel.x(),
                 voxel.y(),
                 voxel.z()

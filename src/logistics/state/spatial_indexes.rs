@@ -7,8 +7,33 @@ use crate::equipment::EquipmentId;
 use crate::fluid::FluidStoreId;
 use crate::inventory::StockpileId;
 use crate::spatial::VoxelCoord;
+use crate::world::{CHUNK_SIDE, ChunkCoord};
 
 use super::LogisticsState;
+
+/// Limit chunk-column queries to indexed x positions before checking z.
+///
+/// A full scan of all located stores for every generated chunk would make
+/// sparse exploration depend on the number of distant world occupants.
+fn indexed_positions_in_chunk<T: Ord>(
+    positions: &BTreeMap<VoxelCoord, BTreeSet<T>>,
+    chunk: ChunkCoord,
+) -> impl Iterator<Item = (&VoxelCoord, &BTreeSet<T>)> {
+    let x_span = chunk.world_min_x().map(|min| {
+        (
+            VoxelCoord::new(min, i64::MIN, i64::MIN),
+            VoxelCoord::new(
+                min.saturating_add(CHUNK_SIDE as i64 - 1),
+                i64::MAX,
+                i64::MAX,
+            ),
+        )
+    });
+    x_span
+        .into_iter()
+        .flat_map(move |(low, high)| positions.range(low..=high))
+        .filter(move |(position, _)| ChunkCoord::containing(**position) == chunk)
+}
 
 impl LogisticsState {
     /// Stationary stockpile identities at one exact voxel, sorted by stable
@@ -27,22 +52,19 @@ impl LogisticsState {
     /// position so callers can preserve deterministic ID-first collision order.
     pub(crate) fn stockpiles_in_chunk(
         &self,
-        chunk: crate::world::ChunkCoord,
+        chunk: ChunkCoord,
     ) -> impl Iterator<Item = (StockpileId, VoxelCoord)> + '_ {
-        let x_span = chunk.world_min_x().map(|min| {
-            (
-                VoxelCoord::new(min, i64::MIN, i64::MIN),
-                VoxelCoord::new(
-                    min.saturating_add(crate::world::CHUNK_SIDE as i64 - 1),
-                    i64::MAX,
-                    i64::MAX,
-                ),
-            )
-        });
-        x_span
-            .into_iter()
-            .flat_map(move |(low, high)| self.stockpiles_by_position.range(low..=high))
-            .filter(move |(position, _)| crate::world::ChunkCoord::containing(**position) == chunk)
+        indexed_positions_in_chunk(&self.stockpiles_by_position, chunk)
+            .flat_map(|(position, ids)| ids.iter().map(move |id| (*id, *position)))
+    }
+
+    /// Exact chunk-column finite-fluid custody, independent of distant stores.
+    /// Callers may select the lowest ID across returned indexed positions.
+    pub(crate) fn fluid_stores_in_chunk(
+        &self,
+        chunk: ChunkCoord,
+    ) -> impl Iterator<Item = (FluidStoreId, VoxelCoord)> + '_ {
+        indexed_positions_in_chunk(&self.fluid_stores_by_position, chunk)
             .flat_map(|(position, ids)| ids.iter().map(move |id| (*id, *position)))
     }
 

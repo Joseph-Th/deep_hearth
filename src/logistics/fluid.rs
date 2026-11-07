@@ -7,6 +7,7 @@ use crate::core::state::AppState;
 use crate::fluid::FluidStoreId;
 use crate::spatial::VoxelCoord;
 use crate::structural::StructuralElementId;
+use crate::world::BlockStateId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FluidStorePlacementError {
@@ -23,6 +24,9 @@ pub(crate) enum FluidStorePlacementError {
         element: StructuralElementId,
     },
     StandingTreeOccupied {
+        position: VoxelCoord,
+    },
+    SolidTerrainOccupied {
         position: VoxelCoord,
     },
     LogisticsRevisionExhausted,
@@ -58,6 +62,13 @@ impl Display for FluidStorePlacementError {
             Self::StandingTreeOccupied { position } => write!(
                 formatter,
                 "fluid store cannot occupy standing tree trunk at voxel ({},{},{})",
+                position.x(),
+                position.y(),
+                position.z()
+            ),
+            Self::SolidTerrainOccupied { position } => write!(
+                formatter,
+                "fluid store cannot occupy solid terrain at voxel ({},{},{})",
                 position.x(),
                 position.y(),
                 position.z()
@@ -237,6 +248,15 @@ pub(crate) fn validate_place_fluid_store(
     // locations must not create a state that trusted-load validation rejects.
     if state.world().tree_trunk_at(position).is_some() {
         return Err(FluidStorePlacementError::StandingTreeOccupied { position });
+    }
+    // Every non-air authored state currently occupies a full block. A fixture
+    // location must not silently put a vessel inside generated solid terrain.
+    if state
+        .world()
+        .block_at(position)
+        .is_some_and(|block| block != BlockStateId::AIR)
+    {
+        return Err(FluidStorePlacementError::SolidTerrainOccupied { position });
     }
     let expected_logistics_revision = state.logistics().revision();
     if !state.can_spend_logistics_revisions(1) {

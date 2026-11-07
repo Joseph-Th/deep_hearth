@@ -427,6 +427,14 @@ pub(crate) fn validate_loaded_logistics(
     validate_equipment_locations(state, app.equipment(), app.structures())?;
     validate_energy_store_locations(state, app.energy())?;
     validate_fluid_store_locations(state, app.fluid(), app.structures())?;
+    if let Some((_, voxel)) = app.logistics().fluid_store_locations().find(|&(_, voxel)| {
+        app.world()
+            .block_at(voxel)
+            .and_then(|block| registries.world().block_for_state(block))
+            .is_some_and(|block| block.collision() == crate::world::BlockCollisionShape::FullCube)
+    }) {
+        return Err(LogisticsValidationError::LocatedFluidStoreIntersectsSolidTerrain { voxel });
+    }
     if let Some(player) = state.player() {
         let locomotion = registries.survival().physiology().locomotion();
         if !player_body_fits_continuous_world(player.body(), locomotion) {
