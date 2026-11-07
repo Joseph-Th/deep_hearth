@@ -310,3 +310,162 @@ fn two_independent_shafts_outdeliver_one_conflicting_stronger_shaft() {
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
+
+#[test]
+fn supported_beam_activation_cracks_roller_before_same_tick_mechanical_transfer() {
+    use crate::content::{
+        FORM_LOG, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    };
+    use crate::core::quantity::{Force, Mass, Temperature};
+    use crate::core::state::apply_clock_advance;
+    use crate::core::time::SimulationTick;
+    use crate::inventory::{MaterialLotSelection, deposit_lot_for_test};
+    use crate::material::CommodityKey;
+    use crate::matter::calculate_matter_accounting;
+    use crate::player::validate_admit_player;
+    use crate::structural::{
+        StructuralElementGeometry, StructuralLifecycle, StructuralLoadKind,
+        SupportedStructuralElementPlan, calculate_pristine_member_capacity,
+        validate_plan_player_supported_structural_element, validate_set_structural_load,
+        validate_start_player_structural_construction,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let source = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_MECHANICAL_SMALL_DRIVE,
+        Energy::from_nanojoules(100_000_000_000),
+    )
+    .unwrap();
+    let sink = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_MECHANICAL_SMALL_DRIVE,
+        Energy::ZERO,
+    )
+    .unwrap();
+    place_energy_store_for_fixture(&mut state, source, VoxelCoord::new(0, 0, 0));
+    place_energy_store_for_fixture(&mut state, sink, VoxelCoord::new(2, 0, 0));
+    let roller = materialize_roller_at(&registries, &mut state, 1, 0);
+    let carried = validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let beam = validate_plan_player_supported_structural_element(
+        &registries,
+        &state,
+        SupportedStructuralElementPlan::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            StructuralElementGeometry::new(
+                VoxelBounds::new(VoxelCoord::new(1, 1, 0), VoxelCoord::new(2, 2, 1)).unwrap(),
+                Length::from_micrometers(2_000_000),
+                Area::from_square_millimeters(5_000),
+            )
+            .unwrap(),
+            roller,
+        ),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let beam_mass = Mass::from_milligrams(6_500_000);
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        beam_mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let work = validate_start_player_structural_construction(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        beam,
+        &[MaterialLotSelection::new(lot, beam_mass)],
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+
+    // Preload the original sound roller just below the cracking threshold.
+    // The completed beam adds its true self-weight to the existing snow load.
+    let record = state.structures().get_element(roller).unwrap();
+    let profile = registries
+        .structural()
+        .get_profile(record.profile())
+        .unwrap();
+    let material = registries
+        .materials()
+        .get_material(record.material())
+        .unwrap();
+    let capacity = calculate_pristine_member_capacity(profile, material, record.cross_section())
+        .unwrap()
+        .millinewtons();
+    let cracking = capacity * u128::from(profile.cracking_at_ppm()) / 1_000_000;
+    let preload = cracking - record.load(StructuralLoadKind::SelfWeight).millinewtons() - 30_000;
+    let _ = validate_set_structural_load(
+        &registries,
+        &state,
+        roller,
+        StructuralLoadKind::Snow,
+        Force::from_millinewtons(preload),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(
+        state.structures().get_element(roller).unwrap().lifecycle(),
+        StructuralLifecycle::Active,
+    );
+    assert!(!state.structures().get_element(roller).unwrap().is_cracked());
+
+    apply_clock_advance(
+        &mut state,
+        SimulationTick::new(work.completes_at().value() - 1),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let passive = crate::energy::decide_passive_energy_dissipation(&registries, &state);
+    let available =
+        decide_mechanical_transmission(&registries, &state, state.structures(), &passive, None);
+    assert_eq!(
+        available.transfers.len(),
+        1,
+        "the original roller is functional"
+    );
+    let source_before = state.energy().get_store(source).unwrap().stored();
+    let sink_before = state.energy().get_store(sink).unwrap().stored();
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let outcome = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(outcome, advance_tick(&registries, &mut replay).unwrap());
+    assert_eq!(state, replay);
+    assert_eq!(outcome.structural_construction(), Some(beam));
+    assert!(state.structures().get_element(roller).unwrap().is_cracked());
+    assert!(
+        outcome.mechanical_transmissions().is_empty(),
+        "a roller cracked by same-tick structural activation cannot transmit",
+    );
+    assert_eq!(
+        state.energy().get_store(source).unwrap().stored(),
+        source_before
+    );
+    assert_eq!(
+        state.energy().get_store(sink).unwrap().stored(),
+        sink_before
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}

@@ -541,6 +541,17 @@ pub(crate) struct StructuralConstructionTickPlan {
     activation: ValidatedStructuralMutation,
 }
 
+impl StructuralConstructionTickPlan {
+    /// Exact post-activation state, including damage to existing supports.
+    #[must_use]
+    pub(crate) fn project_structures(
+        &self,
+        structures: &crate::structural::StructureState,
+    ) -> crate::structural::StructureState {
+        self.activation.project(structures)
+    }
+}
+
 pub(crate) fn decide_structural_construction_tick(
     registries: &Registries,
     state: &AppState,

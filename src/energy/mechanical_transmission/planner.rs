@@ -28,10 +28,20 @@ fn available_shaft_pairs(
     passive: &PassiveEnergyDissipationPlan,
     dismantled_this_tick: Option<StructuralElementId>,
 ) -> (Vec<ShaftRun>, Vec<ShaftPair>) {
+    // The shaft must exist and be usable both before the tick and after
+    // earlier structural settlement. A newly activated roller cannot spend
+    // work until the following tick, while a cracked or failed existing roller
+    // disconnects immediately rather than transmitting through debris.
     let rollers = unique_roller_cells(
         effective_structures
             .elements()
-            .filter(|member| is_usable_roller(member, dismantled_this_tick))
+            .filter(|member| {
+                is_usable_roller(member, dismantled_this_tick)
+                    && state
+                        .structures()
+                        .get_element(member.id())
+                        .is_some_and(|before| is_usable_roller(before, dismantled_this_tick))
+            })
             .map(|member| (member.bounds().min(), member.id())),
     );
     let mut runs = Vec::new();

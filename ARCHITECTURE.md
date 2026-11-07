@@ -312,9 +312,10 @@ For every consequential edge:
 - when delayed work retains an endpoint assumption that is not recomputed into its completion transaction,
   block canonical mutations that would invalidate that assumption for the work interval; otherwise compose the
   changed endpoint into one authoritative completion projection rather than relying on admission-time state;
-- evaluate mechanical shaft connectivity after same-tick production output's structural load effects,
-  excluding cracked or failed rollers from that completion's transfer; retain pre-tick energy custody
-  so released work is not spent through the shaft on its completion tick;
+- require each transmitting shaft roller to be sound in both pre-tick structural truth and the
+  projected result of production loads and construction activation; newly assembled rollers and
+  newly released work become eligible only on the following tick, while damaged rollers stop
+  transmitting at the current completion boundary;
 - expose enough outcome information to identify what moved or changed;
 - when the destination owner resolves persistent identity during ingress, propagate that landing identity far
   enough for legitimate continuation rather than forcing callers to rediscover it by scanning the destination;

@@ -67,6 +67,19 @@ impl ValidatedStructuralMutation {
         &self.analysis
     }
 
+    /// Read-only settlement of a validated operation on the exact structural
+    /// revision it will commit against. Later tick planners use the resulting
+    /// lifecycle and load-cascade truth without applying the mutation early.
+    #[must_use]
+    pub(crate) fn project(&self, structures: &StructureState) -> StructureState {
+        assert_eq!(structures.revision(), self.expected_revision);
+        let mut projected = structures.clone();
+        apply_operation_unchecked(&mut projected, self.operation);
+        apply_damage_events(&mut projected, self.analysis.damage_events());
+        projected.apply_revision(self.next_revision);
+        projected
+    }
+
     /// Commits the requested structural change and every resolved damage consequence atomically.
     pub(crate) fn commit(
         self,
