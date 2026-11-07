@@ -154,28 +154,6 @@ fn advance_simulation_tick_unstaged(
     )?;
     let passive_energy_plan = decide_passive_energy_dissipation(registries, state);
     let passive_energy_revision_steps = passive_energy_plan.energy_revision_steps();
-    // Production output and structural activation settle before mechanical work.
-    // Both can crack or fail a previously sound roller, but newly assembled
-    // shafts cannot transmit until their following tick. The shaft planner
-    // intersects pre-tick and projected structural eligibility, retaining the
-    // pre-tick energy snapshot so newly released work is also deferred.
-    let after_production_structures =
-        completion_plan.project_structures_after_load(state.structures());
-    let after_construction_structures = structural_construction_plan
-        .as_ref()
-        .map(|plan| plan.project_structures(after_production_structures.as_ref()));
-    let effective_structures = after_construction_structures
-        .as_ref()
-        .unwrap_or(after_production_structures.as_ref());
-    let mut transmission_plan = decide_mechanical_transmission(
-        registries,
-        state,
-        effective_structures,
-        &passive_energy_plan,
-        structural_dismantling_plan
-            .as_ref()
-            .map(|plan| plan.element()),
-    );
     // Passive dissipation is unavoidable, so its incidental mutation must fit
     // beyond all outstanding production and manual-power completion reservations.
     if passive_energy_revision_steps != 0
@@ -183,31 +161,6 @@ fn advance_simulation_tick_unstaged(
     {
         return Err(TickError::EnergyRevisionExhausted);
     }
-    // Shafts, unlike passive losses, can defer a transfer. A future job owns
-    // its promised revision even if an idle shaft has more stored work to send.
-    // Skipping only the optional transfer lets that job progress to completion
-    // instead of trapping the entire world on an unadvanceable tick.
-    let transmission_revision_steps = transmission_plan.energy_revision_steps();
-    if transmission_revision_steps != 0
-        && !passive_energy_revision_steps
-            .checked_add(transmission_revision_steps)
-            .is_some_and(|steps| state.can_spend_energy_revisions(steps))
-    {
-        transmission_plan = Default::default();
-    }
-    let transmission_revision_steps = transmission_plan.energy_revision_steps();
-    require_revision_capacity(
-        state.energy().revision(),
-        [
-            completion_plan.energy_revision_steps(),
-            manual_power_plan
-                .as_ref()
-                .map_or(0, |plan| plan.energy_revision_steps()),
-            passive_energy_revision_steps,
-            transmission_revision_steps,
-        ],
-        TickError::EnergyRevisionExhausted,
-    )?;
     let local_warmth = assess_player_local_warmth(
         registries,
         state,
@@ -287,6 +240,59 @@ fn advance_simulation_tick_unstaged(
         mining_plan,
         inventory_owner_busy,
         structural_construction_plan.is_some() || structural_dismantling_plan.is_some(),
+    )?;
+    // Production, construction and automatic mining output settle before
+    // mechanical work. Any of their actual support-load changes can crack
+    // a shaft roller. Include every earlier structural owner in the physical
+    // eligibility check, but retain pre-tick shaft and stored-energy custody
+    // so newly assembled rollers and newly released work remain deferred.
+    let after_production_structures =
+        completion_plan.project_structures_after_load(state.structures());
+    let after_construction_structures = structural_construction_plan
+        .as_ref()
+        .map(|plan| plan.project_structures(after_production_structures.as_ref()));
+    let before_mining_structures = after_construction_structures
+        .as_ref()
+        .unwrap_or(after_production_structures.as_ref());
+    let after_mining_structures = automatic_mining_output
+        .as_ref()
+        .and_then(|plan| plan.project_structures(before_mining_structures));
+    let effective_structures = after_mining_structures
+        .as_ref()
+        .unwrap_or(before_mining_structures);
+    let mut transmission_plan = decide_mechanical_transmission(
+        registries,
+        state,
+        effective_structures,
+        &passive_energy_plan,
+        structural_dismantling_plan
+            .as_ref()
+            .map(|plan| plan.element()),
+    );
+    // Shafts, unlike passive losses, can defer a transfer. A future job owns
+    // its promised revision even if an idle shaft has more stored work to send.
+    // Skipping only the optional transfer lets that job progress to completion
+    // instead of trapping the entire world on an unadvanceable tick.
+    let transmission_revision_steps = transmission_plan.energy_revision_steps();
+    if transmission_revision_steps != 0
+        && !passive_energy_revision_steps
+            .checked_add(transmission_revision_steps)
+            .is_some_and(|steps| state.can_spend_energy_revisions(steps))
+    {
+        transmission_plan = Default::default();
+    }
+    let transmission_revision_steps = transmission_plan.energy_revision_steps();
+    require_revision_capacity(
+        state.energy().revision(),
+        [
+            completion_plan.energy_revision_steps(),
+            manual_power_plan
+                .as_ref()
+                .map_or(0, |plan| plan.energy_revision_steps()),
+            passive_energy_revision_steps,
+            transmission_revision_steps,
+        ],
+        TickError::EnergyRevisionExhausted,
     )?;
     require_revision_capacity(
         state.equipment().revision(),

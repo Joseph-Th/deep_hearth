@@ -800,3 +800,163 @@ fn mining_destination_mount_reserves_future_settlement_structure_headroom() {
         "unmounted settlement must remain landable when support assignment is rejected"
     );
 }
+
+#[test]
+fn mining_output_cracks_existing_shaft_before_same_tick_transmission() {
+    use crate::content::{ENERGY_MECHANICAL_SMALL_DRIVE, STRUCTURAL_PROFILE_TIMBER_DRIVE_COUPLING};
+    use crate::energy::{
+        add_energy_store_with_initial_for_fixture, decide_mechanical_transmission,
+        decide_passive_energy_dissipation,
+    };
+    use crate::logistics::place_energy_store_for_fixture;
+    use crate::structural::calculate_pristine_member_capacity;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let pick = assemble_pick_for_test(&registries, &mut state);
+    let destination =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000)).unwrap();
+    let deposit = insert_known_deposit(&registries, &mut state, deposit_spec()).unwrap();
+    let position = state.geology().get_deposit(deposit).unwrap().bounds().min();
+    let shaft_source = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_MECHANICAL_SMALL_DRIVE,
+        Energy::from_nanojoules(100_000_000_000),
+    )
+    .unwrap();
+    let shaft_sink = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_MECHANICAL_SMALL_DRIVE,
+        Energy::ZERO,
+    )
+    .unwrap();
+    place_energy_store_for_fixture(
+        &mut state,
+        shaft_source,
+        VoxelCoord::new(position.x() - 1, position.y(), position.z()),
+    );
+    place_energy_store_for_fixture(
+        &mut state,
+        shaft_sink,
+        VoxelCoord::new(position.x() + 1, position.y(), position.z()),
+    );
+    admit_known_mining_player_at_deposit(&registries, &mut state, deposit, &[destination], &[pick]);
+    let bounds = VoxelBounds::new(
+        position,
+        VoxelCoord::new(position.x() + 1, position.y() + 1, position.z() + 1),
+    )
+    .unwrap();
+    let roller = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_TIMBER_DRIVE_COUPLING,
+        MATERIAL_WOOD,
+        crate::structural::make_test_structural_geometry(
+            bounds,
+            Length::from_micrometers(1_000_000),
+            Area::from_square_millimeters(300),
+        ),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, roller, FORM_HANDLE);
+    let _ = validate_activate_structural_element(&registries, &state, roller)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = validate_mount_stockpile(&registries, &state, destination, roller)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    let mined = Mass::from_milligrams(100_000);
+    let job = validate_known_mining(
+        &registries,
+        &state,
+        MINING_METHOD_HAND_PICK,
+        deposit,
+        destination,
+        pick,
+        mined,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+
+    // Mining was admitted against a sound support. Later snowfall leaves the
+    // shaft sound before extraction but causes its real delivered weight to
+    // crack the timber on the completion tick.
+    let record = state.structures().get_element(roller).unwrap();
+    let profile = registries
+        .structural()
+        .get_profile(record.profile())
+        .unwrap();
+    let material = registries
+        .materials()
+        .get_material(record.material())
+        .unwrap();
+    let pristine = calculate_pristine_member_capacity(profile, material, record.cross_section())
+        .unwrap()
+        .millinewtons();
+    let cracking = pristine * u128::from(profile.cracking_at_ppm()) / 1_000_000;
+    let self_weight = record.load(StructuralLoadKind::SelfWeight).millinewtons();
+    let snow = Force::from_millinewtons(cracking - self_weight - 500);
+    let _ =
+        validate_set_structural_load(&registries, &state, roller, StructuralLoadKind::Snow, snow)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    assert!(!state.structures().get_element(roller).unwrap().is_cracked());
+
+    let due = state.mining().get_job(job).unwrap().completes_at();
+    apply_clock_advance(&mut state, SimulationTick::new(due.value() - 1));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let passive = decide_passive_energy_dissipation(&registries, &state);
+    let initial_shaft =
+        decide_mechanical_transmission(&registries, &state, state.structures(), &passive, None);
+    assert_eq!(initial_shaft.energy_revision_steps(), 1);
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    let source_before = state.energy().get_store(shaft_source).unwrap().stored();
+    let sink_before = state.energy().get_store(shaft_sink).unwrap().stored();
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    let outcome = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(outcome, advance_tick(&registries, &mut replay).unwrap());
+    assert_eq!(state, replay);
+    assert_eq!(
+        outcome.mining_output().map(MiningOutputReceipt::job),
+        Some(job)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .unwrap()
+            .stored_mass(),
+        mined,
+    );
+    assert!(state.structures().get_element(roller).unwrap().is_cracked());
+    assert!(
+        outcome.mechanical_transmissions().is_empty(),
+        "mining output cracked the supporting shaft before transmission",
+    );
+    assert_eq!(
+        state.energy().get_store(shaft_source).unwrap().stored(),
+        source_before,
+    );
+    assert_eq!(
+        state.energy().get_store(shaft_sink).unwrap().stored(),
+        sink_before,
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}

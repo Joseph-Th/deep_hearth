@@ -150,6 +150,18 @@ impl ValidatedMiningSettlement {
         self.structural_load.is_some()
     }
 
+    /// The exact structural-load result of the mined output already accepted
+    /// by this settlement, including any cracking or support failure.
+    #[must_use]
+    pub(crate) fn project_structures(
+        &self,
+        structures: &crate::structural::StructureState,
+    ) -> Option<crate::structural::StructureState> {
+        self.structural_load
+            .as_ref()
+            .map(|load| load.project(structures))
+    }
+
     #[cfg(test)]
     pub(crate) fn commit(
         self,
