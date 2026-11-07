@@ -17,6 +17,8 @@ pub enum DrinkError {
     Access(PlayerFluidStoreAccessError),
     SurvivalNotInitialized,
     PlayerDead,
+    PlayerAirborne,
+    PlayerMoving,
     PlayerBusy {
         active: Box<PlayerWork>,
     },
@@ -71,6 +73,8 @@ impl Display for DrinkError {
                 formatter.write_str("player survival is not initialized")
             }
             Self::PlayerDead => formatter.write_str("dead player cannot drink"),
+            Self::PlayerAirborne => formatter.write_str("player must land before drinking"),
+            Self::PlayerMoving => formatter.write_str("player must stop moving before drinking"),
             Self::PlayerBusy { active } => {
                 write!(
                     formatter,
@@ -167,6 +171,8 @@ impl Error for DrinkError {
             Self::StructuralLoad(error) => Some(error),
             Self::SurvivalNotInitialized
             | Self::PlayerDead
+            | Self::PlayerAirborne
+            | Self::PlayerMoving
             | Self::PlayerBusy { .. }
             | Self::PreparedStrikeActive
             | Self::UnknownStore { .. }

@@ -43,6 +43,8 @@ fn map_player_attention_error(error: PlayerAttentionError) -> DrinkError {
     match error {
         PlayerAttentionError::SurvivalNotInitialized => DrinkError::SurvivalNotInitialized,
         PlayerAttentionError::PlayerDead => DrinkError::PlayerDead,
+        PlayerAttentionError::PlayerAirborne => DrinkError::PlayerAirborne,
+        PlayerAttentionError::PlayerMoving => DrinkError::PlayerMoving,
         PlayerAttentionError::Busy { active } => DrinkError::PlayerBusy { active },
         PlayerAttentionError::PreparedStrikeActive => DrinkError::PreparedStrikeActive,
     }
@@ -200,7 +202,8 @@ pub(super) fn validate_drink_with_mode(
         require_simulation_boundary(state.control_tick())
             .map_err(DrinkError::SimulationBoundary)?;
     }
-    let attention = validate_player_attention(state).map_err(map_player_attention_error)?;
+    let attention =
+        validate_player_attention(registries, state).map_err(map_player_attention_error)?;
     validate_player_fluid_store_access(state, store).map_err(DrinkError::Access)?;
     let source = resolve_drink_source(registries, state, store)?;
     let physiology = registries.survival().physiology();

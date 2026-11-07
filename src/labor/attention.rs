@@ -1,6 +1,8 @@
 //! Shared admission and revision binding for actions that require the local player's attention.
 
 use crate::core::state::AppState;
+use crate::registry::Registries;
+use crate::spatial::HorizontalVelocity;
 use crate::survival::Vitality;
 
 use super::PlayerWork;
@@ -9,6 +11,8 @@ use super::PlayerWork;
 pub(crate) enum PlayerAttentionError {
     SurvivalNotInitialized,
     PlayerDead,
+    PlayerAirborne,
+    PlayerMoving,
     Busy { active: Box<PlayerWork> },
     PreparedStrikeActive,
 }
@@ -81,6 +85,7 @@ impl ValidatedPlayerAttentionHold {
 }
 
 pub(crate) fn validate_player_attention(
+    registries: &Registries,
     state: &AppState,
 ) -> Result<ValidatedPlayerAttention, PlayerAttentionError> {
     let Some(player) = state.survival().player() else {
@@ -98,6 +103,23 @@ pub(crate) fn validate_player_attention(
     // of attention (work, meals, drinks) must honor the same admission rule.
     if state.combat().has_prepared_strike() {
         return Err(PlayerAttentionError::PreparedStrikeActive);
+    }
+    // Every held attention interval is stationary in generated terrain.
+    // This is also a trusted-load invariant, so meals and drinks must not
+    // create a persisted moving-work state that only ordinary labor rejects.
+    if crate::logistics::player_body_uses_generated_world(
+        state,
+        registries.survival().physiology().locomotion(),
+    ) {
+        if !crate::logistics::player_body_is_grounded(registries, state) {
+            return Err(PlayerAttentionError::PlayerAirborne);
+        }
+        if state.logistics().player().is_some_and(|player| {
+            player.body().horizontal_velocity() != HorizontalVelocity::ZERO
+                || player.body().vertical_velocity().nanometers_per_second() != 0
+        }) {
+            return Err(PlayerAttentionError::PlayerMoving);
+        }
     }
     Ok(ValidatedPlayerAttention {
         expected_revision: state.player_work().revision(),

@@ -261,6 +261,273 @@ fn full_metabolic_reserves_do_not_block_a_needed_dietary_serving() {
     );
 }
 
+/// Generated physical-custody setup shared by the locomotion/consumption boundary tests.
+/// Leave one 20 Hz sample before the slow boundary, so the test selects the
+/// exact movement input while physiology settles normally.
+fn generated_consumption_player_before_boundary_input() -> (
+    crate::registry::Registries,
+    AppState,
+    crate::inventory::MaterialLotId,
+    crate::fluid::FluidStoreId,
+    VoxelCoord,
+) {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
+    use crate::player::validate_admit_player;
+    use crate::simulation::advance_control_tick;
+    use crate::world::{
+        ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
+        validate_generate_chunk,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(41),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let floor = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| state.world().block_at(VoxelCoord::new(8, y, 8)) == Some(BLOCK_STATE_STONE))
+        .unwrap();
+    let position = VoxelCoord::new(8, floor + 1, 8);
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(300_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let water = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        Volume::from_microliters(500_000),
+        FLUID_WATER,
+        Volume::from_microliters(500_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_place_fluid_store(&state, water, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK - 1 {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    (registries, state, lot, water, position)
+}
+
+#[test]
+fn exact_lot_and_visible_stack_meals_both_provision_unsettled_walk_energy() {
+    use crate::core::state::validate_loaded_state;
+    use crate::logistics::{HorizontalControlInput, PlayerControlInput, relocate_player_for_test};
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+    use crate::simulation::{advance_control_tick, advance_control_tick_with_input};
+
+    let (registries, mut state, lot, water, position) =
+        generated_consumption_player_before_boundary_input();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    // The boundary's final movement sample incurs a real exertion debt
+    // after the slow physiology settlement. It cannot admit an exclusive
+    // meal or drink while the body still has momentum.
+    let walk = PlayerControlInput::new(HorizontalControlInput::new(1_000_000, 0).unwrap());
+    let _ = advance_control_tick_with_input(&registries, &mut state, walk).unwrap();
+    assert!(state.control_tick().is_simulation_boundary());
+    let pending_energy = state
+        .logistics()
+        .player()
+        .unwrap()
+        .locomotion_exertion()
+        .pending()
+        .energy_cost_per_tick();
+    assert!(!pending_energy.is_zero());
+    let physiology = registries.survival().physiology();
+    set_player_reserves(
+        &mut state,
+        physiology
+            .maximum_metabolic_energy()
+            .checked_sub(Energy::from_nanojoules(100_000_000_000))
+            .unwrap(),
+        physiology
+            .maximum_hydration()
+            .checked_sub(Volume::from_microliters(300_000))
+            .unwrap(),
+    );
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap()
+        .remove(0);
+    let moving = state.clone();
+    assert_eq!(
+        validate_eat_stack_to_metabolic_target(
+            &registries,
+            &state,
+            &stack,
+            physiology.maximum_metabolic_energy(),
+        )
+        .err(),
+        Some(EatStackToTargetError::Eat(EatError::PlayerMoving)),
+    );
+    assert_eq!(
+        validate_eat_lot_to_metabolic_target(
+            &registries,
+            &state,
+            lot,
+            physiology.maximum_metabolic_energy(),
+        )
+        .err(),
+        Some(EatLotToTargetError::Eat(EatError::PlayerMoving)),
+    );
+    assert_eq!(
+        validate_drink_store_to_full(&registries, &state, water).err(),
+        Some(DrinkStoreToTargetError::Drink(DrinkError::PlayerMoving)),
+    );
+    assert_eq!(state, moving, "rejected input cannot consume food or water");
+
+    // Focused owner setup stops the already-paid movement without erasing
+    // its still-unsettled exertion. Both meal interfaces must now recognize
+    // that debt even when the displayed reserve itself is full.
+    relocate_player_for_test(&mut state, position);
+    set_player_reserves(
+        &mut state,
+        physiology.maximum_metabolic_energy(),
+        physiology.maximum_hydration(),
+    );
+    assert_eq!(
+        state
+            .logistics()
+            .player()
+            .unwrap()
+            .locomotion_exertion()
+            .pending()
+            .energy_cost_per_tick(),
+        pending_energy
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap()
+        .remove(0);
+    let mut lot_state = state.clone();
+    let stack_meal = validate_eat_stack_to_metabolic_target(
+        &registries,
+        &state,
+        &stack,
+        physiology.maximum_metabolic_energy(),
+    )
+    .unwrap()
+    .expect("the displayed stack recognizes pending walk energy")
+    .commit(&mut state)
+    .unwrap();
+    let lot_meal = validate_eat_lot_to_metabolic_target(
+        &registries,
+        &lot_state,
+        lot,
+        physiology.maximum_metabolic_energy(),
+    )
+    .unwrap()
+    .expect("the exact lot must also recognize pending walk energy")
+    .commit(&mut lot_state)
+    .unwrap();
+    assert!(!lot_meal.total_mass().is_zero());
+    assert_eq!(stack_meal, lot_meal);
+    assert_eq!(state, lot_state);
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.tick() < stack_meal.completes_at() {
+        assert_eq!(
+            advance_control_tick(&registries, &mut state).unwrap(),
+            advance_control_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn airborne_player_cannot_start_eating_or_drinking_work() {
+    use crate::core::state::validate_loaded_state;
+    use crate::logistics::{PlayerControlInput, player_body_is_grounded};
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+    use crate::simulation::advance_control_tick_with_input;
+
+    let (registries, mut state, lot, water, _) =
+        generated_consumption_player_before_boundary_input();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let _ = advance_control_tick_with_input(
+        &registries,
+        &mut state,
+        PlayerControlInput::NEUTRAL.with_jump(true),
+    )
+    .unwrap();
+    assert!(state.control_tick().is_simulation_boundary());
+    assert!(!player_body_is_grounded(&registries, &state));
+    let physiology = registries.survival().physiology();
+    set_player_reserves(
+        &mut state,
+        physiology
+            .maximum_metabolic_energy()
+            .checked_sub(Energy::from_nanojoules(100_000_000_000))
+            .unwrap(),
+        physiology
+            .maximum_hydration()
+            .checked_sub(Volume::from_microliters(300_000))
+            .unwrap(),
+    );
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap()
+        .remove(0);
+    let before = state.clone();
+    assert_eq!(
+        validate_eat_stack_to_metabolic_target(
+            &registries,
+            &state,
+            &stack,
+            physiology.maximum_metabolic_energy(),
+        )
+        .err(),
+        Some(EatStackToTargetError::Eat(EatError::PlayerAirborne)),
+    );
+    assert_eq!(
+        validate_eat_lot_to_metabolic_target(
+            &registries,
+            &state,
+            lot,
+            physiology.maximum_metabolic_energy(),
+        )
+        .err(),
+        Some(EatLotToTargetError::Eat(EatError::PlayerAirborne)),
+    );
+    assert_eq!(
+        validate_drink_store_to_full(&registries, &state, water).err(),
+        Some(DrinkStoreToTargetError::Drink(DrinkError::PlayerAirborne)),
+    );
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(replay, state);
+}
+
 #[test]
 fn projected_food_stack_use_consumes_only_the_selected_physical_cohort() {
     let registries = build_registries();

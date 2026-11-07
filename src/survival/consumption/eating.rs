@@ -285,9 +285,11 @@ pub(super) fn validate_eat_with_mode(
     if !preview_off_boundary {
         require_simulation_boundary(state.control_tick()).map_err(EatError::SimulationBoundary)?;
     }
-    let attention = validate_player_attention(state).map_err(|error| match error {
+    let attention = validate_player_attention(registries, state).map_err(|error| match error {
         PlayerAttentionError::SurvivalNotInitialized => EatError::SurvivalNotInitialized,
         PlayerAttentionError::PlayerDead => EatError::PlayerDead,
+        PlayerAttentionError::PlayerAirborne => EatError::PlayerAirborne,
+        PlayerAttentionError::PlayerMoving => EatError::PlayerMoving,
         PlayerAttentionError::Busy { active } => EatError::PlayerBusy { active },
         PlayerAttentionError::PreparedStrikeActive => EatError::PreparedStrikeActive,
     })?;

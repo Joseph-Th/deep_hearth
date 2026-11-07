@@ -15,7 +15,7 @@ use super::super::{
     EatError, MealMetabolicProjectionError, ValidatedEat, project_minimum_meal_to_metabolic_target,
     validate_eat,
 };
-use super::selected_food_dietary_refill_mass;
+use super::{metabolic_energy_after_pending_locomotion, selected_food_dietary_refill_mass};
 
 /// Failure while composing a selected physical food lot into an exact eating transaction.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -201,7 +201,7 @@ pub fn validate_eat_lot_to_metabolic_target(
     let projected = project_minimum_meal_to_metabolic_target(
         registries.survival().physiology(),
         food,
-        player.metabolic_energy(),
+        metabolic_energy_after_pending_locomotion(state, player.metabolic_energy()),
         target,
     )
     .map_err(EatLotToTargetError::Projection)?;

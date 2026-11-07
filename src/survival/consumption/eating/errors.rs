@@ -17,6 +17,8 @@ pub enum EatError {
     SimulationBoundary(SimulationBoundaryError),
     SurvivalNotInitialized,
     PlayerDead,
+    PlayerAirborne,
+    PlayerMoving,
     Access(PlayerStockpileAccessError),
     PlayerBusy {
         active: Box<PlayerWork>,
@@ -97,6 +99,8 @@ impl Display for EatError {
                 formatter.write_str("player survival is not initialized")
             }
             Self::PlayerDead => formatter.write_str("dead player cannot eat"),
+            Self::PlayerAirborne => formatter.write_str("player must land before eating"),
+            Self::PlayerMoving => formatter.write_str("player must stop moving before eating"),
             Self::Access(error) => write!(formatter, "food stockpile access failed: {error}"),
             Self::PlayerBusy { active } => {
                 write!(formatter, "player cannot eat while occupied by {active:?}")
@@ -233,6 +237,8 @@ impl Error for EatError {
             Self::StructuralLoad(error) => Some(error),
             Self::SurvivalNotInitialized
             | Self::PlayerDead
+            | Self::PlayerAirborne
+            | Self::PlayerMoving
             | Self::PlayerBusy { .. }
             | Self::PreparedStrikeActive
             | Self::EmptySelection

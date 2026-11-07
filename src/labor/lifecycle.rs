@@ -296,25 +296,13 @@ fn validate_player_work_start_inner(
     exertion: SurvivalExertion,
     survival_revision_demand: u64,
 ) -> Result<ValidatedPlayerWorkStart, PlayerWorkStartError> {
-    if crate::logistics::player_body_uses_generated_world(
-        state,
-        registries.survival().physiology().locomotion(),
-    ) {
-        if !crate::logistics::player_body_is_grounded(registries, state) {
-            return Err(PlayerWorkStartError::PlayerAirborne);
-        }
-        if state.logistics().player().is_some_and(|player| {
-            player.body().horizontal_velocity() != crate::spatial::HorizontalVelocity::ZERO
-                || player.body().vertical_velocity().nanometers_per_second() != 0
-        }) {
-            return Err(PlayerWorkStartError::PlayerMoving);
-        }
-    }
-    let attention = validate_player_attention(state).map_err(|error| match error {
+    let attention = validate_player_attention(registries, state).map_err(|error| match error {
         PlayerAttentionError::SurvivalNotInitialized => {
             PlayerWorkStartError::SurvivalNotInitialized
         }
         PlayerAttentionError::PlayerDead => PlayerWorkStartError::PlayerDead,
+        PlayerAttentionError::PlayerAirborne => PlayerWorkStartError::PlayerAirborne,
+        PlayerAttentionError::PlayerMoving => PlayerWorkStartError::PlayerMoving,
         PlayerAttentionError::Busy { active } => PlayerWorkStartError::Busy { active },
         PlayerAttentionError::PreparedStrikeActive => PlayerWorkStartError::PreparedStrikeActive,
     })?;
