@@ -121,8 +121,11 @@ Do not use `reachable`, `available`, or `can` as synonyms across these levels.
 `advance_control_tick` is the authoritative 20 Hz direct-control mutation. It now owns persisted player-body
 gravity/collision as well as the control clock. `advance_tick` remains an atomic slow-boundary helper only when
 no generated-world player body has active control-rate physics; otherwise it fails closed and callers must step
-through `advance_control_tick`. No batching surface may skip authoritative effects. The concrete stepping
-contract lives in [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md#temporal-stepping-contract).
+through `advance_control_tick`. No batching surface may skip authoritative effects. Registry assembly
+requires one calendar physics tick to equal exactly 72 fixed 50 ms control ticks (3.6 seconds), so
+movement, per-second process rates, and physical energy integrations cannot use incompatible clocks.
+The full stepping contract is documented in
+[`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md#temporal-stepping-contract).
 
 ### Local terrain authority
 

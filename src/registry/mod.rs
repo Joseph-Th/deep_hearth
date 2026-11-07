@@ -6,7 +6,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::capability::CapabilityRegistry;
 use crate::core::quantity::Acceleration;
-use crate::core::time::{CalendarDefinition, PhysicalTickDuration};
+use crate::core::time::{
+    CONTROL_TICK_DURATION, CONTROL_TICKS_PER_SIMULATION_TICK, CalendarDefinition,
+    PhysicalTickDuration,
+};
 use crate::crafting::CraftingRegistry;
 use crate::energy::EnergyRegistry;
 use crate::equipment::EquipmentRegistry;
@@ -67,6 +70,13 @@ pub struct CoreDefinitions {
 
 impl CoreDefinitions {
     pub(crate) const fn new(gravity: Acceleration, calendar: CalendarDefinition) -> Self {
+        // Physical-rate work and energy use the calendar tick, while body
+        // motion uses the fixed control cadence. Both must measure the same time.
+        assert!(
+            calendar.physical_tick_duration().microseconds()
+                == CONTROL_TICK_DURATION.microseconds() * CONTROL_TICKS_PER_SIMULATION_TICK,
+            "calendar physical tick must equal the fixed control-time span"
+        );
         Self { gravity, calendar }
     }
 
@@ -321,3 +331,7 @@ impl Registries {
         &self.domains.presentation.shaders
     }
 }
+
+#[cfg(test)]
+#[path = "core_tests.rs"]
+mod core_tests;
