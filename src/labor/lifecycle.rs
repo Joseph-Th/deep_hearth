@@ -300,16 +300,35 @@ fn validate_player_work_start_inner(
             PlayerWorkStartError::HydrationCostOverflow { duration }
         }
     })?;
-    if player.metabolic_energy() < budget.metabolic_energy() {
+    // Control-rate work can start after an earlier movement input in the same
+    // slow-tick interval. That locomotion cost has already been incurred but
+    // will not leave the survival reserve until the next slow settlement.
+    // Admit the new work only if both obligations can be paid; otherwise a
+    // prevalidated off-boundary job may outspend its reserves at completion.
+    let pending_locomotion = state
+        .logistics()
+        .player()
+        .map_or(SurvivalExertion::REST, |player| {
+            player.locomotion_exertion().pending()
+        });
+    let required_energy = budget
+        .metabolic_energy()
+        .checked_add(pending_locomotion.energy_cost_per_tick())
+        .ok_or(PlayerWorkStartError::MetabolicCostOverflow { duration })?;
+    if player.metabolic_energy() < required_energy {
         return Err(PlayerWorkStartError::InsufficientMetabolicEnergy {
             available: player.metabolic_energy(),
-            required: budget.metabolic_energy(),
+            required: required_energy,
         });
     }
-    if player.hydration() < budget.hydration() {
+    let required_hydration = budget
+        .hydration()
+        .checked_add(pending_locomotion.hydration_loss_per_tick())
+        .ok_or(PlayerWorkStartError::HydrationCostOverflow { duration })?;
+    if player.hydration() < required_hydration {
         return Err(PlayerWorkStartError::InsufficientHydration {
             available: player.hydration(),
-            required: budget.hydration(),
+            required: required_hydration,
         });
     }
     if !state

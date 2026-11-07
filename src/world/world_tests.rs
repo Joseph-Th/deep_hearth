@@ -1215,6 +1215,192 @@ fn player_block_excavation_conserves_partial_cell_matter_and_round_trips_active_
 }
 
 #[test]
+fn off_boundary_excavation_prices_already_incurred_locomotion() {
+    use crate::survival::player_record_with_thermal_comfort;
+
+    let (registries, mut state, pick, _) = generated_excavation_fixture();
+    let walk = PlayerControlInput::new(HorizontalControlInput::new(1_000_000, 0).unwrap());
+    let _ = advance_control_tick_with_input(&registries, &mut state, walk).unwrap();
+    for _ in 0..60 {
+        let player = state.logistics().player().unwrap();
+        if player.body().horizontal_velocity() == crate::spatial::HorizontalVelocity::ZERO {
+            break;
+        }
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    assert!(!state.control_tick().is_simulation_boundary());
+    assert!(state.control_tick().value() < CONTROL_TICKS_PER_SIMULATION_TICK);
+    assert_eq!(
+        state
+            .logistics()
+            .player()
+            .unwrap()
+            .body()
+            .horizontal_velocity(),
+        crate::spatial::HorizontalVelocity::ZERO,
+    );
+    // A grounded jump supplies an additional whole-event hydration cost. Let
+    // the body land again without crossing the next 72-step survival boundary:
+    // its spent effort must still be reserved before starting work.
+    let jump = PlayerControlInput::NEUTRAL.with_jump(true);
+    let _ = advance_control_tick_with_input(&registries, &mut state, jump).unwrap();
+    for _ in 0..50 {
+        let player = state.logistics().player().unwrap();
+        if player.body().vertical_velocity().nanometers_per_second() == 0
+            && crate::logistics::player_body_is_grounded(&registries, &state)
+        {
+            break;
+        }
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    assert!(crate::logistics::player_body_is_grounded(
+        &registries,
+        &state
+    ));
+    assert!(state.control_tick().value() < CONTROL_TICKS_PER_SIMULATION_TICK);
+    let pending = state
+        .logistics()
+        .player()
+        .unwrap()
+        .locomotion_exertion()
+        .pending();
+    assert!(!pending.energy_cost_per_tick().is_zero());
+
+    let request = BlockExcavationRequest::new(
+        positive_x_view(),
+        MINING_METHOD_HAND_PICK,
+        pick,
+        Mass::from_milligrams(200_000),
+    );
+    // Establish the real authorized job and its authored duration before
+    // bringing reserves to the precise admission boundary.
+    let start = validate_start_player_block_excavation(&registries, &state, request).unwrap();
+    let mut admitted = state.clone();
+    let outcome = start.commit(&mut admitted).unwrap();
+    let control_duration = outcome
+        .completes_at()
+        .checked_steps_since(state.control_tick())
+        .unwrap();
+    assert!(control_duration.is_multiple_of(CONTROL_TICKS_PER_SIMULATION_TICK));
+    let duration = TickSpan::new(control_duration / CONTROL_TICKS_PER_SIMULATION_TICK);
+    let method = registries
+        .mining()
+        .get_method(MINING_METHOD_HAND_PICK)
+        .unwrap();
+    let budget = project_survival_resource_budget(
+        registries.survival().physiology(),
+        method.exertion(),
+        duration,
+    )
+    .unwrap();
+    let before = *state.survival().player().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            budget.metabolic_energy(),
+            before.hydration(),
+            before.vitality(),
+            before.nutrition(),
+            before.vitality_recovery_remainder(),
+            before.thermal_comfort_ppm(),
+        ),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let unchanged = state.clone();
+    let expected_required = budget
+        .metabolic_energy()
+        .checked_add(pending.energy_cost_per_tick())
+        .unwrap();
+    assert_eq!(
+        validate_start_player_block_excavation(&registries, &state, request).err(),
+        Some(BlockExcavationError::PlayerWork(
+            PlayerWorkStartError::InsufficientMetabolicEnergy {
+                available: budget.metabolic_energy(),
+                required: expected_required,
+            },
+        )),
+        "already incurred movement must remain funded when starting excavation",
+    );
+    assert_eq!(state, unchanged);
+
+    // Hydration is a separate finite reserve and must not be overlooked just
+    // because energy has enough headroom for both obligations.
+    assert!(!pending.hydration_loss_per_tick().is_zero());
+    let expected_hydration = budget
+        .hydration()
+        .checked_add(pending.hydration_loss_per_tick())
+        .unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            before.metabolic_energy(),
+            budget.hydration(),
+            before.vitality(),
+            before.nutrition(),
+            before.vitality_recovery_remainder(),
+            before.thermal_comfort_ppm(),
+        ),
+    );
+    let unchanged = state.clone();
+    assert_eq!(
+        validate_start_player_block_excavation(&registries, &state, request).err(),
+        Some(BlockExcavationError::PlayerWork(
+            PlayerWorkStartError::InsufficientHydration {
+                available: budget.hydration(),
+                required: expected_hydration,
+            },
+        )),
+    );
+    assert_eq!(state, unchanged);
+
+    // Exact combined headroom must remain admissible, survive persistence,
+    // and settle movement plus the full excavation cost without borrowing.
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            expected_required,
+            expected_hydration,
+            before.vitality(),
+            before.nutrition(),
+            before.vitality_recovery_remainder(),
+            before.thermal_comfort_ppm(),
+        ),
+    );
+    let started = validate_start_player_block_excavation(&registries, &state, request)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(started.completes_at(), outcome.completes_at());
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.control_tick() < started.completes_at() {
+        let live = advance_control_tick(&registries, &mut state).unwrap();
+        let loaded = advance_control_tick(&registries, &mut replay).unwrap();
+        assert_eq!(live, loaded);
+    }
+    assert_eq!(replay, state);
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state.survival().player().unwrap().metabolic_energy(),
+        Energy::ZERO,
+    );
+    assert_eq!(
+        state.survival().player().unwrap().hydration(),
+        crate::core::quantity::Volume::ZERO,
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn off_boundary_block_excavation_replays_and_preserves_authored_total_cost() {
     let (registries, mut state, pick, _target) = generated_excavation_fixture();
     for _ in 0..37 {
