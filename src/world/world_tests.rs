@@ -1293,6 +1293,60 @@ fn off_boundary_excavation_prices_already_incurred_locomotion() {
         duration,
     )
     .unwrap();
+    // A trusted save must not accept less than the already-promised job plus
+    // incurred movement. Such a state cannot arise through legal admission,
+    // but imported/tampered saves must not turn it into a later settlement
+    // failure. Verify both reserve dimensions independently.
+    for (energy, hydration, expected_error) in [
+        (
+            budget.metabolic_energy(),
+            admitted.survival().player().unwrap().hydration(),
+            PlayerWorkValidationError::InsufficientMetabolicEnergy {
+                available: budget.metabolic_energy(),
+                required: budget
+                    .metabolic_energy()
+                    .checked_add(pending.energy_cost_per_tick())
+                    .unwrap(),
+            },
+        ),
+        (
+            admitted.survival().player().unwrap().metabolic_energy(),
+            budget.hydration(),
+            PlayerWorkValidationError::InsufficientHydration {
+                available: budget.hydration(),
+                required: budget
+                    .hydration()
+                    .checked_add(pending.hydration_loss_per_tick())
+                    .unwrap(),
+            },
+        ),
+    ] {
+        let mut underfunded = admitted.clone();
+        let old = *underfunded.survival().player().unwrap();
+        let revision = underfunded.survival().revision();
+        underfunded.survival_state_mut().apply_player(
+            revision,
+            revision + 1,
+            player_record_with_thermal_comfort(
+                energy,
+                hydration,
+                old.vitality(),
+                old.nutrition(),
+                old.vitality_recovery_remainder(),
+                old.thermal_comfort_ppm(),
+            ),
+        );
+        let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &underfunded)).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<LoadedSaveEnvelope>(&save)
+                .unwrap()
+                .into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+                expected_error,
+            ))),
+            "trusted load cannot silently drop an unsettled locomotion obligation",
+        );
+    }
     let before = *state.survival().player().unwrap();
     let revision = state.survival().revision();
     state.survival_state_mut().apply_player(

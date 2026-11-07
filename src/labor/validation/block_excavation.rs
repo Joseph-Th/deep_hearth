@@ -12,7 +12,10 @@ use crate::mining::resolve_mining_physics;
 use crate::registry::Registries;
 use crate::survival::{SurvivalExertion, control_exertion_between};
 
-use super::{ActivePlayerJobs, PlayerWorkValidationError, calculate_player_work_resource_budget};
+use super::{
+    ActivePlayerJobs, PlayerWorkValidationError, calculate_player_work_resource_budget,
+    validate_work_reserves_with_pending_locomotion,
+};
 
 pub(super) fn validate_block_excavation_work(
     registries: &Registries,
@@ -195,18 +198,13 @@ pub(super) fn validate_block_excavation_work(
         .hydration()
         .checked_add(remaining_exertion.hydration_loss_per_tick())
         .ok_or(PlayerWorkValidationError::HydrationCostOverflow)?;
-    if available_energy < required_energy {
-        return Err(PlayerWorkValidationError::InsufficientMetabolicEnergy {
-            available: available_energy,
-            required: required_energy,
-        });
-    }
-    if available_hydration < required_hydration {
-        return Err(PlayerWorkValidationError::InsufficientHydration {
-            available: available_hydration,
-            required: required_hydration,
-        });
-    }
+    validate_work_reserves_with_pending_locomotion(
+        state,
+        available_energy,
+        available_hydration,
+        required_energy,
+        required_hydration,
+    )?;
     let survival_revision_demand = slow_boundaries_remaining
         .checked_add(u64::from(!work.completes_at().is_simulation_boundary()))
         .ok_or(PlayerWorkValidationError::SurvivalRevisionExhausted)?;

@@ -11,7 +11,7 @@ use crate::spatial::HorizontalVelocity;
 use crate::structural::{
     StructuralLifecycle, bounds_are_within_player_reach, calculate_prismatic_material_mass_ceiling,
 };
-use crate::survival::Vitality;
+use crate::survival::{SurvivalExertion, Vitality};
 
 use super::{
     PlayerWork, PlayerWorkResourceBudgetError, PlayerWorkState,
@@ -567,16 +567,48 @@ pub(super) fn validate_remaining_resources(
             PlayerWorkValidationError::HydrationCostOverflow
         }
     })?;
-    if available_energy < budget.metabolic_energy() {
+    validate_work_reserves_with_pending_locomotion(
+        state,
+        available_energy,
+        available_hydration,
+        budget.metabolic_energy(),
+        budget.hydration(),
+    )
+}
+
+/// Trusted loads must preserve the same reserve obligation that work admission
+/// establishes. Control-rate walking and jumping can leave exertion unsettled
+/// while new work is already active, so the work's remaining cost alone is
+/// insufficient to validate the persisted promise.
+pub(super) fn validate_work_reserves_with_pending_locomotion(
+    state: &AppState,
+    available_energy: Energy,
+    available_hydration: Volume,
+    work_energy: Energy,
+    work_hydration: Volume,
+) -> Result<(), PlayerWorkValidationError> {
+    let pending = state
+        .logistics()
+        .player()
+        .map_or(SurvivalExertion::REST, |player| {
+            player.locomotion_exertion().pending()
+        });
+    let required_energy = work_energy
+        .checked_add(pending.energy_cost_per_tick())
+        .ok_or(PlayerWorkValidationError::MetabolicCostOverflow)?;
+    if available_energy < required_energy {
         return Err(PlayerWorkValidationError::InsufficientMetabolicEnergy {
             available: available_energy,
-            required: budget.metabolic_energy(),
+            required: required_energy,
         });
     }
-    if available_hydration < budget.hydration() {
+    let required_hydration = work_hydration
+        .checked_add(pending.hydration_loss_per_tick())
+        .ok_or(PlayerWorkValidationError::HydrationCostOverflow)?;
+    if available_hydration < required_hydration {
         return Err(PlayerWorkValidationError::InsufficientHydration {
             available: available_hydration,
-            required: budget.hydration(),
+            required: required_hydration,
         });
     }
     Ok(())
