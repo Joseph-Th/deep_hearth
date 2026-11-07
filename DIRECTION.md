@@ -118,8 +118,18 @@ crafting, equipment, storage, survival, fluid, thermal, and structural owners. F
 the entry point; exact physical consequences should remain consequences of those actions rather than
 prerequisites for learning a special interaction language.
 
-Current integration frontier. Implemented wilderness slices and their limits are owned by [`STATUS.md`](STATUS.md) and [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md). Open work: broader panels/walls/joints, general terrain-support physics, dependent demolition, weather, sleep, enclosure and insulation; an all-need branch that actually requires water; general route generation/pathfinding, ecology, hydrology/flow/recharge and broader world discovery; environmental heat transport, atmospheric chemistry, sky/block-light propagation or occlusion, and meshing.
+Current integration frontier. Implemented wilderness slices and their limits are owned by
+[`STATUS.md`](STATUS.md) and [`TECHNICAL_DESIGN.md`](TECHNICAL_DESIGN.md).
 
+Remaining construction work: broader panels/walls/joints, general terrain-support physics,
+dependent demolition, general enclosures, and insulation.
+
+Remaining survival and wilderness work: precipitation and weather beyond deterministic fronts,
+sleep, and an all-need branch that actually requires water. Broader exploration and ecology still
+need route generation/pathfinding, hydrology/flow/recharge, and world discovery.
+
+Remaining environmental and presentation work: environmental heat transport, atmospheric
+chemistry, propagated sky/block lighting and indirect illumination, and meshing.
 
 Treat this as a substantive wilderness era, not a short bootstrap into copper. A normal opening should spend its
 first quarter-hour on the immediate camp economy: local acquisition, food/water, fire/shelter, storage, and a
