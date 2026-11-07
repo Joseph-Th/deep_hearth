@@ -177,13 +177,25 @@ fn melee_reserves_after_exertion(
         .player()
         .filter(|player| player.vitality() != Vitality::ZERO)
         .expect("living admitted melee actor has survival ownership");
+    // A previous walk or jump is not charged until the next slow boundary.
+    // Immediate melee may spend only the reserve beyond that already-incurred
+    // debt; otherwise a successful attack borrows the cost of prior locomotion.
+    // This is also the HUD readiness check, so both paths must share the rule.
+    let pending_locomotion = state
+        .logistics()
+        .player()
+        .map_or(SurvivalExertion::REST, |player| {
+            player.locomotion_exertion().pending()
+        });
     let metabolic_energy = player
         .metabolic_energy()
         .checked_sub(exertion.energy_cost_per_tick())
+        .filter(|remaining| *remaining >= pending_locomotion.energy_cost_per_tick())
         .ok_or(MeleeExertionError::InsufficientMetabolicEnergy)?;
     let hydration = player
         .hydration()
         .checked_sub(exertion.hydration_loss_per_tick())
+        .filter(|remaining| *remaining >= pending_locomotion.hydration_loss_per_tick())
         .ok_or(MeleeExertionError::InsufficientHydration)?;
     state
         .survival()

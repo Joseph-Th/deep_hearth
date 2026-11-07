@@ -3,6 +3,125 @@
 use super::*;
 
 #[test]
+fn melee_reserves_prior_locomotion_debt_before_spending_immediate_exertion() {
+    use crate::logistics::{PlayerControlInput, player_body_is_grounded};
+    use crate::simulation::{advance_control_tick, advance_control_tick_with_input};
+
+    let (registries, mut state, _, _, tip) = opening_contact_world();
+    validate_admit_player(&registries, &state, tip)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let jump = PlayerControlInput::NEUTRAL.with_jump(true);
+    let _ = advance_control_tick_with_input(&registries, &mut state, jump).unwrap();
+    for _ in 0..50 {
+        let player = state.logistics().player().unwrap();
+        if player_body_is_grounded(&registries, &state)
+            && player.body().vertical_velocity().nanometers_per_second() == 0
+        {
+            break;
+        }
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    assert!(player_body_is_grounded(&registries, &state));
+    assert!(
+        state.control_tick().value() % crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK != 0
+    );
+    let owed = state
+        .logistics()
+        .player()
+        .unwrap()
+        .locomotion_exertion()
+        .pending();
+    assert!(!owed.energy_cost_per_tick().is_zero());
+    assert!(!owed.hydration_loss_per_tick().is_zero());
+    let normal = *state.survival().player().unwrap();
+
+    set_player_melee_reserves(
+        &mut state,
+        SHOVE_EXERTION.energy_cost_per_tick(),
+        normal.hydration(),
+    );
+    let unchanged = state.clone();
+    assert!(!assess_player_melee(&registries, &state).unwrap().ready());
+    assert_eq!(
+        validate_primitive_shove(&registries, &state, east()).err(),
+        Some(PrimitiveAttackError::InsufficientMetabolicEnergy)
+    );
+    assert_eq!(state, unchanged);
+
+    set_player_melee_reserves(
+        &mut state,
+        normal.metabolic_energy(),
+        SHOVE_EXERTION.hydration_loss_per_tick(),
+    );
+    let unchanged = state.clone();
+    assert!(!assess_player_melee(&registries, &state).unwrap().ready());
+    assert_eq!(
+        validate_primitive_shove(&registries, &state, east()).err(),
+        Some(PrimitiveAttackError::InsufficientHydration)
+    );
+    assert_eq!(state, unchanged);
+
+    // A fully funded next boundary includes both event costs and ordinary
+    // basal metabolism. The attack settles immediately, while the jump and
+    // basal cost settle at the next slow tick, across a save/load boundary.
+    let physiology = registries.survival().physiology();
+    let required_energy = SHOVE_EXERTION
+        .energy_cost_per_tick()
+        .checked_add(owed.energy_cost_per_tick())
+        .and_then(|cost| cost.checked_add(physiology.basal_energy_cost_per_tick()))
+        .unwrap();
+    let required_hydration = SHOVE_EXERTION
+        .hydration_loss_per_tick()
+        .checked_add(owed.hydration_loss_per_tick())
+        .and_then(|cost| cost.checked_add(physiology.hydration_loss_per_tick()))
+        .unwrap();
+    set_player_melee_reserves(&mut state, required_energy, required_hydration);
+    assert!(assess_player_melee(&registries, &state).unwrap().ready());
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(
+        &serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap(),
+    )
+    .unwrap()
+    .into_state(&registries)
+    .unwrap();
+    for game in [&mut state, &mut replay] {
+        let _ = validate_primitive_shove(&registries, game, east())
+            .unwrap()
+            .commit(game)
+            .unwrap();
+        assert_eq!(
+            game.survival().player().unwrap().metabolic_energy(),
+            owed.energy_cost_per_tick()
+                .checked_add(physiology.basal_energy_cost_per_tick())
+                .unwrap()
+        );
+        assert_eq!(
+            game.survival().player().unwrap().hydration(),
+            owed.hydration_loss_per_tick()
+                .checked_add(physiology.hydration_loss_per_tick())
+                .unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    while !state.control_tick().is_simulation_boundary() {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+        let _ = advance_control_tick(&registries, &mut replay).unwrap();
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.survival().player().unwrap().metabolic_energy(),
+        Energy::ZERO
+    );
+    assert_eq!(state.survival().player().unwrap().hydration(), Volume::ZERO);
+    assert_eq!(
+        state.survival().player().unwrap().vitality(),
+        normal.vitality()
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn melee_readiness_does_not_advertise_an_unaffordable_shove() {
     let (registries, mut state, _, _, tip) = opening_contact_world();
     validate_admit_player(&registries, &state, tip)
