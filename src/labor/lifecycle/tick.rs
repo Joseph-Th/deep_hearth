@@ -6,7 +6,9 @@ use crate::logistics::validate_player_stockpile_access;
 use crate::production::{ProductionAvailabilityChange, find_availability_change};
 use crate::registry::Registries;
 
-use super::{PlayerWorkStartError, ValidatedPlayerWorkStart, validate_player_work_start};
+use super::{
+    PlayerWorkStartError, ValidatedPlayerWorkStart, validate_player_work_start_for_scheduled_resume,
+};
 use crate::labor::PlayerWork;
 
 mod exertion;
@@ -80,7 +82,7 @@ pub(crate) fn decide_manual_production_player_work_start(
                 "runtime invariant broken: manual production resume references non-manual process"
             )
         });
-    match validate_player_work_start(
+    match validate_player_work_start_for_scheduled_resume(
         registries,
         state,
         PlayerWork::ManualProduction { job },
@@ -91,7 +93,7 @@ pub(crate) fn decide_manual_production_player_work_start(
         Err(PlayerWorkStartError::RevisionExhausted) => Err(PlayerWorkTickError::RevisionExhausted),
         Err(PlayerWorkStartError::SimulationBoundary(_)) => {
             panic!(
-                "runtime invariant broken: slow simulation resumed player work off its control boundary"
+                "runtime invariant broken: scheduled manual work resume unexpectedly required an already-committed boundary"
             )
         }
         Err(PlayerWorkStartError::MetabolicCostOverflow { .. })

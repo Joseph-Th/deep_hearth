@@ -3,6 +3,83 @@
 use super::*;
 
 #[test]
+fn suspended_manual_craft_resumes_at_a_real_control_boundary_and_replays() {
+    use crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+    use crate::simulation::advance_control_tick;
+
+    let (registries, mut state, source, lot, destination) = make_fixture();
+    let support = active_stockpile_support(&registries, &mut state);
+    let _ = validate_mount_stockpile(&registries, &state, destination, support)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let job = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(lot, Mass::from_milligrams(1_000_000)),
+            destination,
+        ),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let _ = validate_set_structural_load(
+        &registries,
+        &state,
+        support,
+        StructuralLoadKind::Snow,
+        Force::from_millinewtons(50_000_000),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let paused = advance_tick(&registries, &mut state).unwrap();
+    assert!(matches!(
+        paused.production_availability_changes(),
+        [ProductionAvailabilityChange::Suspended {
+            job: suspended,
+            reason: ProductionSuspensionReason::OutputSupportUnavailable { .. },
+            ..
+        }] if *suspended == job
+    ));
+    assert_eq!(state.player_work().active(), None);
+    let _ = validate_unmount_stockpile(&registries, &state, destination)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    let mut expected = state.clone();
+    let fast = advance_tick(&registries, &mut expected).unwrap();
+    assert!(matches!(
+        fast.production_availability_changes(),
+        [ProductionAvailabilityChange::Resumed { job: resumed, .. }] if *resumed == job
+    ));
+    for _ in 1..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let frame = advance_control_tick(&registries, &mut state).unwrap();
+        assert!(frame.simulation().is_none());
+    }
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let final_frame = advance_control_tick(&registries, &mut state).unwrap();
+    let resumed_frame = advance_control_tick(&registries, &mut replay).unwrap();
+    assert_eq!(final_frame, resumed_frame);
+    assert_eq!(state, replay);
+    assert_eq!(state, expected);
+    assert_eq!(
+        state.player_work().active(),
+        Some(PlayerWork::ManualProduction { job })
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn manual_craft_output_support_failure_pauses_work_and_exertion_until_recovered() {
     let (registries, mut state, source, lot, destination) = make_fixture();
     let support = active_stockpile_support(&registries, &mut state);

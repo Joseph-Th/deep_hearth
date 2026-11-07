@@ -233,6 +233,40 @@ pub(crate) fn validate_player_work_start(
     )
 }
 
+/// Plans the return of suspended manual production for the upcoming slow tick.
+///
+/// Both fast-forward and 20 Hz stepping decide this resume against the
+/// *previous* tick's state. In the 20 Hz case the current control clock is
+/// one sample short of the boundary. This internal scheduling path must not
+/// require the boundary to have been committed yet, unlike player-initiated
+/// slow work, but it still checks the exact remaining work budget and reserves
+/// only the revisions that the upcoming active interval will consume.
+fn validate_player_work_start_for_scheduled_resume(
+    registries: &Registries,
+    state: &AppState,
+    work: PlayerWork,
+    duration: TickSpan,
+    exertion: SurvivalExertion,
+) -> Result<ValidatedPlayerWorkStart, PlayerWorkStartError> {
+    let next_boundary = state
+        .tick()
+        .checked_add_span(TickSpan::new(1))
+        .and_then(ControlTick::from_simulation_tick)
+        .expect("scheduled manual production resume requires a representable next slow boundary");
+    assert!(
+        state.control_tick() < next_boundary,
+        "scheduled resume must be decided before the upcoming slow boundary commits"
+    );
+    validate_player_work_start_inner(
+        registries,
+        state,
+        work,
+        duration,
+        exertion,
+        duration.value(),
+    )
+}
+
 pub(crate) fn validate_player_work_start_control_rate(
     registries: &Registries,
     state: &AppState,
