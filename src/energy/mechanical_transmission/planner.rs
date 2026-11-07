@@ -24,12 +24,12 @@ struct ShaftRun {
 fn available_shaft_pairs(
     registries: &Registries,
     state: &AppState,
+    effective_structures: &StructureState,
     passive: &PassiveEnergyDissipationPlan,
     dismantled_this_tick: Option<StructuralElementId>,
 ) -> (Vec<ShaftRun>, Vec<ShaftPair>) {
     let rollers = unique_roller_cells(
-        state
-            .structures()
+        effective_structures
             .elements()
             .filter(|member| is_usable_roller(member, dismantled_this_tick))
             .map(|member| (member.bounds().min(), member.id())),
@@ -85,10 +85,17 @@ fn compare_pairs(a: &ShaftPair, b: &ShaftPair) -> Ordering {
 pub(crate) fn decide_mechanical_transmission(
     registries: &Registries,
     state: &AppState,
+    effective_structures: &StructureState,
     passive: &PassiveEnergyDissipationPlan,
     dismantled_this_tick: Option<StructuralElementId>,
 ) -> MechanicalTransmissionPlan {
-    let (runs, mut pairs) = available_shaft_pairs(registries, state, passive, dismantled_this_tick);
+    let (runs, mut pairs) = available_shaft_pairs(
+        registries,
+        state,
+        effective_structures,
+        passive,
+        dismantled_this_tick,
+    );
     pairs.sort_unstable_by(compare_pairs);
     let accepted = select_shaft_pairs(&pairs, &runs);
     MechanicalTransmissionPlan {

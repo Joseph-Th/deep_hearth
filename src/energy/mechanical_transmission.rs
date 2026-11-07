@@ -20,7 +20,9 @@ use crate::core::state::AppState;
 use crate::core::time::TickSpan;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
-use crate::structural::{StructuralElementId, StructuralElementRecord, StructuralLifecycle};
+use crate::structural::{
+    StructuralElementId, StructuralElementRecord, StructuralLifecycle, StructureState,
+};
 
 use super::integration::PowerRemainder;
 use super::passive_dissipation::PassiveEnergyDissipationPlan;

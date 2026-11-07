@@ -88,7 +88,8 @@ fn crowded_physical_shafts_preserve_delivery_losses_and_save_replay() {
     for path in vertical {
         assert_eq!(path.delivered().nanojoules(), 60_000_000_000);
     }
-    let baseline = decide_mechanical_transmission(&registries, &state, &passive, None);
+    let baseline =
+        decide_mechanical_transmission(&registries, &state, state.structures(), &passive, None);
     assert_eq!(baseline.transfers.len(), 3);
     for path in vertical {
         assert!(baseline.transfers.contains(&path));
@@ -121,12 +122,19 @@ fn crowded_physical_shafts_preserve_delivery_losses_and_save_replay() {
         if added == 10 {
             // Exactly sixteen physically feasible candidates still use the
             // exact arbiter. The next real source crosses its solver boundary.
-            let at_limit = decide_mechanical_transmission(&registries, &state, &passive, None);
+            let at_limit = decide_mechanical_transmission(
+                &registries,
+                &state,
+                state.structures(),
+                &passive,
+                None,
+            );
             assert_eq!(at_limit.transfers, baseline.transfers);
         }
     }
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
-    let planned = decide_mechanical_transmission(&registries, &state, &passive, None);
+    let planned =
+        decide_mechanical_transmission(&registries, &state, state.structures(), &passive, None);
     assert_eq!(planned.transfers, baseline.transfers);
     let before = state.clone();
     let total_before = before

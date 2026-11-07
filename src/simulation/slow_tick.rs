@@ -154,9 +154,15 @@ fn advance_simulation_tick_unstaged(
     )?;
     let passive_energy_plan = decide_passive_energy_dissipation(registries, state);
     let passive_energy_revision_steps = passive_energy_plan.energy_revision_steps();
+    // Production output lands before mechanical work. A new load can crack or fail
+    // a previously sound roller; only the resulting real shaft may transmit.
+    // Keep energy on the original pre-tick snapshot so newly released work
+    // cannot be spent through a shaft in the same tick.
+    let shaft_structures = completion_plan.project_structures_after_load(state.structures());
     let mut transmission_plan = decide_mechanical_transmission(
         registries,
         state,
+        shaft_structures.as_ref(),
         &passive_energy_plan,
         structural_dismantling_plan
             .as_ref()

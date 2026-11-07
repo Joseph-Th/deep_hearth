@@ -100,7 +100,8 @@ fn crossing_shaft_prioritizes_useful_transfer_over_coordinate_scan_order() {
     .unwrap();
     assert!(vertical.delivered() > horizontal.delivered());
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
-    let planned = decide_mechanical_transmission(&registries, &state, &passive, None);
+    let planned =
+        decide_mechanical_transmission(&registries, &state, state.structures(), &passive, None);
     assert_eq!(planned.transfers, vec![vertical]);
 
     let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
@@ -159,7 +160,8 @@ fn disjoint_shaft_runs_can_use_different_stores_at_one_shared_endpoint() {
     let z_roller = materialize_roller_at(&registries, &mut state, 2, 1);
     let passive =
         crate::energy::passive_dissipation::decide_passive_energy_dissipation(&registries, &state);
-    let planned = decide_mechanical_transmission(&registries, &state, &passive, None);
+    let planned =
+        decide_mechanical_transmission(&registries, &state, state.structures(), &passive, None);
     assert_eq!(planned.transfers.len(), 2);
     let [x, z] = [planned.transfers[0], planned.transfers[1]];
     assert_eq!(x.coupling(), x_roller);
@@ -273,7 +275,8 @@ fn two_independent_shafts_outdeliver_one_conflicting_stronger_shaft() {
             < left.delivered().nanojoules() + right.delivered().nanojoules()
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
-    let planned = decide_mechanical_transmission(&registries, &state, &passive, None);
+    let planned =
+        decide_mechanical_transmission(&registries, &state, state.structures(), &passive, None);
     assert_eq!(planned.transfers, vec![left, right]);
 
     let before_total = stores

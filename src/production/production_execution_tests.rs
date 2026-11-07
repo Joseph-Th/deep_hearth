@@ -762,6 +762,203 @@ fn add_active_stockpile_support(
     support
 }
 
+#[test]
+fn production_completion_that_breaks_a_sound_roller_cannot_transmit_on_that_tick() {
+    use crate::content::{FORM_HANDLE, STRUCTURAL_PROFILE_TIMBER_DRIVE_COUPLING};
+    use crate::core::quantity::{Acceleration, Power};
+    use crate::energy::{
+        EnergyCarrier, EnergyRegistry, EnergyStoreDefinition, EnergyStoreDefinitionId,
+    };
+    use crate::logistics::{place_energy_store_for_fixture, place_equipment_for_fixture};
+    use crate::matter::calculate_matter_accounting;
+    use crate::registry::{CoreDefinitions, RegistryDomains, RegistryPresentation};
+    use crate::structural::StructuralLifecycle;
+
+    // Author ordinary physical definitions with stronger gravity so a
+    // finite 100 kg production batch fractures an initially sound roller
+    // directly, instead of merely cracking an already-unusable shaft.
+    let base = make_test_registries();
+    let drive = EnergyStoreDefinitionId::new(990_024);
+    let registries = Registries::new(
+        base.schema_version(),
+        CoreDefinitions::new(
+            Acceleration::from_micrometers_per_second_squared(200_000_000),
+            base.core().calendar(),
+        ),
+        RegistryDomains {
+            energy: EnergyRegistry::new(base.energy().definitions().cloned().chain([
+                EnergyStoreDefinition::new_with_transfer_limits(
+                    drive,
+                    "test mechanical drive",
+                    EnergyCarrier::Mechanical,
+                    Energy::from_nanojoules(500_000_000_000),
+                    Power::from_microwatts(50_000_000),
+                    Power::from_microwatts(50_000_000),
+                ),
+            ])),
+            fluid: base.fluid().clone(),
+            capabilities: base.capabilities().clone(),
+            crafting: base.crafting().clone(),
+            labor: base.labor().clone(),
+            equipment: base.equipment().clone(),
+            storage: base.storage().clone(),
+            structural: base.structural().clone(),
+            world: base.world().clone(),
+            materials: base.materials().clone(),
+            mining: base.mining().clone(),
+            ore_processing: base.ore_processing().clone(),
+            thermal: base.thermal().clone(),
+            production: base.production().clone(),
+            survival: base.survival().clone(),
+            presentation: RegistryPresentation {
+                textures: base.textures().clone(),
+                shaders: base.shaders().clone(),
+            },
+        },
+    );
+    let batch = Mass::from_milligrams(100_000_000);
+    let mut state = AppState::new();
+    let source = add_solid_stockpile_for_test(&mut state, batch).unwrap();
+    let destination = add_solid_stockpile_for_test(&mut state, batch).unwrap();
+    deposit_bulk_for_test(&registries, &mut state, source, wood_log(), batch).unwrap();
+
+    let roller_at = VoxelCoord::new(1, 0, 0);
+    let roller = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_TIMBER_DRIVE_COUPLING,
+        MATERIAL_WOOD,
+        crate::structural::make_test_structural_geometry(
+            VoxelBounds::new(roller_at, VoxelCoord::new(2, 1, 1)).unwrap(),
+            Length::from_micrometers(1_000_000),
+            Area::from_square_millimeters(300),
+        ),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, roller, FORM_HANDLE);
+    let _ = validate_activate_structural_element(&registries, &state, roller)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let shaft_source = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        drive,
+        Energy::from_nanojoules(100_000_000_000),
+    )
+    .unwrap();
+    let shaft_sink =
+        add_energy_store_with_initial_for_fixture(&registries, &mut state, drive, Energy::ZERO)
+            .unwrap();
+    place_energy_store_for_fixture(&mut state, shaft_source, VoxelCoord::new(0, 0, 0));
+    place_energy_store_for_fixture(&mut state, shaft_sink, VoxelCoord::new(2, 0, 0));
+
+    for stockpile in [source, destination] {
+        validate_place_ground_stockpile(&state, stockpile, roller_at)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    }
+    let _ = validate_mount_stockpile(&registries, &state, destination, roller)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let heater = add_test_heating_resources(&registries, &mut state);
+    place_equipment_for_fixture(&mut state, heater.equipment, roller_at);
+    place_energy_store_for_fixture(&mut state, heater.energy, roller_at);
+    let lot = state.inventory().lot_ids(source).next().unwrap();
+    let resolution = resolve_sensible_heating_process(
+        &registries,
+        &state,
+        SensibleHeatingRequest::new(
+            TEST_PROCESS,
+            source,
+            &[MaterialLotSelection::new(lot, batch)],
+            heater.equipment,
+            heater.energy,
+            Temperature::from_millikelvin(293_151),
+        ),
+    )
+    .unwrap();
+    let job = validate_start_process(
+        &registries,
+        &state,
+        resolution.process_resolution(),
+        source,
+        destination,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let due = state.production().get_job(job).unwrap().completes_at();
+    assert!(due.value() > 1);
+    assert_eq!(
+        state.structures().get_element(roller).unwrap().lifecycle(),
+        StructuralLifecycle::Active,
+    );
+    assert!(!state.structures().get_element(roller).unwrap().is_cracked());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    // The intervening job duration is settled without unrelated operations
+    // so the energy source can still transfer on the completion boundary.
+    apply_clock_advance(&mut state, SimulationTick::new(due.value() - 1));
+    // Both stores and the active shaft can transmit before the production
+    // output lands, so a rejection cannot be explained by an inert fixture.
+    let passive = crate::energy::decide_passive_energy_dissipation(&registries, &state);
+    let original_plan = crate::energy::decide_mechanical_transmission(
+        &registries,
+        &state,
+        state.structures(),
+        &passive,
+        None,
+    );
+    assert_eq!(original_plan.energy_revision_steps(), 1);
+    let source_before = state.energy().get_store(shaft_source).unwrap().stored();
+    let sink_before = state.energy().get_store(shaft_sink).unwrap().stored();
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let result = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(result, advance_tick(&registries, &mut replay).unwrap());
+    assert_eq!(state, replay);
+    assert!(state.production().get_job(job).is_none());
+    assert_eq!(
+        state.structures().get_element(roller).unwrap().lifecycle(),
+        StructuralLifecycle::Failed,
+        "actual output mass must directly fail an initially uncracked roller",
+    );
+    assert!(
+        result.mechanical_transmissions().is_empty(),
+        "a failed roller cannot transmit after production has fractured it",
+    );
+    assert_eq!(
+        state.energy().get_store(shaft_source).unwrap().stored(),
+        source_before
+    );
+    assert_eq!(
+        state.energy().get_store(shaft_sink).unwrap().stored(),
+        sink_before
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .unwrap()
+            .get_mass(wood_log()),
+        batch
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
 #[path = "production_execution_tests/headroom.rs"]
 mod headroom;
 
