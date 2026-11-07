@@ -67,7 +67,11 @@ pub(super) fn exercise_kobold_scavenging_encounter(print: bool) {
         forage,
         "scout observation withdrawal",
     );
-    assert!(available_player_world_drops(&state).next().is_none());
+    assert!(
+        available_player_world_drops(&registries, &state)
+            .next()
+            .is_none()
+    );
     // At one-voxel distance the living player can frighten this opportunistic scout.
     // Wait one further leg away to give the unsecured alternative a real chance to steal.
     walk_continuous_body_adjacent_and_settle(
@@ -396,7 +400,11 @@ pub(super) fn exercise_kobold_scavenging_encounter(print: bool) {
         Some(ration),
         "following the scout should allow ordinary pickup of the same stolen ration",
     );
-    assert!(available_player_world_drops(&exposed).next().is_none());
+    assert!(
+        available_player_world_drops(&registries, &exposed)
+            .next()
+            .is_none()
+    );
     assert_eq!(
         calculate_matter_accounting(&exposed).unwrap().total(),
         conserved

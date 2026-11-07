@@ -198,13 +198,20 @@ pub(super) fn exercise_kobold_den_cache(print: bool) {
         "recover full den hoard",
     );
     for _ in 0..24 {
-        if available_player_world_drops(&state).next().is_none() {
+        if available_player_world_drops(&registries, &state)
+            .next()
+            .is_none()
+        {
             break;
         }
         let _ = advance_control_tick(&registries, &mut state)
             .unwrap_or_else(|error| panic!("den cache ordinary pickup failed: {error}"));
     }
-    assert!(available_player_world_drops(&state).next().is_none());
+    assert!(
+        available_player_world_drops(&registries, &state)
+            .next()
+            .is_none()
+    );
     let hoard = state
         .inventory()
         .get_stockpile(carried)

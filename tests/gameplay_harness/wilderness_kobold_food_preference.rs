@@ -187,7 +187,11 @@ pub(super) fn exercise_kobold_food_preference(print: bool) {
             .stored_mass(),
         portion.checked_add(portion).unwrap(),
     );
-    assert!(available_player_world_drops(&unattended).next().is_none());
+    assert!(
+        available_player_world_drops(&registries, &unattended)
+            .next()
+            .is_none()
+    );
     assert_eq!(
         calculate_matter_accounting(&unattended).unwrap().total(),
         conserved

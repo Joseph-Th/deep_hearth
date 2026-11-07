@@ -170,7 +170,9 @@ pub(super) fn exercise_kobold_side_branch_scavenging(print: bool) {
         "side cache aftermath",
     );
     assert!(
-        available_player_world_drops(&state).next().is_none(),
+        available_player_world_drops(&registries, &state)
+            .next()
+            .is_none(),
         "the parcel should not remain where it was left"
     );
     walk_continuous_body_adjacent_and_settle(

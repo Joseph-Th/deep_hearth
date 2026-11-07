@@ -1018,7 +1018,7 @@ fn player_world_drop_projection_excludes_natural_opportunities() {
         .unwrap_or_else(|error| panic!("drop-projection drop creation failed: {error}"));
     let _carried = admit_player(&registries, &mut state, position);
 
-    let drops = available_player_world_drops(&state).collect::<Vec<_>>();
+    let drops = available_player_world_drops(&registries, &state).collect::<Vec<_>>();
     assert_eq!(drops.len(), 1);
     assert_eq!(drops[0].resource(), drop);
     assert_eq!(drops[0].position(), position);
@@ -1226,7 +1226,7 @@ fn player_world_drop_pickup_preflight_follows_death_load_and_respawn() {
     .unwrap();
     let _ = admit_player(&registries, &mut state, position);
     let eligibility = |state: &AppState| {
-        let drops = available_player_world_drops(state).collect::<Vec<_>>();
+        let drops = available_player_world_drops(&registries, state).collect::<Vec<_>>();
         assert_eq!(
             drops.len(),
             usize::from(state.player_observation_position().is_some())
@@ -1312,12 +1312,14 @@ fn player_world_drop_projection_exposes_only_exact_local_custody_after_admission
         drops.push(insert_surface_resource_for_test(&registries, &mut state, spec).unwrap());
     }
     assert!(
-        available_player_world_drops(&state).next().is_none(),
+        available_player_world_drops(&registries, &state)
+            .next()
+            .is_none(),
         "unadmitted callers must not enumerate remote or local surface custody"
     );
     let _carried = admit_player(&registries, &mut state, home);
     assert_eq!(
-        available_player_world_drops(&state)
+        available_player_world_drops(&registries, &state)
             .map(|drop| drop.resource())
             .collect::<Vec<_>>(),
         vec![drops[0]],
@@ -1325,7 +1327,7 @@ fn player_world_drop_projection_exposes_only_exact_local_custody_after_admission
     );
     relocate_player_for_test(&mut state, adjacent);
     assert_eq!(
-        available_player_world_drops(&state)
+        available_player_world_drops(&registries, &state)
             .map(|drop| drop.resource())
             .collect::<Vec<_>>(),
         vec![drops[1]]
@@ -1339,7 +1341,7 @@ fn player_world_drop_projection_exposes_only_exact_local_custody_after_admission
         .unwrap();
     assert_eq!(state, restored);
     assert_eq!(
-        available_player_world_drops(&restored)
+        available_player_world_drops(&registries, &restored)
             .map(|drop| drop.resource())
             .collect::<Vec<_>>(),
         vec![drops[2]],
@@ -1446,7 +1448,7 @@ fn automatic_pickup_leaves_unsafe_hot_matter_and_collects_a_later_cool_drop() {
     let carried = admit_player(&registries, &mut state, position);
     let conserved = calculate_matter_accounting(&state).unwrap().total();
     assert_eq!(
-        available_player_world_drops(&state)
+        available_player_world_drops(&registries, &state)
             .map(|drop| (
                 drop.resource(),
                 drop.automatic_pickup_ready(),
@@ -2229,7 +2231,7 @@ fn automatic_drop_pickup_takes_only_the_mass_that_fits() {
         Some(Mass::ZERO)
     );
     assert_eq!(
-        available_player_world_drops(&state)
+        available_player_world_drops(&registries, &state)
             .map(|drop| (
                 drop.mass(),
                 drop.automatic_pickup_ready(),

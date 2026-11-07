@@ -88,7 +88,7 @@ fn ordinary_drop_pickup_fills_remaining_capacity_and_leaves_conserved_remainder(
     assert_eq!(dropped.dropped_mass(), Mass::from_milligrams(500_000));
     assert_eq!(dropped.resources().len(), 1);
     let resource = dropped.resources()[0];
-    let projected = available_player_world_drops(&state).collect::<Vec<_>>();
+    let projected = available_player_world_drops(&registries, &state).collect::<Vec<_>>();
     assert_eq!(projected.len(), 1);
     assert_eq!(projected[0].resource(), resource);
     assert_eq!(projected[0].mass(), Mass::from_milligrams(500_000));
@@ -122,7 +122,7 @@ fn ordinary_drop_pickup_fills_remaining_capacity_and_leaves_conserved_remainder(
             .unwrap_or_else(|error| panic!("world-drop gameplay delay tick failed: {error}"));
         assert_eq!(outcome.surface_drop_pickup(), None);
         assert!(
-            !available_player_world_drops(&state)
+            !available_player_world_drops(&registries, &state)
                 .next()
                 .unwrap_or_else(|| panic!("delayed drop disappeared"))
                 .automatic_pickup_ready()
@@ -143,7 +143,7 @@ fn ordinary_drop_pickup_fills_remaining_capacity_and_leaves_conserved_remainder(
             .map(|stockpile| stockpile.get_mass(stone)),
         Some(Mass::from_milligrams(200_000))
     );
-    let remainder = available_player_world_drops(&state).collect::<Vec<_>>();
+    let remainder = available_player_world_drops(&registries, &state).collect::<Vec<_>>();
     assert_eq!(remainder.len(), 1);
     assert_eq!(remainder[0].resource(), resource);
     assert_eq!(remainder[0].mass(), Mass::from_milligrams(300_000));

@@ -160,6 +160,7 @@ fn automatic_pickup_respects_tool_weight_across_fast_forward_and_recovery() {
 #[test]
 fn exhausted_lot_ids_skip_incompatible_food_and_collect_later_mergeable_drop() {
     use crate::content::{FORM_FOOD, MATERIAL_BERRIES};
+    use crate::surface::available_player_world_drops;
 
     let registries = build_registries();
     let mut state = AppState::new();
@@ -241,6 +242,16 @@ fn exhausted_lot_ids_skip_incompatible_food_and_collect_later_mergeable_drop() {
         .into_state(&registries)
         .unwrap();
     assert_eq!(validate_loaded_state(&registries, &loaded), Ok(()));
+    let projected = available_player_world_drops(&registries, &loaded).collect::<Vec<_>>();
+    assert_eq!(projected.len(), 3);
+    for parcel in &projected {
+        assert!(parcel.automatic_pickup_ready());
+        assert_eq!(
+            parcel.automatic_pickup_preflight_ready(),
+            parcel.resource() == mergeable,
+            "only the physically mergeable parcel can enter the exhausted inventory"
+        );
+    }
     let before = loaded.clone();
     assert_eq!(
         advance_tick(&registries, &mut loaded),
@@ -280,6 +291,11 @@ fn exhausted_lot_ids_skip_incompatible_food_and_collect_later_mergeable_drop() {
     assert_eq!(
         calculate_matter_accounting(&loaded).unwrap().total(),
         conserved
+    );
+    assert!(
+        available_player_world_drops(&registries, &loaded)
+            .all(|parcel| !parcel.automatic_pickup_preflight_ready()),
+        "unmergeable remnants must not advertise automatic recovery"
     );
 
     // Once the older parcels cannot merge, skipping control samples
@@ -370,7 +386,9 @@ fn carried_material_drop_cannot_reuse_an_earlier_control_sample_for_pickup_delay
             .automatic_pickup_delay_started_at(),
         Some(ControlTick::new(20))
     );
-    let projection = available_player_world_drops(&state).next().unwrap();
+    let projection = available_player_world_drops(&registries, &state)
+        .next()
+        .unwrap();
     assert_eq!(
         projection.automatic_pickup_available_at(),
         Some(ControlTick::new(60))
@@ -489,7 +507,7 @@ fn prepared_strike_blocks_automatic_hand_pickup_until_cancelled() {
     let matter_before = calculate_matter_accounting(&state).unwrap().total();
     assert!(state.combat().has_prepared_strike());
     assert!(
-        !available_player_world_drops(&state)
+        !available_player_world_drops(&registries, &state)
             .next()
             .unwrap()
             .automatic_pickup_preflight_ready()
@@ -529,7 +547,7 @@ fn prepared_strike_blocks_automatic_hand_pickup_until_cancelled() {
         .commit(&mut state)
         .unwrap();
     assert!(
-        available_player_world_drops(&state)
+        available_player_world_drops(&registries, &state)
             .next()
             .unwrap()
             .automatic_pickup_preflight_ready()

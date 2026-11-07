@@ -4,6 +4,7 @@ use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
 use crate::core::time::ControlTick;
 use crate::material::{CommodityKey, MaterialComposition, ParticleSizeRange};
+use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
 use super::material_drop::PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS;
@@ -90,8 +91,9 @@ impl PlayerWorldDropProjection {
     /// Whether current player state and physical parcel conditions admit pickup.
     ///
     /// Includes the self-pickup timer, hand-safe temperature, gathering claim,
-    /// living actor, unoccupied striking hand, pack space, and reserved owner-revision
-    /// headroom. This is advisory: competing drops and lot allocation are decided at control time.
+    /// living actor, unoccupied striking hand, pack space, reserved owner-revision
+    /// headroom, and current inventory ingress feasibility (including lot merging).
+    /// This is advisory: competing drops and intervening mutations are decided at control time.
     #[must_use]
     pub const fn automatic_pickup_preflight_ready(&self) -> bool {
         self.automatic_pickup_preflight_ready
@@ -102,9 +104,10 @@ impl PlayerWorldDropProjection {
 ///
 /// This is a presentation surface, not pickup authorization. Automatic transfer remains owned by
 /// the control-tick pickup path and deliberate natural-resource gathering remains a separate verb.
-pub fn available_player_world_drops(
-    state: &AppState,
-) -> impl Iterator<Item = PlayerWorldDropProjection> + '_ {
+pub fn available_player_world_drops<'a>(
+    registries: &'a Registries,
+    state: &'a AppState,
+) -> impl Iterator<Item = PlayerWorldDropProjection> + 'a {
     let at = state.tick();
     let control_tick = state.control_tick();
     state
@@ -135,7 +138,7 @@ pub fn available_player_world_drops(
                 automatic_pickup_ready: automatic_pickup_available_at
                     .is_none_or(|eligible| control_tick >= eligible),
                 automatic_pickup_preflight_ready: automatic_surface_drop_pickup_preflight_ready(
-                    state, resource,
+                    registries, state, resource,
                 ),
                 automatic_pickup_available_at,
             }

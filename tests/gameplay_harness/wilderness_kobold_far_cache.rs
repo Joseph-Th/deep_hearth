@@ -308,7 +308,11 @@ pub(super) fn exercise_kobold_far_camp_cache(print: bool) {
         let _ = advance_control_tick(&registries, &mut state)
             .expect("camp return body settlement must work");
     }
-    assert!(available_player_world_drops(&state).next().is_none());
+    assert!(
+        available_player_world_drops(&registries, &state)
+            .next()
+            .is_none()
+    );
     assert_eq!(
         state
             .inventory()
