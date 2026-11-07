@@ -11,6 +11,8 @@ use crate::material::MaterialLotSpec;
 use crate::production::resolution::{ProcessResolution, sum_lot_spec_mass};
 use crate::production::state::ProductionOutputStream;
 use crate::registry::Registries;
+use crate::spatial::VoxelCoord;
+use crate::world::BlockStateId;
 
 use super::{ProcessOutputRoute, StartProcessError};
 
@@ -19,6 +21,22 @@ pub(super) struct ValidatedOutputRouting {
     pub(super) output_streams: Vec<ProductionOutputStream>,
     pub(super) inbound_by_destination: BTreeMap<StockpileId, Mass>,
     pub(super) destination_structure_revision: Option<u64>,
+}
+
+/// A located output destination becomes physical as soon as production reserves
+/// incoming matter. Empty ground markers may exist in ungenerated terrain or rock.
+pub(super) fn solid_output_destination(
+    state: &AppState,
+    destination: StockpileId,
+) -> Option<VoxelCoord> {
+    let position = state
+        .logistics()
+        .stationary_stockpile_position(destination)?;
+    state
+        .world()
+        .block_at(position)
+        .is_some_and(|block| block != BlockStateId::AIR)
+        .then_some(position)
 }
 
 fn bind_output_routes(
@@ -122,6 +140,12 @@ fn build_routed_output_streams(
                 stockpile: destination,
             });
         };
+        if let Some(position) = solid_output_destination(state, destination) {
+            return Err(StartProcessError::OutputDestinationSolidTerrain {
+                stockpile: destination,
+                position,
+            });
+        }
         if state
             .player_work()
             .get_storage_dismantling_stockpile_occupant(destination)

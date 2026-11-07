@@ -148,7 +148,11 @@ placement of pre-existing loose matter or an empty material-built enclosure chec
 solid terrain at admission and again at commit, including intervening changes to
 contents or world occupancy. Standing tree trunks are a separate world-owned
 obstruction: unlike rock, they reject even an otherwise empty ground-location marker,
-matching the tree-generation and trusted-load occupancy contract.
+matching the tree-generation and trusted-load occupancy contract. Empty-location
+allocation rejects a living trunk at admission and before inventory mutation at
+commit. Production output admission and commit likewise reject a located ground
+destination in generated rock before reserving physical inbound output; once
+reserved, incoming matter prevents later terrain from burying that destination.
 
 ## Abstraction and dependency direction
 

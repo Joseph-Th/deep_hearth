@@ -50,6 +50,10 @@ pub enum StartProcessError {
     OutputDestinationBusyStorageDismantling {
         stockpile: StockpileId,
     },
+    OutputDestinationSolidTerrain {
+        stockpile: StockpileId,
+        position: VoxelCoord,
+    },
     OutputRouteCountMismatch {
         streams: usize,
         routes: usize,

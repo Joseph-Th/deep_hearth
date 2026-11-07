@@ -773,3 +773,6 @@ mod routing;
 
 #[path = "production_execution_tests/completion.rs"]
 mod completion;
+
+#[path = "production_execution_tests/terrain_custody.rs"]
+mod terrain_custody;

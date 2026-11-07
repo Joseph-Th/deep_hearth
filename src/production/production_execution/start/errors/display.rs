@@ -52,6 +52,14 @@ impl Display for StartProcessError {
                 "stockpile {} is being dismantled and cannot accept a new in-flight production output",
                 stockpile.value()
             ),
+            Self::OutputDestinationSolidTerrain { stockpile, position } => write!(
+                formatter,
+                "production output stockpile {} at ({},{},{}) is embedded in solid terrain",
+                stockpile.value(),
+                position.x(),
+                position.y(),
+                position.z()
+            ),
             Self::OutputRouteCountMismatch { streams, routes } => write!(
                 formatter,
                 "resolved process has {streams} output streams but start supplied {routes} routes"

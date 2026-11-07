@@ -17,6 +17,7 @@ use crate::spatial::VoxelCoord;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GroundStockpileAllocationError {
     ZeroCapacity,
+    StandingTreeOccupied { position: VoxelCoord },
     StockpileIdExhausted,
     InventoryRevisionExhausted,
     LogisticsRevisionExhausted,
@@ -57,6 +58,13 @@ impl Display for GroundStockpileAllocationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ZeroCapacity => formatter.write_str("ground stockpile capacity must be nonzero"),
+            Self::StandingTreeOccupied { position } => write!(
+                formatter,
+                "ground stockpile cannot be allocated inside standing tree trunk at ({},{},{})",
+                position.x(),
+                position.y(),
+                position.z()
+            ),
             Self::StockpileIdExhausted => {
                 formatter.write_str("stockpile identifier space is exhausted")
             }
@@ -78,6 +86,7 @@ pub enum GroundStockpileAllocationCommitError {
     StaleSurvivalRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
+    StandingTreeOccupied { position: VoxelCoord },
 }
 
 impl Display for GroundStockpileAllocationCommitError {
@@ -94,6 +103,13 @@ impl Display for GroundStockpileAllocationCommitError {
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
                 "ground stockpile allocation expected inventory revision {expected} but current revision is {actual}"
+            ),
+            Self::StandingTreeOccupied { position } => write!(
+                formatter,
+                "ground allocation cannot commit inside standing tree trunk at ({},{},{})",
+                position.x(),
+                position.y(),
+                position.z()
             ),
         }
     }
@@ -139,6 +155,14 @@ impl ValidatedGroundStockpileAllocation {
                 }
             })?;
         }
+        // A new generated tree can occupy the requested voxel without changing
+        // either inventory or logistics revisions. Recheck before allocating
+        // custody so rejection does not leave a half-created stockpile.
+        if state.world().tree_trunk_at(self.position).is_some() {
+            return Err(GroundStockpileAllocationCommitError::StandingTreeOccupied {
+                position: self.position,
+            });
+        }
         let stockpile = self.allocation.commit(state).map_err(|error| match error {
             EmptyStockpileAllocationCommitError::StaleInventoryRevision { expected, actual } => {
                 GroundStockpileAllocationCommitError::StaleInventoryRevision { expected, actual }
@@ -164,6 +188,12 @@ pub(crate) fn validate_allocate_ground_stockpile(
     position: VoxelCoord,
     capacity: Mass,
 ) -> Result<ValidatedGroundStockpileAllocation, GroundStockpileAllocationError> {
+    // An empty location marker has no solid-terrain footprint, but any
+    // stationary location in a standing trunk violates the canonical
+    // world/tree occupancy invariant.
+    if state.world().tree_trunk_at(position).is_some() {
+        return Err(GroundStockpileAllocationError::StandingTreeOccupied { position });
+    }
     let allocation = validate_empty_stockpile_allocation(
         state.inventory(),
         capacity,
@@ -229,3 +259,4 @@ pub fn validate_allocate_player_ground_stockpile(
         .ok_or(PlayerGroundStockpileAllocationError::PlayerNotInitialized)?;
     validate_allocate_player_ground_stockpile_at(state, position, capacity)
 }
+

@@ -6,12 +6,18 @@ use std::fmt::{Display, Formatter};
 use crate::core::time::{ControlTick, SimulationTick};
 use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
+use crate::inventory::StockpileId;
 use crate::mining::MiningJobId;
+use crate::spatial::VoxelCoord;
 use crate::structural::StructuralCommitError;
 
 /// Failure when a validated process start is committed after an owning state has changed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StartProcessCommitError {
+    OutputDestinationSolidTerrain {
+        stockpile: StockpileId,
+        position: VoxelCoord,
+    },
     StaleControlTick {
         expected: ControlTick,
         actual: ControlTick,
@@ -88,6 +94,17 @@ pub enum StartProcessCommitError {
 impl Display for StartProcessCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::OutputDestinationSolidTerrain {
+                stockpile,
+                position,
+            } => write!(
+                formatter,
+                "validated process output stockpile {} now intersects solid terrain at ({},{},{})",
+                stockpile.value(),
+                position.x(),
+                position.y(),
+                position.z()
+            ),
             Self::StaleControlTick { expected, actual } => write!(
                 formatter,
                 "validated process start expected control tick {} but current control tick is {}",
@@ -200,7 +217,8 @@ impl Error for StartProcessCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleControlTick { .. }
+            Self::OutputDestinationSolidTerrain { .. }
+            | Self::StaleControlTick { .. }
             | Self::StaleSimulationTick { .. }
             | Self::StaleLogisticsRevision { .. }
             | Self::StaleSurvivalRevision { .. }
