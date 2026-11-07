@@ -40,7 +40,8 @@ pub enum PlayerWindShelter {
 /// Time until a living player's first hunger/thirst warning while resting without intake.
 /// Movement, labor, meals, illness or other future changes invalidate these conditional
 /// estimates; they are not a guarantee of uninterrupted safe travel. No forecast is
-/// offered while already-admitted intake is scheduled to change the reserves.
+/// offered while already-admitted intake or player work is scheduled to change the reserves.
+/// Exertion already incurred by control-rate movement is charged at the next slow tick.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PlayerRestingProvisionRunway {
     hungry_in: Option<TickSpan>,
@@ -75,6 +76,25 @@ fn warning_runway(remaining: u128, warning: u128, loss: u128) -> Option<TickSpan
         .map(TickSpan::new)
 }
 
+/// Control-rate movement can incur energy and hydration cost before the next survival tick.
+/// Charge this one-time debt in the forecast, but not before its slow-tick settlement.
+fn warning_runway_with_pending_exertion(
+    remaining: u128,
+    warning: u128,
+    basal_loss: u128,
+    pending_exertion: u128,
+) -> Option<TickSpan> {
+    let comfortable_floor = warning.max(1);
+    if remaining < comfortable_floor {
+        return Some(TickSpan::ZERO);
+    }
+    let after_pending = remaining.saturating_sub(pending_exertion);
+    if after_pending < comfortable_floor {
+        return Some(TickSpan::new(1));
+    }
+    warning_runway(after_pending, warning, basal_loss)
+}
+
 /// A player-visible resting baseline for deciding whether to provision before work or travel.
 /// Uses the same current reserves and basal costs as survival execution, without assuming that
 /// later locomotion or manual work is free.
@@ -86,20 +106,24 @@ pub fn assess_player_resting_provision_runway(
     let player = state.survival().player()?;
     if player.vitality() == Vitality::ZERO
         || state.survival().pending_direct_consumption().is_some()
+        || state.player_work().active().is_some()
     {
         return None;
     }
+    let unsettled_exertion = state.logistics().player()?.locomotion_exertion().pending();
     let physiology = registries.survival().physiology();
     Some(PlayerRestingProvisionRunway {
-        hungry_in: warning_runway(
+        hungry_in: warning_runway_with_pending_exertion(
             player.metabolic_energy().nanojoules(),
             physiology.hungry_below().nanojoules(),
             physiology.basal_energy_cost_per_tick().nanojoules(),
+            unsettled_exertion.energy_cost_per_tick().nanojoules(),
         ),
-        thirsty_in: warning_runway(
+        thirsty_in: warning_runway_with_pending_exertion(
             u128::from(player.hydration().microliters()),
             u128::from(physiology.thirsty_below().microliters()),
             u128::from(physiology.hydration_loss_per_tick().microliters()),
+            u128::from(unsettled_exertion.hydration_loss_per_tick().microliters()),
         ),
     })
 }
