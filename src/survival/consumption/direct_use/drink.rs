@@ -232,10 +232,24 @@ fn validate_drink_store_to_hydration_target_with_mode(
         .get_drink(contents.fluid())
         .copied()
         .ok_or(DrinkStoreToTargetError::NotDrinkable { store })?;
+    // A control-rate walk or jump may have already incurred hydration loss
+    // that settles at the next slow survival tick. Price it before choosing
+    // a serving so the target is the reserve *after* that owed movement,
+    // not an optimistic balance that will drop during the drink.
+    let pending_locomotion = state.logistics().player().map_or(Volume::ZERO, |player| {
+        player
+            .locomotion_exertion()
+            .pending()
+            .hydration_loss_per_tick()
+    });
+    let effective_hydration = player
+        .hydration()
+        .checked_sub(pending_locomotion)
+        .unwrap_or(Volume::ZERO);
     let projected = project_minimum_drink_to_hydration_target(
         registries.survival().physiology(),
         drink,
-        player.hydration(),
+        effective_hydration,
         target,
     )
     .map_err(DrinkStoreToTargetError::Projection)?;

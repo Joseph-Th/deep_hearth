@@ -86,10 +86,16 @@ pub(in crate::simulation::direct_actions) fn attempt_empty_hand_secondary_action
     let observed_drink_sources =
         available_local_drink_sources(registries, state).collect::<Vec<_>>();
     let physiology = registries.survival().physiology();
-    let needs_hydration = state
-        .survival()
-        .player()
-        .is_some_and(|player| player.hydration() < physiology.maximum_hydration());
+    let needs_hydration = state.survival().player().is_some_and(|player| {
+        player.hydration() < physiology.maximum_hydration()
+            || state.logistics().player().is_some_and(|logistics| {
+                !logistics
+                    .locomotion_exertion()
+                    .pending()
+                    .hydration_loss_per_tick()
+                    .is_zero()
+            })
+    });
     // Local observation must still report finite, too-small water remainders.
     // The default gesture, however, cannot let an impossible or unnecessary
     // drink mask an otherwise actionable local gathering opportunity.

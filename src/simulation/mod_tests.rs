@@ -34,6 +34,8 @@ use crate::world::{
     set_generated_block_for_test, validate_generate_chunk, validate_generate_player_neighborhood,
 };
 
+#[path = "mod_tests/direct_consumption.rs"]
+mod direct_consumption;
 #[path = "mod_tests/direct_gathering.rs"]
 mod direct_gathering;
 #[path = "mod_tests/mechanical_worksite.rs"]

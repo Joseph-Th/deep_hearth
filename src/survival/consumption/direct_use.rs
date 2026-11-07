@@ -254,10 +254,27 @@ fn validate_eat_stack_to_metabolic_target_with_mode(
         .ok_or(EatStackToTargetError::NotEdible {
             commodity: stack.commodity(),
         })?;
+    // A selected food action can occur between the movement input and the
+    // slow survival settlement that charges it. The displayed metabolic
+    // reserve still includes that already-incurred cost, so discount the
+    // debt before sizing a meal toward its requested post-intake target.
+    let pending_locomotion = state
+        .logistics()
+        .player()
+        .map_or(Energy::ZERO, |logistics| {
+            logistics
+                .locomotion_exertion()
+                .pending()
+                .energy_cost_per_tick()
+        });
+    let effective_metabolic_energy = player
+        .metabolic_energy()
+        .checked_sub(pending_locomotion)
+        .unwrap_or(Energy::ZERO);
     let projected = project_minimum_meal_to_metabolic_target(
         registries.survival().physiology(),
         food,
-        player.metabolic_energy(),
+        effective_metabolic_energy,
         target,
     )
     .map_err(EatStackToTargetError::Projection)?;
