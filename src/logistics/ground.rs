@@ -17,6 +17,9 @@ use crate::spatial::VoxelCoord;
 use crate::structural::StructuralElementId;
 
 mod allocation;
+#[cfg(test)]
+#[path = "ground/placement_tests.rs"]
+mod placement_tests;
 mod transfer;
 
 pub(super) use transfer::validate_ground_access;
@@ -59,6 +62,12 @@ pub(crate) enum GroundStockpilePlacementError {
     },
     BusyStorageDismantling {
         stockpile: StockpileId,
+    },
+    SolidTerrainOccupied {
+        position: VoxelCoord,
+    },
+    StandingTreeOccupied {
+        position: VoxelCoord,
     },
     LogisticsRevisionExhausted,
 }
@@ -106,6 +115,20 @@ impl Display for GroundStockpilePlacementError {
                 "stockpile {} participates in active storage dismantling and cannot change world location",
                 stockpile.value()
             ),
+            Self::SolidTerrainOccupied { position } => write!(
+                formatter,
+                "loose ground matter cannot occupy solid terrain at ({},{},{})",
+                position.x(),
+                position.y(),
+                position.z()
+            ),
+            Self::StandingTreeOccupied { position } => write!(
+                formatter,
+                "ground location cannot overlap standing tree trunk at ({},{},{})",
+                position.x(),
+                position.y(),
+                position.z()
+            ),
             Self::LogisticsRevisionExhausted => {
                 formatter.write_str("logistics revision space is exhausted")
             }
@@ -144,6 +167,12 @@ pub(crate) enum GroundStockpilePlacementCommitError {
     },
     BusyStorageDismantling {
         stockpile: StockpileId,
+    },
+    SolidTerrainOccupied {
+        position: VoxelCoord,
+    },
+    StandingTreeOccupied {
+        position: VoxelCoord,
     },
 }
 
@@ -189,6 +218,20 @@ impl Display for GroundStockpilePlacementCommitError {
                 "ground placement stockpile {} entered active storage dismantling before commit",
                 stockpile.value()
             ),
+            Self::SolidTerrainOccupied { position } => write!(
+                formatter,
+                "ground placement now intersects solid terrain at ({},{},{})",
+                position.x(),
+                position.y(),
+                position.z()
+            ),
+            Self::StandingTreeOccupied { position } => write!(
+                formatter,
+                "ground placement now overlaps standing tree trunk at ({},{},{})",
+                position.x(),
+                position.y(),
+                position.z()
+            ),
         }
     }
 }
@@ -206,6 +249,34 @@ pub(crate) struct ValidatedGroundStockpilePlacement {
     expected_inventory_support_revision: u64,
     stockpile: StockpileId,
     position: VoxelCoord,
+}
+
+#[cfg(any(test, feature = "test-gameplay"))]
+enum GroundLocationObstruction {
+    SolidTerrain,
+    StandingTree,
+}
+
+#[cfg(any(test, feature = "test-gameplay"))]
+fn ground_location_obstruction(
+    state: &AppState,
+    position: VoxelCoord,
+    stockpile: &crate::inventory::StockpileRecord,
+) -> Option<GroundLocationObstruction> {
+    // A standing trunk excludes all stationary locations, including empty
+    // marker allocations, as enforced by the trusted world/tree validator.
+    if state.world().tree_trunk_at(position).is_some() {
+        return Some(GroundLocationObstruction::StandingTree);
+    }
+    // The current world registry represents every authored non-air block
+    // as an occupied full cube. A built enclosure remains physical even when
+    // empty, whereas bare empty ground locations have no embodied matter.
+    ((!stockpile.stored_mass().is_zero() || !stockpile.embodied_mass().is_zero())
+        && state
+            .world()
+            .block_at(position)
+            .is_some_and(|block| block != crate::world::BlockStateId::AIR))
+    .then_some(GroundLocationObstruction::SolidTerrain)
 }
 
 #[cfg(any(test, feature = "test-gameplay"))]
@@ -269,6 +340,19 @@ impl ValidatedGroundStockpilePlacement {
                 },
             );
         }
+        match ground_location_obstruction(state, self.position, record) {
+            Some(GroundLocationObstruction::StandingTree) => {
+                return Err(GroundStockpilePlacementCommitError::StandingTreeOccupied {
+                    position: self.position,
+                });
+            }
+            Some(GroundLocationObstruction::SolidTerrain) => {
+                return Err(GroundStockpilePlacementCommitError::SolidTerrainOccupied {
+                    position: self.position,
+                });
+            }
+            None => {}
+        }
         state.logistics_state_mut().apply_ground_placement(
             self.expected_logistics_revision,
             self.next_logistics_revision,
@@ -322,6 +406,15 @@ pub(crate) fn validate_place_ground_stockpile(
         .is_some()
     {
         return Err(GroundStockpilePlacementError::BusyStorageDismantling { stockpile });
+    }
+    match ground_location_obstruction(state, position, record) {
+        Some(GroundLocationObstruction::StandingTree) => {
+            return Err(GroundStockpilePlacementError::StandingTreeOccupied { position });
+        }
+        Some(GroundLocationObstruction::SolidTerrain) => {
+            return Err(GroundStockpilePlacementError::SolidTerrainOccupied { position });
+        }
+        None => {}
     }
     let expected_logistics_revision = state.logistics().revision();
     if !state.can_spend_logistics_revisions(1) {

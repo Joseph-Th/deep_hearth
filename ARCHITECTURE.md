@@ -143,7 +143,12 @@ fixtures without embodied material are not treated as physical structures.
 An unenclosed ground stockpile is physical when it holds stored matter or has
 committed inbound reservations; such custody cannot be buried by generated
 rock or admitted from a corrupted save. An entirely empty ground allocation
-is only a location marker and does not prevent later terrain generation.
+is only a location marker and does not prevent later terrain generation. Bootstrap
+placement of pre-existing loose matter or an empty material-built enclosure checks
+solid terrain at admission and again at commit, including intervening changes to
+contents or world occupancy. Standing tree trunks are a separate world-owned
+obstruction: unlike rock, they reject even an otherwise empty ground-location marker,
+matching the tree-generation and trusted-load occupancy contract.
 
 ## Abstraction and dependency direction
 
