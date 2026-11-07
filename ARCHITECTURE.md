@@ -136,6 +136,10 @@ not change local patrol, lighting, or fluid-transfer feasibility on an untouched
 Located fluid vessels have physical presence even when empty: generated full-cube terrain cannot
 overwrite their voxels, bootstrap placement cannot enter solid terrain, and trusted load rejects
 either overlap.
+The same generated-rock and trusted-load exclusion protects material-built energy stores
+(whether charged or empty) and mass-bearing stationary equipment. Checks use logistics-owned
+chunk indexes and durable owner matter, not remote scans or light projections. Abstract energy
+fixtures without embodied material are not treated as physical structures.
 
 ## Abstraction and dependency direction
 

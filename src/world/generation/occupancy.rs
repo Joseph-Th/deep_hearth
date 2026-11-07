@@ -38,6 +38,12 @@ pub(super) fn validate_generated_chunk_occupancy(
     if let Some(voxel) = first_fluid_store_collision_in_generated_chunk(registry, state, chunk) {
         return Err(ChunkGenerationError::FluidStoreBuriedByTerrain { voxel });
     }
+    if let Some(voxel) = first_energy_store_collision_in_generated_chunk(registry, state, chunk) {
+        return Err(ChunkGenerationError::EnergyStoreBuriedByTerrain { voxel });
+    }
+    if let Some(voxel) = first_equipment_collision_in_generated_chunk(registry, state, chunk) {
+        return Err(ChunkGenerationError::EquipmentBuriedByTerrain { voxel });
+    }
     if let Some(player) = state.logistics().player()
         && let Some(voxel) = first_player_body_collision_in_chunk(
             registry,
@@ -157,6 +163,54 @@ fn first_fluid_store_collision_in_generated_chunk(
         .fluid_stores_in_chunk(chunk.coord())
         .filter(|&(_, voxel)| {
             (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&voxel.y())
+                && registry
+                    .block_for_state(chunk.block_at(voxel))
+                    .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+        })
+        .min_by_key(|(id, _)| *id)
+        .map(|(_, voxel)| voxel)
+}
+
+/// Material-built campfires, engines and energy buffers occupy real stationary
+/// matter. Fixture-only stores without embodied material do not obstruct rock.
+fn first_energy_store_collision_in_generated_chunk(
+    registry: &WorldRegistry,
+    state: &AppState,
+    chunk: &WorldChunk,
+) -> Option<VoxelCoord> {
+    state
+        .logistics()
+        .energy_stores_in_chunk(chunk.coord())
+        .filter(|&(id, voxel)| {
+            state
+                .energy()
+                .get_store(id)
+                .is_some_and(|store| !store.embodied_material().is_empty())
+                && (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&voxel.y())
+                && registry
+                    .block_for_state(chunk.block_at(voxel))
+                    .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+        })
+        .min_by_key(|(id, _)| *id)
+        .map(|(_, voxel)| voxel)
+}
+
+/// Mass-bearing stationary equipment is physical even when its definition
+/// came from a controlled fixture rather than material-traced assembly.
+fn first_equipment_collision_in_generated_chunk(
+    registry: &WorldRegistry,
+    state: &AppState,
+    chunk: &WorldChunk,
+) -> Option<VoxelCoord> {
+    state
+        .logistics()
+        .equipment_in_chunk(chunk.coord())
+        .filter(|&(id, voxel)| {
+            state
+                .equipment()
+                .get_equipment(id)
+                .is_some_and(|record| !record.embodied_mass().is_zero())
+                && (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&voxel.y())
                 && registry
                     .block_for_state(chunk.block_at(voxel))
                     .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)

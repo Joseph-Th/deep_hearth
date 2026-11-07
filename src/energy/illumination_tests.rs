@@ -241,11 +241,10 @@ fn ungenerated_opening_light_reaches_nearby_cells_and_replays() {
 }
 
 #[test]
-fn generated_solid_cell_shields_a_located_emitter_until_its_source_is_exposed() {
+fn generated_stone_cannot_bury_a_material_built_campfire() {
     let registries = build_registries();
     let mut state = AppState::new();
     let source = VoxelCoord::new(8, -10, 8);
-    let adjacent = VoxelCoord::new(9, -10, 8);
     let carried = validate_admit_player(&registries, &state, source)
         .unwrap()
         .commit(&mut state)
@@ -273,9 +272,76 @@ fn generated_solid_cell_shields_a_located_emitter_until_its_source_is_exposed() 
         .commit(&mut state)
         .unwrap();
     let stored_charge = state.energy().get_store(fire).unwrap().stored();
-    // Preserve the real assembled, located fire while moving the player beyond
-    // the incoming chunk's footprint before admitting generated terrain.
+    // The finite campfire is embodied stone and cannot be overwritten when
+    // its formerly ungenerated column receives authoritative terrain.
     relocate_player_for_test(&mut state, VoxelCoord::new(24, -10, 8));
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            WorldGenerationSeed::new(0x4C49_4748_545F_534F),
+            ChunkCoord::containing(source),
+            BLOCK_STATE_STONE,
+        )
+        .err(),
+        Some(crate::world::ChunkGenerationError::EnergyStoreBuriedByTerrain { voxel: source })
+    );
+    assert_eq!(state, before);
+    assert_eq!(
+        state.energy().get_store(fire).unwrap().stored(),
+        stored_charge
+    );
+    assert!(
+        project_local_light_sources(&registries, &state)
+            .iter()
+            .any(|emitter| emitter.store() == fire)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+}
+
+#[test]
+fn corrupted_stone_overlap_rejects_embodied_campfire_save_without_losing_heat() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    // In the ungenerated opening there is no implicit solid floor or rock.
+    // Above the ordinary terrain envelope, the same stationary campfire
+    // remains clear and valid after its surrounding chunk becomes generated.
+    let source = VoxelCoord::new(8, 100, 8);
+    let carried = validate_admit_player(&registries, &state, source)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(1_000_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+            CAMPFIRE_FUEL_MASS,
+        ),
+    ] {
+        deposit_bulk_for_test(&registries, &mut state, carried, commodity, mass).unwrap();
+    }
+    let fire =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, carried)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    validate_combust_fuel(&registries, &state, fire, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let heat = state.energy().get_store(fire).unwrap().stored();
+    relocate_player_for_test(&mut state, VoxelCoord::new(24, 100, 8));
     validate_generate_chunk(
         &registries,
         &state,
@@ -286,40 +352,34 @@ fn generated_solid_cell_shields_a_located_emitter_until_its_source_is_exposed() 
     .unwrap()
     .commit(&mut state)
     .unwrap();
-    assert_eq!(state.world().block_at(source), Some(BLOCK_STATE_STONE));
-    assert_eq!(
-        state.energy().get_store(fire).unwrap().stored(),
-        stored_charge
-    );
-    set_generated_block_for_test(registries.world(), &mut state, adjacent, BlockStateId::AIR);
-    assert_eq!(
-        assess_local_illumination(&registries, &state, adjacent).level(),
-        0,
-        "light must not cross from an emitter enclosed within an opaque world cell"
-    );
-    assert!(
-        project_local_light_sources(&registries, &state).is_empty(),
-        "renderer projection must not advertise a buried light source"
-    );
-    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
-    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+    assert_eq!(state.world().block_at(source), Some(BlockStateId::AIR));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let valid = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&valid)
         .unwrap()
         .into_state(&registries)
         .unwrap();
+    assert_eq!(restored, state);
+
+    // Forge an impossible overlap through the explicit test-only mutation.
+    // It must suppress projected light and fail typed trusted-load validation.
+    set_generated_block_for_test(registries.world(), &mut state, source, BLOCK_STATE_STONE);
+    assert!(project_local_light_sources(&registries, &state).is_empty());
+    assert_eq!(state.energy().get_store(fire).unwrap().stored(), heat);
     assert_eq!(
-        assess_local_illumination(&registries, &loaded, adjacent).level(),
-        0
+        validate_loaded_state(&registries, &state),
+        Err(crate::core::state::StateValidationError::Logistics(
+            crate::logistics::LogisticsValidationError::LocatedEnergyStoreIntersectsSolidTerrain {
+                voxel: source,
+            }
+        ))
     );
-    set_generated_block_for_test(registries.world(), &mut state, source, BlockStateId::AIR);
-    assert_eq!(project_local_light_sources(&registries, &state).len(), 1);
-    assert_eq!(
-        state.energy().get_store(fire).unwrap().stored(),
-        stored_charge
-    );
-    assert_eq!(
-        assess_local_illumination(&registries, &state, adjacent).level(),
-        6,
-        "opening the actual source cell restores its ordinary finite light"
+    let invalid = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&invalid)
+            .unwrap()
+            .into_state(&registries)
+            .is_err()
     );
 }
 

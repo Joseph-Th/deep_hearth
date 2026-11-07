@@ -106,6 +106,8 @@ pub enum ChunkGenerationError {
     StructureBuriedByTerrain { voxel: VoxelCoord },
     StorageEnclosureBuriedByTerrain { voxel: VoxelCoord },
     FluidStoreBuriedByTerrain { voxel: VoxelCoord },
+    EnergyStoreBuriedByTerrain { voxel: VoxelCoord },
+    EquipmentBuriedByTerrain { voxel: VoxelCoord },
     SurfaceResourceCollision { voxel: VoxelCoord },
     TreePlacementObstructed { voxel: VoxelCoord },
     PlayerDemandCoordinateOverflow { center: ChunkCoord },
@@ -200,6 +202,20 @@ impl Display for ChunkGenerationError {
             Self::FluidStoreBuriedByTerrain { voxel } => write!(
                 formatter,
                 "terrain generation would bury a located fluid vessel at voxel ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
+            Self::EnergyStoreBuriedByTerrain { voxel } => write!(
+                formatter,
+                "terrain generation would bury a material-built energy store at voxel ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
+            Self::EquipmentBuriedByTerrain { voxel } => write!(
+                formatter,
+                "terrain generation would bury stationary equipment at voxel ({},{},{})",
                 voxel.x(),
                 voxel.y(),
                 voxel.z()
@@ -859,3 +875,7 @@ fn build_generated_chunk(
     chunk.canonicalize_sections();
     Ok(chunk)
 }
+
+#[cfg(test)]
+#[path = "generation/equipment_occupancy_tests.rs"]
+mod equipment_occupancy_tests;

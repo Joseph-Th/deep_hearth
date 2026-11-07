@@ -425,7 +425,35 @@ pub(crate) fn validate_loaded_logistics(
         return Err(LogisticsValidationError::StationaryEnclosureIntersectsSolidTerrain { voxel });
     }
     validate_equipment_locations(state, app.equipment(), app.structures())?;
+    if let Some((_, voxel)) = state.equipment_locations().find(|&(id, voxel)| {
+        app.equipment()
+            .get_equipment(id)
+            .is_some_and(|record| !record.embodied_mass().is_zero())
+            && app
+                .world()
+                .block_at(voxel)
+                .and_then(|block| registries.world().block_for_state(block))
+                .is_some_and(|block| {
+                    block.collision() == crate::world::BlockCollisionShape::FullCube
+                })
+    }) {
+        return Err(LogisticsValidationError::LocatedEquipmentIntersectsSolidTerrain { voxel });
+    }
     validate_energy_store_locations(state, app.energy())?;
+    if let Some((_, voxel)) = state.energy_store_locations().find(|&(id, voxel)| {
+        app.energy()
+            .get_store(id)
+            .is_some_and(|store| !store.embodied_material().is_empty())
+            && app
+                .world()
+                .block_at(voxel)
+                .and_then(|block| registries.world().block_for_state(block))
+                .is_some_and(|block| {
+                    block.collision() == crate::world::BlockCollisionShape::FullCube
+                })
+    }) {
+        return Err(LogisticsValidationError::LocatedEnergyStoreIntersectsSolidTerrain { voxel });
+    }
     validate_fluid_store_locations(state, app.fluid(), app.structures())?;
     if let Some((_, voxel)) = app.logistics().fluid_store_locations().find(|&(_, voxel)| {
         app.world()

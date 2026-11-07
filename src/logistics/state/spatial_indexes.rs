@@ -68,6 +68,26 @@ impl LogisticsState {
             .flat_map(|(position, ids)| ids.iter().map(move |id| (*id, *position)))
     }
 
+    /// Exact chunk-column stationary energy custody, including uncharged stores.
+    /// Material ownership is checked by the energy owner, not by this location index.
+    pub(crate) fn energy_stores_in_chunk(
+        &self,
+        chunk: ChunkCoord,
+    ) -> impl Iterator<Item = (EnergyStoreId, VoxelCoord)> + '_ {
+        indexed_positions_in_chunk(&self.energy_stores_by_position, chunk)
+            .flat_map(|(position, ids)| ids.iter().map(move |id| (*id, *position)))
+    }
+
+    /// The same location-indexed chunk scope for stationary equipment.
+    /// Carried tools are excluded; their body belongs to the player.
+    pub(crate) fn equipment_in_chunk(
+        &self,
+        chunk: ChunkCoord,
+    ) -> impl Iterator<Item = (EquipmentId, VoxelCoord)> + '_ {
+        indexed_positions_in_chunk(&self.equipment_by_position, chunk)
+            .flat_map(|(position, ids)| ids.iter().map(move |id| (*id, *position)))
+    }
+
     /// Only stores inside the maximum mathematically possible finite-light range.
     /// Source order remains stable by ID for deterministic equal-brightness ties.
     pub(crate) fn energy_store_locations_near(
