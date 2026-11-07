@@ -140,6 +140,10 @@ The same generated-rock and trusted-load exclusion protects material-built energ
 (whether charged or empty) and mass-bearing stationary equipment. Checks use logistics-owned
 chunk indexes and durable owner matter, not remote scans or light projections. Abstract energy
 fixtures without embodied material are not treated as physical structures.
+An unenclosed ground stockpile is physical when it holds stored matter or has
+committed inbound reservations; such custody cannot be buried by generated
+rock or admitted from a corrupted save. An entirely empty ground allocation
+is only a location marker and does not prevent later terrain generation.
 
 ## Abstraction and dependency direction
 

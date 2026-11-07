@@ -35,6 +35,9 @@ pub(super) fn validate_generated_chunk_occupancy(
     {
         return Err(ChunkGenerationError::StorageEnclosureBuriedByTerrain { voxel });
     }
+    if let Some(voxel) = first_ground_matter_collision_in_generated_chunk(registry, state, chunk) {
+        return Err(ChunkGenerationError::GroundMatterBuriedByTerrain { voxel });
+    }
     if let Some(voxel) = first_fluid_store_collision_in_generated_chunk(registry, state, chunk) {
         return Err(ChunkGenerationError::FluidStoreBuriedByTerrain { voxel });
     }
@@ -236,6 +239,30 @@ fn first_stationary_enclosure_collision_in_generated_chunk(
                 .get_stockpile(id)
                 .is_some_and(|stockpile| stockpile.enclosure().is_some())
                 && (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&voxel.y())
+                && registry
+                    .block_for_state(chunk.block_at(voxel))
+                    .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+        })
+        .min_by_key(|(id, _)| *id)
+        .map(|(_, voxel)| voxel)
+}
+
+/// Loose ground stockpiles may be empty location markers, but their stored
+/// matter and committed incoming deliveries cannot be embedded in new rock.
+/// Enclosures use their own earlier physical-collision diagnostic.
+fn first_ground_matter_collision_in_generated_chunk(
+    registry: &WorldRegistry,
+    state: &AppState,
+    chunk: &WorldChunk,
+) -> Option<VoxelCoord> {
+    state
+        .logistics()
+        .stockpiles_in_chunk(chunk.coord())
+        .filter(|&(id, voxel)| {
+            state.inventory().get_stockpile(id).is_some_and(|pile| {
+                pile.enclosure().is_none()
+                    && (!pile.stored_mass().is_zero() || !pile.reserved_inbound().is_zero())
+            }) && (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&voxel.y())
                 && registry
                     .block_for_state(chunk.block_at(voxel))
                     .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)

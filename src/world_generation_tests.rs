@@ -147,6 +147,179 @@ fn terrain_generation_cannot_bury_a_completed_stationary_storage_enclosure() {
 }
 
 #[test]
+fn generation_cannot_bury_a_nonempty_loose_ground_stockpile() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let at = VoxelCoord::new(5, WORLD_MIN_Y, 5);
+    let pile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000)).unwrap();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        pile,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(250_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_place_ground_stockpile(&state, pile, at)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            WorldGenerationSeed::new(0x5749_4C44_4552_4E53),
+            ChunkCoord::containing(at),
+            BLOCK_STATE_STONE,
+        )
+        .err(),
+        Some(ChunkGenerationError::GroundMatterBuriedByTerrain { voxel: at })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn trusted_load_rejects_loose_ground_matter_embedded_in_solid_terrain() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let at = VoxelCoord::new(5, WORLD_MIN_Y, 5);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x5749_4C44_4552_4E53),
+        ChunkCoord::containing(at),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    set_generated_block_for_test(registries.world(), &mut state, at, BlockStateId::AIR);
+    let pile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000)).unwrap();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        pile,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(250_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_place_ground_stockpile(&state, pile, at)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let valid = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&valid)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap(),
+        state
+    );
+
+    set_generated_block_for_test(registries.world(), &mut state, at, BLOCK_STATE_STONE);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Err(StateValidationError::Logistics(
+            LogisticsValidationError::GroundMatterIntersectsSolidTerrain { voxel: at }
+        ))
+    );
+    let invalid = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&invalid)
+            .unwrap()
+            .into_state(&registries)
+            .is_err()
+    );
+}
+
+#[test]
+fn empty_ground_allocation_has_no_physical_terrain_footprint() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let at = VoxelCoord::new(5, WORLD_MIN_Y, 5);
+    let pile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000)).unwrap();
+    validate_place_ground_stockpile(&state, pile, at)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x5749_4C44_4552_4E53),
+        ChunkCoord::containing(at),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(state.world().block_at(at), Some(BLOCK_STATE_STONE));
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn loose_ground_matter_in_open_air_remains_available_after_generation_and_load() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let at = VoxelCoord::new(5, 100, 5);
+    let amount = Mass::from_milligrams(250_000);
+    let pile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000)).unwrap();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        pile,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        amount,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_place_ground_stockpile(&state, pile, at)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x5749_4C44_4552_4E53),
+        ChunkCoord::containing(at),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(state.world().block_at(at), Some(BlockStateId::AIR));
+    assert_eq!(
+        state.inventory().get_stockpile(pile).unwrap().stored_mass(),
+        amount
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let valid = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&valid)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap(),
+        state
+    );
+}
+
+#[test]
 fn generated_stone_cannot_bury_a_located_fluid_vessel() {
     let registries = build_registries();
     let mut state = AppState::new();
@@ -350,15 +523,9 @@ fn pending_chunk_generation_rejects_inventory_only_enclosure_construction() {
         .unwrap()
         .commit(&mut state)
         .unwrap();
-    deposit_lot_for_test(
-        &registries,
-        &mut state,
-        target,
-        CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
-        definition.assembly_profile().input_mass(),
-        Temperature::from_millikelvin(293_150),
-    )
-    .unwrap();
+    // The empty ground allocation is only a location marker and creates no
+    // prospective terrain conflict. New physical matter must invalidate this
+    // previously admitted chunk plan through inventory revision authority.
     let planned = validate_generate_chunk(
         &registries,
         &state,
@@ -369,6 +536,15 @@ fn pending_chunk_generation_rejects_inventory_only_enclosure_construction() {
     .unwrap();
     let inventory_before = state.inventory().revision();
     let logistics_before = state.logistics().revision();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        target,
+        CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
+        definition.assembly_profile().input_mass(),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
     validate_build_storage_enclosure(
         &registries,
         &state,

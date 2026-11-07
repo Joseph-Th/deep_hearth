@@ -46,6 +46,9 @@ pub enum LogisticsValidationError {
     StationaryEnclosureIntersectsSolidTerrain {
         voxel: VoxelCoord,
     },
+    GroundMatterIntersectsSolidTerrain {
+        voxel: VoxelCoord,
+    },
     LocatedFluidStoreIntersectsSolidTerrain {
         voxel: VoxelCoord,
     },
@@ -337,6 +340,13 @@ impl Display for LogisticsValidationError {
             Self::StationaryEnclosureIntersectsSolidTerrain { voxel } => write!(
                 formatter,
                 "completed stationary enclosure intersects solid terrain at ({},{},{})",
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
+            Self::GroundMatterIntersectsSolidTerrain { voxel } => write!(
+                formatter,
+                "stored or reserved loose ground matter intersects solid terrain at ({},{},{})",
                 voxel.x(),
                 voxel.y(),
                 voxel.z()

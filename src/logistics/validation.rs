@@ -1,6 +1,7 @@
 //! Trusted-load validation for logistics/inventory location ownership.
 
 mod error;
+mod terrain_custody;
 
 pub use error::LogisticsValidationError;
 
@@ -16,6 +17,10 @@ use crate::survival::Vitality;
 use super::{
     LogisticsState, PlayerActiveSelection, PlayerBodyState, PlayerQuickAccessSlot, TraversalEdge,
     first_player_body_collision, player_body_fits_continuous_world,
+};
+use terrain_custody::{
+    validate_energy_terrain, validate_equipment_terrain, validate_fluid_terrain,
+    validate_ground_terrain,
 };
 
 fn validate_revision(state: &LogisticsState) -> Result<(), LogisticsValidationError> {
@@ -421,48 +426,13 @@ pub(crate) fn validate_loaded_logistics(
     validate_pending_secondary_use(app, state)?;
     validate_pending_primary_break(app, state)?;
     validate_stockpile_locations(state, app.inventory(), app.structures())?;
-    if let Some(voxel) = crate::world::first_buried_stationary_enclosure_in_world(registries, app) {
-        return Err(LogisticsValidationError::StationaryEnclosureIntersectsSolidTerrain { voxel });
-    }
+    validate_ground_terrain(registries, app)?;
     validate_equipment_locations(state, app.equipment(), app.structures())?;
-    if let Some((_, voxel)) = state.equipment_locations().find(|&(id, voxel)| {
-        app.equipment()
-            .get_equipment(id)
-            .is_some_and(|record| !record.embodied_mass().is_zero())
-            && app
-                .world()
-                .block_at(voxel)
-                .and_then(|block| registries.world().block_for_state(block))
-                .is_some_and(|block| {
-                    block.collision() == crate::world::BlockCollisionShape::FullCube
-                })
-    }) {
-        return Err(LogisticsValidationError::LocatedEquipmentIntersectsSolidTerrain { voxel });
-    }
+    validate_equipment_terrain(registries, app)?;
     validate_energy_store_locations(state, app.energy())?;
-    if let Some((_, voxel)) = state.energy_store_locations().find(|&(id, voxel)| {
-        app.energy()
-            .get_store(id)
-            .is_some_and(|store| !store.embodied_material().is_empty())
-            && app
-                .world()
-                .block_at(voxel)
-                .and_then(|block| registries.world().block_for_state(block))
-                .is_some_and(|block| {
-                    block.collision() == crate::world::BlockCollisionShape::FullCube
-                })
-    }) {
-        return Err(LogisticsValidationError::LocatedEnergyStoreIntersectsSolidTerrain { voxel });
-    }
+    validate_energy_terrain(registries, app)?;
     validate_fluid_store_locations(state, app.fluid(), app.structures())?;
-    if let Some((_, voxel)) = app.logistics().fluid_store_locations().find(|&(_, voxel)| {
-        app.world()
-            .block_at(voxel)
-            .and_then(|block| registries.world().block_for_state(block))
-            .is_some_and(|block| block.collision() == crate::world::BlockCollisionShape::FullCube)
-    }) {
-        return Err(LogisticsValidationError::LocatedFluidStoreIntersectsSolidTerrain { voxel });
-    }
+    validate_fluid_terrain(registries, app)?;
     if let Some(player) = state.player() {
         let locomotion = registries.survival().physiology().locomotion();
         if !player_body_fits_continuous_world(player.body(), locomotion) {

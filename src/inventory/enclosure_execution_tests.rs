@@ -615,15 +615,9 @@ fn located_enclosure_construction_rejects_generated_rock_and_stale_world_truth()
         .unwrap()
         .commit(&mut state)
         .unwrap();
-    deposit_lot_for_test(
-        &registries,
-        &mut state,
-        target,
-        CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
-        definition.assembly_profile().input_mass(),
-        TEMPERATURE,
-    )
-    .unwrap();
+    // Only an empty location marker can receive terrain in the same cell.
+    // Clear that voxel before introducing physical timber; subsequent solid
+    // overlaps are deliberately forged to exercise the defensive validator.
     validate_generate_chunk(
         &registries,
         &state,
@@ -634,6 +628,17 @@ fn located_enclosure_construction_rejects_generated_rock_and_stale_world_truth()
     .unwrap()
     .commit(&mut state)
     .unwrap();
+    set_generated_block_for_test(registries.world(), &mut state, position, BlockStateId::AIR);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        target,
+        CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
+        definition.assembly_profile().input_mass(),
+        TEMPERATURE,
+    )
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     let floor = VoxelCoord::new(position.x(), position.y() - 1, position.z());
     set_generated_block_for_test(
         registries.world(),
@@ -694,6 +699,7 @@ fn located_enclosure_construction_rejects_generated_rock_and_stale_world_truth()
             .enclosure()
             .is_none()
     );
+    set_generated_block_for_test(registries.world(), &mut state, position, BlockStateId::AIR);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
