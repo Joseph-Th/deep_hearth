@@ -56,8 +56,6 @@ pub(super) fn validate_loaded_woodland(
     // records. Decode cannot forge atmospheric mass by tweaking an unaudited total.
     let mut previous_felled = None;
     let mut verified_input = 0u128;
-    let mut felled_sites =
-        BTreeMap::<VoxelCoord, Vec<(VoxelCoord, SimulationTick, SimulationTick)>>::new();
     for record in state.felled_trees() {
         let root = record.root();
         let origin = record.origin_root();
@@ -72,13 +70,6 @@ pub(super) fn validate_loaded_woodland(
                 .is_some_and(|(last, at)| *last != root || *at > record.felled_at())
             || (!transplant_paths.contains_key(&origin) && root != origin)
             || !occupied_seed_origins.insert(origin)
-            // A different living tree can reuse this root only after the old one was
-            // felled. A natural tree that never moved has occupied its seed site all along.
-            || state.tree_at(root).is_some_and(|living| {
-                !transplant_paths
-                    .get(&living.origin_root())
-                    .is_some_and(|(last, arrived)| *last == root && *arrived >= record.felled_at())
-            })
             || state.get_chunk(ChunkCoord::containing(root)).is_none()
             || previous_felled.is_some_and(|previous| previous >= origin)
         {
@@ -93,35 +84,6 @@ pub(super) fn validate_loaded_woodland(
             .checked_add(u128::from(grown))
             .ok_or(WorldValidationError::InvalidPhotosyntheticAccounting)?;
         previous_felled = Some(origin);
-        let arrived = transplant_paths
-            .get(&origin)
-            .map_or(SimulationTick::ZERO, |(_, at)| *at);
-        felled_sites
-            .entry(root)
-            .or_default()
-            .push((origin, arrived, record.felled_at()));
-    }
-    // Several different trees may be harvested at one planted site, but their
-    // occupancy intervals must not overlap across slow ticks. Equal timestamps
-    // are allowed because independent felling and transplant actions can be
-    // ordered within one simulation tick.
-    for (root, intervals) in &mut felled_sites {
-        // An unmoved, naturally seeded tree occupied this site from world origin
-        // until it was felled. Later arrivals cannot precede that felling,
-        // even when both historical entries happen to start at tick zero.
-        if let Some((_, _, natural_felled_at)) = intervals
-            .iter()
-            .find(|(origin, _, _)| *origin == *root && !transplant_paths.contains_key(origin))
-            && intervals
-                .iter()
-                .any(|(origin, arrived, _)| *origin != *root && *arrived < *natural_felled_at)
-        {
-            return Err(WorldValidationError::InvalidFelledTree { root: *root });
-        }
-        intervals.sort_unstable_by_key(|(origin, arrived, felled)| (*arrived, *felled, *origin));
-        if intervals.windows(2).any(|pair| pair[0].2 > pair[1].1) {
-            return Err(WorldValidationError::InvalidFelledTree { root: *root });
-        }
     }
     for origin in transplant_paths.keys() {
         if !occupied_seed_origins.contains(origin) {
@@ -131,7 +93,7 @@ pub(super) fn validate_loaded_woodland(
     if verified_input != state.committed_assimilated_wood_milligrams() {
         return Err(WorldValidationError::InvalidPhotosyntheticAccounting);
     }
-    Ok(())
+    validate_tree_site_history(state)
 }
 
 /// Replay immutable transplants from each seed-derived root. Current coordinates alone
@@ -179,4 +141,141 @@ fn validate_transplant_paths(
         previous_tick = Some(at);
     }
     Ok(paths)
+}
+
+/// Every recorded tree initially occupied its unique seeded root. Reconstruct all
+/// intermediate stays, not just the last site on a felling receipt: a forged
+/// transplant path can be individually valid while passing through another
+/// tree that did not leave until a later tick.
+#[derive(Clone, Copy)]
+struct SiteVisit {
+    origin: VoxelCoord,
+    arrived: SimulationTick,
+    departed: Option<SimulationTick>,
+    felled_here: bool,
+}
+
+fn validate_tree_site_history(state: &WorldState) -> Result<(), WorldValidationError> {
+    // Seed-derived trees have distinct natural roots. Only relocation can put
+    // different biological identities at the same site, and all unmoved
+    // felling identities have already been checked against their seed roots.
+    if state.transplants().next().is_none() {
+        return Ok(());
+    }
+    let mut current_sites = BTreeMap::<VoxelCoord, (VoxelCoord, SimulationTick)>::new();
+    for tree in state.trees() {
+        current_sites.insert(
+            tree.origin_root(),
+            (tree.origin_root(), SimulationTick::ZERO),
+        );
+    }
+    for felled in state.felled_trees() {
+        current_sites.insert(
+            felled.origin_root(),
+            (felled.origin_root(), SimulationTick::ZERO),
+        );
+    }
+
+    let mut visits = BTreeMap::<VoxelCoord, Vec<SiteVisit>>::new();
+    let mut moved_origins = BTreeSet::new();
+    for transplant in state.transplants() {
+        let origin = transplant.origin();
+        moved_origins.insert(origin);
+        let Some((site, arrived)) = current_sites.get_mut(&origin) else {
+            return Err(WorldValidationError::InvalidTreeTransplant { origin });
+        };
+        if *site != transplant.from() || *arrived > transplant.transplanted_at() {
+            return Err(WorldValidationError::InvalidTreeTransplant { origin });
+        }
+        visits.entry(*site).or_default().push(SiteVisit {
+            origin,
+            arrived: *arrived,
+            departed: Some(transplant.transplanted_at()),
+            felled_here: false,
+        });
+        *site = transplant.to();
+        *arrived = transplant.transplanted_at();
+    }
+
+    for tree in state.trees() {
+        let origin = tree.origin_root();
+        let (site, arrived) = current_sites[&origin];
+        visits.entry(site).or_default().push(SiteVisit {
+            origin,
+            arrived,
+            departed: None,
+            felled_here: false,
+        });
+    }
+    for felled in state.felled_trees() {
+        let origin = felled.origin_root();
+        let (site, arrived) = current_sites[&origin];
+        visits.entry(site).or_default().push(SiteVisit {
+            origin,
+            arrived,
+            departed: Some(felled.felled_at()),
+            felled_here: true,
+        });
+    }
+
+    for (site, intervals) in &mut visits {
+        validate_site_visits(*site, intervals, &moved_origins)?;
+    }
+    Ok(())
+}
+
+/// Compare one planting site's full history. Immediate handoffs may share
+/// a slow timestamp, but intervals of persistent residence cannot overlap.
+fn validate_site_visits(
+    site: VoxelCoord,
+    intervals: &mut [SiteVisit],
+    moved_origins: &BTreeSet<VoxelCoord>,
+) -> Result<(), WorldValidationError> {
+    // A natural tree that never moved continuously occupied its seeded
+    // root from world origin. A second tree cannot even briefly pass through
+    // it before the natural tree leaves or is felled.
+    if let Some(natural) = intervals.iter().find(|visit| {
+        visit.origin == site
+            && visit.arrived == SimulationTick::ZERO
+            && !moved_origins.contains(&site)
+    }) && let Some(other) = intervals.iter().find(|visit| {
+        visit.origin != site
+            && natural
+                .departed
+                .is_none_or(|departure| visit.arrived < departure)
+    }) {
+        return Err(if natural.felled_here {
+            WorldValidationError::InvalidFelledTree { root: site }
+        } else {
+            WorldValidationError::InvalidTreeTransplant {
+                origin: other.origin,
+            }
+        });
+    }
+
+    // Completed same-tick visits sort before open-ended occupation. This
+    // permits legitimate sequential felling and replanting at one tick.
+    intervals.sort_unstable_by_key(|visit| {
+        (
+            visit.arrived,
+            visit.departed.is_none(),
+            visit.departed,
+            visit.origin,
+        )
+    });
+    for pair in intervals.windows(2) {
+        if pair[0]
+            .departed
+            .is_none_or(|departed| departed > pair[1].arrived)
+        {
+            return Err(if pair[0].felled_here || pair[1].felled_here {
+                WorldValidationError::InvalidFelledTree { root: site }
+            } else {
+                WorldValidationError::InvalidTreeTransplant {
+                    origin: pair[1].origin,
+                }
+            });
+        }
+    }
+    Ok(())
 }

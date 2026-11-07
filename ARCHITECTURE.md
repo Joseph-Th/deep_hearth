@@ -270,6 +270,9 @@ registry schemas.
 - Derived indexes may be omitted from persistence only when they rebuild deterministically and validate
   before use.
 - Required references validate at the trusted-load boundary; optional references are explicit.
+- Seed-derived tree history validates every intermediate transplant site against other trees' residence
+  intervals, not just their final roots. Positive-duration overlaps cannot load; ordered actions within
+  one simulation tick may legitimately reuse a planting site without a separate sub-tick history clock.
 - Core systems perform no implicit filesystem, network, process, renderer, or platform IO.
 - External effects occur behind adapters after internal state is valid, or through an explicit durable work
   record when retry/recovery semantics require one.

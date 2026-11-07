@@ -418,12 +418,15 @@ fn different_seeded_trees_can_be_felled_at_the_same_replanted_site() {
         let loaded = serde_json::from_value::<LoadedSaveEnvelope>(value)
             .unwrap()
             .into_state(&registries);
-        assert!(matches!(
-            loaded,
-            Err(crate::persistence::LoadError::InvalidState(
-                StateValidationError::World(WorldValidationError::InvalidFelledTree { root })
-            )) if root == first
-        ));
+        assert!(
+            matches!(
+                loaded,
+                Err(crate::persistence::LoadError::InvalidState(
+                    StateValidationError::World(WorldValidationError::InvalidFelledTree { root })
+                )) if root == first
+            ),
+            "overlapping felling history must reject with a felling error: {loaded:?}"
+        );
     };
     reject_forged_overlap(&state);
 
@@ -463,6 +466,103 @@ fn different_seeded_trees_can_be_felled_at_the_same_replanted_site() {
             .into_state(&registries)
             .unwrap(),
         state
+    );
+}
+
+#[test]
+fn trusted_load_rejects_intermediate_transplant_overlap_after_both_trees_move_away() {
+    use crate::core::state::apply_clock_advance;
+    use crate::logistics::relocate_player_for_test;
+
+    // Both generated juveniles have a supported path to one shared planting
+    // site. The real sequence vacates it before the other tree arrives.
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(48_219);
+    let first = VoxelCoord::new(11, 3, 7);
+    let second = VoxelCoord::new(19, 3, 7);
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(12, 3, 7))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    for chunk in [ChunkCoord::new(0, 0), ChunkCoord::new(1, 0)] {
+        validate_generate_chunk(&registries, &state, seed, chunk, BLOCK_STATE_STONE)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    }
+    let original_matter = calculate_matter_accounting(&state).unwrap().total();
+    for (from_x, to_x, tick) in [
+        (11, 13, 0),
+        (13, 15, 0),
+        (15, 13, 2),
+        (19, 17, 2),
+        (17, 15, 3),
+    ] {
+        if state.tick().value() != tick {
+            apply_clock_advance(&mut state, crate::core::time::SimulationTick::new(tick));
+        }
+        relocate_player_for_test(&mut state, VoxelCoord::new((from_x + to_x) / 2, 3, 7));
+        let from = VoxelCoord::new(from_x, 3, 7);
+        let to = VoxelCoord::new(to_x, 3, 7);
+        let _ = validate_transplant_juvenile(&registries, &state, from, to)
+            .unwrap()
+            .commit(&registries, &mut state)
+            .unwrap();
+    }
+    assert_eq!(
+        state
+            .world()
+            .tree_at(VoxelCoord::new(13, 3, 7))
+            .unwrap()
+            .origin_root(),
+        first
+    );
+    assert_eq!(
+        state
+            .world()
+            .tree_at(VoxelCoord::new(15, 3, 7))
+            .unwrap()
+            .origin_root(),
+        second
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        original_matter
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let original = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(original.clone())
+            .unwrap()
+            .into_state(&registries)
+            .unwrap(),
+        state
+    );
+
+    // Move the second tree's arrival to tick 1, while the first still owns
+    // the shared site until tick 2. Both independent paths remain correctly
+    // ordered, both current roots are distinct, and all biomass is unchanged.
+    let mut forged = original;
+    let history = forged["state"]["systems"]["world"]["transplants"]
+        .as_array_mut()
+        .unwrap();
+    assert_eq!(history.len(), 5);
+    history[3]["transplanted_at"] = serde_json::json!(1);
+    history[4]["transplanted_at"] = serde_json::json!(1);
+    let first_departure = history.remove(2);
+    history.push(first_departure);
+    let loaded = serde_json::from_value::<LoadedSaveEnvelope>(forged)
+        .unwrap()
+        .into_state(&registries);
+    assert!(
+        matches!(
+            loaded,
+            Err(crate::persistence::LoadError::InvalidState(
+                StateValidationError::World(WorldValidationError::InvalidTreeTransplant { .. })
+            ))
+        ),
+        "intermediate tree occupancy must be replayed, not inferred from final roots: {loaded:?}"
     );
 }
 
