@@ -319,6 +319,76 @@ fn seed_rooted_tree_growth_and_season_change_real_canopy_daylight() {
 }
 
 #[test]
+fn mature_canopy_shades_an_open_downhill_column_but_not_air_above_its_crown() {
+    use crate::world::WorldGenerationProfile;
+
+    let registries = build_registries();
+    let calendar = registries.core().calendar();
+    let season_ticks = calendar.ticks_per_day()
+        * u64::from(calendar.days_per_month())
+        * u64::from(calendar.months_per_year() / 4);
+    let summer = SimulationTick::new(season_ticks * (48 * 4 + 1));
+    // Find real generated open ground at least two voxels below a nearby tree root.
+    let (seed, root, valley, radius) = (1..2_000)
+        .find_map(|value| {
+            let seed = WorldGenerationSeed::new(value);
+            let tree = super::super::trees::seeded_tree_identity(
+                WorldGenerationProfile::new(seed, BLOCK_STATE_STONE),
+                ChunkCoord::new(0, 0),
+            )?;
+            let root = tree.root();
+            let radius = tree.canopy_radius_voxels(summer);
+            if radius < 2 {
+                return None;
+            }
+            (-2_i64..=2)
+                .flat_map(|dx| (-2_i64..=2).map(move |dz| (dx, dz)))
+                .filter(|&(dx, dz)| dx != 0 || dz != 0)
+                .find_map(|(dx, dz)| {
+                    let x = root.x() + dx;
+                    let z = root.z() + dz;
+                    let floor = super::super::generation::terrain_height(seed, x, z);
+                    let site = VoxelCoord::new(x, floor + 1, z);
+                    (site.y() <= root.y() - 2).then_some((seed, root, site, radius))
+                })
+        })
+        .expect("generated terrain has a valley under a mature neighboring crown");
+
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert!(state.world().tree_at(root).is_some());
+    assert_eq!(state.world().block_at(valley), Some(BlockStateId::AIR));
+    assert!(has_open_sky(&registries, &state, valley));
+    apply_clock_advance(&mut state, summer);
+    assert_eq!(calendar.date_at(state.tick()).season(), Season::Summer);
+
+    let distance = root
+        .x()
+        .abs_diff(valley.x())
+        .max(root.z().abs_diff(valley.z()));
+    let shade = crown_shade_at_distance(radius, distance);
+    assert!(shade > 0);
+    assert_eq!(
+        assess_generated_skylight(&registries, &state, valley),
+        9_u8.saturating_sub(shade),
+        "being two or more voxels downhill cannot make an overhead crown disappear"
+    );
+    let above = VoxelCoord::new(valley.x(), root.y() + 6, valley.z());
+    assert!(has_open_sky(&registries, &state, above));
+    assert_eq!(assess_generated_skylight(&registries, &state, above), 9);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn transplanted_overlapping_crowns_compound_actual_skylight_and_survive_load() {
     use crate::player::validate_admit_player;
     use crate::world::{WorldGenerationProfile, validate_transplant_juvenile};

@@ -13,7 +13,6 @@ use super::{ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y};
 
 const MAX_CANOPY_RADIUS: i64 = 3;
 const CANOPY_VERTICAL_REACH_ABOVE_ROOT: i64 = 5;
-const CANOPY_VERTICAL_REACH_BELOW_ROOT: i64 = 1;
 
 /// Quarter-day direct-sky brightness. The same levels drive both visible
 /// skylight and the daylight budget supporting a rooted plant's next crop.
@@ -47,6 +46,8 @@ fn crown_shade_at_distance(radius: u8, horizontal: u64) -> u8 {
 /// Trunk opacity remains separate. A deciduous crown has little
 /// leaf area in winter, and spring/autumn attenuate less than summer. Multiple
 /// overlapping crowns can block substantially more daylight than one crown.
+/// Open ground downhill from a tree remains in the crown's shadow column:
+/// only a position above the crown escapes its interception of direct sky.
 pub(crate) fn living_canopy_shade_at(
     registries: &Registries,
     state: &AppState,
@@ -69,9 +70,7 @@ pub(crate) fn living_canopy_shade_at(
                 .max(root.z().abs_diff(position.z()));
             let vertical = i128::from(position.y()) - i128::from(root.y());
             if horizontal > u64::from(radius)
-                || !(-i128::from(CANOPY_VERTICAL_REACH_BELOW_ROOT)
-                    ..=i128::from(CANOPY_VERTICAL_REACH_ABOVE_ROOT))
-                    .contains(&vertical)
+                || vertical > i128::from(CANOPY_VERTICAL_REACH_ABOVE_ROOT)
             {
                 return None;
             }
