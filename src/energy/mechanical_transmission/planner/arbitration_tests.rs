@@ -63,7 +63,7 @@ fn equal_aggregate_delivery_prefers_less_friction_then_stable_physical_order() {
             rollers: vec![StructuralElementId::new(2)],
         },
     ];
-    // One 100 J transfer conflicts with two disjoint 50 J transfers.
+    // One 100 nJ transfer conflicts with two disjoint 50 nJ transfers.
     // The latter pair draws less energy in total.
     let pairs = vec![
         candidate(0, 1, 1, 2, 100, 150),
@@ -531,5 +531,120 @@ fn articulation_search_handles_long_connected_shaft_chain() {
     assert_eq!(
         weak_connector_candidates(&pairs, &runs, &(0..count).collect::<Vec<_>>()),
         vec![count - 2, count - 3, count - 4, count - 5]
+    );
+}
+
+#[test]
+fn parallel_weak_connectors_cannot_reduce_independent_shaft_work() {
+    // Four crossing/side runs deliver 260 nJ versus 240 nJ from the three
+    // stronger incumbents. Ten independent shafts deliver another 1,000 nJ.
+    let mut runs = (0..10)
+        .map(|index| ShaftRun {
+            rollers: vec![StructuralElementId::new(100 + index)],
+        })
+        .collect::<Vec<_>>();
+    runs.extend([
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(1), StructuralElementId::new(2)],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(3), StructuralElementId::new(4)],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(5), StructuralElementId::new(6)],
+        },
+        ShaftRun {
+            rollers: vec![
+                StructuralElementId::new(1),
+                StructuralElementId::new(3),
+                StructuralElementId::new(5),
+            ],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(2)],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(4)],
+        },
+        ShaftRun {
+            rollers: vec![StructuralElementId::new(6)],
+        },
+    ]);
+    let mut pairs = (0..runs.len())
+        .map(|run| {
+            let delivered = match run {
+                0..10 => 100,
+                10..13 => 80,
+                _ => 65,
+            };
+            let source = 2 * run as u64 + 1;
+            candidate(
+                run,
+                run as u32 + 1,
+                source,
+                source + 1,
+                delivered,
+                delivered + 20,
+            )
+        })
+        .collect::<Vec<_>>();
+    let expected = (0..10).chain(13..17).collect::<Vec<_>>();
+    assert_eq!(
+        select_shaft_pairs(&pairs, &runs)
+            .iter()
+            .map(|pair| pair.run)
+            .collect::<Vec<_>>(),
+        expected
+    );
+
+    // Neither weak connector is an articulation because the other still
+    // bridges the previously independent groups. Neither can improve work.
+    for run in 17..19 {
+        runs.push(ShaftRun {
+            rollers: (1..=6)
+                .chain(100..110)
+                .map(StructuralElementId::new)
+                .collect(),
+        });
+        let source = 2 * run as u64 + 1;
+        pairs.push(candidate(run, run as u32 + 1, source, source + 1, 1, 2));
+    }
+    assert_eq!(conflict_groups(&pairs, &runs).len(), 1);
+    assert!(
+        weak_connector_candidates(&pairs, &runs, &(0..pairs.len()).collect::<Vec<_>>()).is_empty(),
+        "parallel connectors make every individual candidate non-articulating"
+    );
+    let connected = select_shaft_pairs(&pairs, &runs);
+    assert_eq!(
+        connected.iter().map(|pair| pair.run).collect::<Vec<_>>(),
+        expected,
+        "two weak parallel connectors must not reduce the useful work of existing shafts"
+    );
+    assert_eq!(
+        connected
+            .iter()
+            .map(|pair| pair.transfer.delivered().nanojoules())
+            .sum::<u128>(),
+        1_260
+    );
+
+    // Two weaker alternatives attached to one side of the graph are not
+    // connectors. They must not hide the two true parallel bridges by
+    // occupying the final positions in the ranked candidate list.
+    for run in 19..21 {
+        runs.push(ShaftRun {
+            rollers: vec![StructuralElementId::new(100)],
+        });
+        let source = 2 * run as u64 + 1;
+        pairs.push(candidate(run, run as u32 + 1, source, source + 1, 1, 3));
+    }
+    let with_weaker_tail = select_shaft_pairs(&pairs, &runs);
+    assert_eq!(
+        with_weaker_tail
+            .iter()
+            .map(|pair| pair.run)
+            .collect::<Vec<_>>(),
+        expected,
+        "bounded suffix cuts must still find the original work despite a weaker tail"
     );
 }

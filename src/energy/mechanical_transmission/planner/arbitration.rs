@@ -2,9 +2,9 @@
 //!
 //! Small connected conflict groups are solved exactly. Exceptionally large
 //! groups retain an exact optimum over their first sixteen ranked candidates,
-//! then compare it with greedy selection and bounded replacements. This
-//! prevents adding a weak seventeenth option from destroying correlated choices
-//! that the exact solver had already established.
+//! then compare it with greedy selection and bounded replacements. Weak
+//! connector removal also considers small suffix cuts: parallel paths can
+//! connect independent groups without any one path being an articulation.
 
 use super::*;
 
@@ -208,6 +208,13 @@ fn aggregate_work(pairs: &[ShaftPair], indices: &[usize]) -> (AggregateWork, Agg
     )
 }
 
+fn better_aggregate_work(
+    proposed: (AggregateWork, AggregateWork),
+    current: (AggregateWork, AggregateWork),
+) -> bool {
+    proposed.0 > current.0 || (proposed.0 == current.0 && proposed.1 < current.1)
+}
+
 /// Refill available paths after releasing one or two incumbents. An equal
 /// delivery with greater source draw is not an improvement.
 fn improved_completion(
@@ -225,9 +232,7 @@ fn improved_completion(
         .collect::<Vec<_>>();
     let alternative = greedy_completion(pairs, runs, indices, &retained, excluded);
     let alternative_work = aggregate_work(pairs, &alternative);
-    (alternative_work.0 > current_work.0
-        || (alternative_work.0 == current_work.0 && alternative_work.1 < current_work.1))
-        .then_some(alternative)
+    better_aggregate_work(alternative_work, current_work).then_some(alternative)
 }
 
 /// Local one- and two-shaft exchanges cannot solve arbitrary dense conflicts,
@@ -291,11 +296,10 @@ fn greedy_group_indices(
     // exchanges without a combinatorial search over the entire large group.
     let prefix = exact_group_indices(pairs, runs, &indices[..EXACT_CONFLICT_LIMIT]);
     let baseline = greedy_completion(pairs, runs, indices, &prefix, &[]);
-    let (baseline_delivered, baseline_drawn) = aggregate_work(pairs, &baseline);
-    let (greedy_delivered, greedy_drawn) = aggregate_work(pairs, &selected);
-    if baseline_delivered > greedy_delivered
-        || (baseline_delivered == greedy_delivered && baseline_drawn < greedy_drawn)
-    {
+    if better_aggregate_work(
+        aggregate_work(pairs, &baseline),
+        aggregate_work(pairs, &selected),
+    ) {
         selected = baseline;
     }
     selected = refine_bounded_replacements(pairs, runs, indices, selected);
@@ -305,46 +309,60 @@ fn greedy_group_indices(
     selected
 }
 
-/// A weak connector can merge otherwise independent exact-search components.
-/// Probe the lowest-priority actual articulation paths, not an arbitrary suffix:
-/// non-bridging lower-ranked options cannot hide a useful group split.
+/// One weak path can connect independent exact-search components. Probe
+/// actual articulations and bounded low-work suffix cuts: two parallel
+/// bridges are not articulations, but removing both may restore a better
+/// allocation in what were previously independent workshops.
 fn refine_weak_connector_splits(
     pairs: &[ShaftPair],
     runs: &[ShaftRun],
     indices: &[usize],
     mut selected: Vec<usize>,
 ) -> Vec<usize> {
+    let mut current_work = aggregate_work(pairs, &selected);
     for connector in weak_connector_candidates(pairs, runs, indices) {
-        let Some(separated) = completion_without_weak_connector(pairs, runs, indices, connector)
+        let Some(separated) = completion_without_candidates(pairs, runs, indices, &[connector])
         else {
             continue;
         };
-        let current_work = aggregate_work(pairs, &selected);
         let separated_work = aggregate_work(pairs, &separated);
-        if separated_work.0 > current_work.0
-            || (separated_work.0 == current_work.0 && separated_work.1 < current_work.1)
-        {
+        if better_aggregate_work(separated_work, current_work) {
             selected = separated;
+            current_work = separated_work;
+        }
+    }
+    // Parallel connectors defeat one-at-a-time articulation analysis. Probe
+    // only a constant number of low-work tail exclusions, not every subset.
+    // Later non-bridging paths can be dropped together with the real bridges.
+    for omitted in 2..=indices.len().min(WEAK_CONNECTOR_PROBES) {
+        let suffix = &indices[indices.len() - omitted..];
+        let Some(separated) = completion_without_candidates(pairs, runs, indices, suffix) else {
+            continue;
+        };
+        let separated_work = aggregate_work(pairs, &separated);
+        if better_aggregate_work(separated_work, current_work) {
+            selected = separated;
+            current_work = separated_work;
         }
     }
     selected
 }
 
-/// Removing one candidate permits an independent exact solution in each
-/// disconnected component. Still-large components keep the bounded fallback,
-/// without recursively probing additional bridges.
-fn completion_without_weak_connector(
+/// Excluding a bounded number of paths allows each remaining independent
+/// component to be solved exactly. Larger components keep the bounded
+/// fallback; no recursive candidate-removal search is attempted.
+fn completion_without_candidates(
     pairs: &[ShaftPair],
     runs: &[ShaftRun],
     indices: &[usize],
-    connector: usize,
+    omitted: &[usize],
 ) -> Option<Vec<usize>> {
-    let without_connector = indices
+    let remaining = indices
         .iter()
         .copied()
-        .filter(|&index| index != connector)
+        .filter(|index| !omitted.contains(index))
         .collect::<Vec<_>>();
-    let candidates = without_connector
+    let candidates = remaining
         .iter()
         .map(|&index| pairs[index])
         .collect::<Vec<_>>();
@@ -356,7 +374,7 @@ fn completion_without_weak_connector(
     for group in groups {
         let original_indices = group
             .into_iter()
-            .map(|index| without_connector[index])
+            .map(|index| remaining[index])
             .collect::<Vec<_>>();
         if original_indices.len() <= EXACT_CONFLICT_LIMIT {
             selected.extend(exact_group_indices(pairs, runs, &original_indices));
