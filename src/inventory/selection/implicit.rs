@@ -11,6 +11,8 @@ use super::super::state::{
 };
 use super::ConsumptionSelection;
 
+mod reassignment;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ConsumptionSelectionError {
     UnknownStockpile {
@@ -47,23 +49,39 @@ pub(crate) fn validate_consumption_selection_with_filter(
         return Err(ConsumptionSelectionError::UnknownStockpile { stockpile: source });
     };
 
-    let mut total_consumed = Mass::ZERO;
     let mut lot_slices = Vec::new();
     let mut selected_by_lot = BTreeMap::<MaterialLotId, Mass>::new();
-    for input in inputs {
-        let selected =
-            select_input_lot_slices(state, source_record, input, &mut selected_by_lot, &eligible)
-                .map_err(|available| ConsumptionSelectionError::InsufficientMass {
-                stockpile: source,
-                commodity: input.commodity(),
-                available,
-                requested: input.mass(),
-            })?;
-        total_consumed = total_consumed
-            .checked_add(input.mass())
-            .ok_or(ConsumptionSelectionError::MassOverflow { stockpile: source })?;
-        lot_slices.extend(selected);
+    for (index, input) in inputs.iter().enumerate() {
+        match select_input_lot_slices(state, source_record, input, &mut selected_by_lot, &eligible)
+        {
+            Ok(selected) => lot_slices.extend(selected),
+            Err(available) => {
+                let shortage = ConsumptionSelectionError::InsufficientMass {
+                    stockpile: source,
+                    commodity: input.commodity(),
+                    available,
+                    requested: input.mass(),
+                };
+                // Other commodities cannot free this ingredient. Search only when the
+                // rejected requirement competes with an earlier one for the same lots.
+                if !inputs[..index]
+                    .iter()
+                    .any(|previous| previous.commodity() == input.commodity())
+                {
+                    return Err(shortage);
+                }
+                lot_slices =
+                    reassignment::reassign_eligible_lots(state, source_record, inputs, &eligible)
+                        .ok_or(shortage)?;
+                break;
+            }
+        }
     }
+    inputs.iter().try_fold(Mass::ZERO, |total, input| {
+        total
+            .checked_add(input.mass())
+            .ok_or(ConsumptionSelectionError::MassOverflow { stockpile: source })
+    })?;
 
     let consumed_inputs = lot_slices
         .iter()

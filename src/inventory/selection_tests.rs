@@ -8,7 +8,293 @@ use crate::inventory::state::get_stockpile_mut_or_panic;
 use crate::inventory::{
     add_solid_stockpile_for_test, deposit_composed_lot_for_test, deposit_lot_for_test,
 };
-use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
+use crate::material::{
+    CommodityKey, CompositionComponent, CompositionConstraint, MaterialComposition,
+};
+
+#[test]
+fn implicit_selection_reassigns_earlier_lots_to_satisfy_overlapping_composition_requirements() {
+    use crate::core::state::validate_loaded_state;
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000)).unwrap();
+    let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let pure = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        commodity,
+        Mass::from_milligrams(100),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let mix = |wood, stone| {
+        MaterialComposition::new(vec![
+            CompositionComponent::new(MATERIAL_WOOD, wood),
+            CompositionComponent::new(MATERIAL_STONE, stone),
+        ])
+        .unwrap()
+    };
+    let rich = deposit_composed_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        commodity,
+        Mass::from_milligrams(100),
+        Temperature::from_millikelvin(293_150),
+        mix(900_000, 100_000),
+    )
+    .unwrap();
+    let mixed = deposit_composed_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        commodity,
+        Mass::from_milligrams(100),
+        Temperature::from_millikelvin(293_150),
+        mix(800_000, 200_000),
+    )
+    .unwrap();
+    let inputs = [
+        MaterialInputSpec::with_constraints(
+            commodity,
+            Mass::from_milligrams(100),
+            vec![CompositionConstraint::new(MATERIAL_WOOD, 900_000, 1_000_000).unwrap()],
+        )
+        .unwrap(),
+        MaterialInputSpec::with_constraints(
+            commodity,
+            Mass::from_milligrams(100),
+            vec![CompositionConstraint::new(MATERIAL_STONE, 100_000, 500_000).unwrap()],
+        )
+        .unwrap(),
+        MaterialInputSpec::pure(commodity, Mass::from_milligrams(100)),
+    ];
+    let before = state.clone();
+    let selection = validate_consumption_selection(state.inventory(), source, &inputs)
+        .expect("three physical lots admit a feasible allocation through reassignment");
+    assert_eq!(
+        selection.lot_slices,
+        vec![
+            LotSlice {
+                lot: rich,
+                mass: Mass::from_milligrams(100)
+            },
+            LotSlice {
+                lot: mixed,
+                mass: Mass::from_milligrams(100)
+            },
+            LotSlice {
+                lot: pure,
+                mass: Mass::from_milligrams(100)
+            },
+        ]
+    );
+    assert_eq!(selection.total_consumed(), Mass::from_milligrams(300));
+    assert_eq!(
+        validate_temperature_limited_consumption_selection(
+            state.inventory(),
+            source,
+            &inputs,
+            Temperature::from_millikelvin(293_150),
+        ),
+        Ok(selection.clone()),
+        "temperature-limited callers share complete physical reassignment"
+    );
+
+    let partial_inputs = [
+        MaterialInputSpec::with_constraints(
+            commodity,
+            Mass::from_milligrams(80),
+            inputs[0].constraints().to_vec(),
+        )
+        .unwrap(),
+        MaterialInputSpec::with_constraints(
+            commodity,
+            Mass::from_milligrams(120),
+            inputs[1].constraints().to_vec(),
+        )
+        .unwrap(),
+        inputs[2].clone(),
+    ];
+    let partial = validate_consumption_selection(state.inventory(), source, &partial_inputs)
+        .expect("a partial residual exchange can distribute one lot among two inputs");
+    assert_eq!(
+        assert_consumption_parts_match_state(
+            state.inventory(),
+            source,
+            &partial.inputs,
+            &partial.lot_slices,
+            &partial.consumed_inputs,
+        ),
+        (),
+        "reassigned slices must still pass the canonical inventory integrity replay"
+    );
+    assert_eq!(
+        partial.lot_slices,
+        vec![
+            LotSlice {
+                lot: rich,
+                mass: Mass::from_milligrams(80)
+            },
+            LotSlice {
+                lot: rich,
+                mass: Mass::from_milligrams(20)
+            },
+            LotSlice {
+                lot: mixed,
+                mass: Mass::from_milligrams(100)
+            },
+            LotSlice {
+                lot: pure,
+                mass: Mass::from_milligrams(100)
+            }
+        ]
+    );
+    assert_eq!(partial.total_consumed(), Mass::from_milligrams(300));
+    let impossible = [
+        inputs[0].clone(),
+        inputs[1].clone(),
+        MaterialInputSpec::pure(commodity, Mass::from_milligrams(101)),
+    ];
+    assert_eq!(
+        validate_consumption_selection(state.inventory(), source, &impossible),
+        Err(ConsumptionSelectionError::InsufficientMass {
+            stockpile: source,
+            commodity,
+            available: Mass::ZERO,
+            requested: Mass::from_milligrams(101)
+        }),
+        "infeasible restricted requirements must still reject rather than double-count a lot"
+    );
+    assert_eq!(state, before, "selection is a read-only transaction");
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+    assert_eq!(
+        validate_consumption_selection(restored.inventory(), source, &inputs),
+        Ok(selection),
+        "canonical lot identity and the reassignment plan survive trusted persistence"
+    );
+}
+
+#[test]
+fn temperature_limited_reassignment_keeps_hot_lots_out_of_a_feasible_recipe() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000)).unwrap();
+    let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let cool = Temperature::from_millikelvin(293_150);
+    let hot = Temperature::from_millikelvin(370_000);
+    let pure = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        commodity,
+        Mass::from_milligrams(100),
+        cool,
+    )
+    .unwrap();
+    let composed = |wood, stone| {
+        MaterialComposition::new(vec![
+            CompositionComponent::new(MATERIAL_WOOD, wood),
+            CompositionComponent::new(MATERIAL_STONE, stone),
+        ])
+        .unwrap()
+    };
+    let hot_rich = deposit_composed_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        commodity,
+        Mass::from_milligrams(100),
+        hot,
+        composed(900_000, 100_000),
+    )
+    .unwrap();
+    let mixed = deposit_composed_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        commodity,
+        Mass::from_milligrams(100),
+        cool,
+        composed(800_000, 200_000),
+    )
+    .unwrap();
+    let cool_rich = deposit_composed_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        commodity,
+        Mass::from_milligrams(100),
+        cool,
+        composed(900_000, 100_000),
+    )
+    .unwrap();
+    let inputs = [
+        MaterialInputSpec::with_constraints(
+            commodity,
+            Mass::from_milligrams(100),
+            vec![CompositionConstraint::new(MATERIAL_WOOD, 900_000, 1_000_000).unwrap()],
+        )
+        .unwrap(),
+        MaterialInputSpec::with_constraints(
+            commodity,
+            Mass::from_milligrams(100),
+            vec![CompositionConstraint::new(MATERIAL_STONE, 100_000, 500_000).unwrap()],
+        )
+        .unwrap(),
+        MaterialInputSpec::pure(commodity, Mass::from_milligrams(100)),
+    ];
+    let before = state.clone();
+    let unconstrained = validate_consumption_selection(state.inventory(), source, &inputs)
+        .expect("hot mixed material is physically available before hand safety is considered");
+    assert!(
+        unconstrained
+            .lot_slices
+            .iter()
+            .any(|slice| slice.lot == hot_rich),
+        "without a temperature limit, the identity-ordered material is usable"
+    );
+    let safe = validate_temperature_limited_consumption_selection(
+        state.inventory(),
+        source,
+        &inputs,
+        crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+    )
+    .expect("cool alternative can satisfy every overlapping constraint");
+    assert_eq!(
+        safe.lot_slices,
+        vec![
+            LotSlice {
+                lot: cool_rich,
+                mass: Mass::from_milligrams(100)
+            },
+            LotSlice {
+                lot: mixed,
+                mass: Mass::from_milligrams(100)
+            },
+            LotSlice {
+                lot: pure,
+                mass: Mass::from_milligrams(100)
+            }
+        ]
+    );
+    assert!(
+        safe.consumed_inputs()
+            .iter()
+            .all(|trace| trace.profile().temperature()
+                <= crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE)
+    );
+    assert_eq!(state, before);
+}
 
 #[test]
 fn implicit_selection_uses_ordered_eligible_lots_and_stops_at_requested_mass() {
