@@ -19,8 +19,12 @@ const COOLING_REFERENCE_CELSIUS: i32 = 12;
 const COOLING_PER_DEGREE_PPM: i32 = 30_000;
 const BREEZE_COOLING_PPM: u32 = 180_000;
 const GUST_COOLING_PPM: u32 = 400_000;
-const MINIMUM_COOLING_PPM: u32 = 400_000;
+const COLD_EXPOSURE_MINIMUM_COOLING_PPM: u32 = 400_000;
 const MAXIMUM_COOLING_PPM: u32 = 2_500_000;
+/// Hot outdoor air can restore warmth without a fire. Blend the cold demand
+/// down through the comfortable range rather than imposing summer hypothermia.
+const WARM_TRANSITION_START_CELSIUS: i32 = 20;
+const NEUTRAL_AMBIENT_CELSIUS: i32 = 26;
 
 fn wind_cooling_ppm(wind: WindCondition) -> u32 {
     match wind {
@@ -31,13 +35,21 @@ fn wind_cooling_ppm(wind: WindCondition) -> u32 {
 }
 
 fn air_cooling_multiplier_ppm(celsius: i32, wind_cooling_ppm: u32) -> u32 {
-    let cooling = (1_000_000_i64
+    let cold_cooling = (1_000_000_i64
         + i64::from(COOLING_REFERENCE_CELSIUS - celsius) * i64::from(COOLING_PER_DEGREE_PPM)
         + i64::from(wind_cooling_ppm))
     .clamp(
-        i64::from(MINIMUM_COOLING_PPM),
+        i64::from(COLD_EXPOSURE_MINIMUM_COOLING_PPM),
         i64::from(MAXIMUM_COOLING_PPM),
     );
+    let cooling = if celsius >= WARM_TRANSITION_START_CELSIUS {
+        let remaining = (NEUTRAL_AMBIENT_CELSIUS - celsius)
+            .clamp(0, NEUTRAL_AMBIENT_CELSIUS - WARM_TRANSITION_START_CELSIUS);
+        cold_cooling * i64::from(remaining)
+            / i64::from(NEUTRAL_AMBIENT_CELSIUS - WARM_TRANSITION_START_CELSIUS)
+    } else {
+        cold_cooling
+    };
     u32::try_from(cooling).expect("authored weather cooling bound fits u32")
 }
 

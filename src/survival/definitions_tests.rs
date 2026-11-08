@@ -222,6 +222,34 @@ fn zero_fixed_point_cooling_has_no_discomfort_horizon_and_never_divides_by_zero(
     );
 }
 
+#[test]
+fn only_truly_neutral_generated_weather_can_passively_restore_comfort() {
+    let thermal = ThermalComfortDefinition::new(500_000, 2, 1, 10, Energy::from_nanojoules(1), 1);
+    for exposure in [
+        ThermalExposure::Open,
+        ThermalExposure::OverheadCover,
+        ThermalExposure::GeneratedOpen {
+            cooling_multiplier_ppm: 400_000,
+        },
+        ThermalExposure::GeneratedOverheadCover {
+            cooling_multiplier_ppm: 400_000,
+        },
+    ] {
+        assert_eq!(thermal.ambient_warmth_gain_ppm_per_tick(exposure), 0);
+    }
+    for exposure in [
+        ThermalExposure::GeneratedOpen {
+            cooling_multiplier_ppm: 0,
+        },
+        ThermalExposure::GeneratedOverheadCover {
+            cooling_multiplier_ppm: 0,
+        },
+    ] {
+        assert_eq!(thermal.exposure_loss_ppm_per_tick(exposure), 0);
+        assert_eq!(thermal.ambient_warmth_gain_ppm_per_tick(exposure), 2);
+    }
+}
+
 fn physiology(starvation_loss: u32, dehydration_loss: u32) -> PhysiologyDefinition {
     physiology_with_carry(Mass::from_milligrams(1), starvation_loss, dehydration_loss)
 }

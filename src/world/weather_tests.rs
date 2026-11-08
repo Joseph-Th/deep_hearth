@@ -113,7 +113,10 @@ fn weather_changes_with_real_time_season_and_region_without_random_mutation() {
     assert_eq!(now.season(), Season::Spring);
     assert_eq!(now.phase(), DayPhase::Morning);
     assert!(now.changes_in().value() > 0 && now.changes_in().value() <= WEATHER_FRONT_TICKS);
-    assert!((MINIMUM_COOLING_PPM..=MAXIMUM_COOLING_PPM).contains(&now.cooling_multiplier_ppm()));
+    assert!(
+        (COLD_EXPOSURE_MINIMUM_COOLING_PPM..=MAXIMUM_COOLING_PPM)
+            .contains(&now.cooling_multiplier_ppm())
+    );
     assert_eq!(assess_player_weather(&registries, &state), Some(now));
     assert_eq!(
         before, state,
@@ -363,4 +366,97 @@ fn upwind_terrain_reduces_actual_cooling_and_the_player_forecast_without_changin
     assert!(outcomes[0].0 > outcomes[1].0 && outcomes[1].0 > outcomes[2].0);
     assert!(outcomes[0].1 > outcomes[1].1 && outcomes[1].1 > outcomes[2].1);
     assert!(outcomes[0].2 < outcomes[1].2 && outcomes[1].2 < outcomes[2].2);
+}
+
+#[test]
+fn outdoor_cooling_tapers_monotonically_into_neutral_summer_air() {
+    for wind in [
+        WindCondition::Calm,
+        WindCondition::Breeze,
+        WindCondition::Gusting,
+    ] {
+        let surcharge = wind_cooling_ppm(wind);
+        let mut previous = air_cooling_multiplier_ppm(19, surcharge);
+        assert!(previous >= COLD_EXPOSURE_MINIMUM_COOLING_PPM);
+        for temperature in 20..=30 {
+            let current = air_cooling_multiplier_ppm(temperature, surcharge);
+            assert!(
+                current <= previous,
+                "warmer air cannot increase cold exposure"
+            );
+            previous = current;
+        }
+        assert!(air_cooling_multiplier_ppm(25, surcharge) > 0);
+        assert_eq!(air_cooling_multiplier_ppm(26, surcharge), 0);
+        assert_eq!(air_cooling_multiplier_ppm(30, surcharge), 0);
+    }
+}
+
+#[test]
+fn summer_heat_prevents_unheated_cold_injury_and_restores_chilled_comfort() {
+    use crate::core::state::apply_clock_advance;
+    use crate::survival::{Vitality, player_record_with_thermal_comfort};
+
+    let (registries, mut state, seed) = generated_player();
+    let position = state.logistics().player().unwrap().position();
+    let calendar = registries.core().calendar();
+    let season_days =
+        u64::from(calendar.days_per_month()) * u64::from(calendar.months_per_year() / 4);
+    let summer_start = calendar.ticks_per_day() * season_days;
+    let summer_afternoon = summer_start + calendar.ticks_per_day() / 4;
+    let hot_front = (0..calendar.ticks_per_day() / WEATHER_FRONT_TICKS)
+        .map(|offset| SimulationTick::new(summer_afternoon + offset * WEATHER_FRONT_TICKS))
+        .find(|&at| {
+            let weather = weather_at(&registries, seed.value(), position, at);
+            weather.phase() == DayPhase::Afternoon
+                && weather.ambient_temperature().millikelvin() >= 299_150
+        })
+        .expect("a summer afternoon produces hot air at the player");
+    apply_clock_advance(&mut state, hot_front);
+    let weather = assess_player_weather(&registries, &state).unwrap();
+    assert!(weather.ambient_temperature().millikelvin() >= 299_150);
+    assert_eq!(weather.cooling_multiplier_ppm(), 0);
+    assert_eq!(
+        assess_player_unheated_comfort_runway(&registries, &state)
+            .unwrap()
+            .current(),
+        None,
+        "hot outdoor air must not advertise a countdown to cold"
+    );
+
+    let original = *state.survival().player().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            original.metabolic_energy(),
+            original.hydration(),
+            Vitality::from_parts_per_million_unchecked(500_000),
+            original.nutrition(),
+            original.vitality_recovery_remainder(),
+            0,
+        ),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for _ in 0..crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+        let _ = advance_control_tick(&registries, &mut replay).unwrap();
+    }
+    assert_eq!(state, replay);
+    let after = state.survival().player().unwrap();
+    assert!(
+        after.thermal_comfort_ppm() > 0,
+        "hot ambient air should warm an already cold person without a fire"
+    );
+    assert!(
+        after.vitality().parts_per_million() >= 500_000,
+        "warm outdoor air cannot continue applying cold injury"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }

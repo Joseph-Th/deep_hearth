@@ -129,7 +129,9 @@ fn resolve_tick_resources(
         .unwrap_or(Volume::ZERO);
     let thermal = physiology.thermal_comfort();
     let thermal_loss = thermal.exposure_loss_ppm_per_tick(thermal_exposure);
-    let heat_gain = thermal.local_heat_gain_ppm(local_heat);
+    let heat_gain = thermal
+        .local_heat_gain_ppm(local_heat)
+        .saturating_add(thermal.ambient_warmth_gain_ppm_per_tick(thermal_exposure));
     let heat_shortfall = thermal_loss.saturating_sub(before.thermal_comfort_ppm());
     let thermal_after_loss = before.thermal_comfort_ppm().saturating_sub(thermal_loss);
     let thermal_after = thermal_after_loss

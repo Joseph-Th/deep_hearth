@@ -317,8 +317,9 @@ impl SurvivalStressDefinition {
 pub enum ThermalExposure {
     Open,
     OverheadCover,
-    /// Ambient wind and temperature alter generated-world cooling without
-    /// changing the meaning of a built roof or adding virtual heat energy.
+    /// Ambient wind and temperature alter generated-world cooling; a zero
+    /// multiplier means warm air can restore lost comfort without a fire.
+    /// A roof still affects the positive-exposure cooling baseline.
     GeneratedOpen {
         cooling_multiplier_ppm: u32,
     },
@@ -402,6 +403,26 @@ impl ThermalComfortDefinition {
             NORMALIZED_PARTS_PER_MILLION
         } else {
             loss as u32
+        }
+    }
+
+    /// Hot generated air is an environmental heat source, not a finite energy-store
+    /// credit. A truly neutral weather multiplier restores comfort at the authored
+    /// unsheltered baseline rate. Rounded-zero cold loss and ungenerated openings
+    /// do not qualify for ambient rewarming.
+    #[must_use]
+    pub(crate) const fn ambient_warmth_gain_ppm_per_tick(self, exposure: ThermalExposure) -> u32 {
+        match exposure {
+            ThermalExposure::GeneratedOpen {
+                cooling_multiplier_ppm: 0,
+            }
+            | ThermalExposure::GeneratedOverheadCover {
+                cooling_multiplier_ppm: 0,
+            } => self.unsheltered_loss_ppm_per_tick,
+            ThermalExposure::Open
+            | ThermalExposure::OverheadCover
+            | ThermalExposure::GeneratedOpen { .. }
+            | ThermalExposure::GeneratedOverheadCover { .. } => 0,
         }
     }
 
