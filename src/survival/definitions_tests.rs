@@ -565,6 +565,11 @@ fn direct_consumption_duration_scales_with_exact_quantity() {
     );
     assert_eq!(
         definition.drink_duration(Volume::from_microliters(99)),
+        Some(TickSpan::new(2))
+    );
+    assert_eq!(definition.drink_duration(Volume::ZERO), None);
+    assert_eq!(
+        definition.drink_duration(Volume::from_microliters(1_001)),
         None
     );
 }

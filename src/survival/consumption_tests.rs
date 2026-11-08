@@ -282,20 +282,17 @@ fn adjacent_drink_source_observation_preserves_store_id_order_across_neighbor_in
 }
 
 #[test]
-fn local_drink_source_observation_keeps_visible_remainders_below_the_serving_floor() {
+fn final_subminimum_sip_is_drinkable_and_survives_save_and_continuation() {
     let registries = build_registries();
     let mut state = AppState::new();
-    initialize_player_survival(&registries, &mut state)
-        .unwrap_or_else(|error| panic!("visible-remainder survival setup failed: {error}"));
     let player_position = VoxelCoord::new(0, 0, 0);
-    validate_initialize_player_logistics(&state, player_position, Mass::from_milligrams(1))
-        .unwrap_or_else(|error| panic!("visible-remainder logistics setup failed: {error}"))
+    validate_admit_player(&registries, &state, player_position)
+        .unwrap()
         .commit(&mut state)
-        .unwrap_or_else(|error| panic!("visible-remainder logistics commit failed: {error}"));
+        .unwrap();
+    let _ = advance_tick(&registries, &mut state).unwrap();
     let minimum = minimum_drink_volume(&registries);
-    let remainder = minimum
-        .checked_sub(Volume::from_microliters(1))
-        .unwrap_or_else(|| panic!("authored drink minimum must exceed one microliter"));
+    let remainder = minimum.checked_sub(Volume::from_microliters(1)).unwrap();
     let store = add_fluid_store_with_contents_for_fixture(
         &registries,
         &mut state,
@@ -304,31 +301,92 @@ fn local_drink_source_observation_keeps_visible_remainders_below_the_serving_flo
         remainder,
         Temperature::from_millikelvin(293_150),
     )
-    .unwrap_or_else(|error| panic!("visible-remainder water fixture failed: {error}"));
+    .unwrap();
     validate_place_fluid_store(&state, store, player_position)
-        .unwrap_or_else(|error| panic!("visible-remainder placement failed: {error}"))
+        .unwrap()
         .commit(&mut state)
-        .unwrap_or_else(|error| panic!("visible-remainder placement commit failed: {error}"));
+        .unwrap();
 
     assert_eq!(
         available_local_drink_sources(&registries, &state)
             .map(|source| (source.store(), source.available_volume()))
             .collect::<Vec<_>>(),
         vec![(store, remainder)],
-        "observation must preserve a real local water remainder even when one direct serving is no longer legal"
+        "observation must preserve the exact last drops in their source"
     );
+    let hydration_before = state.survival().player().unwrap().hydration();
+    let reachable_target = hydration_before
+        .checked_add(Volume::from_microliters(1))
+        .unwrap();
+    assert!(
+        validate_drink_store_to_hydration_target(&registries, &state, store, reachable_target)
+            .unwrap()
+            .is_some(),
+        "an attainable exact hydration target must accept the same final remnant"
+    );
+    let admission = validate_drink_store_to_full(&registries, &state, store)
+        .unwrap()
+        .expect("the default use action must consume the last drinkable remnant");
+    let outcome = admission.commit(&mut state).unwrap();
+    assert_eq!(outcome.volume(), remainder);
+    assert_eq!(
+        state.fluid().get_store(store).unwrap().contents(),
+        None,
+        "a final sip withdraws the entire physical remainder"
+    );
+    assert_eq!(
+        state.survival().consumed_fluid_volume(FLUID_WATER),
+        AggregateVolume::from_volume(remainder),
+        "the conserved volume must move into the consumption ledger"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.tick() < outcome.completes_at() {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+        let _ = advance_tick(&registries, &mut replay).unwrap();
+        assert_eq!(state, replay);
+    }
+    assert!(state.survival().player().unwrap().hydration() > hydration_before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn arbitrary_subminimum_sips_from_a_larger_water_source_remain_rejected() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let minimum = minimum_drink_volume(&registries);
+    let tiny_portion = minimum.checked_sub(Volume::from_microliters(1)).unwrap();
+    let store = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        minimum,
+        FLUID_WATER,
+        minimum,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_place_fluid_store(&state, store, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
     let before = state.clone();
     assert_eq!(
-        validate_drink(&registries, &state, store, remainder).err(),
+        validate_drink(&registries, &state, store, tiny_portion).err(),
         Some(DrinkError::DrinkVolumeBelowIntakeMinimum {
-            volume: remainder,
+            volume: tiny_portion,
             minimum,
         })
     );
-    assert_eq!(
-        state, before,
-        "rejected small serving must not mutate state"
-    );
+    assert_eq!(state, before);
 }
 
 #[test]

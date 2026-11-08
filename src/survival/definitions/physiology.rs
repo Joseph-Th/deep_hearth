@@ -242,7 +242,9 @@ impl DirectConsumptionDefinition {
 
     #[must_use]
     pub fn drink_duration(self, volume: Volume) -> Option<TickSpan> {
-        if volume < self.minimum_drink_volume || volume > self.maximum_drink_volume {
+        // The minimum is an ordinary serving admission rule, not a physical
+        // duration limit. A finite vessel's last drops may form a smaller sip.
+        if volume.is_zero() || volume > self.maximum_drink_volume {
             return None;
         }
         Some(Self::scaled_duration(

@@ -10,11 +10,10 @@ use crate::logistics::validate_player_fluid_store_access;
 use crate::registry::Registries;
 use crate::survival::Vitality;
 
-use super::super::drinking::validate_drink_with_mode;
-use super::super::{
-    DrinkError, DrinkHydrationProjectionError, ValidatedDrink,
-    project_minimum_drink_to_hydration_target,
+use super::super::drinking::{
+    project_minimum_drink_to_hydration_target_for_available_source, validate_drink_with_mode,
 };
+use super::super::{DrinkError, DrinkHydrationProjectionError, ValidatedDrink};
 
 /// Failure while composing one selected fluid vessel/store into exact drinking.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -176,7 +175,7 @@ fn validate_drink_store_up_to(
     let direct = registries.survival().physiology().direct_consumption();
     let available = contents.volume();
     let portion = desired.min(available).min(direct.maximum_drink_volume());
-    if portion < direct.minimum_drink_volume() {
+    if portion < direct.minimum_drink_volume() && portion != available {
         return Err(DrinkStoreToTargetError::InsufficientVolume {
             store,
             available,
@@ -246,11 +245,12 @@ fn validate_drink_store_to_hydration_target_with_mode(
         .hydration()
         .checked_sub(pending_locomotion)
         .unwrap_or(Volume::ZERO);
-    let projected = project_minimum_drink_to_hydration_target(
+    let projected = project_minimum_drink_to_hydration_target_for_available_source(
         registries.survival().physiology(),
         drink,
         effective_hydration,
         target,
+        contents.volume(),
     )
     .map_err(DrinkStoreToTargetError::Projection)?;
     let Some(projected) = projected else {

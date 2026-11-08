@@ -100,6 +100,40 @@ pub fn project_minimum_drink_to_hydration_target(
     current: Volume,
     target: Volume,
 ) -> Result<Option<MinimumDrinkHydrationProjection>, DrinkHydrationProjectionError> {
+    project_drink_to_hydration_target_with_minimum(
+        physiology,
+        drink,
+        current,
+        target,
+        physiology.direct_consumption().minimum_drink_volume(),
+    )
+}
+
+/// A selected finite source can provide its entire last, sub-serving remainder.
+/// Keep the public abstract projection's ordinary serving minimum unchanged.
+pub(in crate::survival::consumption) fn project_minimum_drink_to_hydration_target_for_available_source(
+    physiology: PhysiologyDefinition,
+    drink: DrinkDefinition,
+    current: Volume,
+    target: Volume,
+    available: Volume,
+) -> Result<Option<MinimumDrinkHydrationProjection>, DrinkHydrationProjectionError> {
+    project_drink_to_hydration_target_with_minimum(
+        physiology,
+        drink,
+        current,
+        target,
+        available.min(physiology.direct_consumption().minimum_drink_volume()),
+    )
+}
+
+fn project_drink_to_hydration_target_with_minimum(
+    physiology: PhysiologyDefinition,
+    drink: DrinkDefinition,
+    current: Volume,
+    target: Volume,
+    minimum_drink_volume: Volume,
+) -> Result<Option<MinimumDrinkHydrationProjection>, DrinkHydrationProjectionError> {
     let maximum_hydration = physiology.maximum_hydration();
     if current > maximum_hydration {
         return Err(
@@ -122,7 +156,6 @@ pub fn project_minimum_drink_to_hydration_target(
     }
 
     let direct = physiology.direct_consumption();
-    let minimum_drink_volume = direct.minimum_drink_volume();
     let maximum_drink_volume = direct.maximum_drink_volume();
     let reserve_gap = target
         .checked_sub(current)

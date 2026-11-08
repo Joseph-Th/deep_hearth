@@ -10,6 +10,7 @@ pub use observation::{
     AdjacentDrinkSource, LocalDrinkSource, available_adjacent_drink_sources,
     available_local_drink_sources,
 };
+pub(super) use projection::project_minimum_drink_to_hydration_target_for_available_source;
 pub use projection::{
     DrinkHydrationProjectionError, MinimumDrinkHydrationProjection,
     project_minimum_drink_to_hydration_target,
@@ -35,6 +36,7 @@ use super::direct_consumption_survival_revisions;
 #[derive(Clone, Copy)]
 struct ResolvedDrinkSource {
     fluid: FluidDefinitionId,
+    available: Volume,
     temperature: Temperature,
     definition: DrinkDefinition,
 }
@@ -76,6 +78,7 @@ fn resolve_drink_source(
     }
     Ok(ResolvedDrinkSource {
         fluid: contents.fluid(),
+        available: contents.volume(),
         temperature: contents.temperature(),
         definition,
     })
@@ -84,12 +87,15 @@ fn resolve_drink_source(
 fn validate_drink_duration(
     direct_consumption: DirectConsumptionDefinition,
     volume: Volume,
+    available: Volume,
 ) -> Result<TickSpan, DrinkError> {
     if volume.is_zero() {
         return Err(DrinkError::ZeroVolume);
     }
     let minimum = direct_consumption.minimum_drink_volume();
-    if volume < minimum {
+    // A smaller sip is legal only when it exhausts the actual finite source.
+    // Ordinary draws from larger reservoirs still have a serving minimum.
+    if volume < minimum && volume != available {
         return Err(DrinkError::DrinkVolumeBelowIntakeMinimum { volume, minimum });
     }
     let maximum = direct_consumption.maximum_drink_volume();
@@ -215,7 +221,8 @@ pub(super) fn validate_drink_with_mode(
     if player.hydration() > physiology.maximum_hydration() {
         return Err(DrinkError::HydrationOverflow);
     }
-    let duration = validate_drink_duration(physiology.direct_consumption(), volume)?;
+    let duration =
+        validate_drink_duration(physiology.direct_consumption(), volume, source.available)?;
     let completes_at = state
         .tick()
         .checked_add_executable_span(duration)
