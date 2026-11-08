@@ -146,7 +146,24 @@ pub(crate) fn apply_natural_forage_cycle(
                 || !growing_season
                 || plant.root_reserve.is_zero()
                 || !state.world().has_generated_terrain_at(source.position())
-                || state.structures().blocks_full_cell(source.position())
+            {
+                return None;
+            }
+            // Age and temperature are cheap, independent admission facts.
+            // A depleted plant may spend many fronts recovering; do not trace
+            // an entire sky column and inspect constructed custody until it
+            // could actually ripen on this front.
+            let habitat = habitat_at(profile.seed(), source.position().x(), source.position().z());
+            if at.value().checked_sub(source.depleted_at()?.value())? < recovery_ticks(habitat) {
+                return None;
+            }
+            let weather = weather_at(registries, profile.seed().value(), source.position(), at);
+            // Frozen roots do not fruit; prolonged scorching also arrests
+            // this temperate shrub. The actual local weather controls yield.
+            if !(283_150..=303_150).contains(&weather.ambient_temperature().millikelvin()) {
+                return None;
+            }
+            if state.structures().blocks_full_cell(source.position())
                 // An enclosure is inventory-owned physical volume, not a structural
                 // member. It cannot hide a rooted patch and still admit fresh fruit.
                 || state.has_enclosed_stockpile_at(source.position())
@@ -163,16 +180,6 @@ pub(crate) fn apply_natural_forage_cycle(
             {
                 // Mining the rooted stone footing is a durable way to kill
                 // the patch's recovery without erasing its old matter.
-                return None;
-            }
-            let habitat = habitat_at(profile.seed(), source.position().x(), source.position().z());
-            if at.value().checked_sub(source.depleted_at()?.value())? < recovery_ticks(habitat) {
-                return None;
-            }
-            let weather = weather_at(registries, profile.seed().value(), source.position(), at);
-            // Frozen roots do not fruit; prolonged scorching also arrests
-            // this temperate shrub. The actual local weather controls yield.
-            if !(283_150..=303_150).contains(&weather.ambient_temperature().millikelvin()) {
                 return None;
             }
             // The physical crown of an older neighboring tree intercepts
