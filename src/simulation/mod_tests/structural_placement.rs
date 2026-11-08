@@ -57,6 +57,97 @@ fn impossible_timber_use_rejects_on_input_tick_instead_of_queuing() {
 }
 
 #[test]
+fn side_wall_fire_refueling_uses_multiple_valid_timber_lots_without_placement_ambiguity() {
+    use crate::content::{CAMPFIRE_FUEL_THERMAL_ENERGY, ENERGY_STONE_RING_CAMPFIRE, FORM_LUMP};
+    use crate::energy::validate_assemble_energy_store;
+    use crate::inventory::project_material_stacks;
+
+    let (registries, mut state, foot_y) = generated_grounded_player_at(0, 0);
+    let wall = VoxelCoord::new(2, foot_y + 1, 0);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(1, foot_y + 1, 0),
+        BlockStateId::AIR,
+    );
+    set_generated_block_for_test(registries.world(), &mut state, wall, BLOCK_STATE_STONE);
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(1_000_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let fire =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, carried)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    let timber = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    for temperature in [293_150, 303_150] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            timber,
+            Mass::from_milligrams(500_000),
+            Temperature::from_millikelvin(temperature),
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        project_material_stacks(&registries, &state, carried)
+            .unwrap()
+            .into_iter()
+            .filter(|stack| stack.commodity() == timber)
+            .count(),
+        2
+    );
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(timber)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    let direction = ViewDirection::new(1_000_000, 0, 0).unwrap();
+    let mut result = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(direction)),
+    )
+    .unwrap();
+    assert_eq!(
+        result.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    for _ in 1..CONTROL_TICKS_PER_SIMULATION_TICK {
+        result = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(
+        result.secondary_action(),
+        Some(&SecondaryActionOutcome::CombustionFuelAdded {
+            store: fire,
+            released: CAMPFIRE_FUEL_THERMAL_ENERGY,
+        })
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
 fn pointed_supported_post_retains_priority_over_local_refueling() {
     use crate::content::{CAMPFIRE_FUEL_MASS, ENERGY_STONE_RING_CAMPFIRE, FORM_LUMP};
     use crate::energy::validate_assemble_energy_store;

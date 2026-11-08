@@ -348,6 +348,32 @@ pub(super) fn attempt_selected_timber_cover_placement(
     )
 }
 
+/// Placement needs one physical material cohort, but an invalid pointed post
+/// should not hide a co-located fuel transaction that can combine several lots.
+/// Structural-face support takes priority over the terrain-face rejection.
+fn resolve_timber_stack_for_pointed_use(
+    registries: &Registries,
+    state: &AppState,
+    commodity: CommodityKey,
+    direction: ViewDirection,
+) -> Result<crate::inventory::MaterialStackProjection, SecondaryActionOutcome> {
+    let selection = resolve_unique_carried_stack(registries, state, commodity);
+    if matches!(
+        &selection,
+        Err(SecondaryActionOutcome::AmbiguousMaterialStacks { .. })
+    ) && commodity == CommodityKey::new(MATERIAL_WOOD, FORM_LOG)
+        && matches!(
+            resolve_supported_timber_target(registries, state, direction),
+            Ok(None)
+        )
+        && let Ok((face, _)) = resolve_direct_placement_target(registries, state, direction)
+        && face != CubeFace::Top
+    {
+        return Err(SecondaryActionOutcome::StructuralPlacementRequiresTopFace { face });
+    }
+    selection
+}
+
 pub(super) fn attempt_selected_timber_placement(
     registries: &Registries,
     state: &mut AppState,
@@ -358,7 +384,8 @@ pub(super) fn attempt_selected_timber_placement(
     if !is_roller && commodity != CommodityKey::new(MATERIAL_WOOD, FORM_LOG) {
         return None;
     }
-    let stack = match resolve_unique_carried_stack(registries, state, commodity) {
+    let stack = match resolve_timber_stack_for_pointed_use(registries, state, commodity, direction)
+    {
         Ok(stack) => stack,
         Err(outcome) => return Some(outcome),
     };
