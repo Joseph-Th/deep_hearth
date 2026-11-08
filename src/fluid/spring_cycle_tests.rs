@@ -55,6 +55,112 @@ fn actual_natural_pool() -> (Registries, AppState, super::super::FluidStoreId, V
 }
 
 #[test]
+fn completely_drained_natural_spring_stays_inert_until_real_refill() {
+    use crate::content::FLUID_WATER;
+    use crate::core::quantity::Temperature;
+    use crate::core::state::apply_clock_advance;
+    use crate::fluid::{
+        add_fluid_store, add_fluid_store_with_contents_for_fixture,
+        validate_transfer_fluid_between_local_stores,
+    };
+    use crate::logistics::{relocate_player_for_test, validate_place_fluid_store};
+
+    let (registries, mut state, pool, position) = actual_natural_pool();
+    assert_eq!(
+        state.fluid().spring_soil().next().unwrap().1.soaked,
+        Volume::ZERO
+    );
+    relocate_player_for_test(&mut state, position);
+    let standing = state.fluid().get_store(pool).unwrap().stored_volume();
+    let vessel = add_fluid_store(&mut state, standing).unwrap();
+    validate_place_fluid_store(&state, vessel, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ =
+        validate_transfer_fluid_between_local_stores(&registries, &state, pool, vessel, standing)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    assert_eq!(
+        state.fluid().get_store(pool).unwrap().stored_volume(),
+        Volume::ZERO
+    );
+    let baseline = calculate_fluid_volume_accounting(&state).unwrap();
+    let revision = state.fluid().revision();
+    let serialized = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&serialized)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for at in [200_u64, 400, 600] {
+        for current in [&mut state, &mut replay] {
+            apply_clock_advance(current, SimulationTick::new(at));
+            let decision =
+                decide_natural_water_cycle(&registries, current, SimulationTick::new(at)).unwrap();
+            assert!(
+                decision.is_none(),
+                "an empty catchment cannot exchange nonexistent water"
+            );
+            apply_natural_water_cycle(current, decision);
+            assert_eq!(current.fluid().revision(), revision);
+            assert_eq!(
+                calculate_fluid_volume_accounting(current).unwrap(),
+                baseline
+            );
+            assert_eq!(validate_loaded_state(&registries, current), Ok(()));
+        }
+        assert_eq!(state, replay);
+    }
+
+    // Real water entering the same persisted basin must restore exchange.
+    let replenishment = WATER_PER_FRONT;
+    let donor = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        replenishment,
+        FLUID_WATER,
+        replenishment,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_place_fluid_store(&state, donor, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = validate_transfer_fluid_between_local_stores(
+        &registries,
+        &state,
+        donor,
+        pool,
+        replenishment,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let next_drying = (4..=500_u64)
+        .map(|index| SimulationTick::new(index * WEATHER_FRONT_TICKS))
+        .find(|&at| {
+            spring_moisture_flux(&registries, &state, position, at) == SpringMoistureFlux::Drying
+        })
+        .expect("seeded weather has a drying front after the empty-basin checks");
+    apply_clock_advance(&mut state, next_drying);
+    let before = calculate_fluid_volume_accounting(&state).unwrap();
+    let plan = decide_natural_water_cycle(&registries, &state, next_drying).unwrap();
+    assert!(
+        plan.is_some(),
+        "refilled natural water must resume finite weather exchange"
+    );
+    apply_natural_water_cycle(&mut state, plan);
+    assert_eq!(
+        state.fluid().get_store(pool).unwrap().stored_volume(),
+        Volume::ZERO
+    );
+    assert_eq!(calculate_fluid_volume_accounting(&state).unwrap(), before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn seasonal_fronts_change_actual_pool_volume_without_changing_world_water() {
     let (registries, mut state, id, _) = actual_natural_pool();
     let baseline = calculate_fluid_volume_accounting(&state).unwrap();

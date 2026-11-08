@@ -93,8 +93,15 @@ pub(crate) fn decide_natural_water_cycle(
             {
                 return None;
             }
-            let direction = spring_moisture_flux(registries, state, catchment.position, at);
             let surface = record.stored_volume();
+            // A completely spent natural source has neither standing water nor
+            // finite soil custody to exchange. Skip the expensive sky-column
+            // and regional weather lookup on every later front until a real
+            // fluid transfer replenishes the pool.
+            if surface.is_zero() && catchment.soaked.is_zero() {
+                return None;
+            }
+            let direction = spring_moisture_flux(registries, state, catchment.position, at);
             match direction {
                 SpringMoistureFlux::Drying => {
                     let space = record.capacity().checked_sub(catchment.soaked)?;

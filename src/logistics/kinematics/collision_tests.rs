@@ -52,6 +52,62 @@ fn distant_terrain_does_not_activate_continuous_body_collision_in_the_opening() 
 }
 
 #[test]
+fn continuous_player_footprint_intersects_both_sides_of_positive_and_negative_chunk_edges() {
+    use crate::spatial::{HorizontalVelocity, VerticalVelocity, WorldPoint};
+    use crate::world::ChunkCoord;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 20, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    for (foot_x, left, right) in [
+        (15_900_000_000, ChunkCoord::new(0, 0), ChunkCoord::new(1, 0)),
+        (100_000_000, ChunkCoord::new(-1, 0), ChunkCoord::new(0, 0)),
+        (
+            -15_900_000_000,
+            ChunkCoord::new(-2, 0),
+            ChunkCoord::new(-1, 0),
+        ),
+    ] {
+        let player = *state.logistics().player().unwrap();
+        let before = player.body();
+        let after = before.with_motion(
+            WorldPoint::new(foot_x, 20_000_000_000, 500_000_000),
+            HorizontalVelocity::ZERO,
+            VerticalVelocity::ZERO,
+            before.stance(),
+        );
+        let revision = state.logistics().revision();
+        state.logistics_state_mut().apply_player_body_motion(
+            revision,
+            revision + 1,
+            before,
+            after,
+            player.locomotion_exertion(),
+            player.pending_fall_vitality_loss_ppm(),
+        );
+        assert!(player_body_footprint_intersects_chunk(
+            &registries,
+            &state,
+            left
+        ));
+        assert!(player_body_footprint_intersects_chunk(
+            &registries,
+            &state,
+            right
+        ));
+        assert!(!player_body_footprint_intersects_chunk(
+            &registries,
+            &state,
+            ChunkCoord::new(3, 3)
+        ));
+    }
+}
+
+#[test]
 fn body_collision_and_actor_occupancy_agree_across_voxel_faces_and_stances() {
     let registries = build_registries();
     let mut state = AppState::new();

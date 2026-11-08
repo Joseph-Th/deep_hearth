@@ -57,6 +57,98 @@ mod targeting_structures;
 const SEED: WorldGenerationSeed = WorldGenerationSeed::new(0xD33F_4845_4152_5448);
 
 #[test]
+fn active_work_footprint_crossing_a_chunk_edge_blocks_both_generation_paths() {
+    use crate::content::{FORM_FOOD, MATERIAL_BERRIES};
+    use crate::inventory::MaterialLotSelection;
+    use crate::spatial::{HorizontalVelocity, VerticalVelocity, WorldPoint};
+    use crate::survival::validate_eat;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let seed = WorldGenerationSeed::new(41);
+    let position = VoxelCoord::new(15, 20, 0);
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    // The actor is still in voxel 15 but its 0.6 m continuous body extends
+    // into chunk 1. A center-voxel-only admission would miss this case.
+    let player = *state.logistics().player().unwrap();
+    let before_body = player.body();
+    let across_edge = before_body.with_motion(
+        WorldPoint::new(15_900_000_000, 20_000_000_000, 500_000_000),
+        HorizontalVelocity::ZERO,
+        VerticalVelocity::ZERO,
+        before_body.stance(),
+    );
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_player_body_motion(
+        revision,
+        revision + 1,
+        before_body,
+        across_edge,
+        player.locomotion_exertion(),
+        player.pending_fall_vitality_loss_ppm(),
+    );
+    assert_eq!(state.logistics().player().unwrap().position(), position);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    // With one horizontal footprint chunk missing, attention still follows
+    // abstract pre-generation admission rather than partial-world gravity.
+    let mass = Mass::from_milligrams(150_000);
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let meal = validate_eat(
+        &registries,
+        &state,
+        carried,
+        &[MaterialLotSelection::new(lot, mass)],
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let baseline = state.clone();
+    let neighbor = ChunkCoord::new(1, 0);
+    let expected = ChunkGenerationError::ActivePlayerWorkAtGenerationSite { chunk: neighbor };
+    assert_eq!(
+        validate_generate_chunk(&registries, &state, seed, neighbor, BLOCK_STATE_STONE).err(),
+        Some(expected.clone())
+    );
+    assert_eq!(
+        validate_generate_player_neighborhood(&registries, &state).err(),
+        Some(expected),
+        "atomic neighborhood demand cannot bypass body-footprint work admission"
+    );
+    assert_eq!(state, baseline);
+    while state.tick() < meal.completes_at() {
+        let _ = crate::simulation::advance_tick(&registries, &mut state).unwrap();
+    }
+    assert!(state.player_work().active().is_none());
+    validate_generate_chunk(&registries, &state, seed, neighbor, BLOCK_STATE_STONE)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn generating_terrain_under_an_active_pre_generation_meal_cannot_strand_player_work() {
     use crate::content::{FORM_FOOD, MATERIAL_BERRIES};
     use crate::inventory::MaterialLotSelection;

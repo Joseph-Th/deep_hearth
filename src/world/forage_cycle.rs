@@ -163,14 +163,6 @@ pub(crate) fn apply_natural_forage_cycle(
             if !(283_150..=303_150).contains(&weather.ambient_temperature().millikelvin()) {
                 return None;
             }
-            if state.structures().blocks_full_cell(source.position())
-                // An enclosure is inventory-owned physical volume, not a structural
-                // member. It cannot hide a rooted patch and still admit fresh fruit.
-                || state.has_enclosed_stockpile_at(source.position())
-                || !has_open_sky(registries, state, source.position())
-            {
-                return None;
-            }
             let floor = source.position().y().checked_sub(1)?;
             if state.world().block_at(crate::spatial::VoxelCoord::new(
                 source.position().x(),
@@ -179,7 +171,16 @@ pub(crate) fn apply_natural_forage_cycle(
             )) != Some(BLOCK_STATE_STONE)
             {
                 // Mining the rooted stone footing is a durable way to kill
-                // the patch's recovery without erasing its old matter.
+                // the patch's recovery without erasing its old matter. Check
+                // this cheap world cell before tracing a full sky column.
+                return None;
+            }
+            if state.structures().blocks_full_cell(source.position())
+                // An enclosure is inventory-owned physical volume, not a structural
+                // member. It cannot hide a rooted patch and still admit fresh fruit.
+                || state.has_enclosed_stockpile_at(source.position())
+                || !has_open_sky(registries, state, source.position())
+            {
                 return None;
             }
             // The physical crown of an older neighboring tree intercepts
