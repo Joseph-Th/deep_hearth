@@ -52,18 +52,20 @@ pub(super) fn attempt_selected_secondary_action(
         && let Some(outcome) =
             attempt_selected_timber_placement(registries, state, commodity, direction)
     {
-        // A downward aim at the ground under the player's feet cannot
-        // materialize a post in their own occupied body. If the same log can
-        // fuel an existing co-located fire, do not let that impossible
-        // placement shadow the valid direct-use action. Real pointed post
-        // placements retain priority over local combustion.
+        // An impossible pointed post (including a side-face aim or an obstructed
+        // site) cannot shadow a viable local fuel use. Valid construction and
+        // its deferred admission keep priority over co-located combustion.
         if matches!(
             outcome,
             SecondaryActionOutcome::StructuralPlacementIntersectsPlayer { .. }
+                | SecondaryActionOutcome::StructuralPlacementRequiresTopFace { .. }
+                | SecondaryActionOutcome::StructuralPlacementLocationOccupied { .. }
+                | SecondaryActionOutcome::StructuralPlacementOccupied { .. }
+                | SecondaryActionOutcome::StructuralPlacementWorldUnavailable { .. }
+                | SecondaryActionOutcome::StructuralPlacementCoordinateOverflow
         ) {
-            // A downward log gesture can instead feed a co-located fire.
-            // Keep that physical energy transaction on the slow boundary,
-            // even though an impossible post placement rejects immediately.
+            // Fuel transactions remain on the slow boundary even when the
+            // impossible construction attempt rejects on the input frame.
             if !state.control_tick().is_simulation_boundary()
                 && has_selected_combustion_target(registries, state, commodity)
             {
