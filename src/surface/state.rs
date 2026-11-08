@@ -128,6 +128,21 @@ impl SurfaceResourceRecord {
         }
     }
 
+    /// Reconcile the first unpicked crop's completed senescence before a
+    /// previously undiscovered seeded plant enters authoritative surface
+    /// custody. This is the same matter transfer as a live vegetation front.
+    pub(super) fn with_elapsed_initial_senescence(mut self, at: SimulationTick) -> Self {
+        let plant = self
+            .perennial
+            .as_mut()
+            .expect("only a rooted perennial can enter after senescence");
+        plant.root_reserve = self.material.initial_mass;
+        self.remaining_mass = Mass::ZERO;
+        self.lifecycle = SurfaceResourceLifecycle::Depleted;
+        self.depleted_at = Some(at);
+        self
+    }
+
     #[must_use]
     pub const fn id(&self) -> SurfaceResourceId {
         self.id
@@ -524,8 +539,11 @@ impl SurfaceResourceState {
         let mut expected_id = self.next_resource_id;
         for record in records {
             assert_eq!(record.id.value(), expected_id);
-            assert!(record.lifecycle == SurfaceResourceLifecycle::Available);
-            assert!(!record.remaining_mass.is_zero());
+            assert!(
+                record.lifecycle == SurfaceResourceLifecycle::Available
+                    || (record.lifecycle == SurfaceResourceLifecycle::Depleted
+                        && record.perennial.is_some())
+            );
             if record.perennial.is_some() {
                 assert!(self.perennial_ids.insert(record.id));
                 assert!(
@@ -535,12 +553,17 @@ impl SurfaceResourceState {
                         .insert(record.id)
                 );
             }
-            assert!(
-                self.available_by_position
-                    .entry(record.position)
-                    .or_default()
-                    .insert(record.id)
-            );
+            if record.lifecycle == SurfaceResourceLifecycle::Available {
+                assert!(!record.remaining_mass.is_zero());
+                assert!(
+                    self.available_by_position
+                        .entry(record.position)
+                        .or_default()
+                        .insert(record.id)
+                );
+            } else {
+                assert!(record.remaining_mass.is_zero());
+            }
             assert!(self.resources.insert(record.id, record).is_none());
             expected_id = expected_id.checked_add(1).unwrap_or_else(|| {
                 unreachable!("validated surface generation reserved the next id")

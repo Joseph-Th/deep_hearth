@@ -6,12 +6,16 @@
 //! root reserve can later support conserved seasonal fruit cycling.
 
 #[cfg(test)]
+#[path = "forage_late_tests.rs"]
+mod late_tests;
+#[cfg(test)]
 #[path = "forage_tests.rs"]
 mod tests;
 
 use crate::content::{BLOCK_STATE_STONE, FORM_FOOD, MATERIAL_BERRIES, MATERIAL_WILD_NUTS};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -146,18 +150,27 @@ pub(super) fn seeded_forage_spec(
         if !registries.materials().has_commodity(commodity) {
             return None;
         }
-        return Some(
-            SurfaceResourceSpec::new(
-                SurfaceResourceKind::Opportunity,
-                position,
-                commodity,
-                mass,
-                AMBIENT_TEMPERATURE,
-                MaterialComposition::pure(commodity.material()),
-            )
-            .expect("built-in forage has nonzero mass and pure registered material")
-            .with_perennial_reserve(Mass::from_milligrams(mass.milligrams() / 2)),
-        );
+        let spec = SurfaceResourceSpec::new(
+            SurfaceResourceKind::Opportunity,
+            position,
+            commodity,
+            mass,
+            AMBIENT_TEMPERATURE,
+            MaterialComposition::pure(commodity.material()),
+        )
+        .expect("built-in forage has nonzero mass and pure registered material")
+        .with_perennial_reserve(Mass::from_milligrams(mass.milligrams() / 2));
+        // A chunk generated after the first senescence still represents the
+        // same plant born at world tick zero. Do not offer an old crop again
+        // merely because the player reached this location late. Subsequent
+        // ripening remains an actual weather-dependent conserved transfer.
+        let first_senescence =
+            SimulationTick::new(super::super::forage_cycle::FRUIT_SENESCENCE_TICKS);
+        return Some(if state.tick() >= first_senescence {
+            spec.with_elapsed_perennial_senescence(first_senescence)
+        } else {
+            spec
+        });
     }
     None
 }

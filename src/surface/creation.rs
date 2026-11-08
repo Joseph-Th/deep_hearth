@@ -28,6 +28,7 @@ pub(crate) struct SurfaceResourceSpec {
     position: VoxelCoord,
     mass: Mass,
     perennial_reserve: Mass,
+    initial_senescence_at: Option<SimulationTick>,
     profile: MaterialLotProfile,
     provenance: Option<MaterialLotProvenance>,
     ambient_age_parts_at_created_at: u128,
@@ -63,6 +64,7 @@ impl SurfaceResourceSpec {
             position,
             mass: material.mass(),
             perennial_reserve: Mass::ZERO,
+            initial_senescence_at: None,
             profile: MaterialLotProfile::from_spec(&material),
             provenance: None,
             ambient_age_parts_at_created_at: 0,
@@ -86,6 +88,7 @@ impl SurfaceResourceSpec {
             position,
             mass,
             perennial_reserve: Mass::ZERO,
+            initial_senescence_at: None,
             profile,
             provenance: Some(provenance),
             ambient_age_parts_at_created_at,
@@ -110,6 +113,19 @@ impl SurfaceResourceSpec {
             .mass
             .checked_add(mass)
             .expect("bounded perennial plant");
+        self
+    }
+
+    /// A seeded perennial discovered after its first unpicked crop expired must
+    /// enter with fruit already returned to its finite underground reserve.
+    /// This is the same senescence as a generated plant's first weather front,
+    /// not a new crop or a refreshed storage age.
+    pub(crate) fn with_elapsed_perennial_senescence(mut self, at: SimulationTick) -> Self {
+        assert!(
+            !self.perennial_reserve.is_zero(),
+            "only rooted crops may senesce"
+        );
+        self.initial_senescence_at = Some(at);
         self
     }
 
@@ -399,6 +415,7 @@ fn validate_create_surface_resources_with_felling_at(
         let position = spec.position;
         let automatic_pickup_delay_started_at = spec.automatic_pickup_delay_started_at;
         let perennial_reserve = spec.perennial_reserve;
+        let initial_senescence_at = spec.initial_senescence_at;
         let parcel = spec.into_parcel(created_at);
         let record = SurfaceResourceRecord::created(
             id,
@@ -409,11 +426,18 @@ fn validate_create_surface_resources_with_felling_at(
             automatic_pickup_delay_started_at,
             perennial_reserve,
         );
+        let record = match initial_senescence_at {
+            Some(at) => record.with_elapsed_initial_senescence(at),
+            None => record,
+        };
         validate_surface_resource_record(
             registries.materials(),
             id,
             &record,
-            created_at,
+            // A due excavation may produce a parcel on the upcoming slow tick,
+            // while seeded terrain can materialize a plant whose first crop
+            // expired before the currently observed world tick.
+            state.tick().max(created_at),
             state.control_tick(),
         )
         .map_err(SurfaceResourceCreationError::InvalidResource)?;

@@ -28,7 +28,11 @@ use moisture::{RootMoisture, RootMoistureSurvey};
 const FIELD_CHECK_TICKS: u64 = super::WEATHER_FRONT_TICKS;
 /// Unpicked crop material eventually returns to the plant's finite nutrient
 /// reserve, rather than staying fresh indefinitely or vanishing from custody.
-const FRUIT_SENESCENCE_TICKS: u64 = 2_400;
+pub(super) const FRUIT_SENESCENCE_TICKS: u64 = 2_400;
+const _: () = assert!(
+    FRUIT_SENESCENCE_TICKS.is_multiple_of(FIELD_CHECK_TICKS),
+    "first crop senescence must fall on an authoritative vegetation front"
+);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum NaturalForageCycleError {
