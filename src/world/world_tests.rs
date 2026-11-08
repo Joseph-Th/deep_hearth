@@ -57,6 +57,87 @@ mod targeting_structures;
 const SEED: WorldGenerationSeed = WorldGenerationSeed::new(0xD33F_4845_4152_5448);
 
 #[test]
+fn generating_terrain_under_an_active_pre_generation_meal_cannot_strand_player_work() {
+    use crate::content::{FORM_FOOD, MATERIAL_BERRIES};
+    use crate::inventory::MaterialLotSelection;
+    use crate::survival::validate_eat;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let player_position = VoxelCoord::new(0, 20, 0);
+    let carried = validate_admit_player(&registries, &state, player_position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let mass = Mass::from_milligrams(150_000);
+    let food = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let meal = validate_eat(
+        &registries,
+        &state,
+        carried,
+        &[MaterialLotSelection::new(food, mass)],
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert!(state.player_work().active().is_some());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            WorldGenerationSeed::new(41),
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE,
+        )
+        .err(),
+        Some(ChunkGenerationError::ActivePlayerWorkAtGenerationSite {
+            chunk: ChunkCoord::new(0, 0),
+        }),
+        "generating underneath an active meal must not switch to unsupported body physics"
+    );
+    assert_eq!(state, before);
+    // Distant generation is not blocked by work at the player's own voxel.
+    assert!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            WorldGenerationSeed::new(41),
+            ChunkCoord::new(4, 4),
+            BLOCK_STATE_STONE,
+        )
+        .is_ok()
+    );
+
+    while state.tick() < meal.completes_at() {
+        let _ = crate::simulation::advance_tick(&registries, &mut state).unwrap();
+    }
+    assert!(state.player_work().active().is_none());
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(41),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn world_registry_rejects_cell_mass_that_can_overflow_a_section_summary() {
     let heavy_block = BlockDefinitionId::new(99);
     let heavy_state = BlockStateId::new(99);

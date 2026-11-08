@@ -16,6 +16,7 @@ pub enum ChunkGenerationError {
     UnknownSolidState { state: BlockStateId },
     ChunkCoordinateOverflow { chunk: ChunkCoord },
     PlayerBodyCollision { voxel: VoxelCoord },
+    ActivePlayerWorkAtGenerationSite { chunk: ChunkCoord },
     OpeningResidentBodyCollision { voxel: VoxelCoord },
     OpeningResidentTempleCasteCollision { voxel: VoxelCoord },
     PlayerBodyTempleCasteCollision { voxel: VoxelCoord },
@@ -74,6 +75,12 @@ impl Display for ChunkGenerationError {
                 voxel.x(),
                 voxel.y(),
                 voxel.z()
+            ),
+            Self::ActivePlayerWorkAtGenerationSite { chunk } => write!(
+                formatter,
+                "cannot generate chunk ({},{}) through the footprint of a player performing stationary work",
+                chunk.x(),
+                chunk.z()
             ),
             Self::OpeningResidentBodyCollision { voxel } => write!(
                 formatter,

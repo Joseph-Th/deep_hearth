@@ -9,7 +9,9 @@ use super::{
     WorldRegistry,
 };
 use crate::core::state::AppState;
-use crate::logistics::first_player_body_collision_in_chunk;
+use crate::logistics::{
+    first_player_body_collision_in_chunk, player_body_footprint_intersects_chunk,
+};
 use crate::registry::Registries;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::surface::SurfaceResourceLifecycle;
@@ -56,6 +58,17 @@ pub(super) fn validate_generated_chunk_occupancy(
         )
     {
         return Err(ChunkGenerationError::PlayerBodyCollision { voxel });
+    }
+    // Abstract pre-generation player work can legally start without a physical
+    // floor. Do not materialize a chunk through that actor's body while the
+    // attention hold persists: the new 20 Hz gravity path could leave active
+    // work airborne, invalidating trusted saves and future continuation.
+    if state.player_work().active().is_some()
+        && player_body_footprint_intersects_chunk(registries, state, chunk.coord())
+    {
+        return Err(ChunkGenerationError::ActivePlayerWorkAtGenerationSite {
+            chunk: chunk.coord(),
+        });
     }
     if let Some(voxel) = first_opening_resident_collision_in_chunk(registry, state, chunk) {
         return Err(ChunkGenerationError::OpeningResidentBodyCollision { voxel });

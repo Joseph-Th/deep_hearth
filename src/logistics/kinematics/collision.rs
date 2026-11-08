@@ -95,6 +95,28 @@ pub(crate) fn player_body_stands_above_structure(
         && max.z() > min_z
 }
 
+/// Whether one currently missing chunk intersects the player's continuous
+/// horizontal body footprint. Generation beneath exclusive work would switch
+/// that job from abstract admission to control-rate gravity mid-interval.
+pub(crate) fn player_body_footprint_intersects_chunk(
+    registries: &Registries,
+    state: &AppState,
+    coord: ChunkCoord,
+) -> bool {
+    let Some(player) = state.logistics().player() else {
+        return false;
+    };
+    let Some((min_x, max_x, min_z, max_z)) = horizontal_voxel_bounds(
+        player.body(),
+        registries.survival().physiology().locomotion(),
+    ) else {
+        return false;
+    };
+    let first = ChunkCoord::containing(VoxelCoord::new(min_x, 0, min_z));
+    let last = ChunkCoord::containing(VoxelCoord::new(max_x, 0, max_z));
+    (first.x()..=last.x()).contains(&coord.x()) && (first.z()..=last.z()).contains(&coord.z())
+}
+
 /// Spatially indexed physical floor members under the player's exact body
 /// footprint. Most grounded players stand on terrain, so the common case
 /// performs no global structure scan or mining/production due-work scan.
