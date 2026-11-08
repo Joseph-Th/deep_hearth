@@ -112,6 +112,77 @@ fn exhausting_exact_reserves_does_not_apply_deficit_damage_until_the_next_tick()
 }
 
 #[test]
+fn zero_cooling_weather_does_not_injure_an_already_cold_player() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_player_survival(&registries, &mut state).unwrap();
+    let physiology = registries.survival().physiology();
+    let thermal = physiology.thermal_comfort();
+    let initial_vitality = Vitality::from_parts_per_million_unchecked(500_000);
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            physiology.maximum_metabolic_energy(),
+            physiology.maximum_hydration(),
+            initial_vitality,
+            NutritionReserves::FULL,
+            0,
+            0,
+        ),
+    );
+
+    let neutral_weather = [
+        ThermalExposure::GeneratedOpen {
+            cooling_multiplier_ppm: 1,
+        },
+        ThermalExposure::GeneratedOverheadCover {
+            cooling_multiplier_ppm: 1,
+        },
+    ];
+    for exposure in neutral_weather {
+        assert_eq!(thermal.exposure_loss_ppm_per_tick(exposure), 0);
+        assert_eq!(thermal.ambient_warmth_gain_ppm_per_tick(exposure), 0);
+        let plan = decide_survival_tick_with_local_heat(
+            &registries,
+            &state,
+            SurvivalExertion::REST,
+            next_tick(&state),
+            Energy::ZERO,
+            exposure,
+            0,
+        )
+        .unwrap();
+        let mut settled = state.clone();
+        let result = apply_survival_tick(&mut settled, plan).unwrap();
+        assert_eq!(result.thermal_comfort_ppm(), 0);
+        assert_eq!(
+            result.vitality(),
+            initial_vitality,
+            "thermally neutral weather must not inflict another cold-exposure injury"
+        );
+    }
+
+    // True continuing exposure still injures the fully chilled player.
+    let plan = decide_survival_tick_with_local_heat(
+        &registries,
+        &state,
+        SurvivalExertion::REST,
+        next_tick(&state),
+        Energy::ZERO,
+        ThermalExposure::Open,
+        0,
+    )
+    .unwrap();
+    let chilled = apply_survival_tick(&mut state, plan).unwrap();
+    assert_eq!(
+        chilled.vitality().parts_per_million(),
+        initial_vitality.parts_per_million() - thermal.cold_vitality_loss_ppm_per_tick(),
+    );
+}
+
+#[test]
 fn cold_player_needs_net_warming_to_stop_cold_injury() {
     let registries = build_registries();
     let mut state = AppState::new();

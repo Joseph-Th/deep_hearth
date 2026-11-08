@@ -161,11 +161,12 @@ fn resolve_tick_resources(
         },
         hydration_deficit: installment.hydration().microliters()
             < u128::from(hydration_shortfall.microliters()),
-        // A player who was already cold remains at zero comfort when local heat only
-        // balances ongoing exposure. Avoid an indefinite injury-free cold equilibrium:
-        // recovery from sustained cold requires net warming above zero comfort.
+        // At zero comfort, merely balancing a positive ongoing cold exposure
+        // cannot prevent injury: recovery requires net warming. An exposure
+        // rounded to zero loss cannot inflict further cold injury, even when
+        // the player's previous warmth reserve is still depleted.
         thermal_deficit: heat_gain < heat_shortfall
-            || (before.thermal_comfort_ppm() == 0 && thermal_after == 0),
+            || (thermal_loss != 0 && before.thermal_comfort_ppm() == 0 && thermal_after == 0),
     })
 }
 
