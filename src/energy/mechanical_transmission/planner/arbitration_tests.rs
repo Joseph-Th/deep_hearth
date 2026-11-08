@@ -648,3 +648,47 @@ fn parallel_weak_connectors_cannot_reduce_independent_shaft_work() {
         "many weak non-bridging paths must not hide the earlier parallel connectors"
     );
 }
+
+#[test]
+fn ranked_merges_match_actual_conflict_components_with_repeated_shaft_runs() {
+    // Multiple endpoint candidates can share a physical run. Incremental
+    // ownership must agree with independently rebuilt conflict components.
+    let mut observed_merges = 0;
+    for pattern in 0..256_usize {
+        let runs = (0..20_usize)
+            .map(|index| ShaftRun {
+                rollers: vec![
+                    StructuralElementId::new((1 + (index * 7 + pattern / 3) % 17) as u32),
+                    StructuralElementId::new((1 + (index * 11 + pattern / 7) % 17) as u32),
+                ],
+            })
+            .collect::<Vec<_>>();
+        let pairs = (0..40_usize)
+            .map(|index| {
+                let run = (index * 9 + pattern / 11) % runs.len();
+                let source = 1 + ((index * 7 + pattern) % 29) as u64;
+                let destination = 31 + ((index * 13 + pattern / 5) % 29) as u64;
+                candidate(run, index as u32 + 1, source, destination, 100, 120)
+            })
+            .collect::<Vec<_>>();
+        let expected = (EXACT_CONFLICT_LIMIT + 1..pairs.len())
+            .filter(|&rank| {
+                // A new candidate starts a component; a net decrease proves
+                // that it joined at least two previously disjoint components.
+                conflict_groups(&pairs[..=rank], &runs).len()
+                    < conflict_groups(&pairs[..rank], &runs).len()
+            })
+            .take(WEAK_CONNECTOR_PROBES)
+            .collect::<Vec<_>>();
+        observed_merges += expected.len();
+        assert_eq!(
+            ranked_merge_prefixes(&pairs, &runs, &(0..pairs.len()).collect::<Vec<_>>()),
+            expected,
+            "ranked owner merge differs from actual physical graph for pattern {pattern}"
+        );
+    }
+    assert!(
+        observed_merges > 0,
+        "fixtures must include late physical component merges"
+    );
+}
