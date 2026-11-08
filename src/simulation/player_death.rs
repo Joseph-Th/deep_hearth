@@ -11,7 +11,8 @@ use crate::geology::{
     decide_field_prospecting_interruption,
 };
 use crate::inventory::{
-    StorageEnclosureDismantlingCancellationPlan, apply_storage_enclosure_dismantling_cancellation,
+    InventoryState, StorageEnclosureDismantlingCancellationPlan,
+    apply_storage_enclosure_dismantling_cancellation,
     decide_storage_enclosure_dismantling_cancellation,
 };
 use crate::labor::{
@@ -91,6 +92,7 @@ pub(super) fn decide_player_death_effects(
     next_tick: SimulationTick,
     player_dead_after_tick: bool,
     completion_plan: &mut CompletionPlan,
+    projected_inventory: &InventoryState,
 ) -> Result<Option<PlayerDeathEffectPlan>, TickError> {
     if !player_dead_after_tick {
         return Ok(None);
@@ -104,9 +106,7 @@ pub(super) fn decide_player_death_effects(
             if work.completes_at() == next_tick {
                 return Ok(None);
             }
-            let projected_inventory =
-                completion_plan.project_inventory_after_deposits(state.inventory());
-            decide_surface_gathering_cancellation(projected_inventory.as_ref(), work)
+            decide_surface_gathering_cancellation(projected_inventory, work)
                 .map(PlayerDeathEffectPlan::SurfaceGathering)
                 .map(Some)
                 .map_err(Into::into)
@@ -117,12 +117,10 @@ pub(super) fn decide_player_death_effects(
             if work.completes_at() == next_control {
                 return Ok(None);
             }
-            let projected_inventory =
-                completion_plan.project_inventory_after_deposits(state.inventory());
             decide_block_excavation_cancellation(
                 registries,
                 state,
-                projected_inventory.as_ref(),
+                projected_inventory,
                 work,
                 next_tick,
             )
@@ -137,29 +135,21 @@ pub(super) fn decide_player_death_effects(
             if record.completes_at() == next_tick {
                 return Ok(None);
             }
-            let projected_inventory =
-                completion_plan.project_inventory_after_deposits(state.inventory());
-            decide_mining_cancellation(
-                registries,
-                state,
-                projected_inventory.as_ref(),
-                job,
-                next_tick,
-            )
-            .map(PlayerDeathEffectPlan::Mining)
-            .map(Some)
-            .map_err(|error| match error {
-                MiningCancellationError::InventoryRevision => TickError::InventoryRevisionExhausted,
-                MiningCancellationError::MiningRevision => TickError::MiningRevisionExhausted,
-            })
+            decide_mining_cancellation(registries, state, projected_inventory, job, next_tick)
+                .map(PlayerDeathEffectPlan::Mining)
+                .map(Some)
+                .map_err(|error| match error {
+                    MiningCancellationError::InventoryRevision => {
+                        TickError::InventoryRevisionExhausted
+                    }
+                    MiningCancellationError::MiningRevision => TickError::MiningRevisionExhausted,
+                })
         }
         PlayerWork::StorageEnclosureDismantling { work } => {
             if work.completes_at() == next_tick {
                 return Ok(None);
             }
-            let projected_inventory =
-                completion_plan.project_inventory_after_deposits(state.inventory());
-            decide_storage_enclosure_dismantling_cancellation(projected_inventory.as_ref(), work)
+            decide_storage_enclosure_dismantling_cancellation(projected_inventory, work)
                 .map(PlayerDeathEffectPlan::StorageDismantling)
                 .map(Some)
                 .map_err(Into::into)
@@ -168,9 +158,7 @@ pub(super) fn decide_player_death_effects(
             if work.completes_at() == next_tick {
                 return Ok(None);
             }
-            let projected_inventory =
-                completion_plan.project_inventory_after_deposits(state.inventory());
-            decide_structural_dismantling_cancellation(projected_inventory.as_ref(), work)
+            decide_structural_dismantling_cancellation(projected_inventory, work)
                 .map(PlayerDeathEffectPlan::StructuralDismantling)
                 .map(Some)
                 .map_err(Into::into)

@@ -103,28 +103,37 @@ fn advance_simulation_tick_unstaged(
     // deferral fail-closed (a newly freed store, tool, or calorie is denied this tick rather than
     // admitted against stale facts), so no additional projection is needed for those phases.
     let mut completion_plan = decide_due_completions(registries, state, next_tick)?;
+    // These snapshots can contain entire inventory and structure owners. Build each once and
+    // share its post-production view among all dependent phases instead of cloning it per planner.
+    let projected_inventory_after_completions =
+        completion_plan.project_inventory_after_deposits(state.inventory());
+    let after_production_structures =
+        completion_plan.project_structures_after_load(state.structures());
     let structural_construction_plan = decide_structural_construction_after_completions(
         registries,
         state,
-        &completion_plan,
+        after_production_structures.as_ref(),
         next_tick,
     );
     let structural_dismantling_plan = decide_structural_dismantling_after_completions(
         registries,
         state,
-        &completion_plan,
+        projected_inventory_after_completions.as_ref(),
+        after_production_structures.as_ref(),
         next_tick,
     )?;
-    let surface_gathering_plan =
-        decide_surface_gathering_after_completions(registries, state, &completion_plan, next_tick)?;
+    let surface_gathering_plan = decide_surface_gathering_after_completions(
+        registries,
+        state,
+        projected_inventory_after_completions.as_ref(),
+        next_tick,
+    )?;
     let storage_enclosure_dismantling_plan = decide_storage_dismantling_after_completions(
         registries,
         state,
-        &completion_plan,
+        projected_inventory_after_completions.as_ref(),
         next_tick,
     )?;
-    let projected_inventory_after_completions =
-        completion_plan.project_inventory_after_deposits(state.inventory());
     let block_excavation_plan = decide_block_excavation_tick(
         registries,
         state,
@@ -221,6 +230,7 @@ fn advance_simulation_tick_unstaged(
         next_tick,
         player_dead_after_tick,
         &mut completion_plan,
+        projected_inventory_after_completions.as_ref(),
     )?;
     let tree_felling_wear_plan = decide_tree_felling_wear(state, next_tick, player_dead_after_tick);
     let inventory_owner_busy = completion_plan.has_inventory_deposits()
@@ -246,8 +256,6 @@ fn advance_simulation_tick_unstaged(
     // a shaft roller. Include every earlier structural owner in the physical
     // eligibility check, but retain pre-tick shaft and stored-energy custody
     // so newly assembled rollers and newly released work remain deferred.
-    let after_production_structures =
-        completion_plan.project_structures_after_load(state.structures());
     let after_construction_structures = structural_construction_plan
         .as_ref()
         .map(|plan| plan.project_structures(after_production_structures.as_ref()));

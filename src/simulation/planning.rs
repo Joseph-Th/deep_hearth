@@ -3,16 +3,15 @@
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::inventory::{
-    StorageEnclosureDismantlingTickPlan, decide_storage_enclosure_dismantling_tick,
+    InventoryState, StorageEnclosureDismantlingTickPlan, decide_storage_enclosure_dismantling_tick,
 };
 use crate::mining::{
     MiningSettlementError, MiningTickPlan, ValidatedMiningSettlement,
     validate_awaiting_mining_output_settlement, validate_due_mining_output_settlement,
 };
-use crate::production::CompletionPlan;
 use crate::registry::Registries;
 use crate::structural::{
-    StructuralConstructionTickPlan, StructuralDismantlingTickPlan,
+    StructuralConstructionTickPlan, StructuralDismantlingTickPlan, StructureState,
     decide_structural_construction_tick, decide_structural_dismantling_tick,
 };
 use crate::surface::{SurfaceGatheringTickPlan, decide_surface_gathering_tick};
@@ -22,20 +21,20 @@ use super::TickError;
 pub(super) fn decide_structural_construction_after_completions(
     registries: &Registries,
     state: &AppState,
-    completion_plan: &CompletionPlan,
+    projected_structures: &StructureState,
     next_tick: SimulationTick,
 ) -> Option<StructuralConstructionTickPlan> {
     state
         .player_work()
         .structural_construction_due_at(next_tick)?;
-    let projected_structures = completion_plan.project_structures_after_load(state.structures());
-    decide_structural_construction_tick(registries, state, projected_structures.as_ref(), next_tick)
+    decide_structural_construction_tick(registries, state, projected_structures, next_tick)
 }
 
 pub(super) fn decide_structural_dismantling_after_completions(
     registries: &Registries,
     state: &AppState,
-    completion_plan: &CompletionPlan,
+    projected_inventory: &InventoryState,
+    projected_structures: &StructureState,
     next_tick: SimulationTick,
 ) -> Result<Option<StructuralDismantlingTickPlan>, TickError> {
     if state
@@ -45,13 +44,11 @@ pub(super) fn decide_structural_dismantling_after_completions(
     {
         return Ok(None);
     }
-    let projected_inventory = completion_plan.project_inventory_after_deposits(state.inventory());
-    let projected_structures = completion_plan.project_structures_after_load(state.structures());
     decide_structural_dismantling_tick(
         registries,
         state,
-        projected_inventory.as_ref(),
-        projected_structures.as_ref(),
+        projected_inventory,
+        projected_structures,
         next_tick,
     )
     .map_err(Into::into)
@@ -60,7 +57,7 @@ pub(super) fn decide_structural_dismantling_after_completions(
 pub(super) fn decide_surface_gathering_after_completions(
     registries: &Registries,
     state: &AppState,
-    completion_plan: &CompletionPlan,
+    projected_inventory: &InventoryState,
     next_tick: SimulationTick,
 ) -> Result<Option<SurfaceGatheringTickPlan>, TickError> {
     if state
@@ -70,8 +67,7 @@ pub(super) fn decide_surface_gathering_after_completions(
     {
         return Ok(None);
     }
-    let projected_inventory = completion_plan.project_inventory_after_deposits(state.inventory());
-    decide_surface_gathering_tick(registries, state, projected_inventory.as_ref(), next_tick)
+    decide_surface_gathering_tick(registries, state, projected_inventory, next_tick)
         .map_err(Into::into)
 }
 
@@ -169,7 +165,7 @@ fn available_mining_settlement(
 pub(super) fn decide_storage_dismantling_after_completions(
     registries: &Registries,
     state: &AppState,
-    completion_plan: &CompletionPlan,
+    projected_inventory: &InventoryState,
     next_tick: SimulationTick,
 ) -> Result<Option<StorageEnclosureDismantlingTickPlan>, TickError> {
     if state
@@ -179,14 +175,8 @@ pub(super) fn decide_storage_dismantling_after_completions(
     {
         return Ok(None);
     }
-    let projected_inventory = completion_plan.project_inventory_after_deposits(state.inventory());
-    decide_storage_enclosure_dismantling_tick(
-        registries,
-        state,
-        projected_inventory.as_ref(),
-        next_tick,
-    )
-    .map_err(Into::into)
+    decide_storage_enclosure_dismantling_tick(registries, state, projected_inventory, next_tick)
+        .map_err(Into::into)
 }
 
 #[cfg(test)]
