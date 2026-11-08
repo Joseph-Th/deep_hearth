@@ -83,6 +83,64 @@ fn single_real_berry_patch() -> (Registries, AppState, VoxelCoord) {
 }
 
 #[test]
+fn old_or_inedible_food_patches_do_not_trigger_scent_air_search() {
+    let (registries, mut state, position) = single_real_berry_patch();
+    assert!(potentially_scented_forage_nearby(
+        &registries,
+        &state,
+        position
+    ));
+    let source = state
+        .surface()
+        .available_resources_at(Some(position))
+        .next()
+        .unwrap()
+        .id();
+    assert!(matches!(
+        assess_surface_food_freshness(
+            &registries,
+            state.surface().get(source).unwrap(),
+            state.tick()
+        ),
+        Some(FoodFreshness::Fresh { .. })
+    ));
+
+    // The original dropped-off opportunity stays physically available but
+    // cannot produce an edible scent after its actual ambient shelf life.
+    apply_clock_advance(&mut state, SimulationTick::new(120_000));
+    assert!(matches!(
+        assess_surface_food_freshness(
+            &registries,
+            state.surface().get(source).unwrap(),
+            state.tick()
+        ),
+        Some(FoodFreshness::Spoiled { .. })
+    ));
+    assert!(!potentially_scented_forage_nearby(
+        &registries,
+        &state,
+        position
+    ));
+    assert!(assess_player_forage_scents(&registries, &state).is_empty());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    // Temperature and composition are also identical to the eventual
+    // live-source admission. A physically present unsafe parcel cannot
+    // trigger a traversal that is certain to produce no edible clue.
+    let (_, cold, cold_site) = berry_patch_with_profile(
+        Temperature::from_millikelvin(273_149),
+        MaterialComposition::pure(MATERIAL_BERRIES),
+    );
+    assert_eq!(cold_site, position);
+    assert!(!potentially_scented_forage_nearby(
+        &registries,
+        &cold,
+        cold_site
+    ));
+    assert!(assess_player_forage_scents(&registries, &cold).is_empty());
+}
+
+#[test]
 fn unsafe_or_contaminated_food_cannot_emit_an_edible_forage_scent() {
     use crate::content::MATERIAL_STONE;
 
@@ -220,7 +278,7 @@ fn dead_player_cannot_observe_generated_surface_resources_until_respawn() {
 fn indexed_scent_absence_preserves_envelope_edges_and_excludes_drops() {
     let (registries, mut state, site) = single_real_berry_patch();
     let before = state.clone();
-    assert!(potentially_scented_forage_nearby(&state, site));
+    assert!(potentially_scented_forage_nearby(&registries, &state, site));
     for (dx, dy, dz) in [
         (8, 0, 0),
         (-8, 0, 0),
@@ -231,6 +289,7 @@ fn indexed_scent_absence_preserves_envelope_edges_and_excludes_drops() {
     ] {
         assert!(
             potentially_scented_forage_nearby(
+                &registries,
                 &state,
                 VoxelCoord::new(site.x() + dx, site.y() + dy, site.z() + dz),
             ),
@@ -239,6 +298,7 @@ fn indexed_scent_absence_preserves_envelope_edges_and_excludes_drops() {
     }
     for (dx, dy, dz) in [(9, 0, 0), (0, 3, 0), (0, 0, -9)] {
         assert!(!potentially_scented_forage_nearby(
+            &registries,
             &state,
             VoxelCoord::new(site.x() + dx, site.y() + dy, site.z() + dz),
         ));
@@ -246,6 +306,7 @@ fn indexed_scent_absence_preserves_envelope_edges_and_excludes_drops() {
     // Bounds that cannot be represented fail open into the normal physical
     // air search, rather than inventing a missing-source observation.
     assert!(potentially_scented_forage_nearby(
+        &registries,
         &state,
         VoxelCoord::new(i64::MAX, site.y(), site.z()),
     ));
@@ -270,7 +331,11 @@ fn indexed_scent_absence_preserves_envelope_edges_and_excludes_drops() {
     state
         .surface_state_mut()
         .apply_gathering(id, remaining, tick, revision);
-    assert!(!potentially_scented_forage_nearby(&state, site));
+    assert!(!potentially_scented_forage_nearby(
+        &registries,
+        &state,
+        site
+    ));
     assert!(assess_player_forage_scents(&registries, &state).is_empty());
 
     let spec = SurfaceResourceSpec::new(
@@ -286,7 +351,11 @@ fn indexed_scent_absence_preserves_envelope_edges_and_excludes_drops() {
         .unwrap()
         .commit(&mut state)
         .unwrap();
-    assert!(!potentially_scented_forage_nearby(&state, site));
+    assert!(!potentially_scented_forage_nearby(
+        &registries,
+        &state,
+        site
+    ));
     assert!(assess_player_forage_scents(&registries, &state).is_empty());
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     let json = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
@@ -295,7 +364,11 @@ fn indexed_scent_absence_preserves_envelope_edges_and_excludes_drops() {
         .into_state(&registries)
         .unwrap();
     assert_eq!(restored, state);
-    assert!(!potentially_scented_forage_nearby(&restored, site));
+    assert!(!potentially_scented_forage_nearby(
+        &registries,
+        &restored,
+        site
+    ));
 }
 
 #[test]

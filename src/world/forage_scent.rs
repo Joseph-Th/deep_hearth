@@ -73,10 +73,15 @@ fn passable_air(registries: &Registries, state: &AppState, at: VoxelCoord) -> bo
             .is_some_and(|block| block.collision() == BlockCollisionShape::Empty)
 }
 
-/// Avoid searching air corridors when no indexed source can lie within the
-/// maximum eight-step smell envelope. Coordinate-bound failures must not
-/// conceal a legitimate scent near the represented world edge.
-fn potentially_scented_forage_nearby(state: &AppState, observer: VoxelCoord) -> bool {
+/// Avoid searching air corridors when no edible, fresh indexed source lies
+/// within the maximum eight-step smell envelope. This is the same freshness
+/// gate as actual scent emission, not a second classification policy.
+/// Coordinate-bound failures must not conceal a legitimate scent near the edge.
+fn potentially_scented_forage_nearby(
+    registries: &Registries,
+    state: &AppState,
+    observer: VoxelCoord,
+) -> bool {
     let radius = i64::from(MAX_AIR_STEPS);
     let vertical = MAX_VERTICAL_DEVIATION as i64;
     let limits = (
@@ -105,6 +110,10 @@ fn potentially_scented_forage_nearby(state: &AppState, observer: VoxelCoord) -> 
                 && matches!(
                     resource.commodity().material(),
                     MATERIAL_BERRIES | MATERIAL_WILD_NUTS
+                )
+                && matches!(
+                    assess_surface_food_freshness(registries, resource, state.tick()),
+                    Some(FoodFreshness::Fresh { .. })
                 )
         })
 }
@@ -205,7 +214,7 @@ pub fn assess_player_forage_scents(registries: &Registries, state: &AppState) ->
     }
     let start = player.position();
     // Empty clearings need neither a weather lookup nor bounded air traversal.
-    if !potentially_scented_forage_nearby(state, start) {
+    if !potentially_scented_forage_nearby(registries, state, start) {
         return Vec::new();
     }
     let Some(weather) = assess_player_weather(registries, state) else {

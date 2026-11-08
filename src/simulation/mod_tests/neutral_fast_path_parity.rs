@@ -31,6 +31,123 @@ fn generated_grounded_world(seed_value: u64) -> (Registries, AppState) {
 }
 
 #[test]
+fn generated_scout_return_cargo_matches_neutral_control_boundary() {
+    use crate::content::{FORM_CHIP, FORM_FOOD, MATERIAL_STONE, MATERIAL_WILD_NUTS};
+    use crate::core::quantity::{Mass, Temperature};
+    use crate::material::{CommodityKey, MaterialComposition};
+    use crate::matter::calculate_matter_accounting;
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+    use crate::surface::{
+        SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources,
+    };
+    use crate::world_generation::validate_generate_initial_wilderness;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let surface = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| state.world().block_at(VoxelCoord::new(8, y, 8)) == Some(BLOCK_STATE_STONE))
+        .unwrap();
+    let spawn = VoxelCoord::new(8, surface + 1, 8);
+    validate_generate_initial_wilderness(&registries, &state, seed, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let junction = state
+        .surface()
+        .resources()
+        .find(|resource| resource.commodity() == CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD))
+        .expect("generated scout work junction contains finite wild nuts")
+        .position();
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(crate::logistics::player_body_is_grounded(
+        &registries,
+        &state
+    ));
+
+    let stone = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        junction,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(250_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let ingress = validate_create_surface_resources(&registries, &state, [stone]).unwrap();
+    let cargo = ingress.first_resource_id();
+    ingress.commit(&mut state).unwrap();
+    let baseline = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    for due_before in [179_u64, 184, 189] {
+        while state.tick().value() < due_before {
+            let _ = advance_tick(&registries, &mut state).unwrap();
+        }
+        for elapsed in [0_u64, 31, CONTROL_TICKS_PER_SIMULATION_TICK - 1] {
+            let mut before = state.clone();
+            for _ in 0..elapsed {
+                assert!(
+                    advance_control_tick(&registries, &mut before)
+                        .unwrap()
+                        .simulation()
+                        .is_none()
+                );
+            }
+            let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &before)).unwrap();
+            let mut control = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+                .unwrap()
+                .into_state(&registries)
+                .unwrap();
+            let mut fast = before;
+            let expected = advance_tick(&registries, &mut fast).unwrap();
+            let mut actual = None;
+            for _ in elapsed..CONTROL_TICKS_PER_SIMULATION_TICK {
+                let frame = advance_control_tick(&registries, &mut control).unwrap();
+                if let Some(simulation) = frame.simulation() {
+                    actual = Some(simulation.clone());
+                }
+            }
+            assert_eq!(
+                actual.as_ref(),
+                Some(&expected),
+                "scout outcome parity at tick {due_before}, elapsed {elapsed}"
+            );
+            assert_eq!(
+                fast, control,
+                "scout state parity at tick {due_before}, elapsed {elapsed}"
+            );
+            assert_eq!(
+                calculate_matter_accounting(&fast).unwrap().total(),
+                baseline
+            );
+            assert_eq!(validate_loaded_state(&registries, &fast), Ok(()));
+            if due_before == 184 {
+                assert_ne!(
+                    fast.surface().get(cargo).unwrap().position(),
+                    junction,
+                    "the real returning scout must have carried the finite drop home"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn generated_woodland_water_and_senescence_match_neutral_control_replay() {
     use crate::fluid::{calculate_fluid_volume_accounting, decide_natural_water_cycle};
     use crate::matter::calculate_matter_accounting;
