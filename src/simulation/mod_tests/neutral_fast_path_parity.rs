@@ -32,6 +32,7 @@ fn generated_grounded_world(seed_value: u64) -> (Registries, AppState) {
 
 #[test]
 fn generated_woodland_water_and_senescence_match_neutral_control_replay() {
+    use crate::fluid::{calculate_fluid_volume_accounting, decide_natural_water_cycle};
     use crate::matter::calculate_matter_accounting;
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
     use crate::world::validate_generate_player_neighborhood;
@@ -49,12 +50,56 @@ fn generated_woodland_water_and_senescence_match_neutral_control_replay() {
         {
             continue;
         }
+        // Require a front that actually transfers finite surface water into
+        // spring-soil custody, rather than merely exercising an inert spring.
+        let Some(water_front) = (1..=100_u64)
+            .map(|step| SimulationTick::new(step * WEATHER_FRONT_TICKS))
+            .find(|&front| {
+                decide_natural_water_cycle(&registries, &natural, front)
+                    .unwrap()
+                    .is_some()
+            })
+        else {
+            continue;
+        };
+        // Move this source through one real drying exchange, then select an
+        // actual returning front for stored soil water. Each prospective
+        // return must be observable at its persisted pool, not a no-op front.
+        let mut dried = natural.clone();
+        apply_clock_advance(&mut dried, water_front);
+        let drying = decide_natural_water_cycle(&registries, &dried, water_front).unwrap();
+        assert!(drying.is_some());
+        crate::fluid::apply_natural_water_cycle(&mut dried, drying);
+        assert_eq!(validate_loaded_state(&registries, &dried), Ok(()));
+        let returning = (water_front.value() / WEATHER_FRONT_TICKS + 1..=150_u64)
+            .map(|step| SimulationTick::new(step * WEATHER_FRONT_TICKS))
+            .find_map(|front| {
+                dried.fluid().spring_soil().find_map(|(store, soil)| {
+                    (!soil.soaked.is_zero()
+                        && crate::world::spring_moisture_flux(
+                            &registries,
+                            &dried,
+                            soil.position,
+                            front,
+                        ) == crate::world::SpringMoistureFlux::Returning)
+                        .then_some((front, store))
+                })
+            });
+        let Some((return_front, return_store)) = returning else {
+            continue;
+        };
         exercised += 1;
         let baseline = calculate_matter_accounting(&natural).unwrap().total();
-        // The second front is the first authored 2,400-tick fruit-senescence boundary.
-        for at in [WEATHER_FRONT_TICKS - 1, 2_399] {
+        let water_baseline = calculate_fluid_volume_accounting(&natural).unwrap();
+        // Also test first fruit senescence, initial drying and later return.
+        for (initial, at, return_pool) in [
+            (&natural, WEATHER_FRONT_TICKS - 1, None),
+            (&natural, 2_399, None),
+            (&natural, water_front.value() - 1, None),
+            (&dried, return_front.value() - 1, Some(return_store)),
+        ] {
             for elapsed in [0_u64, 37, CONTROL_TICKS_PER_SIMULATION_TICK - 1] {
-                let mut before = natural.clone();
+                let mut before = initial.clone();
                 apply_clock_advance(&mut before, SimulationTick::new(at));
                 for _ in 0..elapsed {
                     assert!(
@@ -95,6 +140,25 @@ fn generated_woodland_water_and_senescence_match_neutral_control_replay() {
                     calculate_matter_accounting(&fast).unwrap().total(),
                     baseline
                 );
+                assert_eq!(
+                    calculate_fluid_volume_accounting(&fast).unwrap(),
+                    water_baseline,
+                    "spring water must remain conserved across fast and control paths"
+                );
+                if at + 1 == water_front.value() {
+                    assert_ne!(
+                        fast.fluid(),
+                        natural.fluid(),
+                        "the selected front must actually exchange natural water"
+                    );
+                }
+                if let Some(pool) = return_pool {
+                    assert!(
+                        fast.fluid().get_store(pool).unwrap().stored_volume()
+                            > initial.fluid().get_store(pool).unwrap().stored_volume(),
+                        "a returning front must restore real water to the selected pool"
+                    );
+                }
                 assert_eq!(validate_loaded_state(&registries, &fast), Ok(()));
             }
         }
