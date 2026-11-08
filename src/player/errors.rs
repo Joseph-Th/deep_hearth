@@ -100,6 +100,7 @@ pub enum PlayerRespawnError {
     ActivePlayerWork,
     PendingDirectAction,
     PendingDirectConsumption,
+    NoSafeRespawnLocation,
     SurvivalRevisionExhausted,
     StockpileIdExhausted,
     InventoryRevisionExhausted,
@@ -119,6 +120,9 @@ impl Display for PlayerRespawnError {
             }
             Self::PendingDirectConsumption => {
                 formatter.write_str("player cannot respawn with pending direct consumption")
+            }
+            Self::NoSafeRespawnLocation => {
+                formatter.write_str("no collision-free, supported player respawn location exists")
             }
             Self::SurvivalRevisionExhausted => {
                 formatter.write_str("survival revision space is exhausted")

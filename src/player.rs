@@ -167,6 +167,9 @@ fn map_respawn_logistics_error(error: PlayerLogisticsRespawnError) -> PlayerResp
         PlayerLogisticsRespawnError::PlayerNotInitialized => PlayerRespawnError::PlayerNotAdmitted,
         PlayerLogisticsRespawnError::ActivePlayerWork => PlayerRespawnError::ActivePlayerWork,
         PlayerLogisticsRespawnError::PendingDirectAction => PlayerRespawnError::PendingDirectAction,
+        PlayerLogisticsRespawnError::NoSafeRespawnLocation => {
+            PlayerRespawnError::NoSafeRespawnLocation
+        }
         PlayerLogisticsRespawnError::StockpileIdExhausted => {
             PlayerRespawnError::StockpileIdExhausted
         }
@@ -223,8 +226,8 @@ fn map_logistics_error(error: InitializePlayerLogisticsError) -> PlayerAdmission
 /// that location is grounded. For an airborne generated-world death, a supported standing cell
 /// directly above the anchor takes priority over neighboring collision-free, grounded positions
 /// around the original anchor and then the death cache; the lower anchor column is an additional
-/// fallback before restarting the same fall. Ungenerated authored opening positions have no
-/// terrain floor authority; the unchanged death body remains the last resort.
+/// fallback before rejecting the respawn if no safe location exists. Ungenerated authored
+/// opening positions have no terrain floor authority; a clear death body remains a valid fallback.
 pub fn validate_respawn_player(
     registries: &Registries,
     state: &AppState,

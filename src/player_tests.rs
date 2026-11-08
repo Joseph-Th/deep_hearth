@@ -429,6 +429,61 @@ fn airborne_death_avoids_a_second_fall_when_a_nearby_supported_respawn_exists() 
 }
 
 #[test]
+fn generated_world_respawn_rejects_when_every_nearby_standing_site_lacks_support() {
+    use crate::core::state::validate_loaded_state;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x5253_5041_574E),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let floor_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| state.world().block_at(VoxelCoord::new(0, y, 0)) == Some(BLOCK_STATE_STONE))
+        .unwrap()
+        + 1;
+    let spawn = VoxelCoord::new(0, floor_y, 0);
+    let death = VoxelCoord::new(2, floor_y, 0);
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    relocate_player_for_test(&mut state, death);
+    mark_player_dead(&mut state);
+
+    // An open excavation must not silently revive the player into another fall.
+    for x in 0..=4 {
+        for z in 0..=2 {
+            for y in floor_y - 2..=floor_y + 2 {
+                set_generated_block_for_test(
+                    registries.world(),
+                    &mut state,
+                    VoxelCoord::new(x, y, z),
+                    BlockStateId::AIR,
+                );
+            }
+        }
+    }
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_respawn_player(&registries, &state),
+        Err(PlayerRespawnError::NoSafeRespawnLocation)
+    );
+    assert_eq!(
+        state, before,
+        "rejected respawn cannot allocate new custody"
+    );
+}
+
+#[test]
 fn blocked_spawn_can_recover_on_supported_ground_directly_above_its_old_anchor() {
     use crate::core::state::validate_loaded_state;
     use crate::logistics::player_body_is_grounded;

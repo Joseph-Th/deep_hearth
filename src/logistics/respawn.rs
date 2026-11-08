@@ -110,6 +110,7 @@ pub(crate) enum PlayerLogisticsRespawnError {
     PlayerNotInitialized,
     ActivePlayerWork,
     PendingDirectAction,
+    NoSafeRespawnLocation,
     StockpileIdExhausted,
     InventoryRevisionExhausted,
     LogisticsRevisionExhausted,
@@ -126,6 +127,9 @@ impl Display for PlayerLogisticsRespawnError {
             }
             Self::PendingDirectAction => {
                 formatter.write_str("player cannot respawn with buffered direct input")
+            }
+            Self::NoSafeRespawnLocation => {
+                formatter.write_str("no collision-free, supported player respawn location exists")
             }
             Self::StockpileIdExhausted => {
                 formatter.write_str("stockpile identifier space is exhausted")
@@ -328,34 +332,30 @@ pub(crate) fn validate_player_logistics_respawn(
         .checked_add(1)
         .filter(|_| state.can_spend_logistics_revisions(1))
         .ok_or(PlayerLogisticsRespawnError::LogisticsRevisionExhausted)?;
-    let spawn_body = grounded_respawn_body_at(registries, state, player.respawn_position());
-    let (respawn_body, used_spawn_anchor) = spawn_body.map_or_else(
-        || {
-            let body = player.body();
-            // Preserve the exact corpse position when it is still a supported
-            // recovery site. Generated-world airborne deaths or an excavated
-            // death floor instead seek a nearby clear floor, first around the
-            // original anchor and then near the death cache. No unknown world
-            // space is treated as safe or materialized by this search.
-            let fallback = body.with_motion(
-                body.foot_position(),
-                HorizontalVelocity::ZERO,
-                VerticalVelocity::ZERO,
-                body.stance(),
-            );
-            let needs_ground = state.world().has_generated_terrain_at(player.position());
-            if !needs_ground || player_body_is_grounded_at(registries, state, fallback) {
-                return (fallback, false);
-            }
-            (
-                nearby_supported_respawn_body(registries, state, player.respawn_position())
-                    .or_else(|| nearby_supported_respawn_body(registries, state, player.position()))
-                    .unwrap_or(fallback),
-                false,
-            )
-        },
-        |body| (body, true),
-    );
+    let (respawn_body, used_spawn_anchor) = if let Some(body) =
+        grounded_respawn_body_at(registries, state, player.respawn_position())
+    {
+        (body, true)
+    } else {
+        // Keep the exact corpse position if it remains clear and, where
+        // generated terrain owns the floor, physically supported.
+        let body = player.body();
+        let corpse = body.with_motion(
+            body.foot_position(),
+            HorizontalVelocity::ZERO,
+            VerticalVelocity::ZERO,
+            body.stance(),
+        );
+        let corpse_is_safe = respawn_body_is_clear(registries, state, corpse)
+            && (!state.world().has_generated_terrain_at(player.position())
+                || player_body_is_grounded_at(registries, state, corpse));
+        let body = corpse_is_safe
+            .then_some(corpse)
+            .or_else(|| nearby_supported_respawn_body(registries, state, player.respawn_position()))
+            .or_else(|| nearby_supported_respawn_body(registries, state, player.position()))
+            .ok_or(PlayerLogisticsRespawnError::NoSafeRespawnLocation)?;
+        (body, false)
+    };
     Ok(ValidatedPlayerLogisticsRespawn {
         expected_tick: state.tick(),
         expected_logistics_revision,

@@ -10,9 +10,9 @@ use crate::spatial::{CubeFace, ViewDirection, VoxelBounds, VoxelCoord};
 use crate::structural::{StructuralElementId, validate_start_player_structural_dismantling};
 use crate::world::{BlockStateId, PlayerBlockTargetError, raycast_player_block};
 
-use super::{
-    DirectStructuralTargetError, PrimaryActionOutcome, SecondaryActionOutcome,
-    resolve_direct_structural_face_target,
+use super::super::outcome::{PrimaryActionOutcome, SecondaryActionOutcome};
+use super::structural_target::{
+    DirectStructuralTargetError, resolve_direct_structural_face_target,
 };
 
 mod storage;
