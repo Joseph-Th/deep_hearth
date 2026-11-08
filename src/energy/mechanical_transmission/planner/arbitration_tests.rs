@@ -628,10 +628,10 @@ fn parallel_weak_connectors_cannot_reduce_independent_shaft_work() {
         1_260
     );
 
-    // Two weaker alternatives attached to one side of the graph are not
+    // Twelve weaker alternatives attached to one side of the graph are not
     // connectors. They must not hide the two true parallel bridges by
     // occupying the final positions in the ranked candidate list.
-    for run in 19..21 {
+    for run in 19..31 {
         runs.push(ShaftRun {
             rollers: vec![StructuralElementId::new(100)],
         });
@@ -645,6 +645,6 @@ fn parallel_weak_connectors_cannot_reduce_independent_shaft_work() {
             .map(|pair| pair.run)
             .collect::<Vec<_>>(),
         expected,
-        "bounded suffix cuts must still find the original work despite a weaker tail"
+        "many weak non-bridging paths must not hide the earlier parallel connectors"
     );
 }

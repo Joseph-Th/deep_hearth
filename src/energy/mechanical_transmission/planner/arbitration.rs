@@ -9,7 +9,7 @@
 use super::*;
 
 mod graph;
-use graph::{conflict_groups, weak_connector_candidates};
+use graph::{conflict_groups, ranked_merge_prefixes, weak_connector_candidates};
 
 const EXACT_CONFLICT_LIMIT: usize = 16;
 /// Double replacements are at most 120 trials per round, regardless of the
@@ -309,10 +309,9 @@ fn greedy_group_indices(
     selected
 }
 
-/// One weak path can connect independent exact-search components. Probe
-/// actual articulations and bounded low-work suffix cuts: two parallel
-/// bridges are not articulations, but removing both may restore a better
-/// allocation in what were previously independent workshops.
+/// A weak path can connect otherwise independent exact-search components.
+/// Probe bounded low-work cuts, then recover exact pre-merge components even
+/// when multiple parallel bridges have weaker, unrelated candidates after them.
 fn refine_weak_connector_splits(
     pairs: &[ShaftPair],
     runs: &[ShaftRun],
@@ -345,6 +344,22 @@ fn refine_weak_connector_splits(
             current_work = separated_work;
         }
     }
+    // Adding a weak bridge can merge previously independent groups without
+    // being an articulation in the final graph if a second bridge follows.
+    // Reuse the partition that existed just before that merge and greedily
+    // admit later compatible paths. Detect cutoffs in one ownership scan and
+    // examine at most a fixed number, independent of trailing weak paths.
+    for cutoff in ranked_merge_prefixes(pairs, runs, indices) {
+        let Some(prefix) = completion_for_split_groups(pairs, runs, &indices[..cutoff]) else {
+            continue;
+        };
+        let completed = greedy_completion(pairs, runs, indices, &prefix, &[]);
+        let completed_work = aggregate_work(pairs, &completed);
+        if better_aggregate_work(completed_work, current_work) {
+            selected = completed;
+            current_work = completed_work;
+        }
+    }
     selected
 }
 
@@ -362,6 +377,16 @@ fn completion_without_candidates(
         .copied()
         .filter(|index| !omitted.contains(index))
         .collect::<Vec<_>>();
+    completion_for_split_groups(pairs, runs, &remaining)
+}
+
+/// Solve the actual independent components of a candidate subset. Shared
+/// stores, runs and rollers cannot be allocated twice across these groups.
+fn completion_for_split_groups(
+    pairs: &[ShaftPair],
+    runs: &[ShaftRun],
+    remaining: &[usize],
+) -> Option<Vec<usize>> {
     let candidates = remaining
         .iter()
         .map(|&index| pairs[index])

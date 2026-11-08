@@ -3,7 +3,7 @@
 //! Candidate stores, embodied rollers, and shaft paths are the only conflict
 //! authorities. The graph is transient; it never owns simulation state.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::energy::EnergyStoreId;
 use crate::structural::StructuralElementId;
@@ -141,6 +141,84 @@ fn join(parents: &mut [usize], left: usize, right: usize) {
     if first != second {
         parents[second] = first;
     }
+}
+
+/// Tracks physical ownership while ranked candidates are introduced. The
+/// first candidate for each run records its rollers once; additional endpoint
+/// pairs share that run without rescanning its possibly long physical path.
+#[derive(Default)]
+struct RankedCandidateOwners {
+    stores: BTreeMap<EnergyStoreId, usize>,
+    rollers: BTreeMap<StructuralElementId, usize>,
+    runs: BTreeMap<usize, usize>,
+}
+
+impl RankedCandidateOwners {
+    fn prior_roots(
+        &self,
+        pair: ShaftPair,
+        runs: &[ShaftRun],
+        parents: &mut [usize],
+    ) -> BTreeSet<usize> {
+        let mut components = BTreeSet::new();
+        for store in [pair.transfer.source(), pair.transfer.destination()] {
+            if let Some(&previous) = self.stores.get(&store) {
+                components.insert(root(parents, previous));
+            }
+        }
+        if let Some(&previous) = self.runs.get(&pair.run) {
+            components.insert(root(parents, previous));
+        } else {
+            for &roller in &runs[pair.run].rollers {
+                if let Some(&previous) = self.rollers.get(&roller) {
+                    components.insert(root(parents, previous));
+                }
+            }
+        }
+        components
+    }
+
+    fn observe(&mut self, pair: ShaftPair, runs: &[ShaftRun], local: usize) {
+        for store in [pair.transfer.source(), pair.transfer.destination()] {
+            self.stores.entry(store).or_insert(local);
+        }
+        if let std::collections::btree_map::Entry::Vacant(entry) = self.runs.entry(pair.run) {
+            entry.insert(local);
+            for &roller in &runs[pair.run].rollers {
+                self.rollers.entry(roller).or_insert(local);
+            }
+        }
+    }
+}
+
+/// Ranked cutoffs immediately before a low-priority candidate merges two
+/// previously independent conflict components. Parallel weak connectors
+/// leave no individual articulation in the final graph, but the first such
+/// connector still exposes an exact pre-merge partition. Bound the number of
+/// partitions examined without repeatedly rebuilding candidate prefixes.
+pub(super) fn ranked_merge_prefixes(
+    pairs: &[ShaftPair],
+    runs: &[ShaftRun],
+    indices: &[usize],
+) -> Vec<usize> {
+    let mut parents = (0..indices.len()).collect::<Vec<_>>();
+    let mut owners = RankedCandidateOwners::default();
+    let mut cutoffs = Vec::new();
+    for (local, &index) in indices.iter().enumerate() {
+        let pair = pairs[index];
+        let prior_components = owners.prior_roots(pair, runs, &mut parents);
+        if prior_components.len() > 1
+            && local > super::EXACT_CONFLICT_LIMIT
+            && cutoffs.len() < WEAK_CONNECTOR_PROBES
+        {
+            cutoffs.push(local);
+        }
+        for previous in prior_components {
+            join(&mut parents, local, previous);
+        }
+        owners.observe(pair, runs, local);
+    }
+    cutoffs
 }
 
 /// Build independent connected groups without scanning every pair against
