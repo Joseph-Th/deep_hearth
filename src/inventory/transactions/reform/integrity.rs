@@ -2,7 +2,9 @@
 
 use crate::core::state::AppState;
 use crate::inventory::lot_identity::LotIdentityPlanner;
-use crate::inventory::selection::assert_consumption_parts_match_state_iter;
+use crate::inventory::selection::{
+    assert_consumption_parts_match_state_iter, fully_consumed_lot_ids,
+};
 use crate::inventory::state::MaterialLotProfile;
 
 use super::ValidatedMaterialReform;
@@ -70,11 +72,7 @@ impl ValidatedMaterialReform {
             );
         }
 
-        let excluded_existing = self.lot_slices.iter().filter_map(|slice| {
-            inventories
-                .get_lot(slice.lot)
-                .and_then(|lot| (slice.mass == lot.mass()).then_some(slice.lot))
-        });
+        let excluded_existing = fully_consumed_lot_ids(inventories, &self.lot_slices);
         let mut identity_planner = LotIdentityPlanner::new(inventories, excluded_existing);
         for ((trace, storage_history), planned_lot) in self.outputs.iter().zip(&self.lot_ids) {
             let mut profile: MaterialLotProfile = trace.profile().clone();

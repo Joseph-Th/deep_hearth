@@ -1,6 +1,6 @@
 //! Release-mode integrity replay for validated inventory consumption plans.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::core::quantity::Mass;
 use crate::material::{CommodityKey, MaterialInputSpec};
@@ -10,6 +10,39 @@ use crate::inventory::state::{
     ConsumedMaterialTrace, InventoryState, LotSlice, MaterialLotId, StockpileId,
     checked_consumed_material_mass,
 };
+
+/// Existing lots removed by an exact selection cannot participate in a later
+/// same-transaction ingress or form-reform merge. One lot may supply several
+/// different input requirements, so exhaustion is a sum over its slices, not
+/// a property of any single slice.
+pub(in crate::inventory) fn fully_consumed_lot_ids(
+    state: &InventoryState,
+    slices: &[LotSlice],
+) -> BTreeSet<MaterialLotId> {
+    let mut selected_by_lot = BTreeMap::<MaterialLotId, Mass>::new();
+    for slice in slices {
+        let selected = selected_by_lot.entry(slice.lot).or_insert(Mass::ZERO);
+        *selected = selected
+            .checked_add(slice.mass)
+            .unwrap_or_else(|| panic!("validated selection overflows a single material lot"));
+    }
+    selected_by_lot
+        .into_iter()
+        .filter_map(|(id, selected)| {
+            let lot = state.get_lot(id).unwrap_or_else(|| {
+                panic!(
+                    "validated selection references missing material lot {}",
+                    id.value()
+                )
+            });
+            assert!(
+                selected <= lot.mass(),
+                "validated selection cannot exceed a lot's available mass"
+            );
+            (selected == lot.mass()).then_some(id)
+        })
+        .collect()
+}
 
 impl ConsumptionReservation {
     /// Projects source stored mass after this already-validated consumption reservation.

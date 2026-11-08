@@ -18,7 +18,7 @@ pub(crate) use explicit::validate_explicit_consumption_selection;
 pub(crate) use implicit::{ConsumptionSelectionError, validate_consumption_selection};
 pub(in crate::inventory) use integrity::{
     assert_consumption_parts_match_state, assert_consumption_parts_match_state_iter,
-    assert_consumption_parts_well_formed,
+    assert_consumption_parts_well_formed, fully_consumed_lot_ids,
 };
 pub(crate) use reservation::{
     ConsumptionReservation, ReservationError, apply_prechecked_consumption_reservation,

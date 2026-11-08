@@ -129,6 +129,72 @@ fn projected_exchange_mass_projection_rejects_stale_inventory_revision() {
 }
 
 #[test]
+fn projected_exchange_excludes_lot_exhausted_across_multiple_requirements() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let destination = add_test_stockpile(&mut state, Mass::from_milligrams(10));
+    let commodity = wood_log_spec(Mass::from_milligrams(10)).commodity();
+    let source_lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        destination,
+        commodity,
+        Mass::from_milligrams(10),
+        Temperature::from_millikelvin(300_000),
+    )
+    .unwrap();
+    let next_lot_id = state.inventory().next_lot_id();
+    let selection = validate_consumption_selection(
+        state.inventory(),
+        destination,
+        &[
+            crate::material::MaterialInputSpec::new(commodity, Mass::from_milligrams(4)),
+            crate::material::MaterialInputSpec::new(commodity, Mass::from_milligrams(6)),
+        ],
+    )
+    .unwrap();
+    assert_eq!(selection.lot_slices.len(), 2);
+    let egress = validate_material_egress_from_selection(state.inventory(), selection).unwrap();
+    let traces = egress.consumed_inputs().to_vec();
+    let ingress = validate_material_ingress_after_egress(
+        &registries,
+        state.inventory(),
+        &egress,
+        destination,
+        traces.iter().map(MaterialIngressEntry::from_consumed_trace),
+        state.tick(),
+    )
+    .unwrap();
+    assert_eq!(
+        ingress.lot_ids[0],
+        MaterialLotId::new(next_lot_id),
+        "a fully consumed lot cannot be a merge target for matter that arrives after withdrawal"
+    );
+    assert_eq!(ingress.next_lot_id(), next_lot_id + 1);
+
+    apply_material_egress(state.inventory_state_mut(), egress);
+    let resulting = apply_material_ingress(state.inventory_state_mut(), ingress);
+    assert_eq!(resulting, vec![MaterialLotId::new(next_lot_id); 2]);
+    assert!(state.inventory().get_lot(source_lot).is_none());
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .unwrap()
+            .stored_mass(),
+        Mass::from_milligrams(10)
+    );
+    assert_eq!(
+        super::super::state::validate_loaded_inventory(
+            registries.materials(),
+            state.inventory(),
+            state.tick(),
+        ),
+        Ok(())
+    );
+}
+
+#[test]
 fn empty_ingress_is_rejected_without_mutation() {
     let registries = build_registries();
     let mut state = AppState::new();

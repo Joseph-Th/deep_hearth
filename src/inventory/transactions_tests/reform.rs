@@ -58,6 +58,80 @@ fn relocation_consolidates_repeated_slices_that_exhaust_one_source_lot() {
 }
 
 #[test]
+fn reform_with_repeated_source_lot_slices_preserves_only_surviving_lot_identities() {
+    let registries = build_registries();
+    let chip = CommodityKey::new(MATERIAL_WOOD, FORM_CHIP);
+    for fully_consumed in [false, true] {
+        let mut state = AppState::new();
+        let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(50)).unwrap();
+        let log = deposit_lot_for_test(
+            &registries,
+            &mut state,
+            source,
+            wood_log(),
+            Mass::from_milligrams(10),
+            Temperature::from_millikelvin(300_000),
+        )
+        .unwrap();
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            source,
+            chip,
+            Mass::from_milligrams(2),
+            Temperature::from_millikelvin(300_000),
+        )
+        .unwrap();
+        let initial_cursor = state.inventory().next_lot_id();
+        let initial_matter = calculate_matter_accounting(&state).unwrap().total();
+        let log_slices = if fully_consumed { [4, 6] } else { [2, 4] };
+        let selection = validate_consumption_selection(
+            state.inventory(),
+            source,
+            &[
+                MaterialInputSpec::new(wood_log(), Mass::from_milligrams(log_slices[0])),
+                MaterialInputSpec::new(wood_log(), Mass::from_milligrams(log_slices[1])),
+                MaterialInputSpec::new(chip, Mass::from_milligrams(2)),
+            ],
+        )
+        .unwrap();
+        assert_eq!(selection.lot_slices.len(), 3);
+        let reform = validate_material_reform_from_selection(
+            &registries,
+            &state,
+            source,
+            wood_log(),
+            selection,
+        )
+        .unwrap();
+        reform.commit(&mut state).unwrap();
+        let expected_log_id = if fully_consumed {
+            MaterialLotId::new(initial_cursor)
+        } else {
+            log
+        };
+        assert_eq!(
+            state.inventory().get_lot(expected_log_id).unwrap().mass(),
+            Mass::from_milligrams(12)
+        );
+        assert_eq!(
+            state.inventory().get_lot(log).is_some(),
+            !fully_consumed,
+            "completely withdrawn material must not retain a recycled identity"
+        );
+        assert_eq!(
+            state.inventory().next_lot_id(),
+            initial_cursor + u64::from(fully_consumed)
+        );
+        assert_eq!(
+            calculate_matter_accounting(&state).unwrap().total(),
+            initial_matter
+        );
+        validate_loaded_inventory(registries.materials(), state.inventory(), state.tick()).unwrap();
+    }
+}
+
+#[test]
 fn relocation_rejects_corrupt_source_lot_index_before_mutation() {
     let registries = build_registries();
     let mut state = AppState::new();

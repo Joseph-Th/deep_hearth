@@ -10,6 +10,7 @@ use super::{
     IngressMassSummary, MaterialIngressEntry, MaterialIngressError, ValidatedMaterialIngress,
     plan_ingress_identities, summarize_ingress_mass,
 };
+use crate::inventory::selection::fully_consumed_lot_ids;
 use crate::inventory::state::{InventoryState, StockpileId, StockpileRecord};
 use crate::inventory::transactions::ValidatedMaterialEgress;
 
@@ -159,15 +160,7 @@ pub(crate) fn validate_material_ingress_after_egress(
     )?;
     validate_ingress_capacity_after_egress(destination_record, destination, &mass_summary, egress)?;
     let excluded_existing = if egress.source() == destination {
-        egress
-            .lot_slices()
-            .iter()
-            .filter_map(|slice| {
-                state
-                    .get_lot(slice.lot)
-                    .and_then(|lot| (slice.mass == lot.mass()).then_some(slice.lot))
-            })
-            .collect::<BTreeSet<_>>()
+        fully_consumed_lot_ids(state, egress.lot_slices())
     } else {
         BTreeSet::new()
     };

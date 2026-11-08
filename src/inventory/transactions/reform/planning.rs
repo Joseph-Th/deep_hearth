@@ -4,6 +4,7 @@ use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::inventory::coalescing::LotMergePolicy;
 use crate::inventory::lot_identity::LotIdentityPlanner;
+use crate::inventory::selection::fully_consumed_lot_ids;
 use crate::inventory::state::{
     ConsumedMaterialTrace, LotSlice, MaterialLotId, MaterialLotProfile, MaterialStorageHistory,
     StockpileId, StockpileRecord,
@@ -236,11 +237,7 @@ pub(super) fn plan_reform_identities(
     outputs: &[(ConsumedMaterialTrace, MaterialStorageHistory)],
 ) -> Result<MaterialReformIdentityPlan, MaterialReformError> {
     let inventories = state.inventory();
-    let excluded_existing = lot_slices.iter().filter_map(|slice| {
-        inventories
-            .get_lot(slice.lot)
-            .and_then(|lot| (slice.mass == lot.mass()).then_some(slice.lot))
-    });
+    let excluded_existing = fully_consumed_lot_ids(inventories, lot_slices);
     let merge_policy = LotMergePolicy::for_commodity(registries, target);
     let destination_preservation_multiplier_ppm = destination_record
         .storage_profile()
