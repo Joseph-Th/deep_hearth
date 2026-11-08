@@ -379,7 +379,8 @@ impl WorldState {
         )
     }
 
-    /// A floor-supported, two-block-high standing column in generated terrain.
+    /// A collision-supported, two-block-high standing column in generated terrain.
+    /// Solid living trunks provide floor contact just like full terrain blocks.
     /// Missing chunks and out-of-range floor/head cells are never traversable ground.
     #[must_use]
     pub(crate) fn has_standing_clearance(
@@ -394,9 +395,7 @@ impl WorldState {
         };
         let floor = VoxelCoord::new(position.x(), floor_y, position.z());
         let head = VoxelCoord::new(position.x(), head_y, position.z());
-        self.block_at(floor)
-            .and_then(|state| registry.block_for_state(state))
-            .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+        self.full_cell_collision_at(registry, floor) == Some(true)
             && self.block_at(position) == Some(BlockStateId::AIR)
             && self.block_at(head) == Some(BlockStateId::AIR)
             && self.tree_trunk_at(position).is_none()

@@ -45,6 +45,78 @@ fn materialize_narrow_post(
     assert!(!state.structures().blocks_full_cell(voxel));
 }
 
+#[test]
+fn standing_clearance_uses_solid_trunk_as_a_floor_but_never_as_empty_body_space() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(7);
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let trunk = state
+        .world()
+        .trees()
+        .next()
+        .expect("ordinary generated stone chunk contains its seeded standing tree")
+        .root();
+    let top = VoxelCoord::new(trunk.x(), trunk.y() + 1, trunk.z());
+    let feet = VoxelCoord::new(trunk.x(), trunk.y() + 2, trunk.z());
+    assert_eq!(
+        state
+            .world()
+            .full_cell_collision_at(registries.world(), top),
+        Some(true),
+    );
+    assert_eq!(
+        state
+            .world()
+            .full_cell_collision_at(registries.world(), feet),
+        Some(false),
+    );
+    assert!(
+        state
+            .world()
+            .has_standing_clearance(registries.world(), feet)
+    );
+    assert!(
+        !state
+            .world()
+            .has_standing_clearance(registries.world(), top)
+    );
+    assert!(
+        !state
+            .world()
+            .has_standing_clearance(registries.world(), trunk)
+    );
+
+    validate_admit_player(&registries, &state, feet)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(crate::logistics::player_body_is_grounded(
+        &registries,
+        &state
+    ));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+    let original = crate::simulation::advance_control_tick(&registries, &mut state).unwrap();
+    let replay = crate::simulation::advance_control_tick(&registries, &mut loaded).unwrap();
+    assert_eq!(replay, original);
+    assert_eq!(loaded, state);
+}
+
 fn juvenile_with_neighbor() -> (
     crate::registry::Registries,
     AppState,

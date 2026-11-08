@@ -3,6 +3,47 @@
 use super::*;
 
 #[test]
+fn generated_scout_traversal_accepts_solid_trunk_support_but_not_the_trunk_body() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{ChunkCoord, validate_generate_chunk};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(7),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let root = state.world().trees().next().unwrap().root();
+    let upper_trunk = VoxelCoord::new(root.x(), root.y() + 1, root.z());
+    let above = VoxelCoord::new(root.x(), root.y() + 2, root.z());
+    assert!(super::super::patrol::scout_can_enter(
+        &registries,
+        &state,
+        above,
+        None
+    ));
+    assert!(!super::super::patrol::scout_can_enter(
+        &registries,
+        &state,
+        upper_trunk,
+        None
+    ));
+    assert!(!super::super::patrol::scout_can_enter(
+        &registries,
+        &state,
+        root,
+        None
+    ));
+    assert_eq!(validate_loaded_kobolds(&registries, &state), Ok(()));
+}
+
+#[test]
 fn opening_resident_save_rejects_materialized_wall_inside_its_body() {
     use crate::content::{FORM_BOARD, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION};
     use crate::core::quantity::{Area, Length};
