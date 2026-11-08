@@ -3,6 +3,8 @@
 //! Materialized rollers and stored energy are authoritative; this planner only
 //! arbitrates which non-overlapping transfers will execute on the next tick.
 
+use std::cmp::Ordering;
+
 use super::*;
 
 mod arbitration;

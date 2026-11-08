@@ -1,6 +1,9 @@
 //! Physical topology limits for non-teleporting line shafts.
 
+use std::cmp::Ordering;
+
 use super::*;
+use crate::energy::EnergyCarrier;
 
 #[path = "mechanical_transmission_tests/crossing.rs"]
 mod crossing;
