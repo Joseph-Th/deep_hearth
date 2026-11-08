@@ -12,6 +12,9 @@ use crate::material::{
     CommodityKey, CompositionComponent, CompositionConstraint, MaterialComposition,
 };
 
+#[path = "selection_tests/exhaustive.rs"]
+mod exhaustive;
+
 #[test]
 fn implicit_selection_reassigns_earlier_lots_to_satisfy_overlapping_composition_requirements() {
     use crate::core::state::validate_loaded_state;
@@ -154,6 +157,19 @@ fn implicit_selection_reassigns_earlier_lots_to_satisfy_overlapping_composition_
         ]
     );
     assert_eq!(partial.total_consumed(), Mass::from_milligrams(300));
+    // A single physical lot can appear in two requirement slices. The actual
+    // inventory owner must consume those slices exactly once in aggregate,
+    // not reject the duplicate identity or overdraw its original mass.
+    let egress =
+        crate::inventory::validate_material_egress_from_selection(state.inventory(), partial)
+            .unwrap();
+    let mut withdrawn = state.inventory().clone();
+    crate::inventory::apply_material_egress(&mut withdrawn, egress);
+    assert_eq!(
+        withdrawn.get_stockpile(source).unwrap().stored_mass(),
+        Mass::ZERO
+    );
+    assert_eq!(withdrawn.lot_ids(source).count(), 0);
     let impossible = [
         inputs[0].clone(),
         inputs[1].clone(),
