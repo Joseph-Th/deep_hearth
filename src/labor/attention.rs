@@ -104,14 +104,14 @@ pub(crate) fn validate_player_attention(
     if state.combat().has_prepared_strike() {
         return Err(PlayerAttentionError::PreparedStrikeActive);
     }
-    // Every held attention interval is stationary in generated terrain.
-    // This is also a trusted-load invariant, so meals and drinks must not
-    // create a persisted moving-work state that only ordinary labor rejects.
+    // Every held attention interval needs a fixed floor in generated terrain.
+    // A temple resident is solid to motion but may walk away before this work
+    // completes. Trusted-load admission uses the same stable-support rule.
     if crate::logistics::player_body_uses_generated_world(
         state,
         registries.survival().physiology().locomotion(),
     ) {
-        if !crate::logistics::player_body_is_grounded(registries, state) {
+        if !crate::logistics::player_body_has_fixed_floor(registries, state) {
             return Err(PlayerAttentionError::PlayerAirborne);
         }
         if state.logistics().player().is_some_and(|player| {

@@ -95,6 +95,47 @@ pub(crate) fn player_body_stands_above_structure(
         && max.z() > min_z
 }
 
+/// Spatially indexed physical floor members under the player's exact body
+/// footprint. Most grounded players stand on terrain, so the common case
+/// performs no global structure scan or mining/production due-work scan.
+/// Candidate order is normalized because the index is derived, not authority.
+pub(crate) fn player_body_floor_structures(
+    registries: &Registries,
+    state: &AppState,
+) -> Vec<crate::structural::StructuralElementId> {
+    let Some(player) = state.logistics().player() else {
+        return Vec::new();
+    };
+    let Some((min_x, max_x, min_z, max_z)) = horizontal_voxel_bounds(
+        player.body(),
+        registries.survival().physiology().locomotion(),
+    ) else {
+        return Vec::new();
+    };
+    let Some(below_y) = player.body().foot_position().y_nanometers().checked_sub(1) else {
+        return Vec::new();
+    };
+    let below_y = below_y.div_euclid(NANOMETERS_PER_VOXEL);
+    let mut floor = Vec::new();
+    for z in min_z..=max_z {
+        for x in min_x..=max_x {
+            for member in state
+                .structures()
+                .elements_covering(VoxelCoord::new(x, below_y, z))
+            {
+                if !member.embodied_material().is_empty()
+                    && member.geometry().covers_horizontal_footprint()
+                    && !floor.contains(&member.id())
+                {
+                    floor.push(member.id());
+                }
+            }
+        }
+    }
+    floor.sort_unstable();
+    floor
+}
+
 /// An actually occupied temple resident cell can support the player's
 /// continuous footprint. Unlike terrain, that floor can leave on a slow
 /// resident step, so the boundary's gravity sample cannot be skipped.
@@ -276,8 +317,19 @@ pub(super) fn player_cell_blocks_motion(
     state: &AppState,
     voxel: VoxelCoord,
 ) -> bool {
-    world_cell_blocks_motion(registries.world(), state.world(), voxel)
+    player_cell_has_fixed_support(registries, state, voxel)
         || crate::kobolds::temple_caste_occupies_voxel(registries, state, voxel)
+}
+
+/// Terrain, standing trunks and embodied structures remain in place between
+/// neutral control frames. Moving temple residents collide with the player,
+/// but must not be accepted as a permanent floor for scheduled attention work.
+pub(super) fn player_cell_has_fixed_support(
+    registries: &Registries,
+    state: &AppState,
+    voxel: VoxelCoord,
+) -> bool {
+    world_cell_blocks_motion(registries.world(), state.world(), voxel)
         || structure_blocks_player_cell(state, voxel)
 }
 

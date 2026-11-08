@@ -4,8 +4,9 @@ use super::{
     AppState, CONTROL_TICK_DURATION, LocomotionDefinition, MICROSECONDS_PER_SECOND,
     NANOMETERS_PER_MICROMETER, PlayerBodyMotionError, PlayerBodyState, PlayerControlAvailability,
     PlayerControlInput, PlayerFallImpactOutcome, Registries, Speed, WorldPoint,
-    assess_player_carrying, body_height, horizontal_voxel_bounds, integrate_velocity,
-    length_nanometers, player_cell_blocks_motion,
+    assess_player_carrying, body_height, horizontal_chunks_generated, horizontal_voxel_bounds,
+    integrate_velocity, length_nanometers, player_cell_blocks_motion,
+    player_cell_has_fixed_support,
 };
 use crate::spatial::{NANOMETERS_PER_VOXEL, VerticalVelocity, VoxelCoord};
 
@@ -214,6 +215,36 @@ fn crossed_ceiling_y(
         }
     }
     Ok(ceiling)
+}
+
+/// Long player-owned attention cannot use a moving temple resident as its
+/// sole support. Use the same exact voxel-face and footprint test as gravity,
+/// excluding only actor occupancy rather than inventing a second geometry.
+pub(crate) fn player_body_has_fixed_floor(registries: &Registries, state: &AppState) -> bool {
+    let Some(player) = state.logistics().player() else {
+        return false;
+    };
+    let body = player.body();
+    let locomotion = registries.survival().physiology().locomotion();
+    let Some(bounds) = horizontal_voxel_bounds(body, locomotion) else {
+        return false;
+    };
+    if !horizontal_chunks_generated(state.world(), bounds) {
+        return false;
+    }
+    let foot = body.foot_position().y_nanometers();
+    let Some(probe) = foot.checked_sub(1) else {
+        return false;
+    };
+    crossed_floor_y(
+        &|voxel| player_cell_has_fixed_support(registries, state, voxel),
+        bounds,
+        probe,
+        foot,
+    )
+    .ok()
+    .flatten()
+        == Some(foot)
 }
 
 pub(super) fn supporting_floor_y(

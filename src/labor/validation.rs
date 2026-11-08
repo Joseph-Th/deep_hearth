@@ -4,7 +4,7 @@ use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::logistics::{
-    player_body_is_grounded, player_body_uses_generated_world, validate_player_stockpile_access,
+    player_body_has_fixed_floor, player_body_uses_generated_world, validate_player_stockpile_access,
 };
 use crate::registry::Registries;
 use crate::spatial::HorizontalVelocity;
@@ -115,7 +115,7 @@ pub(crate) fn validate_loaded_player_work(
     }
     let locomotion = registries.survival().physiology().locomotion();
     if player_body_uses_generated_world(state, locomotion) {
-        if !player_body_is_grounded(registries, state) {
+        if !player_body_has_fixed_floor(registries, state) {
             return Err(PlayerWorkValidationError::PlayerAirborne);
         }
         if state.logistics().player().is_some_and(|player| {

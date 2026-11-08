@@ -359,6 +359,31 @@ fn due_supported_craft_fixture(
 }
 
 #[test]
+fn indexed_player_floor_members_agree_with_exact_structure_footprint() {
+    use crate::logistics::{player_body_floor_structures, player_body_stands_above_structure};
+
+    let (registries, terrain, _) = generated_grounded_player_at(0, 0);
+    assert!(player_body_floor_structures(&registries, &terrain).is_empty());
+
+    for shared_support in [true, false] {
+        let (registries, state, _) = due_supported_craft_fixture(shared_support);
+        let indexed = player_body_floor_structures(&registries, &state);
+        let geometric = state
+            .structures()
+            .elements()
+            .filter(|element| player_body_stands_above_structure(&registries, &state, element.id()))
+            .map(|element| element.id())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            indexed, geometric,
+            "indexed floors must agree with the exact body footprint for shared_support={shared_support}"
+        );
+        assert!(!indexed.is_empty());
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+}
+
+#[test]
 fn due_supported_output_on_player_floor_chain_requires_boundary_control() {
     let (registries, mut state, due) = due_supported_craft_fixture(true);
     let before = state.clone();

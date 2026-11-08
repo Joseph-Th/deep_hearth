@@ -6,8 +6,9 @@ use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::labor::PlayerWork;
 use crate::logistics::{
-    PlayerStance, player_body_is_grounded, player_body_stands_above_structure,
-    player_body_stands_above_temple_caste, player_body_uses_generated_world,
+    PlayerStance, player_body_floor_structures, player_body_is_grounded,
+    player_body_stands_above_structure, player_body_stands_above_temple_caste,
+    player_body_uses_generated_world,
 };
 use crate::registry::Registries;
 use crate::structural::StructuralElementId;
@@ -77,6 +78,16 @@ fn due_structural_load_can_change_player_support(
     registries: &Registries,
     state: &AppState,
 ) -> bool {
+    // Most players stand on terrain. Find real floor members through the
+    // spatial index first; no due-job or global structure scan is needed if
+    // none can carry the player's body.
+    let mut floor_ancestors = BTreeSet::new();
+    for member in player_body_floor_structures(registries, state) {
+        collect_support_ancestors(state, member, &mut floor_ancestors);
+    }
+    if floor_ancestors.is_empty() {
+        return false;
+    }
     let Some(next_tick) = state.tick().checked_add_executable_span(TickSpan::new(1)) else {
         return false;
     };
@@ -90,15 +101,6 @@ fn due_structural_load_can_change_player_support(
         affected_members.insert(work.element());
     }
     if affected_members.is_empty() {
-        return false;
-    }
-    let mut floor_ancestors = BTreeSet::new();
-    for member in state.structures().elements() {
-        if player_body_stands_above_structure(registries, state, member.id()) {
-            collect_support_ancestors(state, member.id(), &mut floor_ancestors);
-        }
-    }
-    if floor_ancestors.is_empty() {
         return false;
     }
     let mut affected_ancestors = BTreeSet::new();

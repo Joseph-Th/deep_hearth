@@ -49,7 +49,7 @@ impl Display for PlayerWorkStartError {
             }
             Self::PlayerDead => formatter.write_str("dead player cannot begin work"),
             Self::PlayerAirborne => {
-                formatter.write_str("player must be grounded before beginning slow work")
+                formatter.write_str("player must stand on a fixed floor before beginning slow work")
             }
             Self::PlayerMoving => {
                 formatter.write_str("player must stop body motion before beginning slow work")

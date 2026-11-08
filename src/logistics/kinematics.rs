@@ -25,17 +25,19 @@ use super::{
 use collision::{
     body_height, first_player_body_collision_where, horizontal_chunks_generated,
     horizontal_voxel_bounds, length_nanometers, player_cell_blocks_motion,
+    player_cell_has_fixed_support,
 };
 pub(crate) use collision::{
     first_player_body_collision, first_player_body_collision_in_chunk,
     first_player_body_overlap_with_bounds, first_player_structure_collision,
     first_player_temple_caste_collision, player_body_fits_continuous_world,
-    player_body_is_grounded, player_body_is_grounded_at, player_body_occupies_voxel,
-    player_body_stands_above_structure, player_body_stands_above_temple_caste,
-    player_body_uses_generated_world,
+    player_body_floor_structures, player_body_is_grounded, player_body_is_grounded_at,
+    player_body_occupies_voxel, player_body_stands_above_structure,
+    player_body_stands_above_temple_caste, player_body_uses_generated_world,
 };
 use exertion::resolve_control_exertion;
 use horizontal::{player_voxel_change_allowed, resolve_horizontal_motion};
+pub(crate) use vertical::player_body_has_fixed_floor;
 use vertical::{resolve_vertical_control, supporting_floor_y};
 
 const MICROSECONDS_PER_SECOND: i128 = 1_000_000;

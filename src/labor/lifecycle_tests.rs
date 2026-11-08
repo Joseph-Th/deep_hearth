@@ -55,6 +55,62 @@ fn prospecting_work_requires_explicit_equipment_and_wear_slots() {
 }
 
 #[test]
+fn movable_temple_resident_is_not_a_stable_floor_for_exclusive_work() {
+    use crate::core::state::validate_loaded_state;
+    use crate::logistics::{player_body_is_grounded, player_body_stands_above_temple_caste};
+    use crate::world::{BlockStateId, set_generated_block_for_test, temple_warden_route_at};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x0054_454D_504C_4553),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let post = temple_warden_route_at(&registries, &state, VoxelCoord::new(8, -19, 8))
+        .expect("seeded temple warden has a physical post")[0];
+    for y in post.y() + 2..=post.y() + 4 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(post.x(), y, post.z()),
+            BlockStateId::AIR,
+        );
+    }
+    validate_admit_player(
+        &registries,
+        &state,
+        VoxelCoord::new(post.x(), post.y() + 2, post.z()),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert!(player_body_is_grounded(&registries, &state));
+    assert!(player_body_stands_above_temple_caste(&registries, &state));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    // The warden is allowed to leave on its own schedule. A 3.6-second or
+    // longer attention hold cannot claim the moving body as permanent ground.
+    assert_eq!(
+        validate_player_work_start(
+            &registries,
+            &state,
+            PlayerWork::ManualProduction {
+                job: ProductionJobId::new(1),
+            },
+            TickSpan::new(6),
+            SurvivalExertion::REST,
+        ),
+        Err(PlayerWorkStartError::PlayerAirborne)
+    );
+}
+
+#[test]
 fn slow_player_work_requires_ground_contact_in_generated_world() {
     let registries = build_registries();
     let mut state = AppState::new();
