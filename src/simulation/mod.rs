@@ -3,6 +3,7 @@
 mod control;
 mod direct_actions;
 mod error;
+mod fast_forward;
 mod outcome;
 mod planning;
 mod player_death;
@@ -19,15 +20,11 @@ use crate::core::state::{AppState, apply_control_clock_advance, debug_assert_run
 use crate::core::time::{ControlTick, SimulationTick};
 use crate::labor::{PlayerWork, apply_player_work_tick, decide_player_work_control_tick};
 use crate::logistics::{
-    PlayerControlInput, PlayerStance, apply_player_body_motion, decide_player_body_motion,
-    player_body_is_grounded, player_body_stands_above_structure,
-    player_body_stands_above_temple_caste, player_body_uses_generated_world,
+    PlayerControlInput, apply_player_body_motion, decide_player_body_motion,
+    player_body_uses_generated_world,
 };
 use crate::registry::Registries;
-use crate::surface::{
-    apply_automatic_surface_drop_pickup, automatic_surface_pickup_requires_control_stepping,
-    decide_automatic_surface_drop_pickup,
-};
+use crate::surface::{apply_automatic_surface_drop_pickup, decide_automatic_surface_drop_pickup};
 use crate::survival::{
     SurvivalExertion, apply_survival_tick, control_exertion_between,
     decide_control_exertion_settlement,
@@ -41,6 +38,7 @@ use direct_actions::{
     attempt_pending_primary_break, attempt_pending_secondary_action,
     attempt_quick_access_selection,
 };
+use fast_forward::control_stepping_required;
 use slow_tick::advance_simulation_tick;
 
 /// Advances one canonical 20 Hz direct-control tick.
@@ -284,64 +282,14 @@ fn map_block_excavation_tick_error(error: BlockExcavationTickError) -> TickError
     }
 }
 
-fn control_stepping_required(registries: &Registries, state: &AppState) -> bool {
-    if state.logistics().has_pending_direct_action()
-        || matches!(
-            state.player_work().active(),
-            Some(PlayerWork::BlockExcavation { .. })
-        )
-        || automatic_surface_pickup_requires_control_stepping(registries, state)
-    {
-        return true;
-    }
-    let locomotion = registries.survival().physiology().locomotion();
-    if !player_body_uses_generated_world(state, locomotion) {
-        return false;
-    }
-    let player =
-        state.logistics().player().copied().unwrap_or_else(|| {
-            unreachable!("generated-world body requires admitted player logistics")
-        });
-    if let Some(PlayerWork::StructuralDismantling { work }) = state.player_work().active()
-        && work.completes_at().value() == state.tick().value().saturating_add(1)
-        && player_body_stands_above_structure(registries, state, work.element())
-    {
-        // The slow phase removes this floor before the boundary's final
-        // control sample. Skipping that sample would erase the first fall step.
-        return true;
-    }
-    // A real temple resident is a solid vertical support, but can walk away
-    // during the slow phase. The final control sample must then start the
-    // player's fall instead of leaving a falsely grounded frozen body.
-    if state
-        .tick()
-        .value()
-        .checked_add(1)
-        .map(SimulationTick::new)
-        .is_some_and(crate::kobolds::temple_resident_step_due)
-        && player_body_stands_above_temple_caste(registries, state)
-    {
-        return true;
-    }
-    let body = player.body();
-    let horizontal = body.horizontal_velocity();
-    player.pending_fall_vitality_loss_ppm() != 0
-        || body.stance() != PlayerStance::Standing
-        || horizontal.x_nanometers_per_second() != 0
-        || horizontal.z_nanometers_per_second() != 0
-        || body.vertical_velocity().nanometers_per_second() != 0
-        || !player_body_is_grounded(registries, state)
-        || player.locomotion_exertion().pending() != SurvivalExertion::REST
-}
-
 /// Advances atomically to the next slow-simulation boundary when no control-rate consequence can
 /// occur during the skipped neutral-control interval.
 ///
 /// Headless/process-only states, players outside generated body truth, and a standing grounded
 /// motionless generated-world player with settled locomotion may use this fast path. Buffered
 /// input, unsettled fall injury, crouch/air/motion, control-rate excavation, movable temple
-/// support on a due resident step, and local drops that can enter the player's pack still require
-/// exact 50 ms stepping and return
+/// support, due structurally loaded outputs near a supported player, and local collectible drops
+/// still require exact 50 ms stepping and return
 /// `TickError::ControlSteppingRequired`.
 pub fn advance_tick(
     registries: &Registries,

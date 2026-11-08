@@ -6,6 +6,7 @@ use crate::content::{
     STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
 };
 use crate::core::state::validate_loaded_state;
+use crate::logistics::player_body_is_grounded;
 use crate::matter::calculate_matter_accounting;
 use crate::spatial::VoxelBounds;
 use crate::structural::{
@@ -243,5 +244,157 @@ fn nearby_dismantling_preserves_fast_forward_when_the_player_floor_is_unchanged(
         state.logistics().player().unwrap().body(),
         before.logistics().player().unwrap().body()
     );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+/// A manual production output is stored on a narrow post at the player's
+/// voxel. The post may share the actual floor's support chain, or stand on
+/// independent ground. Both cases must preserve exact work and matter custody.
+fn due_supported_craft_fixture(
+    shared_support: bool,
+) -> (Registries, AppState, crate::core::time::SimulationTick) {
+    use crate::content::{FORM_LOG, FORM_LUMP, MATERIAL_STONE, PROCESS_KNAP_STONE_TOOL};
+    use crate::core::quantity::{Area, Length, Mass, Temperature};
+    use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
+    use crate::inventory::{
+        MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test,
+        validate_mount_stockpile,
+    };
+    use crate::logistics::validate_place_ground_stockpile;
+    use crate::material::CommodityKey;
+    use crate::structural::validate_link_support;
+
+    let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
+    let foot = VoxelCoord::new(0, floor_y, 0);
+    let ground = VoxelCoord::new(0, floor_y - 1, 0);
+    set_generated_block_for_test(registries.world(), &mut state, ground, BlockStateId::AIR);
+    let floor = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        StructuralElementGeometry::new(
+            VoxelBounds::new(ground, VoxelCoord::new(1, floor_y, 1)).unwrap(),
+            BASIC_TIMBER_COVER_PANEL_THICKNESS,
+            BASIC_TIMBER_COVER_PANEL_AREA,
+        )
+        .unwrap(),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, floor, FORM_BOARD);
+    let _ = validate_activate_structural_element(&registries, &state, floor)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    let source =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000)).unwrap();
+    let destination =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(2_000_000)).unwrap();
+    let batch = Mass::from_milligrams(1_000_000);
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        batch,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    for stockpile in [source, destination] {
+        validate_place_ground_stockpile(&state, stockpile, foot)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    }
+    let post = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        crate::structural::make_test_structural_geometry(
+            VoxelBounds::new(foot, VoxelCoord::new(1, floor_y + 1, 1)).unwrap(),
+            Length::from_micrometers(1_000),
+            Area::from_square_millimeters(1_000),
+        ),
+        !shared_support,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, post, FORM_LOG);
+    if shared_support {
+        let _ = validate_link_support(&registries, &state, post, floor)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    }
+    let _ = validate_activate_structural_element(&registries, &state, post)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = validate_mount_stockpile(&registries, &state, destination, post)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let job = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(lot, batch),
+            destination,
+        ),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let completes_at = state.production().get_job(job).unwrap().completes_at();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    while state.tick().value() + 1 < completes_at.value() {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert!(player_body_is_grounded(&registries, &state));
+    (registries, state, completes_at)
+}
+
+#[test]
+fn due_supported_output_on_player_floor_chain_requires_boundary_control() {
+    let (registries, mut state, due) = due_supported_craft_fixture(true);
+    let before = state.clone();
+    assert_eq!(
+        advance_tick(&registries, &mut state),
+        Err(TickError::ControlSteppingRequired {
+            current: before.control_tick()
+        })
+    );
+    assert_eq!(state, before);
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let original = advance_control_tick(&registries, &mut state).unwrap();
+        let restored = advance_control_tick(&registries, &mut replay).unwrap();
+        assert_eq!(original, restored);
+    }
+    assert_eq!(state.tick(), due);
+    assert_eq!(state, replay);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn unrelated_supported_output_preserves_neutral_fast_forward_parity() {
+    let (registries, mut state, due) = due_supported_craft_fixture(false);
+    let mut replay = state.clone();
+    let fast = advance_tick(&registries, &mut state).unwrap();
+    let mut final_frame = None;
+    for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK {
+        final_frame = Some(advance_control_tick(&registries, &mut replay).unwrap());
+    }
+    assert_eq!(state.tick(), due);
+    assert_eq!(fast, *final_frame.unwrap().simulation().unwrap());
+    assert_eq!(state, replay);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
