@@ -466,6 +466,61 @@ fn carried_output_process_fixture() -> (
 }
 
 #[test]
+fn carried_output_site_conflict_tracks_indexed_job_after_save_and_load() {
+    let (registries, mut state, source, carried, resolution) = carried_output_process_fixture();
+    let job = validate_start_player_process(&registries, &state, &resolution, source, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let origin = VoxelCoord::new(0, 0, 0);
+    let remote = VoxelCoord::new(1, 0, 0);
+    let other_stockpile = add_test_stockpile(&mut state, 100);
+    assert_eq!(
+        state
+            .production()
+            .retained_output_jobs(carried)
+            .map(ProductionJobRecord::id)
+            .collect::<Vec<_>>(),
+        vec![job]
+    );
+    assert_eq!(
+        state
+            .production()
+            .retained_output_jobs(other_stockpile)
+            .count(),
+        0
+    );
+    assert_eq!(
+        crate::production::player_move_production_site_conflict(&state, carried, origin),
+        None
+    );
+    assert_eq!(
+        crate::production::player_move_production_site_conflict(&state, carried, remote),
+        Some(job)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+    assert_eq!(
+        loaded
+            .production()
+            .retained_output_jobs(carried)
+            .map(ProductionJobRecord::id)
+            .collect::<Vec<_>>(),
+        vec![job]
+    );
+    assert_eq!(
+        crate::production::player_move_production_site_conflict(&loaded, carried, remote),
+        Some(job)
+    );
+}
+
+#[test]
 fn process_start_rejects_separated_known_endpoints() {
     let (registries, mut state, source, destination) = unstarted_process_fixture();
     let resources = add_test_heating_resources(&registries, &mut state);

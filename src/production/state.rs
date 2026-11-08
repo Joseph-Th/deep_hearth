@@ -137,6 +137,26 @@ impl ProductionState {
         self.jobs.values()
     }
 
+    /// Only jobs with retained output at this stockpile, in stable job-ID order.
+    /// Includes suspended jobs because suspension does not release site obligations.
+    pub(crate) fn retained_output_jobs(
+        &self,
+        stockpile: StockpileId,
+    ) -> impl Iterator<Item = &ProductionJobRecord> {
+        self.indexes
+            .output_stockpile_occupants(stockpile)
+            .into_iter()
+            .flatten()
+            .map(|id| {
+                self.jobs.get(id).unwrap_or_else(|| {
+                    panic!(
+                        "runtime invariant broken: production output occupancy index references missing job {}",
+                        id.value()
+                    )
+                })
+            })
+    }
+
     /// Returns the active production job that exclusively reserves one finite energy store.
     #[must_use]
     pub(crate) fn get_energy_occupant(&self, store: EnergyStoreId) -> Option<ProductionJobId> {

@@ -166,12 +166,7 @@ pub(crate) fn player_move_production_site_conflict(
 ) -> Option<ProductionJobId> {
     state
         .production()
-        .jobs()
-        .filter(|job| {
-            job.output_streams()
-                .iter()
-                .any(|stream| stream.destination() == carried)
-        })
+        .retained_output_jobs(carried)
         .find_map(|job| {
             validate_retained_job_site_with_stockpile_override(
                 state,

@@ -117,6 +117,20 @@ fn physical_availability_candidates_inspect_only_active_output_destinations() {
         &projection(BTreeSet::from([supported_stockpile]), true, false),
     );
 
+    assert_eq!(
+        indexes.output_stockpile_occupants(supported_stockpile),
+        Some(&BTreeSet::from([supported_output, overlapping])),
+        "retained output lookup must include suspended and running jobs in ID order"
+    );
+    assert_eq!(
+        indexes.output_stockpile_occupants(unsupported_stockpile),
+        Some(&BTreeSet::from([unsupported_output]))
+    );
+    assert_eq!(
+        indexes.output_stockpile_occupants(StockpileId::new(12)),
+        None
+    );
+
     let mut inspected = Vec::new();
     let candidates = indexes.physical_availability_candidate_jobs(|stockpile| {
         inspected.push(stockpile);
