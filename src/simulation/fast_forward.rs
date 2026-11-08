@@ -67,20 +67,29 @@ pub(super) fn control_stepping_required(registries: &Registries, state: &AppStat
     {
         return true;
     }
-    due_stored_matter_can_change_player_support(registries, state)
+    due_structural_load_can_change_player_support(registries, state)
 }
 
-/// A completion can load one structural support and, through shared load-bearing
-/// ancestors, fracture a different member beneath the player. Only those connected
-/// support chains require replaying the boundary's final gravity sample.
-fn due_stored_matter_can_change_player_support(registries: &Registries, state: &AppState) -> bool {
+/// Scheduled construction, processing, or mining can load one structural support
+/// and, through shared load-bearing ancestors, fracture a different member beneath
+/// the player. Only connected support chains require the final gravity sample.
+fn due_structural_load_can_change_player_support(
+    registries: &Registries,
+    state: &AppState,
+) -> bool {
     let Some(next_tick) = state.tick().checked_add_executable_span(TickSpan::new(1)) else {
         return false;
     };
-    let mut output_supports = BTreeSet::new();
-    collect_due_production_supports(state, next_tick, &mut output_supports);
-    collect_due_mining_supports(state, next_tick, &mut output_supports);
-    if output_supports.is_empty() {
+    let mut affected_members = BTreeSet::new();
+    collect_due_production_supports(state, next_tick, &mut affected_members);
+    collect_due_mining_supports(state, next_tick, &mut affected_members);
+    if let Some(work) = state
+        .player_work()
+        .structural_construction_due_at(next_tick)
+    {
+        affected_members.insert(work.element());
+    }
+    if affected_members.is_empty() {
         return false;
     }
     let mut floor_ancestors = BTreeSet::new();
@@ -92,11 +101,11 @@ fn due_stored_matter_can_change_player_support(registries: &Registries, state: &
     if floor_ancestors.is_empty() {
         return false;
     }
-    let mut output_ancestors = BTreeSet::new();
-    for support in output_supports {
-        collect_support_ancestors(state, support, &mut output_ancestors);
+    let mut affected_ancestors = BTreeSet::new();
+    for member in affected_members {
+        collect_support_ancestors(state, member, &mut affected_ancestors);
     }
-    !floor_ancestors.is_disjoint(&output_ancestors)
+    !floor_ancestors.is_disjoint(&affected_ancestors)
 }
 
 fn collect_due_production_supports(

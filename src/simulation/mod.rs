@@ -288,8 +288,8 @@ fn map_block_excavation_tick_error(error: BlockExcavationTickError) -> TickError
 /// Headless/process-only states, players outside generated body truth, and a standing grounded
 /// motionless generated-world player with settled locomotion may use this fast path. Buffered
 /// input, unsettled fall injury, crouch/air/motion, control-rate excavation, movable temple
-/// support, due structurally loaded outputs near a supported player, and local collectible drops
-/// still require exact 50 ms stepping and return
+/// support, due construction or stored-matter loads on the player's support chain, and local
+/// collectible drops still require exact 50 ms stepping and return
 /// `TickError::ControlSteppingRequired`.
 pub fn advance_tick(
     registries: &Registries,
