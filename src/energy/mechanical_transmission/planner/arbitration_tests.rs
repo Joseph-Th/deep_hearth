@@ -534,13 +534,13 @@ fn articulation_search_handles_long_connected_shaft_chain() {
     );
 }
 
-#[test]
-fn parallel_weak_connectors_cannot_reduce_independent_shaft_work() {
-    // Four crossing/side runs deliver 260 nJ versus 240 nJ from the three
-    // stronger incumbents. Ten independent shafts deliver another 1,000 nJ.
-    let mut runs = (0..10)
+// Four crossing/side runs deliver 260 nJ versus 240 nJ from the three
+// stronger incumbents. Other independent shafts must not lose their work
+// when weak paths connect the two parts of the physical conflict graph.
+fn assert_parallel_weak_connector_work(independent_runs: usize) {
+    let mut runs = (0..independent_runs)
         .map(|index| ShaftRun {
-            rollers: vec![StructuralElementId::new(100 + index)],
+            rollers: vec![StructuralElementId::new(100 + index as u32)],
         })
         .collect::<Vec<_>>();
     runs.extend([
@@ -572,10 +572,12 @@ fn parallel_weak_connectors_cannot_reduce_independent_shaft_work() {
     ]);
     let mut pairs = (0..runs.len())
         .map(|run| {
-            let delivered = match run {
-                0..10 => 100,
-                10..13 => 80,
-                _ => 65,
+            let delivered = if run < independent_runs {
+                100
+            } else if run < independent_runs + 3 {
+                80
+            } else {
+                65
             };
             let source = 2 * run as u64 + 1;
             candidate(
@@ -588,7 +590,9 @@ fn parallel_weak_connectors_cannot_reduce_independent_shaft_work() {
             )
         })
         .collect::<Vec<_>>();
-    let expected = (0..10).chain(13..17).collect::<Vec<_>>();
+    let expected = (0..independent_runs)
+        .chain(independent_runs + 3..independent_runs + 7)
+        .collect::<Vec<_>>();
     assert_eq!(
         select_shaft_pairs(&pairs, &runs)
             .iter()
@@ -599,10 +603,10 @@ fn parallel_weak_connectors_cannot_reduce_independent_shaft_work() {
 
     // Neither weak connector is an articulation because the other still
     // bridges the previously independent groups. Neither can improve work.
-    for run in 17..19 {
+    for run in independent_runs + 7..independent_runs + 9 {
         runs.push(ShaftRun {
-            rollers: (1..=6)
-                .chain(100..110)
+            rollers: (1_u32..=6)
+                .chain(100..100 + independent_runs as u32)
                 .map(StructuralElementId::new)
                 .collect(),
         });
@@ -625,13 +629,13 @@ fn parallel_weak_connectors_cannot_reduce_independent_shaft_work() {
             .iter()
             .map(|pair| pair.transfer.delivered().nanojoules())
             .sum::<u128>(),
-        1_260
+        independent_runs as u128 * 100 + 260
     );
 
     // Twelve weaker alternatives attached to one side of the graph are not
     // connectors. They must not hide the two true parallel bridges by
     // occupying the final positions in the ranked candidate list.
-    for run in 19..31 {
+    for run in independent_runs + 9..independent_runs + 21 {
         runs.push(ShaftRun {
             rollers: vec![StructuralElementId::new(100)],
         });
@@ -647,6 +651,19 @@ fn parallel_weak_connectors_cannot_reduce_independent_shaft_work() {
         expected,
         "many weak non-bridging paths must not hide the earlier parallel connectors"
     );
+}
+
+#[test]
+fn parallel_weak_connectors_cannot_reduce_independent_shaft_work() {
+    assert_parallel_weak_connector_work(10);
+}
+
+#[test]
+fn parallel_connectors_at_exact_solver_boundary_do_not_lose_shaft_work() {
+    // The first weak connector is precisely candidate 17 (index 16).
+    // At this boundary, exhaustive search ceases and the ranked pre-merge
+    // probe must still preserve the earlier independent allocations.
+    assert_parallel_weak_connector_work(EXACT_CONFLICT_LIMIT - 7);
 }
 
 #[test]
