@@ -52,6 +52,10 @@ pub enum FluidTransferError {
         expected: FluidDefinitionId,
         found: FluidDefinitionId,
     },
+    NaturalSpringRequiresWater {
+        store: FluidStoreId,
+        found: FluidDefinitionId,
+    },
     UnsafeHandTemperature {
         store: FluidStoreId,
         temperature: Temperature,
@@ -158,6 +162,12 @@ impl Display for FluidTransferError {
                 found.value(),
                 expected.value()
             ),
+            Self::NaturalSpringRequiresWater { store, found } => write!(
+                formatter,
+                "natural spring {} can contain only water, not fluid definition {}",
+                store.value(),
+                found.value()
+            ),
             Self::UnsafeHandTemperature {
                 store,
                 temperature,
@@ -217,6 +227,7 @@ impl Error for FluidTransferError {
             | Self::InsufficientVolume { .. }
             | Self::UnknownDefinition { .. }
             | Self::IncompatibleFluid { .. }
+            | Self::NaturalSpringRequiresWater { .. }
             | Self::UnsafeHandTemperature { .. }
             | Self::UnrepresentableEquilibriumTemperature { .. }
             | Self::DestinationOverflow

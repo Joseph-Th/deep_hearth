@@ -55,6 +55,81 @@ fn actual_natural_pool() -> (Registries, AppState, super::super::FluidStoreId, V
 }
 
 #[test]
+fn emptied_natural_spring_cannot_be_refilled_with_a_different_liquid() {
+    use crate::content::{
+        FLUID_WATER, MATERIAL_BERRIES, MATERIAL_WATER, make_test_registries_with_fluids,
+    };
+    use crate::core::quantity::Temperature;
+    use crate::fluid::{
+        FluidDefinition, FluidDefinitionId, add_fluid_store,
+        add_fluid_store_with_contents_for_fixture, validate_transfer_fluid_between_local_stores,
+    };
+    use crate::logistics::{relocate_player_for_test, validate_place_fluid_store};
+
+    let (ordinary, mut state, spring, position) = actual_natural_pool();
+    relocate_player_for_test(&mut state, position);
+    let original_water = state.fluid().get_store(spring).unwrap().stored_volume();
+    let receiving_vessel = add_fluid_store(&mut state, original_water).unwrap();
+    validate_place_fluid_store(&state, receiving_vessel, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = validate_transfer_fluid_between_local_stores(
+        &ordinary,
+        &state,
+        spring,
+        receiving_vessel,
+        original_water,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert!(
+        state
+            .fluid()
+            .get_store(spring)
+            .unwrap()
+            .contents()
+            .is_none()
+    );
+    assert_eq!(validate_loaded_state(&ordinary, &state), Ok(()));
+
+    // A different, hand-safe registered liquid cannot replace the basin's
+    // seed-authored water identity just because its standing pool was drained.
+    const JUICE: FluidDefinitionId = FluidDefinitionId::new(931_700);
+    let with_juice = make_test_registries_with_fluids(vec![
+        FluidDefinition::new(FLUID_WATER, "water", MATERIAL_WATER),
+        FluidDefinition::new(JUICE, "berry juice", MATERIAL_BERRIES),
+    ]);
+    let amount = Volume::from_microliters(10_000);
+    let donor = add_fluid_store_with_contents_for_fixture(
+        &with_juice,
+        &mut state,
+        amount,
+        JUICE,
+        amount,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_place_fluid_store(&state, donor, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let unchanged = state.clone();
+    assert_eq!(
+        validate_transfer_fluid_between_local_stores(&with_juice, &state, donor, spring, amount)
+            .err(),
+        Some(
+            crate::fluid::FluidTransferError::NaturalSpringRequiresWater {
+                store: spring,
+                found: JUICE,
+            }
+        ),
+    );
+    assert_eq!(state, unchanged);
+}
+
+#[test]
 fn completely_drained_natural_spring_stays_inert_until_real_refill() {
     use crate::content::FLUID_WATER;
     use crate::core::quantity::Temperature;

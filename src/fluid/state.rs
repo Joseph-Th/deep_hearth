@@ -177,6 +177,12 @@ impl FluidState {
         self.spring_soil.iter().map(|(id, record)| (*id, *record))
     }
 
+    /// Natural spring identity survives complete withdrawal of its standing water.
+    #[must_use]
+    pub(crate) fn is_natural_spring(&self, store: FluidStoreId) -> bool {
+        self.spring_soil.contains_key(&store)
+    }
+
     pub(crate) fn rebuild_derived_indexes(&mut self) {
         let mut stores_by_support = BTreeMap::<StructuralElementId, BTreeSet<FluidStoreId>>::new();
         for (store, record) in &self.records {

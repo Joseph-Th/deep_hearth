@@ -355,6 +355,16 @@ fn validate_transfer_fluid(
             requested: volume,
         },
     )?;
+    // The physical spring basin is permanently water-owned even after
+    // complete drainage. Treating it as an ordinary empty vessel would admit
+    // another liquid that neither the weather cycle nor trusted load can own.
+    if fluid.is_natural_spring(destination) && before_source.fluid() != crate::content::FLUID_WATER
+    {
+        return Err(FluidTransferError::NaturalSpringRequiresWater {
+            store: destination,
+            found: before_source.fluid(),
+        });
+    }
     let before_destination = destination_record.contents();
     if let Some(existing) = before_destination
         && existing.fluid() != before_source.fluid()
