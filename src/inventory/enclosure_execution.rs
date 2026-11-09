@@ -520,13 +520,10 @@ fn validate_world_location(
 }
 
 /// Harvested patches with live root reserves still occupy their sites; a
-/// rootless and fruitless provenance receipt does not. Placement is rare, so
-/// query the perennial index instead of all loose surface drops.
+/// rootless and fruitless provenance receipt does not. Query the surface
+/// owner's exact position index rather than all perennial sites in the world.
 fn rooted_foraging_at(state: &AppState, position: VoxelCoord) -> bool {
-    state
-        .surface()
-        .perennial_resources()
-        .any(|resource| resource.position() == position && resource.rooted_biomass_occupies_site())
+    state.surface().rooted_biomass_occupies_voxel(position)
 }
 
 fn enclosure_position_is_solid(

@@ -75,3 +75,34 @@ active backward-compatibility implementation was identified in the inspected
 paths; explicit rejection of obsolete persisted schemas is not compatibility
 scaffolding. This was a broad contract and risk-based source review, not a
 claim that every source line or every possible gameplay state was executed.
+
+## Continued review: local construction and cross-system consistency
+
+Further review followed read-side catalog admission, mineral-separation batch
+arithmetic, timed block excavation and dependent footing, finite spring-water
+cycling, fluid temperature mixing, world optical/kinematic occupancy, seasonal
+forage, and food storage history. Candidate faults were checked against their
+authoritative validators before changing anything. In particular, tree footing
+is already protected from complete excavation, prospecting instrument wear uses
+the same authored survey duration as admission, and trusted-load enclosure
+validation ignores fully exhausted perennial history records.
+
+One unnecessary global scan remained on the ordinary storage construction path:
+`inventory/enclosure_execution.rs::rooted_foraging_at` walked every perennial
+site when deciding whether one proposed voxel still held living roots. The
+surface owner already provides `rooted_biomass_occupies_voxel`, backed by its
+per-position perennial index and including fully harvested living root stock.
+The construction check now uses that authoritative indexed query. It does not
+change the root-occupancy rule or create another derived index.
+
+Additional gameplay reports passed for `survival`, `power-provider`, `ore`,
+`foundry`, and `all`. The all-scope report covered generated-world travel,
+mining and hauling, wilderness survival and scavenging, primitive progression,
+mechanized work, preservation decisions, the foundry chain, and matched
+counterfactuals; the reported probe returned success and disclosed its separate
+controlled-capability and spatial-proxy boundaries. After the construction
+lookup change, `python ci.py quick`, the exact harvested-root/enclosure
+regression, and `python ci.py audit --all` passed (2,573 core, 198 gameplay).
+No additional confirmed gameplay-physics defect was established from these
+samples. Incomplete modeled behavior remains a capability frontier rather than
+a reason to invent rules or break valid actor workflows during an audit.
