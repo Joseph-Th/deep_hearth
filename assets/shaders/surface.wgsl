@@ -181,7 +181,7 @@ fn surface_fs(input: SurfaceVertexOutput) -> @location(0) vec4<f32> {
     let ramp_light = max(sky_light * surface_frame.sun_direction_intensity.w, block_light);
     let shade_delta = i32(round((ramp_light - 0.5) * 5.0));
     let base = surface_palette_sample(input.uv, input.texture_key, shade_delta) * input.tint;
-    if (base.a < 0.01) {
+    if (base.a < DH_INDEXED_ALPHA_DISCARD_THRESHOLD) {
         discard;
     }
 

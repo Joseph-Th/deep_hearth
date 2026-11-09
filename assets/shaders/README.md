@@ -63,13 +63,17 @@ Fetch palette indices with `textureLoad`; never linearly filter them. Surface de
 the authored 32/16/8/4/2/1 discrete mips. The Rust texture contract injects the base side and maximum mip
 into shared WGSL so surface and cutout-shadow code do not duplicate those constants.
 
-Route baked `Opaque` descriptors through `SHADER_SHADOW` and `Cutout` descriptors through
-`SHADER_SHADOW_CUTOUT`. Blend-mode geometry needs an explicit adapter policy before casting shadows.
+Route fully opaque geometry through `SHADER_SHADOW` and `Cutout` descriptors through
+`SHADER_SHADOW_CUTOUT`. A nominally `Opaque` texture with vertex tint alpha below 1 must
+also use the cutout-shadow pass, since the vertex-only opaque pass cannot discard faded
+fragments. Blend-mode geometry needs an explicit adapter policy before casting shadows.
 Surface lighting may offset the palette shade for RGB, but alpha must come from the original
 indexed shade. This keeps cutout coverage invariant under lighting and aligned with the
 cutout-shadow pass, including palettes whose alpha differs between shades. If a light-shifted
 shade crosses an alpha boundary, the surface also retains the original RGB rather than using
-the pigment of a transparent hole.
+the pigment of a transparent hole. Both passes use the same indexed-alpha discard threshold
+after multiplying palette opacity by the interpolated vertex tint opacity. The cutout shadow
+therefore cannot cast a shadow for a surface fragment discarded by its tint.
 
 Surface vertex locations are:
 
@@ -81,8 +85,9 @@ Surface vertex locations are:
 | 3 | packed texture key `u32` |
 | 4 | linear tint `vec4<f32>` |
 
-The opaque shadow pass reads only world position and has no fragment stage. The cutout shadow pass reuses
-surface locations 0, 1, and 3 and samples palette alpha, so it needs no separate shadow-mesh layout.
+The opaque shadow pass reads only world position and has no fragment stage. The cutout shadow pass
+reuses surface locations 0, 1, 3, and 4, including vertex tint alpha, and samples palette alpha,
+so it needs no separate shadow-mesh layout.
 
 ## Tiled lighting
 

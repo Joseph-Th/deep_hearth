@@ -151,9 +151,23 @@ fn cutout_shadow_reuses_surface_mesh_texture_inputs() {
     for source in [SURFACE_SOURCE, SHADOW_CUTOUT_SOURCE] {
         assert!(source.contains("@location(1) uv_light: vec4<f32>"));
         assert!(source.contains("@location(3) texture_key: u32"));
+        assert!(source.contains("@location(4) tint: vec4<f32>"));
     }
     assert!(SHADOW_OPAQUE_SOURCE.contains("@location(0) world_position: vec3<f32>"));
     assert!(!SHADOW_OPAQUE_SOURCE.contains("@fragment"));
+}
+
+#[test]
+fn tinted_cutout_shadow_uses_the_same_alpha_discard_rule_as_surface() {
+    assert!(
+        INDEXED_TEXTURE_SOURCE.contains("const DH_INDEXED_ALPHA_DISCARD_THRESHOLD: f32 = 0.01;")
+    );
+    assert!(SURFACE_SOURCE.contains("base.a < DH_INDEXED_ALPHA_DISCARD_THRESHOLD"));
+    assert!(SHADOW_CUTOUT_SOURCE.contains("output.tint_alpha = input.tint.a;"));
+    assert!(
+        SHADOW_CUTOUT_SOURCE
+            .contains("alpha * input.tint_alpha < DH_INDEXED_ALPHA_DISCARD_THRESHOLD")
+    );
 }
 
 #[test]

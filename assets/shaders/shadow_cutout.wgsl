@@ -6,12 +6,14 @@ struct ShadowVertexInput {
     @location(0) world_position: vec3<f32>,
     @location(1) uv_light: vec4<f32>,
     @location(3) texture_key: u32,
+    @location(4) tint: vec4<f32>,
 }
 
 struct ShadowVertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) @interpolate(flat) texture_key: u32,
+    @location(2) tint_alpha: f32,
 }
 
 @group(0) @binding(0) var<uniform> cutout_shadow_frame: CutoutShadowFrame;
@@ -25,6 +27,7 @@ fn shadow_cutout_vs(input: ShadowVertexInput) -> ShadowVertexOutput {
     output.position = cutout_shadow_frame.view_projection * vec4<f32>(input.world_position, 1.0);
     output.uv = input.uv_light.xy;
     output.texture_key = input.texture_key;
+    output.tint_alpha = input.tint.a;
     return output;
 }
 
@@ -52,7 +55,7 @@ fn shadow_cutout_fs(input: ShadowVertexOutput) {
         vec2<i32>(shade, i32(ramp)),
         0,
     ).a;
-    if (alpha < 0.5) {
+    if (alpha * input.tint_alpha < DH_INDEXED_ALPHA_DISCARD_THRESHOLD) {
         discard;
     }
 }

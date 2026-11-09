@@ -157,3 +157,34 @@ rendered frame. Prior uncommitted work from other subsystems was preserved, not
 staged as part of these repairs. No active compatibility implementation was
 identified that could be removed safely; strict rejection tests for obsolete
 save shapes remain current-schema protections rather than legacy shims.
+
+## Further cross-owner and shadow-casting audit
+
+Additional targeted source review examined checked integer ratios and throughput,
+calendar and 20 Hz boundaries, local/downhill fluid transfer, finite spring
+mixing, passive energy dissipation and deferred sink capacity, pure-material
+melting and casting, wear and active-time admissibility, ore batch output
+accounting, deterministic geological evidence aggregation, material-lot
+selection integrity, woodland growth and world-generation admission. Candidate
+overflow, conservation, availability, and stale-token concerns were traced back
+to owner validation; none justified altering those existing production
+contracts. No independent legacy runtime or compatibility path was established.
+
+A further renderer-consistency defect was confirmed: the color pass multiplies
+palette alpha by interpolated vertex tint alpha before deciding to draw a
+fragment, while the cutout-shadow shader did not sample tint and discarded
+against a different literal threshold. Visible faded cutouts could therefore
+cast incorrect shadows. The indexed-texture WGSL library now defines the one
+shared alpha cutoff. The color and cutout-shadow passes both apply that cutoff
+to the same original-shade palette alpha times vertex tint alpha. The shadow
+shader reuses the existing surface vertex tint field rather than requiring a
+second mesh representation. Its shader contract also requires nominally opaque
+but alpha-tinted geometry to take the cutout-shadow path instead of the
+vertex-only opaque shadow path.
+
+Verification for this continuation: `python ci.py gate --shaders` and
+`python tools/run_test.py tinted_cutout_shadow_uses_the_same_alpha_discard_rule_as_surface`
+passed; the build-free quick checks passed after updating the Rust tests.
+The project has no GPU runtime adapter, so a rendered-frame match remains
+unverified. No game-state schema, tick schedule, custody rule, or player-action
+admission changed.

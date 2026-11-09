@@ -1,3 +1,6 @@
+// Color and cutout-shadow passes reject the same physical material coverage.
+const DH_INDEXED_ALPHA_DISCARD_THRESHOLD: f32 = 0.01;
+
 fn dh_indexed_texture_mip_level(uv: vec2<f32>) -> i32 {
     let texel_scale = uv * f32(DH_INDEXED_TEXTURE_SIDE);
     let derivative_x = dpdx(texel_scale);
