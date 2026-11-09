@@ -89,7 +89,12 @@ fn due_structural_load_can_change_player_support(
         return false;
     };
     let mut affected_members = BTreeSet::new();
-    collect_due_production_supports(state, next_tick, &mut affected_members);
+    if collect_due_production_supports(registries, state, next_tick, &mut affected_members).is_err()
+    {
+        // A failed provider/labor decision cannot authorize eliding the
+        // boundary's last gravity sample. Control stepping must decide it.
+        return true;
+    }
     collect_due_mining_supports(state, next_tick, &mut affected_members);
     if let Some(work) = state
         .player_work()
@@ -115,17 +120,27 @@ fn due_structural_load_can_change_player_support(
 }
 
 fn collect_due_production_supports(
+    registries: &Registries,
     state: &AppState,
     next_tick: SimulationTick,
     supports: &mut BTreeSet<StructuralElementId>,
-) {
-    if state.production().earliest_due_tick() != Some(next_tick) {
-        return;
-    }
-    for job in state.production().jobs() {
-        if job.is_suspended() || job.completes_at() != next_tick {
-            continue;
-        }
+) -> Result<(), crate::production::CompletionPlanError> {
+    let mut due = if state.production().earliest_due_tick() == Some(next_tick) {
+        state.production().jobs_due_at(next_tick)
+    } else {
+        BTreeSet::new()
+    };
+    // A paused job with one tick remaining may become available and finish
+    // on this boundary even though it is absent from the pre-tick due index.
+    // Reuse production's canonical availability decision for that case.
+    due.extend(crate::production::resumed_jobs_completing_next_tick(
+        registries, state, next_tick,
+    )?);
+    for id in due {
+        let job = state
+            .production()
+            .get_job(id)
+            .unwrap_or_else(|| unreachable!("indexed due production job must exist"));
         for stream in job.output_streams() {
             if let Some(support) = state
                 .inventory()
@@ -136,6 +151,7 @@ fn collect_due_production_supports(
             }
         }
     }
+    Ok(())
 }
 
 fn collect_due_mining_supports(

@@ -1,7 +1,7 @@
 //! Read-only provider and player-labor availability decisions for in-flight production jobs.
 
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
+use crate::core::time::{SimulationTick, TickSpan};
 use crate::equipment::EquipmentId;
 use crate::inventory::StockpileId;
 use crate::labor::{PlayerWorkTickError, decide_manual_production_player_work_start};
@@ -282,4 +282,36 @@ pub(super) fn decide_availability_changes(
     }
     let player_labor_dependencies = player_labor.revision_dependencies(state);
     Ok((changes, player_labor_dependencies, dependency_revisions))
+}
+
+/// A paused job with one active tick remaining can resume and settle at the
+/// very next slow boundary despite being absent from the current due index.
+/// Reuse the actual provider and labor availability decision, rather than
+/// guessing which suspended work will resume. Most ticks have no such job and
+/// inspect only the sparse suspension index.
+pub(crate) fn resumed_jobs_completing_next_tick(
+    registries: &Registries,
+    state: &AppState,
+    next_tick: SimulationTick,
+) -> Result<Vec<ProductionJobId>, CompletionPlanError> {
+    if !state.production().suspended_jobs().any(|job| {
+        job.suspension()
+            .is_some_and(|pause| pause.remaining_active_time() == TickSpan::new(1))
+    }) {
+        return Ok(Vec::new());
+    }
+    let (changes, _, _) = decide_availability_changes(registries, state)?;
+    Ok(changes
+        .into_iter()
+        .filter_map(|change| match change {
+            ProductionAvailabilityChange::Resumed {
+                job,
+                scheduled_completion,
+                ..
+            } if scheduled_completion == next_tick => Some(job),
+            ProductionAvailabilityChange::Suspended { .. }
+            | ProductionAvailabilityChange::SuspensionReasonChanged { .. }
+            | ProductionAvailabilityChange::Resumed { .. } => None,
+        })
+        .collect())
 }

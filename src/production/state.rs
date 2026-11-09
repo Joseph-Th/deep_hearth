@@ -89,6 +89,21 @@ impl ProductionState {
             .record_physical_availability_dependencies(current);
     }
 
+    /// Suspended work-in-process only; avoid surveying unrelated running jobs
+    /// when checking whether an immediate recovery can complete this tick.
+    pub(in crate::production) fn suspended_jobs(
+        &self,
+    ) -> impl Iterator<Item = &ProductionJobRecord> + '_ {
+        self.indexes.suspended_jobs().map(|id| {
+            self.jobs.get(&id).unwrap_or_else(|| {
+                panic!(
+                    "runtime invariant broken: suspended production index references missing job {}",
+                    id.value()
+                )
+            })
+        })
+    }
+
     pub(in crate::production) fn player_labor_suspended_jobs(
         &self,
     ) -> impl Iterator<Item = ProductionJobId> + '_ {
@@ -122,7 +137,9 @@ impl ProductionState {
         self.indexes.earliest_due_tick()
     }
 
-    pub(super) fn jobs_due_at(&self, tick: SimulationTick) -> BTreeSet<ProductionJobId> {
+    /// The indexed, active jobs completing on an exact tick, in stable identity order.
+    /// No unrelated or suspended production job needs inspection.
+    pub(crate) fn jobs_due_at(&self, tick: SimulationTick) -> BTreeSet<ProductionJobId> {
         self.indexes.jobs_due_at(tick)
     }
 

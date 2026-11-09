@@ -177,6 +177,10 @@ impl ProductionIndexes {
         self.future_material_lot_id_demand
     }
 
+    pub(super) fn suspended_jobs(&self) -> impl Iterator<Item = ProductionJobId> + '_ {
+        self.suspended_jobs.iter().copied()
+    }
+
     pub(super) fn player_labor_suspended_jobs(&self) -> impl Iterator<Item = ProductionJobId> + '_ {
         self.player_labor_suspended_jobs.iter().copied()
     }

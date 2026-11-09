@@ -15,7 +15,7 @@ pub use start::{
 pub(crate) use completion::{
     CompletionApplication, CompletionCommitError, CompletionPlan, CompletionPlanError,
     apply_completion_plan, decide_due_completions, find_availability_change,
-    plan_player_death_suspension,
+    plan_player_death_suspension, resumed_jobs_completing_next_tick,
 };
 pub(crate) use start::{validate_start_manual_process, validate_start_manual_process_routed};
 

@@ -253,6 +253,13 @@ fn nearby_dismantling_preserves_fast_forward_when_the_player_floor_is_unchanged(
 fn due_supported_craft_fixture(
     shared_support: bool,
 ) -> (Registries, AppState, crate::core::time::SimulationTick) {
+    due_supported_craft_fixture_with_lead(shared_support, 1)
+}
+
+fn due_supported_craft_fixture_with_lead(
+    shared_support: bool,
+    ticks_before_due: u64,
+) -> (Registries, AppState, crate::core::time::SimulationTick) {
     use crate::content::{FORM_LOG, FORM_LUMP, MATERIAL_STONE, PROCESS_KNAP_STONE_TOOL};
     use crate::core::quantity::{Area, Length, Mass, Temperature};
     use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
@@ -351,7 +358,7 @@ fn due_supported_craft_fixture(
     .unwrap();
     let completes_at = state.production().get_job(job).unwrap().completes_at();
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
-    while state.tick().value() + 1 < completes_at.value() {
+    while state.tick().value() + ticks_before_due < completes_at.value() {
         let _ = advance_tick(&registries, &mut state).unwrap();
     }
     assert!(player_body_is_grounded(&registries, &state));
@@ -405,6 +412,117 @@ fn due_supported_output_on_player_floor_chain_requires_boundary_control() {
         assert_eq!(original, restored);
     }
     assert_eq!(state.tick(), due);
+    assert_eq!(state, replay);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+fn one_tick_paused_supported_craft(
+    shared_support: bool,
+) -> (
+    Registries,
+    AppState,
+    crate::core::time::SimulationTick,
+    crate::production::ProductionJobId,
+) {
+    use crate::core::quantity::Energy;
+    use crate::core::time::TickSpan;
+    use crate::player::validate_respawn_player;
+    use crate::production::{ProductionAvailabilityChange, ProductionSuspensionReason};
+    use crate::survival::{Vitality, player_record};
+
+    let (registries, mut state, due) = due_supported_craft_fixture_with_lead(shared_support, 2);
+    let job = state.production().jobs().next().unwrap().id();
+    assert_eq!(state.tick().value() + 2, due.value());
+
+    // A real fatal interruption leaves exactly one active tick of manual
+    // work paused. Respawn can restore labor without changing the loaded
+    // destination's structural connection to the player's floor.
+    let physiology = registries.survival().physiology();
+    let player = state.survival().player().copied().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record(
+            Energy::ZERO,
+            player.hydration(),
+            Vitality::from_parts_per_million_unchecked(
+                physiology.starvation_vitality_loss_ppm_per_tick(),
+            ),
+            player.nutrition(),
+            player.vitality_recovery_remainder(),
+        ),
+    );
+    let fatal = advance_tick(&registries, &mut state).unwrap();
+    assert!(matches!(
+        fatal.production_availability_changes(),
+        [ProductionAvailabilityChange::Suspended {
+            job: suspended,
+            reason: ProductionSuspensionReason::PlayerLaborUnavailable,
+            remaining_active_time,
+            ..
+        }] if *suspended == job && *remaining_active_time == TickSpan::new(1)
+    ));
+    assert!(state.production().earliest_due_tick().is_none());
+    let _ = validate_respawn_player(&registries, &state)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(player_body_is_grounded(&registries, &state));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    (registries, state, due, job)
+}
+
+#[test]
+fn one_tick_resumed_output_on_player_floor_requires_control_replay() {
+    let (registries, mut state, due, job) = one_tick_paused_supported_craft(true);
+    let before = state.clone();
+    assert_eq!(
+        advance_tick(&registries, &mut state),
+        Err(TickError::ControlSteppingRequired {
+            current: before.control_tick(),
+        }),
+        "resumed same-tick output can load the real floor despite an empty due index"
+    );
+    assert_eq!(state, before);
+
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(
+        &serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap(),
+    )
+    .unwrap()
+    .into_state(&registries)
+    .unwrap();
+    let mut last = None;
+    for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK {
+        last = Some(advance_control_tick(&registries, &mut replay).unwrap());
+    }
+    let settled = last.unwrap();
+    assert_eq!(replay.tick(), due);
+    assert_eq!(
+        settled.simulation().unwrap().production_completions()[0].job(),
+        job
+    );
+    assert!(replay.production().get_job(job).is_none());
+    assert_eq!(validate_loaded_state(&registries, &replay), Ok(()));
+}
+
+#[test]
+fn one_tick_resumed_independent_output_preserves_neutral_fast_forward_parity() {
+    let (registries, mut state, due, job) = one_tick_paused_supported_craft(false);
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(
+        &serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap(),
+    )
+    .unwrap()
+    .into_state(&registries)
+    .unwrap();
+    let fast = advance_tick(&registries, &mut state).unwrap();
+    let mut last = None;
+    for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK {
+        last = Some(advance_control_tick(&registries, &mut replay).unwrap());
+    }
+    assert_eq!(fast, *last.unwrap().simulation().unwrap());
+    assert_eq!(state.tick(), due);
+    assert!(state.production().get_job(job).is_none());
     assert_eq!(state, replay);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }

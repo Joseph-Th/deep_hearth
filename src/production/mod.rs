@@ -32,7 +32,7 @@ pub use state::{
 pub(crate) use production_execution::{
     CompletionApplication, CompletionCommitError, CompletionPlan, CompletionPlanError,
     apply_completion_plan, decide_due_completions, find_availability_change,
-    plan_player_death_suspension, validate_start_manual_process,
+    plan_player_death_suspension, resumed_jobs_completing_next_tick, validate_start_manual_process,
     validate_start_manual_process_routed,
 };
 pub(crate) use resolution::{sum_lot_spec_mass, validate_process_inputs};
