@@ -30,6 +30,8 @@ pub struct MiningState {
     #[serde(skip)]
     due_jobs: BTreeMap<SimulationTick, BTreeSet<MiningJobId>>,
     #[serde(skip)]
+    awaiting_settlement_jobs: BTreeSet<MiningJobId>,
+    #[serde(skip)]
     equipment_occupancy: BTreeMap<EquipmentId, MiningJobId>,
 }
 
@@ -51,6 +53,7 @@ impl MiningState {
             next_job_id: 1,
             jobs: BTreeMap::new(),
             due_jobs: BTreeMap::new(),
+            awaiting_settlement_jobs: BTreeSet::new(),
             equipment_occupancy: BTreeMap::new(),
         }
     }

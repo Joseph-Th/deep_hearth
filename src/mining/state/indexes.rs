@@ -11,17 +11,27 @@ use super::{MiningJobId, MiningState};
 impl MiningState {
     pub(crate) fn rebuild_derived_indexes(&mut self) {
         let mut due_jobs = BTreeMap::<SimulationTick, BTreeSet<MiningJobId>>::new();
+        let mut awaiting_settlement_jobs = BTreeSet::new();
         let mut equipment_occupancy = BTreeMap::<EquipmentId, MiningJobId>::new();
-        for (job_id, job) in self.jobs.iter().filter(|(_, job)| job.is_working()) {
-            due_jobs
-                .entry(job.completes_at())
-                .or_default()
-                .insert(*job_id);
-            equipment_occupancy
-                .entry(job.equipment())
-                .or_insert(*job_id);
+        for (job_id, job) in &self.jobs {
+            if job.is_working() {
+                due_jobs
+                    .entry(job.completes_at())
+                    .or_default()
+                    .insert(*job_id);
+                equipment_occupancy
+                    .entry(job.equipment())
+                    .or_insert(*job_id);
+            } else {
+                assert!(
+                    job.is_awaiting_settlement(),
+                    "mining job has an unrecognized phase during index rebuild"
+                );
+                awaiting_settlement_jobs.insert(*job_id);
+            }
         }
         self.due_jobs = due_jobs;
+        self.awaiting_settlement_jobs = awaiting_settlement_jobs;
         self.equipment_occupancy = equipment_occupancy;
     }
 
@@ -35,6 +45,28 @@ impl MiningState {
 
     pub(crate) fn earliest_due_tick(&self) -> Option<SimulationTick> {
         self.due_jobs.keys().next().copied()
+    }
+
+    /// Only work completing now and already-extracted parcels can load a
+    /// mounted destination on the next slow boundary. Reading the due and
+    /// settlement indexes avoids scanning unrelated future mining work.
+    pub(crate) fn structurally_settling_jobs_at(
+        &self,
+        tick: SimulationTick,
+    ) -> impl Iterator<Item = &super::MiningJobRecord> {
+        self.due_jobs
+            .get(&tick)
+            .into_iter()
+            .flat_map(|jobs| jobs.iter())
+            .chain(self.awaiting_settlement_jobs.iter())
+            .map(|id| {
+                self.jobs.get(id).unwrap_or_else(|| {
+                    panic!(
+                        "runtime invariant broken: mining settlement index references missing job {}",
+                        id.value()
+                    )
+                })
+            })
     }
 
     /// Returns the number of durable outputs that still require inventory settlement.

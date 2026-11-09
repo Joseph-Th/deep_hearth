@@ -34,6 +34,10 @@ impl MiningState {
             "validated mining job ID must be unique"
         );
         assert!(
+            !self.awaiting_settlement_jobs.contains(&id),
+            "new mining job already appears in the settlement index"
+        );
+        assert!(
             self.due_jobs.values().all(|jobs| !jobs.contains(&id)),
             "runtime invariant broken: mining due index already contains job {}",
             id.value()
@@ -95,6 +99,10 @@ impl MiningState {
         record.schedule.phase = MiningJobPhase::AwaitingSettlement;
         let removed = self.equipment_occupancy.remove(&record.equipment());
         assert_eq!(removed, Some(id));
+        assert!(
+            self.awaiting_settlement_jobs.insert(id),
+            "completed mining job was already indexed for settlement"
+        );
         self.revision = next_revision;
         id
     }
@@ -142,6 +150,10 @@ impl MiningState {
             .unwrap_or_else(|| panic!("validated mining settlement job disappeared"));
         assert!(record.is_awaiting_settlement());
         assert!(
+            self.awaiting_settlement_jobs.contains(&id),
+            "awaiting-settlement mining job is absent from settlement index"
+        );
+        assert!(
             self.due_jobs.values().all(|jobs| !jobs.contains(&id)),
             "awaiting-settlement mining job remained in due index"
         );
@@ -164,6 +176,10 @@ impl MiningState {
             .get(&id)
             .unwrap_or_else(|| panic!("validated mining cancellation job disappeared"));
         assert!(record.is_working());
+        assert!(
+            !self.awaiting_settlement_jobs.contains(&id),
+            "working mining job appears in the awaiting-settlement index"
+        );
         assert!(
             self.due_jobs
                 .get(&record.completes_at())
@@ -216,6 +232,10 @@ impl MiningState {
             .jobs
             .remove(&id)
             .unwrap_or_else(|| unreachable!("awaiting-settlement mining job was prechecked"));
+        assert!(
+            self.awaiting_settlement_jobs.remove(&id),
+            "settled mining job disappeared from its derived index"
+        );
         self.revision = next_revision;
         record
     }

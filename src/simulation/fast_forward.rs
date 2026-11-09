@@ -159,12 +159,11 @@ fn collect_due_mining_supports(
     next_tick: SimulationTick,
     supports: &mut BTreeSet<StructuralElementId>,
 ) {
-    for job in state.mining().jobs() {
-        if (job.is_awaiting_settlement() || (job.is_working() && job.completes_at() == next_tick))
-            && let Some(support) = state
-                .inventory()
-                .get_stockpile(job.destination())
-                .and_then(|stockpile| stockpile.supported_by())
+    for job in state.mining().structurally_settling_jobs_at(next_tick) {
+        if let Some(support) = state
+            .inventory()
+            .get_stockpile(job.destination())
+            .and_then(|stockpile| stockpile.supported_by())
         {
             supports.insert(support);
         }
