@@ -430,7 +430,18 @@ fn a_depleted_seeded_patch_with_live_roots_cannot_spawn_duplicate_forage() {
             .unwrap()
             .rooted_biomass_occupies_site()
     );
-    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    // This controlled pre-generation fixture is not a trusted save: the
+    // seed-derived root becomes persistent world truth only when its chunk
+    // materializes. Retain the root in memory to test duplicate prevention.
+    assert_eq!(
+        validate_loaded_state(&registries, &state),
+        Err(crate::core::state::StateValidationError::Surface(
+            crate::surface::SurfaceResourceValidationError::PerennialSiteNotGenerated {
+                resource: id,
+                position: root,
+            },
+        )),
+    );
     let next_forage = seeded_forage_spec(&registries, &state, profile, &chunk);
     assert!(
         next_forage.is_none(),

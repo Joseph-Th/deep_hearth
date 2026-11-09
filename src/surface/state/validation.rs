@@ -25,6 +25,10 @@ pub enum SurfaceResourceValidationError {
     InvalidPerennialBudget {
         resource: SurfaceResourceId,
     },
+    PerennialSiteNotGenerated {
+        resource: SurfaceResourceId,
+        position: VoxelCoord,
+    },
     DuplicateSeededPerennial {
         resource: SurfaceResourceId,
         previous: SurfaceResourceId,
@@ -138,6 +142,14 @@ impl Display for SurfaceResourceValidationError {
                 formatter,
                 "perennial {} has invalid finite root, crop age or initial biomass budget",
                 resource.value()
+            ),
+            Self::PerennialSiteNotGenerated { resource, position } => write!(
+                formatter,
+                "perennial {} claims a site ({},{},{}) whose terrain has not been generated",
+                resource.value(),
+                position.x(),
+                position.y(),
+                position.z()
             ),
             Self::DuplicateSeededPerennial {
                 resource,
@@ -332,6 +344,7 @@ impl Error for SurfaceResourceValidationError {
             Self::InvalidParticleSizeState { error, .. } => Some(error),
             Self::InvalidLocationIndex
             | Self::InvalidPerennialBudget { .. }
+            | Self::PerennialSiteNotGenerated { .. }
             | Self::DuplicateSeededPerennial { .. }
             | Self::EmbeddedInSolidWorld { .. }
             | Self::EmbeddedInSolidStructure { .. }
@@ -686,6 +699,15 @@ pub(crate) fn validate_loaded_surface_resources(
     for (key, record) in &state.resources {
         validate_surface_resource_record(materials, *key, record, current, current_control)?;
         if let Some(plant) = record.perennial {
+            // Natural biomass enters custody only with the terrain chunk that
+            // generated it. A seed-plausible site in an unexplored chunk is
+            // not an actual plant and must not become trusted on save load.
+            if !world.has_generated_terrain_at(record.position()) {
+                return Err(SurfaceResourceValidationError::PerennialSiteNotGenerated {
+                    resource: *key,
+                    position: record.position(),
+                });
+            }
             if !world.generation_profile().is_some_and(|profile| {
                 crate::world::seeded_perennial_matches(
                     profile,
@@ -720,3 +742,7 @@ pub(crate) fn validate_loaded_surface_resources(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "validation_perennial_tests.rs"]
+mod perennial_tests;
