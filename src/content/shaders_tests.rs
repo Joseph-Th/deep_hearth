@@ -8,7 +8,7 @@ fn built_in_work_budgets_capture_the_hot_path_limits() {
     let registry = build_shader_registry();
 
     for (id, expected) in [
-        (SHADER_SURFACE, ShaderWorkBudget::new(7, 0, 32, 32)),
+        (SHADER_SURFACE, ShaderWorkBudget::new(8, 0, 32, 32)),
         (SHADER_LIGHT_CULL, ShaderWorkBudget::new(0, 0, 0, 8)),
         (SHADER_WATER, ShaderWorkBudget::new(2, 1, 0, 0)),
         (SHADER_SMOKE, ShaderWorkBudget::new(1, 3, 0, 0)),
@@ -154,4 +154,13 @@ fn cutout_shadow_reuses_surface_mesh_texture_inputs() {
     }
     assert!(SHADOW_OPAQUE_SOURCE.contains("@location(0) world_position: vec3<f32>"));
     assert!(!SHADOW_OPAQUE_SOURCE.contains("@fragment"));
+}
+
+#[test]
+fn surface_light_shading_retains_unlit_alpha_used_by_cutout_shadows() {
+    assert!(SURFACE_SOURCE.contains("let original_shade = i32(packed & 15u);"));
+    assert!(SURFACE_SOURCE.contains("vec2<i32>(original_shade, i32(ramp))"));
+    assert!(SURFACE_SOURCE.contains("lit_color.a != original_color.a"));
+    assert!(SURFACE_SOURCE.contains("return vec4<f32>(rgb, original_color.a);"));
+    assert!(SHADOW_CUTOUT_SOURCE.contains("let shade = i32(packed & 15u);"));
 }

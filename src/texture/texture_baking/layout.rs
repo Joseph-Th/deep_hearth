@@ -43,15 +43,25 @@ pub(super) fn bake_texture_layout(registry: &TextureRegistry) -> BakedTextureLay
         let pattern = definition.texels();
         let opacity =
             (definition.alpha_mode() == crate::texture::TextureAlphaMode::Cutout).then(|| {
-                std::array::from_fn(|raw| {
-                    let texel = PackedTexel::from_raw(raw as u8);
-                    definition
+                // Mip construction only looks up texels present in the original pattern.
+                // Palette shades absent from that pattern cannot affect any layer, so
+                // they must not split otherwise identical cutout mip chains.
+                let mut used_opacity = [0_u8; 256];
+                let mut seen = [false; 256];
+                for &texel in pattern {
+                    let raw = usize::from(texel.raw_value());
+                    if seen[raw] {
+                        continue;
+                    }
+                    seen[raw] = true;
+                    used_opacity[raw] = definition
                         .palette()
                         .get_ramp(texel.palette_slot())
                         .and_then(|id| registry.get_ramp(id))
                         .is_some_and(|ramp| ramp.color(texel.shade()).alpha() == u8::MAX)
-                        .into()
-                })
+                        .into();
+                }
+                used_opacity
             });
         let layer = match pattern_layers.get(&(pattern, opacity)) {
             Some(layer) => *layer,

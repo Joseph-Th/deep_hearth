@@ -106,3 +106,54 @@ regression, and `python ci.py audit --all` passed (2,573 core, 198 gameplay).
 No additional confirmed gameplay-physics defect was established from these
 samples. Incomplete modeled behavior remains a capability frontier rather than
 a reason to invent rules or break valid actor workflows during an audit.
+
+## Continued review: cutout GPU data and surface/shadow agreement
+
+The additional review traced control/slow-tick parity, finite spring cycling,
+grounded-body collision, survival consumption projection, energy transmission
+arbitration, construction prechecks, surface pickup, direct actions, and shader
+assembly. No independent owner or backward-compatibility subsystem was introduced.
+
+Two presentation defects were confirmed and repaired through their existing
+owners:
+
+1. **Redundant cutout GPU layers.** Texture baking keyed cutout patterns on all
+   256 theoretically encodable palette/shade alpha values, including shades
+   absent from the source texture. Palettes that differed only on unused shades
+   allocated separate pattern/mip layers despite identical visible coverage.
+   `src/texture/texture_baking/layout.rs` now computes the alpha signature
+   only for represented packed texels, resolving each represented texel once.
+   The per-texture palette rows remain distinct, so color is not conflated.
+   The regression constructs two cutouts with distinct unused-shade alpha and
+   visible colors, then proves that they share one layer and maintain separate
+   color samples with equal alpha across mips.
+2. **Light-dependent silhouettes and mismatched cutout shadows.** The surface
+   WGSL shader sampled both RGB and alpha after its light-driven palette shade
+   adjustment, while the cutout shadow shader sampled the original shade.
+   Authored ramps with shade-dependent alpha could therefore change visible
+   material coverage under illumination without changing the corresponding
+   shadow. `assets/shaders/surface.wgsl` now shades RGB while retaining the
+   original indexed shade's alpha, and falls back to the original RGB when
+   the adjusted shade would cross an alpha boundary. An extra palette-color
+   fetch occurs only when lighting selects a different shade. The surface
+   read budget and shader-facing contract were updated.
+
+Evidence after these repairs:
+
+- Focused cutout layer-identity regression: pass.
+- `python ci.py quick`: pass, four checks.
+- `python ci.py gate --shaders`: pass, including WGSL validation after
+  the alpha-edge RGB safeguard.
+- `python ci.py gate --lint`: pass, including the final Rust changes.
+- `python ci.py audit --all`: pass, 2,577 core and 198 gameplay tests,
+  with the sampled foundry-bootstrap scope. This preceded the last WGSL-only
+  safeguard, which passed the shader gate and quick checks afterward.
+- A separate all-scope gameplay report and wilderness report passed during
+  the source review, before the presentation-only changes.
+
+The project currently has no graphics runtime or GPU adapter, so these tests
+prove authored WGSL acceptance and renderer-neutral lookup behavior, not a
+rendered frame. Prior uncommitted work from other subsystems was preserved, not
+staged as part of these repairs. No active compatibility implementation was
+identified that could be removed safely; strict rejection tests for obsolete
+save shapes remain current-schema protections rather than legacy shims.

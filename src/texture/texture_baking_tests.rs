@@ -17,6 +17,64 @@ fn ramp(id: PaletteRampId, value: u8) -> PaletteRampDefinition {
     )
 }
 
+#[test]
+fn unused_cutout_palette_shades_do_not_duplicate_gpu_pattern_layers() {
+    let with_shade = |id: PaletteRampId, unused_shade_alpha: u8, red: u8| {
+        let mut colors = [ColorRgba8::opaque(20, 30, 40); PALETTE_RAMP_COLOR_COUNT];
+        colors[0] = ColorRgba8::opaque(red, 30, 40);
+        colors[1] = ColorRgba8::new(0, 0, 0, 0);
+        colors[2] = ColorRgba8::new(0, 0, 0, unused_shade_alpha);
+        PaletteRampDefinition::new(id, "fixture", colors)
+    };
+    let texels = std::array::from_fn(|index| {
+        PackedTexel::new(PaletteSlot::new(0), ShadeIndex::new((index % 2) as u8))
+    });
+    let first = TextureId::new(1);
+    let second = TextureId::new(2);
+    let registry = TextureRegistry::new(
+        [with_shade(RAMP_A, 0, 50), with_shade(RAMP_B, u8::MAX, 200)],
+        [
+            TextureDefinition::new(
+                first,
+                "first palette",
+                TexturePalette::new(vec![RAMP_A]),
+                TextureAlphaMode::Cutout,
+                texels,
+            ),
+            TextureDefinition::new(
+                second,
+                "second palette",
+                TexturePalette::new(vec![RAMP_B]),
+                TextureAlphaMode::Cutout,
+                texels,
+            ),
+        ],
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+    );
+    let baked = registry.bake_texture_array();
+    assert_eq!(baked.pattern_layer_count(), 1);
+    assert_eq!(baked.palette_row_count(), 2);
+    assert_eq!(
+        baked.get_descriptor(first).unwrap().layer(),
+        baked.get_descriptor(second).unwrap().layer()
+    );
+    assert_ne!(baked.sample(first, 0, 0, 0), baked.sample(second, 0, 0, 0));
+    for mip in 0..=4 {
+        let side = baked.mip_levels()[mip].side();
+        for y in 0..side {
+            for x in 0..side {
+                assert_eq!(
+                    baked.sample(first, mip, x, y).unwrap().alpha(),
+                    baked.sample(second, mip, x, y).unwrap().alpha()
+                );
+            }
+        }
+    }
+}
+
 fn pattern() -> [PackedTexel; TEXTURE_SIDE * TEXTURE_SIDE] {
     std::array::from_fn(|index| {
         PackedTexel::new(

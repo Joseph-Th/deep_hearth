@@ -65,6 +65,11 @@ into shared WGSL so surface and cutout-shadow code do not duplicate those consta
 
 Route baked `Opaque` descriptors through `SHADER_SHADOW` and `Cutout` descriptors through
 `SHADER_SHADOW_CUTOUT`. Blend-mode geometry needs an explicit adapter policy before casting shadows.
+Surface lighting may offset the palette shade for RGB, but alpha must come from the original
+indexed shade. This keeps cutout coverage invariant under lighting and aligned with the
+cutout-shadow pass, including palettes whose alpha differs between shades. If a light-shifted
+shade crosses an alpha boundary, the surface also retains the original RGB rather than using
+the pigment of a transparent hole.
 
 Surface vertex locations are:
 
@@ -107,7 +112,7 @@ is tile columns and `.z` is the valid point-light count.
 
 | Program | Texture reads | Noise layers | Local lights | Largest loop |
 | --- | ---: | ---: | ---: | ---: |
-| surface | 7 | 0 | 32 | 32 |
+| surface | 8 | 0 | 32 | 32 |
 | light cull | 0 | 0 | 0 | 8 |
 | water | 2 | 1 | 0 | 0 |
 | smoke | 1 | 3 | 0 | 0 |

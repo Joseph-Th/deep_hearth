@@ -74,7 +74,7 @@ pub(crate) fn build_shader_registry() -> ShaderRegistry {
                 ShaderDepthMode::ReadWrite,
                 ShaderColorTarget::LinearHdr,
             ),
-            ShaderWorkBudget::new(7, 0, 32, 32),
+            ShaderWorkBudget::new(8, 0, 32, 32),
         ),
         ShaderDefinition::new_compute(
             SHADER_LIGHT_CULL,

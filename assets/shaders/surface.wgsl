@@ -70,17 +70,32 @@ fn surface_palette_sample(uv: vec2<f32>, texture_key: u32, shade_delta: i32) -> 
         mip_level,
     ).x;
     let palette_slot = i32(packed >> 4u);
-    let shade = clamp(i32(packed & 15u) + shade_delta, 0, 15);
+    let original_shade = i32(packed & 15u);
+    let shade = clamp(original_shade + shade_delta, 0, 15);
     let ramp = textureLoad(
         surface_palette_rows,
         vec2<i32>(palette_slot, palette_row),
         0,
     ).x;
-    return textureLoad(
+    let lit_color = textureLoad(
         surface_palette_colors,
         vec2<i32>(shade, i32(ramp)),
         0,
     );
+    // Light changes pigment, not material coverage. The shadow pass samples
+    // the original shade, so keep that alpha for cutouts and translucent ramps.
+    if (shade == original_shade) {
+        return lit_color;
+    }
+    let original_color = textureLoad(
+        surface_palette_colors,
+        vec2<i32>(original_shade, i32(ramp)),
+        0,
+    );
+    // A palette shade representing a hole must not donate its RGB to an
+    // opaque texel (or vice versa). Keep the source pigment at alpha edges.
+    let rgb = select(lit_color.rgb, original_color.rgb, lit_color.a != original_color.a);
+    return vec4<f32>(rgb, original_color.a);
 }
 
 fn surface_shadow_visibility(shadow_position: vec4<f32>, normal: vec3<f32>) -> f32 {
