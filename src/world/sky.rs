@@ -143,17 +143,7 @@ pub(crate) fn has_open_sky(
     {
         return false;
     }
-    for y in position.y()..WORLD_MAX_Y_EXCLUSIVE {
-        let at = VoxelCoord::new(position.x(), y, position.z());
-        if registries
-            .world()
-            .block_for_state(chunk.block_at(at))
-            .is_none_or(|definition| definition.is_opaque())
-        {
-            return false;
-        }
-    }
-    true
+    !chunk.has_opaque_block_at_or_above(registries.world(), position)
 }
 
 /// Resolve the sky at the simulated moment, including during a due slow

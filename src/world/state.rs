@@ -156,6 +156,35 @@ impl WorldChunk {
             .unwrap_or_else(|| unreachable!("voxel local index is always inside section"))
     }
 
+    /// Check one generated sky column without a section lookup at every height.
+    ///
+    /// Missing sections are canonical air. Decode only populated sections at or above
+    /// the observer, retaining individual block opacity (non-air is not always opaque).
+    pub(crate) fn has_opaque_block_at_or_above(
+        &self,
+        registry: &WorldRegistry,
+        voxel: VoxelCoord,
+    ) -> bool {
+        self.sections.iter().any(|section| {
+            // Section Y is a signed section index, not a world-space altitude.
+            let bottom = section.y() * SECTION_SIDE_I64;
+            let top = bottom + SECTION_SIDE_I64;
+            if section.non_air_count() == 0 || top <= voxel.y() {
+                return false;
+            }
+            let first_y = bottom.max(voxel.y());
+            (first_y..top).any(|y| {
+                let at = VoxelCoord::new(voxel.x(), y, voxel.z());
+                let block = section
+                    .state_at_index(local_index(at))
+                    .expect("local section index must be valid");
+                registry
+                    .block_for_state(block)
+                    .is_none_or(|definition| definition.is_opaque())
+            })
+        })
+    }
+
     pub(crate) fn set_block(
         &mut self,
         voxel: VoxelCoord,

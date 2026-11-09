@@ -7,9 +7,59 @@ use crate::core::time::SimulationTick;
 use crate::energy::assess_local_illumination;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::world::{
-    BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
-    validate_generate_chunk,
+    BlockStateId, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
+    set_generated_block_for_test, validate_generate_chunk,
 };
+
+#[test]
+fn sparse_sky_column_scan_matches_exact_voxel_opacity_after_world_changes() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x534B_594C_4947_4854),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    // Include excavated ground, a high opaque ceiling, and the restored opening.
+    // Sparse and populated sections must agree with the voxel-level opacity rule.
+    for (voxel, block) in [
+        (VoxelCoord::new(2, 0, 2), BlockStateId::AIR),
+        (
+            VoxelCoord::new(2, WORLD_MAX_Y_EXCLUSIVE - 1, 2),
+            BLOCK_STATE_STONE,
+        ),
+        (
+            VoxelCoord::new(2, WORLD_MAX_Y_EXCLUSIVE - 1, 2),
+            BlockStateId::AIR,
+        ),
+    ] {
+        set_generated_block_for_test(registries.world(), &mut state, voxel, block);
+        let chunk = state.world().get_chunk(ChunkCoord::new(0, 0)).unwrap();
+        for (x, z) in [(0, 0), (2, 2), (15, 15)] {
+            for y in [WORLD_MIN_Y, -1, 0, 1, 8, 15, 16, 17, 31, 32, 319] {
+                let position = VoxelCoord::new(x, y, z);
+                let exact = (y..WORLD_MAX_Y_EXCLUSIVE).any(|height| {
+                    let block = chunk.block_at(VoxelCoord::new(x, height, z));
+                    registries
+                        .world()
+                        .block_for_state(block)
+                        .is_none_or(|definition| definition.is_opaque())
+                });
+                assert_eq!(
+                    chunk.has_opaque_block_at_or_above(registries.world(), position),
+                    exact,
+                    "sparse section sky scan diverged at {position:?}"
+                );
+            }
+        }
+    }
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
 
 #[test]
 fn generated_sky_has_morning_afternoon_evening_and_night_but_no_light_in_old_graph() {
