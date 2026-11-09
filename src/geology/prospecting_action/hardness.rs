@@ -1,15 +1,18 @@
 //! Actor-safe excavation-hardness projection for physical geological sampling.
 
 use crate::core::quantity::Pressure;
+#[cfg(test)]
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::material::MaterialId;
 use crate::spatial::VoxelBounds;
 
+#[cfg(test)]
+use super::super::GeologicalDepositLifecycle;
 use super::super::state::GeologicalDepositRecord;
-use super::super::{ExcavationHardnessEstimate, GeologicalDepositLifecycle, GeologyState};
+use super::super::{ExcavationHardnessEstimate, GeologyState};
 
-fn resolve_region_excavation_hardness_from_deposits<'a>(
+pub(super) fn resolve_region_excavation_hardness_from_deposits<'a>(
     deposits: impl Iterator<Item = &'a GeologicalDepositRecord>,
     region: VoxelBounds,
     material: MaterialId,
@@ -65,6 +68,7 @@ fn resolve_region_excavation_hardness_from_deposits<'a>(
     Some(estimate)
 }
 
+#[cfg(test)]
 pub(super) fn resolve_region_excavation_hardness(
     state: &AppState,
     region: VoxelBounds,

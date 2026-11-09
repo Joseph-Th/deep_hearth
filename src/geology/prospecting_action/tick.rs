@@ -12,12 +12,13 @@ use crate::spatial::{VoxelBounds, VoxelCoord};
 
 use super::super::prospecting_execution::validate_record_prospecting_batch_at;
 use super::super::{
-    GeologicalEvidenceKind, GeologicalObservationId, MaterialAbundanceEstimate,
-    ProspectingResolution, RecordProspectingError, ValidatedGeologicalObservation,
+    GeologicalDepositLifecycle, GeologicalEvidenceKind, GeologicalObservationId,
+    MaterialAbundanceEstimate, ProspectingResolution, RecordProspectingError,
+    ValidatedGeologicalObservation,
 };
-use super::abundance::resolve_region_abundance_bounds;
-use super::hardness::resolve_region_excavation_hardness;
-use super::resource_mass::resolve_region_resource_mass;
+use super::abundance::resolve_region_abundance_bounds_from_deposits;
+use super::hardness::resolve_region_excavation_hardness_from_deposits;
+use super::resource_mass::resolve_region_resource_mass_from_deposits;
 
 /// Observable completion of one field-prospecting action. The hidden geological owner is intentionally absent.
 #[must_use]
@@ -154,11 +155,22 @@ pub(crate) fn decide_field_prospecting_tick(
         .unwrap_or_else(|| {
             panic!("runtime invariant broken: due prospecting work has no authored method")
         });
+    // Bound the hidden geological survey once to the authorized region.
+    // An indexed multi-voxel sample must not rescan every distant deposit
+    // separately for each cell and each of its three evidence projections.
+    let local_deposits = state
+        .geology()
+        .deposits()
+        .filter(|deposit| {
+            deposit.lifecycle() == GeologicalDepositLifecycle::Available
+                && deposit.bounds().has_intersection(work.region())
+        })
+        .collect::<Vec<_>>();
     let resolutions = prospecting_observation_regions(method, work.region())
         .into_iter()
         .map(|region| {
-            let (lower_ppm, upper_ppm) = resolve_region_abundance_bounds(
-                state,
+            let (lower_ppm, upper_ppm) = resolve_region_abundance_bounds_from_deposits(
+                local_deposits.iter().copied(),
                 region,
                 work.material(),
                 method.abundance_uncertainty_ppm(),
@@ -171,8 +183,8 @@ pub(crate) fn decide_field_prospecting_tick(
                 .excavation_hardness_resolution()
                 .filter(|_| finding.lower_ppm() > 0)
                 .and_then(|resolution| {
-                    resolve_region_excavation_hardness(
-                        state,
+                    resolve_region_excavation_hardness_from_deposits(
+                        local_deposits.iter().copied(),
                         region,
                         work.material(),
                         resolution,
@@ -182,8 +194,8 @@ pub(crate) fn decide_field_prospecting_tick(
                 .resource_mass_resolution()
                 .filter(|_| finding.lower_ppm() > 0)
                 .and_then(|resolution| {
-                    resolve_region_resource_mass(
-                        state,
+                    resolve_region_resource_mass_from_deposits(
+                        local_deposits.iter().copied(),
                         region,
                         work.material(),
                         resolution,

@@ -1,11 +1,15 @@
 //! Actor-safe resource-scale projection for fully localized physical geological sampling.
 
 use crate::core::quantity::Mass;
+#[cfg(test)]
 use crate::core::state::AppState;
 use crate::material::MaterialId;
 use crate::spatial::VoxelBounds;
 
-use super::super::{GeologicalDepositLifecycle, ResourceMassEstimate};
+#[cfg(test)]
+use super::super::GeologicalDepositLifecycle;
+use super::super::ResourceMassEstimate;
+use super::super::state::GeologicalDepositRecord;
 
 fn resource_mass_bucket(actual: Mass, resolution: Mass) -> ResourceMassEstimate {
     let resolution_mg = resolution.milligrams();
@@ -56,15 +60,14 @@ pub(in crate::geology) fn resource_mass_band_matches_resolution(
     lower_mg.is_multiple_of(resolution_mg) && upper_mg.checked_sub(lower_mg) == Some(resolution_mg)
 }
 
-pub(super) fn resolve_region_resource_mass(
-    state: &AppState,
+pub(super) fn resolve_region_resource_mass_from_deposits<'a>(
+    deposits: impl Iterator<Item = &'a GeologicalDepositRecord>,
     region: VoxelBounds,
     material: MaterialId,
     resolution: Mass,
 ) -> Option<ResourceMassEstimate> {
-    let mut matching = state.geology().deposits().filter(|deposit| {
-        deposit.lifecycle() == GeologicalDepositLifecycle::Available
-            && deposit.bounds().has_intersection(region)
+    let mut matching = deposits.filter(|deposit| {
+        deposit.bounds().has_intersection(region)
             && deposit.composition().parts_per_million(material) > 0
     });
     let deposit = matching.next()?;
@@ -72,6 +75,24 @@ pub(super) fn resolve_region_resource_mass(
         return None;
     }
     Some(resource_mass_bucket(deposit.remaining_mass(), resolution))
+}
+
+#[cfg(test)]
+pub(super) fn resolve_region_resource_mass(
+    state: &AppState,
+    region: VoxelBounds,
+    material: MaterialId,
+    resolution: Mass,
+) -> Option<ResourceMassEstimate> {
+    resolve_region_resource_mass_from_deposits(
+        state
+            .geology()
+            .deposits()
+            .filter(|deposit| deposit.lifecycle() == GeologicalDepositLifecycle::Available),
+        region,
+        material,
+        resolution,
+    )
 }
 
 #[cfg(test)]

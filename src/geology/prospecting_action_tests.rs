@@ -1185,6 +1185,107 @@ fn overlapping_deposits_all_contribute_to_regional_abundance_range() {
 }
 
 #[test]
+fn prebounded_multivoxel_prospecting_matches_global_geology_projections() {
+    use super::abundance::resolve_region_abundance_bounds_from_deposits;
+    use super::hardness::{
+        resolve_region_excavation_hardness, resolve_region_excavation_hardness_from_deposits,
+    };
+    use super::resource_mass::{
+        resolve_region_resource_mass, resolve_region_resource_mass_from_deposits,
+    };
+    use crate::geology::GeologicalDepositLifecycle;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let region = horizontal_region(0, 4);
+    insert_low_grade_copper(&registries, &mut state, one_voxel(0));
+    insert_copper(&registries, &mut state, one_voxel(1));
+    insert_low_grade_copper(&registries, &mut state, one_voxel(1));
+    insert_copper(&registries, &mut state, one_voxel(3));
+    let depleted = state
+        .geology()
+        .deposits()
+        .last()
+        .expect("four deposited bodies exist")
+        .id();
+    let at = state.tick();
+    let next_revision = state.geology().revision() + 1;
+    state.geology_state_mut().apply_extraction(
+        depleted,
+        Mass::from_milligrams(1_000_000),
+        at,
+        next_revision,
+    );
+    insert_copper(&registries, &mut state, one_voxel(100));
+
+    let local_deposits = state
+        .geology()
+        .deposits()
+        .filter(|deposit| {
+            deposit.lifecycle() == GeologicalDepositLifecycle::Available
+                && deposit.bounds().has_intersection(region)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        local_deposits.len(),
+        3,
+        "remote and depleted bodies are excluded"
+    );
+
+    for sampled in [
+        one_voxel(0),
+        one_voxel(1),
+        one_voxel(2),
+        one_voxel(3),
+        region,
+    ] {
+        for material in [MATERIAL_COPPER, MATERIAL_STONE] {
+            assert_eq!(
+                resolve_region_abundance_bounds_from_deposits(
+                    local_deposits.iter().copied(),
+                    sampled,
+                    material,
+                    25_000,
+                ),
+                resolve_region_abundance_bounds(&state, sampled, material, 25_000),
+                "abundance diverged in {sampled:?} for {material:?}"
+            );
+            assert_eq!(
+                resolve_region_excavation_hardness_from_deposits(
+                    local_deposits.iter().copied(),
+                    sampled,
+                    material,
+                    Pressure::from_pascals(50_000_000),
+                ),
+                resolve_region_excavation_hardness(
+                    &state,
+                    sampled,
+                    material,
+                    Pressure::from_pascals(50_000_000),
+                ),
+                "hardness diverged in {sampled:?} for {material:?}"
+            );
+            assert_eq!(
+                resolve_region_resource_mass_from_deposits(
+                    local_deposits.iter().copied(),
+                    sampled,
+                    material,
+                    Mass::from_milligrams(1_000_000),
+                ),
+                resolve_region_resource_mass(
+                    &state,
+                    sampled,
+                    material,
+                    Mass::from_milligrams(1_000_000),
+                ),
+                "resource-mass scale diverged in {sampled:?} for {material:?}"
+            );
+        }
+    }
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn field_inspection_rejects_region_larger_than_authored_local_footprint() {
     let registries = build_registries();
     let mut state = AppState::new();

@@ -1,16 +1,19 @@
 //! Regional abundance projection and exact voxel-coverage geometry for field prospecting.
 
 use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
+#[cfg(test)]
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::material::MaterialId;
 use crate::spatial::VoxelBounds;
 
+#[cfg(test)]
+use super::super::GeologicalDepositLifecycle;
+use super::super::GeologyState;
 use super::super::coverage::VoxelCoverage;
 use super::super::state::GeologicalDepositRecord;
-use super::super::{GeologicalDepositLifecycle, GeologyState};
 
-fn resolve_region_abundance_bounds_from_deposits<'a>(
+pub(super) fn resolve_region_abundance_bounds_from_deposits<'a>(
     deposits: impl Iterator<Item = &'a GeologicalDepositRecord>,
     region: VoxelBounds,
     material: MaterialId,
@@ -39,6 +42,7 @@ fn resolve_region_abundance_bounds_from_deposits<'a>(
     )
 }
 
+#[cfg(test)]
 pub(super) fn resolve_region_abundance_bounds(
     state: &AppState,
     region: VoxelBounds,
