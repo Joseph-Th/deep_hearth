@@ -1,9 +1,8 @@
 //! Pure sensible-heating batch physics shared by runtime resolution and persistence replay.
 
-use std::collections::BTreeMap;
-
+use super::cohorts::PreservedMaterialCohorts;
 use super::registry::FiringConversion;
-use crate::core::quantity::{Energy, Mass, PreciseEnergy, Temperature};
+use crate::core::quantity::{Energy, PreciseEnergy, Temperature};
 use crate::inventory::ConsumedMaterialTrace;
 use crate::material::{CommodityKey, MaterialLotSpec, MaterialLotSpecError, MaterialRegistry};
 
@@ -61,7 +60,7 @@ pub(super) fn resolve_sensible_heating_batch(
         });
     }
     let mut required_energy = PreciseEnergy::ZERO;
-    let mut output_masses = BTreeMap::new();
+    let mut output_cohorts = PreservedMaterialCohorts::default();
 
     for trace in inputs {
         let profile = trace.profile();
@@ -99,35 +98,14 @@ pub(super) fn resolve_sensible_heating_batch(
             .checked_add(heat)
             .ok_or(SensibleHeatingBatchError::ArithmeticOverflow)?;
 
-        let key = (
-            output_commodity,
-            profile.composition().clone(),
-            profile.particle_size_distribution().cloned(),
-        );
-        let current = output_masses.get(&key).copied().unwrap_or(Mass::ZERO);
-        output_masses.insert(
-            key,
-            current
-                .checked_add(trace.mass())
-                .ok_or(SensibleHeatingBatchError::ArithmeticOverflow)?,
-        );
+        output_cohorts
+            .add(output_commodity, trace)
+            .ok_or(SensibleHeatingBatchError::ArithmeticOverflow)?;
     }
 
-    let mut outputs = Vec::with_capacity(output_masses.len());
-    for ((commodity, composition, particle_size), mass) in output_masses {
-        let output = match particle_size {
-            Some(particle_size) => MaterialLotSpec::with_composition_and_particle_size(
-                commodity,
-                mass,
-                target,
-                composition,
-                particle_size,
-            ),
-            None => MaterialLotSpec::with_composition(commodity, mass, target, composition),
-        }
+    let outputs = output_cohorts
+        .into_outputs(target)
         .map_err(SensibleHeatingBatchError::Output)?;
-        outputs.push(output);
-    }
 
     let femtojoule_remainder = required_energy.femtojoule_remainder();
     let required_energy =

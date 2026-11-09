@@ -1,5 +1,6 @@
 //! Owns thermal process definitions, shared batch physics, runtime resolution, and persistence replay.
 
+mod cohorts;
 mod cooling;
 mod heating;
 mod registry;

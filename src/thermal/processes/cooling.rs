@@ -6,11 +6,10 @@ mod validation;
 pub use errors::{SensibleCoolingJobValidationError, SensibleCoolingResolutionError};
 pub(in crate::thermal) use validation::validate_loaded_sensible_cooling_job;
 
-use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::{Energy, Mass, Power, PreciseEnergy, Temperature};
+use crate::core::quantity::{Energy, Power, PreciseEnergy, Temperature};
 use crate::core::state::AppState;
 use crate::energy::{EnergyStoreId, validate_energy_sink_access, validate_energy_sink_release};
 use crate::equipment::EquipmentId;
@@ -28,6 +27,7 @@ use super::super::equipment_physics::{
 };
 use super::super::physics::calculate_phase_sensible_heat_precise;
 use super::super::{HeatDirection, PhaseSensibleHeatError, SensibleHeatError};
+use super::cohorts::PreservedMaterialCohorts;
 use super::registry::SensibleCoolingProcessDefinition;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -96,7 +96,7 @@ fn resolve_sensible_cooling_batch(
     let target = definition.target_temperature();
     let mut energy = PreciseEnergy::ZERO;
     let mut hottest_input = target;
-    let mut output_mass_by_composition = BTreeMap::new();
+    let mut output_cohorts = PreservedMaterialCohorts::default();
     for trace in traces {
         let profile = trace.profile();
         if profile.commodity() != definition.commodity() {
@@ -125,24 +125,13 @@ fn resolve_sensible_cooling_batch(
         energy = energy
             .checked_add(released)
             .ok_or(SensibleCoolingBatchError::ArithmeticOverflow)?;
-        let current = output_mass_by_composition
-            .get(profile.composition())
-            .copied()
-            .unwrap_or(Mass::ZERO);
-        output_mass_by_composition.insert(
-            profile.composition().clone(),
-            current
-                .checked_add(trace.mass())
-                .ok_or(SensibleCoolingBatchError::ArithmeticOverflow)?,
-        );
+        output_cohorts
+            .add(definition.commodity(), trace)
+            .ok_or(SensibleCoolingBatchError::ArithmeticOverflow)?;
     }
-    let outputs = output_mass_by_composition
-        .into_iter()
-        .map(|(composition, mass)| {
-            MaterialLotSpec::with_composition(definition.commodity(), mass, target, composition)
-                .map_err(SensibleCoolingBatchError::Output)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let outputs = output_cohorts
+        .into_outputs(target)
+        .map_err(SensibleCoolingBatchError::Output)?;
     let femtojoule_remainder = energy.femtojoule_remainder();
     let energy = energy
         .whole_nanojoules()
@@ -325,3 +314,7 @@ pub fn resolve_sensible_cooling_process(
         transfer_power: timing.transfer_power(),
     })
 }
+
+#[cfg(test)]
+#[path = "cooling_tests.rs"]
+mod tests;
