@@ -48,6 +48,17 @@ impl LogisticsState {
             .flat_map(|ids| ids.iter().copied())
     }
 
+    /// Stationary equipment in one exact voxel, excluding player-carried tools.
+    pub(crate) fn equipment_at(
+        &self,
+        position: VoxelCoord,
+    ) -> impl Iterator<Item = EquipmentId> + '_ {
+        self.equipment_by_position
+            .get(&position)
+            .into_iter()
+            .flat_map(|ids| ids.iter().copied())
+    }
+
     /// Located stockpiles in one chunk column. Retain identity beside the
     /// position so callers can preserve deterministic ID-first collision order.
     pub(crate) fn stockpiles_in_chunk(

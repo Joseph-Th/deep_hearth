@@ -46,6 +46,10 @@ pub enum BlockExcavationError {
         target: VoxelCoord,
         store: EnergyStoreId,
     },
+    StationaryEquipmentRequiresFloor {
+        target: VoxelCoord,
+        equipment: EquipmentId,
+    },
     OpeningResidentRequiresFloor {
         target: VoxelCoord,
     },
@@ -132,6 +136,14 @@ impl Display for BlockExcavationError {
                 target.z(),
                 store.value()
             ),
+            Self::StationaryEquipmentRequiresFloor { target, equipment } => write!(
+                formatter,
+                "cannot remove block at ({},{},{}): stationary equipment {} still rests above it",
+                target.x(),
+                target.y(),
+                target.z(),
+                equipment.value()
+            ),
             Self::OpeningResidentRequiresFloor { target } => write!(
                 formatter,
                 "cannot remove block at ({},{},{}): an opening resident still stands above it",
@@ -199,6 +211,7 @@ impl Error for BlockExcavationError {
             | Self::StorageEnclosureRequiresFloor { .. }
             | Self::StandingTreeRequiresFloor { .. }
             | Self::EnergyStoreRequiresFloor { .. }
+            | Self::StationaryEquipmentRequiresFloor { .. }
             | Self::OpeningResidentRequiresFloor { .. }
             | Self::GroundedStructureRequiresFloor { .. }
             | Self::UnknownMethod { .. }
@@ -247,6 +260,10 @@ pub enum BlockExcavationCommitError {
     EnergyStoreRequiresFloor {
         target: VoxelCoord,
         store: EnergyStoreId,
+    },
+    StationaryEquipmentRequiresFloor {
+        target: VoxelCoord,
+        equipment: EquipmentId,
     },
     OpeningResidentRequiresFloor {
         target: VoxelCoord,
@@ -305,6 +322,14 @@ impl Display for BlockExcavationCommitError {
                 target.z(),
                 store.value()
             ),
+            Self::StationaryEquipmentRequiresFloor { target, equipment } => write!(
+                formatter,
+                "cannot remove block at ({},{},{}): stationary equipment {} still rests above it",
+                target.x(),
+                target.y(),
+                target.z(),
+                equipment.value()
+            ),
             Self::OpeningResidentRequiresFloor { target } => write!(
                 formatter,
                 "block excavation cannot remove floor ({},{},{}): an opening resident stands above it",
@@ -346,6 +371,7 @@ impl Error for BlockExcavationCommitError {
             | Self::TargetChanged
             | Self::StorageEnclosureRequiresFloor { .. }
             | Self::EnergyStoreRequiresFloor { .. }
+            | Self::StationaryEquipmentRequiresFloor { .. }
             | Self::OpeningResidentRequiresFloor { .. }
             | Self::GroundedStructureRequiresFloor { .. }
             | Self::EquipmentChanged => None,

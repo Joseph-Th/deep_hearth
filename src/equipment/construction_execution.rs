@@ -13,7 +13,10 @@ use crate::inventory::{
     validate_temperature_limited_consumption_selection,
     validate_unreserved_stockpile_structural_load_headroom,
 };
-use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
+use crate::logistics::{
+    PlayerStockpileAccessError, player_body_is_grounded, player_body_uses_generated_world,
+    validate_player_stockpile_access,
+};
 use crate::maintenance::Condition;
 use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE, MaterialInputSpec};
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
@@ -75,6 +78,7 @@ pub(super) fn validate_assembly_material_selection(
 pub enum EquipmentAssemblyError {
     PlayerDead,
     PlayerBusy,
+    PlayerAirborne,
     PreparedStrikeActive,
     Access(PlayerStockpileAccessError),
     UnknownDefinition {
@@ -118,6 +122,9 @@ impl Display for EquipmentAssemblyError {
             Self::PlayerBusy => {
                 formatter.write_str("player cannot assemble equipment while work is active")
             }
+            Self::PlayerAirborne => formatter.write_str(
+                "player cannot assemble stationary equipment while airborne in generated terrain",
+            ),
             Self::PreparedStrikeActive => formatter
                 .write_str("player must lower the prepared weapon before assembling equipment"),
             Self::Access(error) => write!(formatter, "equipment assembly access failed: {error}"),
@@ -194,6 +201,7 @@ impl Error for EquipmentAssemblyError {
             Self::StructuralLoad(error) => Some(error),
             Self::PlayerDead
             | Self::PlayerBusy
+            | Self::PlayerAirborne
             | Self::PreparedStrikeActive
             | Self::UnknownDefinition { definition: _ }
             | Self::NoAssemblyProfile { definition: _ }
@@ -226,6 +234,8 @@ pub enum EquipmentAssemblyCommitError {
     StaleLogistics { expected: u64, actual: u64 },
     StaleInventory { expected: u64, actual: u64 },
     StaleEquipment { expected: u64, actual: u64 },
+    StaleWorld { expected: u64, actual: u64 },
+    StaleStructures { expected: u64, actual: u64 },
     Structure(StructuralCommitError),
 }
 
@@ -255,6 +265,14 @@ impl Display for EquipmentAssemblyCommitError {
                 formatter,
                 "equipment assembly expected equipment revision {expected} but current revision is {actual}"
             ),
+            Self::StaleWorld { expected, actual } => write!(
+                formatter,
+                "equipment assembly expected world revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleStructures { expected, actual } => write!(
+                formatter,
+                "equipment assembly expected structure revision {expected} but current revision is {actual}"
+            ),
             Self::Structure(error) => {
                 write!(formatter, "equipment assembly structure failed: {error}")
             }
@@ -277,7 +295,9 @@ impl Error for EquipmentAssemblyCommitError {
             | Self::StaleEquipment {
                 expected: _,
                 actual: _,
-            } => None,
+            }
+            | Self::StaleWorld { .. }
+            | Self::StaleStructures { .. } => None,
         }
     }
 }
@@ -291,6 +311,7 @@ pub struct ValidatedEquipmentAssembly {
     expected_logistics_revision: u64,
     expected_combat_revision: u64,
     logistics_placement: Option<(u64, crate::spatial::VoxelCoord)>,
+    placement_footing_revisions: Option<(u64, u64)>,
     next_equipment_revision: u64,
     egress: ValidatedMaterialEgress,
     structural_load: Option<ValidatedStockpileStructuralLoad>,
@@ -331,6 +352,22 @@ impl ValidatedEquipmentAssembly {
                 expected: self.expected_equipment_revision,
                 actual: state.equipment().revision(),
             });
+        }
+        if let Some((expected_world, expected_structure)) = self.placement_footing_revisions {
+            let actual_world = state.world().revision();
+            if actual_world != expected_world {
+                return Err(EquipmentAssemblyCommitError::StaleWorld {
+                    expected: expected_world,
+                    actual: actual_world,
+                });
+            }
+            let actual_structure = state.structures().revision();
+            if actual_structure != expected_structure {
+                return Err(EquipmentAssemblyCommitError::StaleStructures {
+                    expected: expected_structure,
+                    actual: actual_structure,
+                });
+            }
         }
         state.equipment().assert_allocation_available(
             &self.record,
@@ -375,6 +412,16 @@ pub fn validate_assemble_equipment(
     }
     if state.logistics().player().is_some() && state.combat().has_prepared_strike() {
         return Err(EquipmentAssemblyError::PreparedStrikeActive);
+    }
+    // Assembly creates stationary voxel custody, even for portable tools. A
+    // falling player cannot leave an assembled item floating without gravity.
+    if state.logistics().player().is_some() {
+        let locomotion = registries.survival().physiology().locomotion();
+        if player_body_uses_generated_world(state, locomotion)
+            && !player_body_is_grounded(registries, state)
+        {
+            return Err(EquipmentAssemblyError::PlayerAirborne);
+        }
     }
     let definition_record = registries
         .equipment()
@@ -458,6 +505,8 @@ pub fn validate_assemble_equipment(
         expected_equipment_revision,
         expected_logistics_revision,
         expected_combat_revision: state.combat().revision(),
+        placement_footing_revisions: logistics_placement
+            .map(|_| (state.world().revision(), state.structures().revision())),
         logistics_placement,
         next_equipment_revision,
         egress,
@@ -468,3 +517,7 @@ pub fn validate_assemble_equipment(
 #[cfg(test)]
 #[path = "construction_execution_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "construction_footing_tests.rs"]
+mod footing_tests;

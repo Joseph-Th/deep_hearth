@@ -165,35 +165,9 @@ impl ValidatedPlayerBlockExcavationStart {
             return Err(BlockExcavationCommitError::TargetChanged);
         }
         if self.work.excavated_mass() == self.work.source_mass_before()
-            && let Some(stockpile) = storage_enclosure_resting_on(state, self.work.target())
+            && let Some(owner) = TerrainFootingOwner::at(state, self.work.target())
         {
-            return Err(BlockExcavationCommitError::StorageEnclosureRequiresFloor {
-                target: self.work.target(),
-                stockpile,
-            });
-        }
-        if self.work.excavated_mass() == self.work.source_mass_before()
-            && let Some(store) = stationary_energy_store_resting_on(state, self.work.target())
-        {
-            return Err(BlockExcavationCommitError::EnergyStoreRequiresFloor {
-                target: self.work.target(),
-                store,
-            });
-        }
-        if self.work.excavated_mass() == self.work.source_mass_before()
-            && crate::kobolds::opening_kobold_stands_on(state, self.work.target())
-        {
-            return Err(BlockExcavationCommitError::OpeningResidentRequiresFloor {
-                target: self.work.target(),
-            });
-        }
-        if self.work.excavated_mass() == self.work.source_mass_before()
-            && let Some(element) = grounded_structure_resting_on(state, self.work.target())
-        {
-            return Err(BlockExcavationCommitError::GroundedStructureRequiresFloor {
-                target: self.work.target(),
-                element,
-            });
+            return Err(owner.commit_error(self.work.target()));
         }
         let Some(equipment) = state.equipment().get_equipment(self.work.equipment()) else {
             return Err(BlockExcavationCommitError::EquipmentChanged);
@@ -261,39 +235,12 @@ fn validate_start_player_block_excavation_targeted(
             available: source_mass,
         });
     }
-    // Direct enclosure placement demands a solid floor. Removing its last represented
-    // milligram must not silently leave a completed storage enclosure suspended in air.
-    // Partial excavation does not remove the collidable supporting cell.
+    // Partial excavation retains a collidable block; complete removal must
+    // honor existing material-backed stationary ownership of its footing.
     if request.mass == source_mass
-        && let Some(stockpile) = storage_enclosure_resting_on(state, target.voxel())
+        && let Some(owner) = TerrainFootingOwner::at(state, target.voxel())
     {
-        return Err(BlockExcavationError::StorageEnclosureRequiresFloor {
-            target: target.voxel(),
-            stockpile,
-        });
-    }
-    if request.mass == source_mass
-        && let Some(store) = stationary_energy_store_resting_on(state, target.voxel())
-    {
-        return Err(BlockExcavationError::EnergyStoreRequiresFloor {
-            target: target.voxel(),
-            store,
-        });
-    }
-    if request.mass == source_mass
-        && crate::kobolds::opening_kobold_stands_on(state, target.voxel())
-    {
-        return Err(BlockExcavationError::OpeningResidentRequiresFloor {
-            target: target.voxel(),
-        });
-    }
-    if request.mass == source_mass
-        && let Some(element) = grounded_structure_resting_on(state, target.voxel())
-    {
-        return Err(BlockExcavationError::GroundedStructureRequiresFloor {
-            target: target.voxel(),
-            element,
-        });
+        return Err(owner.admission_error(target.voxel()));
     }
     if request.mass == source_mass
         && target.voxel().y().checked_add(1).is_some_and(|y| {
@@ -429,6 +376,70 @@ fn validate_start_player_block_excavation_targeted(
     })
 }
 
+/// Every installed floor owner shares one ordered obstruction assessment so
+/// admission and stale-commit checks cannot disagree about who holds a cell.
+enum TerrainFootingOwner {
+    StorageEnclosure(StockpileId),
+    EnergyStore(crate::energy::EnergyStoreId),
+    StationaryEquipment(EquipmentId),
+    OpeningResident,
+    GroundedStructure(StructuralElementId),
+}
+
+impl TerrainFootingOwner {
+    fn at(state: &AppState, floor: VoxelCoord) -> Option<Self> {
+        storage_enclosure_resting_on(state, floor)
+            .map(Self::StorageEnclosure)
+            .or_else(|| stationary_energy_store_resting_on(state, floor).map(Self::EnergyStore))
+            .or_else(|| {
+                stationary_equipment_resting_on(state, floor).map(Self::StationaryEquipment)
+            })
+            .or_else(|| {
+                crate::kobolds::opening_kobold_stands_on(state, floor)
+                    .then_some(Self::OpeningResident)
+            })
+            .or_else(|| grounded_structure_resting_on(state, floor).map(Self::GroundedStructure))
+    }
+
+    fn admission_error(self, target: VoxelCoord) -> BlockExcavationError {
+        match self {
+            Self::StorageEnclosure(stockpile) => {
+                BlockExcavationError::StorageEnclosureRequiresFloor { target, stockpile }
+            }
+            Self::EnergyStore(store) => {
+                BlockExcavationError::EnergyStoreRequiresFloor { target, store }
+            }
+            Self::StationaryEquipment(equipment) => {
+                BlockExcavationError::StationaryEquipmentRequiresFloor { target, equipment }
+            }
+            Self::OpeningResident => BlockExcavationError::OpeningResidentRequiresFloor { target },
+            Self::GroundedStructure(element) => {
+                BlockExcavationError::GroundedStructureRequiresFloor { target, element }
+            }
+        }
+    }
+
+    fn commit_error(self, target: VoxelCoord) -> BlockExcavationCommitError {
+        match self {
+            Self::StorageEnclosure(stockpile) => {
+                BlockExcavationCommitError::StorageEnclosureRequiresFloor { target, stockpile }
+            }
+            Self::EnergyStore(store) => {
+                BlockExcavationCommitError::EnergyStoreRequiresFloor { target, store }
+            }
+            Self::StationaryEquipment(equipment) => {
+                BlockExcavationCommitError::StationaryEquipmentRequiresFloor { target, equipment }
+            }
+            Self::OpeningResident => {
+                BlockExcavationCommitError::OpeningResidentRequiresFloor { target }
+            }
+            Self::GroundedStructure(element) => {
+                BlockExcavationCommitError::GroundedStructureRequiresFloor { target, element }
+            }
+        }
+    }
+}
+
 /// The stationary index is authoritative for exact-cell enclosure custody. Loose material and
 /// empty ground stockpiles do not require a full-cube terrain floor.
 fn storage_enclosure_resting_on(state: &AppState, floor: VoxelCoord) -> Option<StockpileId> {
@@ -454,6 +465,21 @@ fn stationary_energy_store_resting_on(
             .energy()
             .get_store(id)
             .is_some_and(|store| !store.embodied_material().is_empty())
+    })
+}
+
+/// Unmounted, material-built equipment has no simulated falling motion after
+/// it is assembled or dropped. Once mounted, its structural member owns the
+/// support instead of the ground directly beneath its current voxel.
+fn stationary_equipment_resting_on(state: &AppState, floor: VoxelCoord) -> Option<EquipmentId> {
+    let above = VoxelCoord::new(floor.x(), floor.y().checked_add(1)?, floor.z());
+    state.logistics().equipment_at(above).find(|&id| {
+        state
+            .equipment()
+            .get_equipment(id)
+            .is_some_and(|equipment| {
+                equipment.supported_by().is_none() && !equipment.embodied_material().is_empty()
+            })
     })
 }
 
