@@ -83,6 +83,54 @@ fn single_real_berry_patch() -> (Registries, AppState, VoxelCoord) {
 }
 
 #[test]
+fn dual_local_food_scents_preserve_each_category_and_its_strongest_intensity() {
+    for (nut_mass, nut_intensity) in [
+        (300_000, ForageScentIntensity::Distinct),
+        (100_000, ForageScentIntensity::Faint),
+    ] {
+        let (registries, mut state, site) = single_real_berry_patch();
+        let nuts = SurfaceResourceSpec::new(
+            SurfaceResourceKind::Opportunity,
+            site,
+            CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+            Mass::from_milligrams(nut_mass),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_WILD_NUTS),
+        )
+        .unwrap();
+        validate_create_surface_resources(&registries, &state, [nuts])
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        let before = state.clone();
+        let scents = assess_player_forage_scents(&registries, &state);
+        assert_eq!(
+            scents,
+            vec![
+                ForageScent {
+                    kind: ForageScentKind::SweetFruit,
+                    intensity: ForageScentIntensity::Distinct,
+                },
+                ForageScent {
+                    kind: ForageScentKind::WildNuts,
+                    intensity: nut_intensity,
+                },
+            ],
+            "each locally emitted food scent must retain its own strength"
+        );
+        assert_eq!(state, before, "scent assessment must remain read-only");
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        assert_eq!(restored, state);
+        assert_eq!(assess_player_forage_scents(&registries, &restored), scents);
+    }
+}
+
+#[test]
 fn old_or_inedible_food_patches_do_not_trigger_scent_air_search() {
     let (registries, mut state, position) = single_real_berry_patch();
     assert!(potentially_scented_forage_nearby(

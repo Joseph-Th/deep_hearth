@@ -252,6 +252,11 @@ pub fn assess_player_forage_scents(registries: &Registries, state: &AppState) ->
             };
             best[index] = Some(best[index].map_or(scent.intensity, |old| old.max(scent.intensity)));
         }
+        // Both source categories already have the strongest possible cue.
+        // Further air traversal cannot improve either player-facing observation.
+        if best == [Some(ForageScentIntensity::Distinct); 2] {
+            break;
+        }
         if steps == reach {
             continue;
         }
