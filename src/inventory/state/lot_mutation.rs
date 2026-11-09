@@ -4,7 +4,9 @@ use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
 use crate::material::CommodityKey;
 
-use crate::inventory::coalescing::{LotMergePolicy, lots_are_merge_compatible};
+use crate::inventory::coalescing::{
+    LotMergePolicy, lots_are_merge_compatible, merge_compatible_storage_histories,
+};
 
 use super::{
     InventoryState, MaterialLotId, MaterialLotProfile, MaterialLotRecord, MaterialStorageHistory,
@@ -220,28 +222,12 @@ fn apply_merge_lot_record(
         None => panic!("validated compatible lot merge overflowed authoritative mass"),
     };
     existing.provenance = existing.provenance.merged(lot.provenance);
-    let existing_age = existing
-        .storage_history
-        .project(at, destination_preservation_multiplier_ppm)
-        .unwrap_or_else(|| panic!("validated destination lot has invalid storage history"));
-    let incoming_age = lot
-        .storage_history
-        .project(at, destination_preservation_multiplier_ppm)
-        .unwrap_or_else(|| panic!("validated incoming lot has invalid storage history"));
-    let merged_history = match merge_policy {
-        LotMergePolicy::OldestStorageExposure if incoming_age > existing_age => lot.storage_history,
-        LotMergePolicy::OldestStorageExposure => existing.storage_history,
-        LotMergePolicy::ExactStorageExposure => {
-            assert!(
-                existing.storage_history.is_projection_equivalent(
-                    lot.storage_history,
-                    at,
-                    destination_preservation_multiplier_ppm,
-                ) == Some(true),
-                "age-sensitive material lots with divergent storage projections must remain distinct"
-            );
-            existing.storage_history
-        }
-    };
-    existing.storage_history = merged_history;
+    existing.storage_history = merge_compatible_storage_histories(
+        existing.storage_history,
+        lot.storage_history,
+        at,
+        destination_preservation_multiplier_ppm,
+        merge_policy,
+    )
+    .0;
 }

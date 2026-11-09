@@ -16,7 +16,9 @@ use crate::material::{
 };
 use crate::registry::Registries;
 
-use super::coalescing::{LotMergePolicy, lots_are_merge_compatible};
+use super::coalescing::{
+    LotMergePolicy, lots_are_merge_compatible, merge_compatible_storage_histories,
+};
 use super::{
     MaterialLotProfile, MaterialLotProvenance, MaterialLotSelection, MaterialStorageHistory,
     StockpileId,
@@ -340,6 +342,14 @@ pub fn project_material_stacks(
                 preservation,
                 merge_policy,
             ));
+            (stack.storage_history, stack.ambient_storage_age_parts) =
+                merge_compatible_storage_histories(
+                    stack.storage_history,
+                    lot.storage_history(),
+                    at,
+                    preservation,
+                    merge_policy,
+                );
             stack.mass = stack
                 .mass
                 .checked_add(lot.mass())

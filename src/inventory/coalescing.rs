@@ -55,6 +55,38 @@ pub(in crate::inventory) fn lots_are_merge_compatible(
     }
 }
 
+/// Selects the history and projected age of an already-compatible merged lot.
+/// Both authoritative coalescing and read-only stacks use this decision, so
+/// neither can expose a younger representative for older combined material.
+pub(in crate::inventory) fn merge_compatible_storage_histories(
+    existing: MaterialStorageHistory,
+    incoming: MaterialStorageHistory,
+    at: SimulationTick,
+    preservation_multiplier_ppm: u32,
+    merge_policy: LotMergePolicy,
+) -> (MaterialStorageHistory, u128) {
+    let existing_age = existing
+        .project(at, preservation_multiplier_ppm)
+        .unwrap_or_else(|| panic!("validated destination lot has invalid storage history"));
+    let incoming_age = incoming
+        .project(at, preservation_multiplier_ppm)
+        .unwrap_or_else(|| panic!("validated incoming lot has invalid storage history"));
+    match merge_policy {
+        LotMergePolicy::OldestStorageExposure if incoming_age > existing_age => {
+            (incoming, incoming_age)
+        }
+        LotMergePolicy::OldestStorageExposure => (existing, existing_age),
+        LotMergePolicy::ExactStorageExposure => {
+            assert!(
+                existing.is_projection_equivalent(incoming, at, preservation_multiplier_ppm)
+                    == Some(true),
+                "age-sensitive material lots with divergent storage projections must remain distinct"
+            );
+            (existing, existing_age)
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "coalescing_tests.rs"]
 mod tests;

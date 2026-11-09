@@ -9,6 +9,7 @@ use crate::inventory::{
     project_material_stacks,
 };
 use crate::material::CommodityKey;
+use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 
 #[test]
 fn familiar_stack_projection_preserves_physical_and_perishable_cohorts() {
@@ -253,4 +254,76 @@ fn stack_projection_expiration_tracks_time_without_inventory_mutation() {
         Err(MaterialStackProjectionError::StaleInventoryRevision { expected, actual })
             if expected == inventory_revision && actual != expected
     ));
+}
+
+#[test]
+fn trusted_fragmented_nonfood_lots_project_the_oldest_storage_exposure() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let stockpile = add_stockpile(
+        &mut state,
+        Mass::from_milligrams(10_000),
+        StockpileStorageProfile::unbounded_solid_only(),
+    )
+    .unwrap();
+    let wood = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let ambient = Temperature::from_millikelvin(293_150);
+    let younger = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        wood,
+        Mass::from_milligrams(1_000),
+        ambient,
+    )
+    .unwrap();
+    let older = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        stockpile,
+        wood,
+        Mass::from_milligrams(2_000),
+        Temperature::from_millikelvin(303_150),
+    )
+    .unwrap();
+    apply_clock_advance(&mut state, SimulationTick::new(1));
+
+    // A valid current-schema inventory may contain separate, physically mergeable
+    // lots after a storage transition. The second identity can be the older one.
+    // Trusted load reconstructs the indexes and validates the full owner graph.
+    let mut saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let lots = &mut saved["state"]["systems"]["inventory"]["lots"];
+    lots[younger.value().to_string()]["storage_history"]["last_transition_at"] =
+        serde_json::json!(1);
+    lots[older.value().to_string()]["profile"]["temperature"] = serde_json::json!(ambient);
+    let state = serde_json::from_value::<LoadedSaveEnvelope>(saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    let stacks = project_material_stacks(&registries, &state, stockpile).unwrap();
+    assert_eq!(stacks.len(), 1);
+    assert_eq!(stacks[0].mass(), Mass::from_milligrams(3_000));
+    let preservation = state
+        .inventory()
+        .get_stockpile(stockpile)
+        .unwrap()
+        .storage_profile()
+        .preservation_multiplier_ppm();
+    let oldest_age = state
+        .inventory()
+        .get_lot(older)
+        .unwrap()
+        .storage_history()
+        .project(state.tick(), preservation)
+        .unwrap();
+    assert!(oldest_age > 0);
+    assert_eq!(stacks[0].ambient_storage_age_parts(), oldest_age);
+    assert_eq!(
+        stacks[0]
+            .storage_history()
+            .project(state.tick(), preservation),
+        Some(oldest_age),
+        "the representative history must match the canonical oldest-exposure merge"
+    );
 }
