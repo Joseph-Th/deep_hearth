@@ -81,11 +81,8 @@ fn due_structural_load_can_change_player_support(
     // Most players stand on terrain. Find real floor members through the
     // spatial index first; no due-job or global structure scan is needed if
     // none can carry the player's body.
-    let mut floor_ancestors = BTreeSet::new();
-    for member in player_body_floor_structures(registries, state) {
-        collect_support_ancestors(state, member, &mut floor_ancestors);
-    }
-    if floor_ancestors.is_empty() {
+    let floor_members = player_body_floor_structures(registries, state);
+    if floor_members.is_empty() {
         return false;
     }
     let Some(next_tick) = state.tick().checked_add_executable_span(TickSpan::new(1)) else {
@@ -102,6 +99,13 @@ fn due_structural_load_can_change_player_support(
     }
     if affected_members.is_empty() {
         return false;
+    }
+    // No scheduled load means no fracture of a floor-support chain. On an
+    // idle settlement floor, avoid traversing its potentially large support
+    // ancestry every slow tick merely to discover there was no due work.
+    let mut floor_ancestors = BTreeSet::new();
+    for member in floor_members {
+        collect_support_ancestors(state, member, &mut floor_ancestors);
     }
     let mut affected_ancestors = BTreeSet::new();
     for member in affected_members {

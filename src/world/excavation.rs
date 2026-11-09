@@ -173,6 +173,14 @@ impl ValidatedPlayerBlockExcavationStart {
             });
         }
         if self.work.excavated_mass() == self.work.source_mass_before()
+            && let Some(store) = stationary_energy_store_resting_on(state, self.work.target())
+        {
+            return Err(BlockExcavationCommitError::EnergyStoreRequiresFloor {
+                target: self.work.target(),
+                store,
+            });
+        }
+        if self.work.excavated_mass() == self.work.source_mass_before()
             && crate::kobolds::opening_kobold_stands_on(state, self.work.target())
         {
             return Err(BlockExcavationCommitError::OpeningResidentRequiresFloor {
@@ -262,6 +270,14 @@ fn validate_start_player_block_excavation_targeted(
         return Err(BlockExcavationError::StorageEnclosureRequiresFloor {
             target: target.voxel(),
             stockpile,
+        });
+    }
+    if request.mass == source_mass
+        && let Some(store) = stationary_energy_store_resting_on(state, target.voxel())
+    {
+        return Err(BlockExcavationError::EnergyStoreRequiresFloor {
+            target: target.voxel(),
+            store,
         });
     }
     if request.mass == source_mass
@@ -422,6 +438,22 @@ fn storage_enclosure_resting_on(state: &AppState, floor: VoxelCoord) -> Option<S
             .inventory()
             .get_stockpile(id)
             .is_some_and(|stockpile| stockpile.enclosure().is_some())
+    })
+}
+
+/// A material-built energy store cannot stay suspended when its original
+/// terrain footing is fully removed. Unembodied capability fixtures do not
+/// claim this physical support. Use the indexed local position, not all stores.
+fn stationary_energy_store_resting_on(
+    state: &AppState,
+    floor: VoxelCoord,
+) -> Option<crate::energy::EnergyStoreId> {
+    let above = VoxelCoord::new(floor.x(), floor.y().checked_add(1)?, floor.z());
+    state.logistics().energy_stores_at(above).find(|&id| {
+        state
+            .energy()
+            .get_store(id)
+            .is_some_and(|store| !store.embodied_material().is_empty())
     })
 }
 

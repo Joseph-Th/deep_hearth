@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::quantity::Mass;
+use crate::energy::EnergyStoreId;
 use crate::equipment::{EquipmentId, EquipmentProviderError};
 use crate::inventory::StockpileId;
 use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError};
@@ -40,6 +41,10 @@ pub enum BlockExcavationError {
     },
     StandingTreeRequiresFloor {
         target: VoxelCoord,
+    },
+    EnergyStoreRequiresFloor {
+        target: VoxelCoord,
+        store: EnergyStoreId,
     },
     OpeningResidentRequiresFloor {
         target: VoxelCoord,
@@ -119,6 +124,14 @@ impl Display for BlockExcavationError {
                 target.y(),
                 target.z()
             ),
+            Self::EnergyStoreRequiresFloor { target, store } => write!(
+                formatter,
+                "cannot remove block at ({},{},{}): stationary energy store {} still rests above it",
+                target.x(),
+                target.y(),
+                target.z(),
+                store.value()
+            ),
             Self::OpeningResidentRequiresFloor { target } => write!(
                 formatter,
                 "cannot remove block at ({},{},{}): an opening resident still stands above it",
@@ -185,6 +198,7 @@ impl Error for BlockExcavationError {
             | Self::MassExceedsCell { .. }
             | Self::StorageEnclosureRequiresFloor { .. }
             | Self::StandingTreeRequiresFloor { .. }
+            | Self::EnergyStoreRequiresFloor { .. }
             | Self::OpeningResidentRequiresFloor { .. }
             | Self::GroundedStructureRequiresFloor { .. }
             | Self::UnknownMethod { .. }
@@ -229,6 +243,10 @@ pub enum BlockExcavationCommitError {
     StorageEnclosureRequiresFloor {
         target: VoxelCoord,
         stockpile: StockpileId,
+    },
+    EnergyStoreRequiresFloor {
+        target: VoxelCoord,
+        store: EnergyStoreId,
     },
     OpeningResidentRequiresFloor {
         target: VoxelCoord,
@@ -279,6 +297,14 @@ impl Display for BlockExcavationCommitError {
                 target.z(),
                 stockpile.value()
             ),
+            Self::EnergyStoreRequiresFloor { target, store } => write!(
+                formatter,
+                "block excavation cannot remove floor ({},{},{}): stationary energy store {} was placed above it",
+                target.x(),
+                target.y(),
+                target.z(),
+                store.value()
+            ),
             Self::OpeningResidentRequiresFloor { target } => write!(
                 formatter,
                 "block excavation cannot remove floor ({},{},{}): an opening resident stands above it",
@@ -319,6 +345,7 @@ impl Error for BlockExcavationCommitError {
             | Self::StaleSurfaceIdentity { .. }
             | Self::TargetChanged
             | Self::StorageEnclosureRequiresFloor { .. }
+            | Self::EnergyStoreRequiresFloor { .. }
             | Self::OpeningResidentRequiresFloor { .. }
             | Self::GroundedStructureRequiresFloor { .. }
             | Self::EquipmentChanged => None,

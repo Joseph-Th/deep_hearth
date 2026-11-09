@@ -374,8 +374,8 @@ impl WorldState {
     ) -> Option<bool> {
         let block = registry.block_for_state(self.block_at(voxel)?)?;
         Some(
-            self.tree_trunk_at(voxel).is_some()
-                || block.collision() == BlockCollisionShape::FullCube,
+            block.collision() == BlockCollisionShape::FullCube
+                || self.tree_trunk_at(voxel).is_some(),
         )
     }
 

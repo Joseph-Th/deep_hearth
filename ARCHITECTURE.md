@@ -312,6 +312,9 @@ For every consequential edge:
 - when delayed work retains an endpoint assumption that is not recomputed into its completion transaction,
   block canonical mutations that would invalidate that assumption for the work interval; otherwise compose the
   changed endpoint into one authoritative completion projection rather than relying on admission-time state;
+- complete terrain excavation must not remove the last collidable footing beneath a material-built, located
+  stationary energy store; partial cuts that retain the supporting block remain legal, and abstract unembodied
+  store fixtures do not claim physical floor protection;
 - require each transmitting shaft roller to be sound in both pre-tick structural truth and the
   projected result of production loads, construction activation, and automatic mining output
   settlement; newly assembled rollers and newly released work become eligible only on the

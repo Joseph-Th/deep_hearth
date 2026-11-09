@@ -36,6 +36,8 @@ use super::*;
 mod batch_admission;
 #[path = "world_tests/chunk_coordinates.rs"]
 mod chunk_coordinates;
+#[path = "world_tests/energy_footing.rs"]
+mod energy_footing;
 #[path = "world_tests/excavation_selection.rs"]
 mod excavation_selection;
 #[path = "world_tests/foundation_excavation.rs"]
