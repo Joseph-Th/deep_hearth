@@ -81,10 +81,19 @@ fn placed_equipment_blocks_final_footing_cut_until_physically_picked_up() {
         }),
     );
     assert_eq!(state, before);
-    let cut = validate_start_player_block_excavation(&registries, &state, dig(1))
-        .unwrap()
-        .commit(&mut state)
-        .unwrap();
+    // The familiar held-pick control must find the admissible partial cut
+    // instead of rejecting the entire block while the machinery rests on it.
+    let control = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL.with_primary(PrimaryControlIntent::break_target(down)),
+    )
+    .unwrap();
+    let cut = match control.primary_action() {
+        Some(PrimaryActionOutcome::BlockExcavationStarted(outcome)) => *outcome,
+        other => panic!("held excavation failed to select the supported partial cut: {other:?}"),
+    };
+    assert_eq!(cut.excavated_mass(), Mass::from_milligrams(1));
     while state.control_tick() < cut.completes_at() {
         let _ = advance_control_tick(&registries, &mut state).unwrap();
     }
