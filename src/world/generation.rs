@@ -496,10 +496,19 @@ fn validate_generation_profile(
     state: &AppState,
     requested: WorldGenerationProfile,
 ) -> Result<(), ChunkGenerationError> {
-    if registry.get_state(requested.solid_state()).is_none()
-        || requested.solid_state() == BlockStateId::AIR
-    {
+    if requested.solid_state() == BlockStateId::AIR {
+        return Err(ChunkGenerationError::AirGenerationSolidState);
+    }
+    if registry.get_state(requested.solid_state()).is_none() {
         return Err(ChunkGenerationError::UnknownSolidState {
+            state: requested.solid_state(),
+        });
+    }
+    // A registered non-air state is not necessarily terrain. An empty collision
+    // shape or massless full-cube fixture would establish absent ground or an
+    // impassable world without physical matter to excavate or account for.
+    if !registry.is_material_backed_full_cube_state(requested.solid_state()) {
+        return Err(ChunkGenerationError::InvalidTerrainSubstrate {
             state: requested.solid_state(),
         });
     }
@@ -610,3 +619,7 @@ fn build_generated_chunk(
 #[cfg(test)]
 #[path = "generation/equipment_occupancy_tests.rs"]
 mod equipment_occupancy_tests;
+
+#[cfg(test)]
+#[path = "generation/profile_tests.rs"]
+mod profile_tests;

@@ -51,6 +51,11 @@ fn validate_generation_profile(
             state: profile.solid_state(),
         });
     }
+    if !registry.is_material_backed_full_cube_state(profile.solid_state()) {
+        return Err(WorldValidationError::InvalidGenerationSubstrate {
+            state: profile.solid_state(),
+        });
+    }
     Ok(())
 }
 

@@ -14,6 +14,8 @@ pub enum ChunkGenerationError {
     GenerationProfileConflict,
     AlreadyGenerated { chunk: ChunkCoord },
     UnknownSolidState { state: BlockStateId },
+    AirGenerationSolidState,
+    InvalidTerrainSubstrate { state: BlockStateId },
     ChunkCoordinateOverflow { chunk: ChunkCoord },
     PlayerBodyCollision { voxel: VoxelCoord },
     ActivePlayerWorkAtGenerationSite { chunk: ChunkCoord },
@@ -61,6 +63,13 @@ impl Display for ChunkGenerationError {
             Self::UnknownSolidState { state } => write!(
                 formatter,
                 "terrain generation requested unknown block state {}",
+                state.value()
+            ),
+            Self::AirGenerationSolidState => formatter
+                .write_str("terrain generation cannot use air as its solid state"),
+            Self::InvalidTerrainSubstrate { state } => write!(
+                formatter,
+                "terrain generation requires a material-backed full-cube substrate, not block state {}",
                 state.value()
             ),
             Self::ChunkCoordinateOverflow { chunk } => write!(

@@ -24,6 +24,9 @@ pub enum WorldValidationError {
     UnknownGenerationSolidState {
         state: BlockStateId,
     },
+    InvalidGenerationSubstrate {
+        state: BlockStateId,
+    },
     AirGenerationSolidState,
     EmptyStateWithNonzeroRevision {
         revision: u64,
@@ -152,6 +155,11 @@ impl Display for WorldValidationError {
             Self::UnknownGenerationSolidState { state } => write!(
                 formatter,
                 "world generation profile references unknown block state {}",
+                state.value()
+            ),
+            Self::InvalidGenerationSubstrate { state } => write!(
+                formatter,
+                "world generation profile uses non-colliding or massless substrate block state {}",
                 state.value()
             ),
             Self::AirGenerationSolidState => formatter

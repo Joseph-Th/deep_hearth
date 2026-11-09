@@ -445,6 +445,17 @@ impl WorldRegistry {
         self.get_block(state.block())
     }
 
+    /// Generation and trusted-load admission share one physical substrate rule.
+    /// A non-air name alone does not prove that its blocks provide ground or
+    /// carry real matter for excavation and accounting.
+    #[must_use]
+    pub(crate) fn is_material_backed_full_cube_state(&self, state: BlockStateId) -> bool {
+        self.block_for_state(state).is_some_and(|block| {
+            block.collision() == BlockCollisionShape::FullCube
+                && !block.represented_mass().is_zero()
+        })
+    }
+
     #[must_use]
     pub fn represented_mass_for_state(&self, id: BlockStateId) -> Option<Mass> {
         self.block_for_state(id)
