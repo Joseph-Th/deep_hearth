@@ -138,6 +138,18 @@ impl ValidatedFluidSupportChange {
 fn validate_direct_action(state: &AppState) -> Result<PlayerActionGuard, FluidSupportError> {
     let action =
         validate_optional_player_action(state).map_err(|_| FluidSupportError::PlayerDead)?;
+    // Eating and drinking occupy the actor's hands. Other active work may
+    // legitimately coexist with changes to independent structural support.
+    if state.logistics().player().is_some()
+        && matches!(
+            state.player_work().active(),
+            Some(
+                crate::labor::PlayerWork::Eating { .. } | crate::labor::PlayerWork::Drinking { .. }
+            )
+        )
+    {
+        return Err(FluidSupportError::PlayerBusy);
+    }
     if state.logistics().player().is_some() && state.combat().has_prepared_strike() {
         return Err(FluidSupportError::PreparedStrikeActive);
     }

@@ -112,6 +112,7 @@ impl Error for FluidStructuralLoadError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FluidSupportError {
     PlayerDead,
+    PlayerBusy,
     PreparedStrikeActive,
     NaturalPoolIsNotAVessel {
         store: FluidStoreId,
@@ -144,6 +145,9 @@ impl Display for FluidSupportError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerDead => formatter.write_str("dead player cannot move fluid-store support"),
+            Self::PlayerBusy => {
+                formatter.write_str("player cannot move fluid-store support while work is active")
+            }
             Self::PreparedStrikeActive => formatter.write_str(
                 "player must lower the prepared weapon before moving fluid-store support",
             ),
@@ -199,6 +203,7 @@ impl Error for FluidSupportError {
             Self::Load(error) => Some(error),
             Self::Access(error) => Some(error),
             Self::PlayerDead
+            | Self::PlayerBusy
             | Self::PreparedStrikeActive
             | Self::NaturalPoolIsNotAVessel { .. }
             | Self::UnknownStore { .. }

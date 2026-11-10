@@ -43,6 +43,197 @@ fn registries_with_material(material: crate::material::MaterialId) -> Registries
 }
 
 #[test]
+fn exclusive_drinking_prevents_mounting_or_unmounting_unrelated_supports() {
+    use crate::content::{EQUIPMENT_CASTING_MOLD, FLUID_WATER, build_registries};
+    use crate::core::quantity::Mass;
+    use crate::equipment::{
+        EquipmentSupportError, add_equipment, validate_mount_equipment, validate_unmount_equipment,
+    };
+    use crate::inventory::{
+        StockpileSupportError, add_solid_stockpile_for_test, validate_mount_stockpile,
+        validate_unmount_stockpile,
+    };
+    use crate::logistics::{place_equipment_for_fixture, validate_place_ground_stockpile};
+    use crate::maintenance::Condition;
+    use crate::simulation::advance_tick;
+    use crate::survival::validate_drink;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let support = add_active_support(&registries, &mut state, 0);
+    let position = VoxelCoord::new(0, 0, 0);
+    let water = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        Volume::from_microliters(750_000),
+        FLUID_WATER,
+        Volume::from_microliters(750_000),
+        TEST_TEMPERATURE,
+    )
+    .unwrap();
+    validate_place_fluid_store(&state, water, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let stockpile =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(5_000_000)).unwrap();
+    validate_place_ground_stockpile(&state, stockpile, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let equipment = add_equipment(
+        &registries,
+        &mut state,
+        EQUIPMENT_CASTING_MOLD,
+        Condition::PRISTINE,
+    )
+    .unwrap();
+    place_equipment_for_fixture(&mut state, equipment, position);
+    validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    // Every support change is legal for this actor before the drink occupies attention.
+    // Previously admitted tokens must also reject if that attention is later claimed.
+    let stale_fluid = validate_mount_fluid_store(&registries, &state, water, support).unwrap();
+    let stale_stockpile =
+        validate_mount_stockpile(&registries, &state, stockpile, support).unwrap();
+    let stale_equipment =
+        validate_mount_equipment(&registries, &state, equipment, support).unwrap();
+    let expected_survival = state.survival().revision();
+    let original_volume = calculate_fluid_volume_accounting(&state).unwrap().total();
+
+    let first = validate_drink(
+        &registries,
+        &state,
+        water,
+        Volume::from_microliters(250_000),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert!(state.player_work().active().is_some());
+    let actual_survival = state.survival().revision();
+    let during = state.clone();
+    assert_eq!(
+        stale_fluid.commit(&mut state),
+        Err(FluidSupportCommitError::StaleSurvivalRevision {
+            expected: expected_survival,
+            actual: actual_survival,
+        })
+    );
+    assert_eq!(
+        stale_stockpile.commit(&mut state),
+        Err(
+            crate::inventory::StockpileSupportCommitError::StaleSurvivalRevision {
+                expected: expected_survival,
+                actual: actual_survival,
+            }
+        )
+    );
+    assert_eq!(
+        stale_equipment.commit(&mut state),
+        Err(
+            crate::equipment::EquipmentSupportCommitError::StaleSurvivalRevision {
+                expected: expected_survival,
+                actual: actual_survival,
+            }
+        )
+    );
+    assert_eq!(
+        validate_mount_fluid_store(&registries, &state, water, support).err(),
+        Some(FluidSupportError::PlayerBusy)
+    );
+    assert_eq!(
+        validate_mount_stockpile(&registries, &state, stockpile, support).err(),
+        Some(StockpileSupportError::PlayerBusy)
+    );
+    assert_eq!(
+        validate_mount_equipment(&registries, &state, equipment, support).err(),
+        Some(EquipmentSupportError::PlayerBusy)
+    );
+    assert_eq!(state, during);
+
+    // The exclusion survives trusted load and does not change scheduled drinking.
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut restored = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+    assert_eq!(
+        validate_mount_fluid_store(&registries, &restored, water, support).err(),
+        Some(FluidSupportError::PlayerBusy)
+    );
+    while state.tick() < first.completes_at() {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut restored).unwrap()
+        );
+    }
+    assert_eq!(state, restored);
+    assert!(state.player_work().active().is_none());
+
+    let _ = validate_mount_fluid_store(&registries, &state, water, support)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = validate_mount_stockpile(&registries, &state, stockpile, support)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = validate_mount_equipment(&registries, &state, equipment, support)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    let second = validate_drink(
+        &registries,
+        &state,
+        water,
+        Volume::from_microliters(250_000),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let during = state.clone();
+    assert_eq!(
+        validate_unmount_fluid_store(&registries, &state, water).err(),
+        Some(FluidSupportError::PlayerBusy)
+    );
+    assert_eq!(
+        validate_unmount_stockpile(&registries, &state, stockpile).err(),
+        Some(StockpileSupportError::PlayerBusy)
+    );
+    assert_eq!(
+        validate_unmount_equipment(&registries, &state, equipment).err(),
+        Some(EquipmentSupportError::PlayerBusy)
+    );
+    assert_eq!(state, during);
+    while state.tick() < second.completes_at() {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    let _ = validate_unmount_fluid_store(&registries, &state, water)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = validate_unmount_stockpile(&registries, &state, stockpile)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = validate_unmount_equipment(&registries, &state, equipment)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        calculate_fluid_volume_accounting(&state).unwrap().total(),
+        original_volume
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn fluid_support_change_rejects_stale_logistics_before_structural_mutation() {
     let registries = registries();
     let mut state = AppState::new();

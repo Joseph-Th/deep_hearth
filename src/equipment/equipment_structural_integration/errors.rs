@@ -19,6 +19,7 @@ use crate::equipment::EquipmentId;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentSupportError {
     PlayerDead,
+    PlayerBusy,
     PreparedStrikeActive,
     UnknownEquipment {
         equipment: EquipmentId,
@@ -90,6 +91,9 @@ impl Display for EquipmentSupportError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlayerDead => formatter.write_str("dead player cannot move equipment support"),
+            Self::PlayerBusy => {
+                formatter.write_str("player cannot move equipment support while work is active")
+            }
             Self::PreparedStrikeActive => formatter
                 .write_str("player must lower the prepared weapon before moving equipment support"),
             Self::UnknownEquipment { equipment } => {
@@ -225,6 +229,7 @@ impl Error for EquipmentSupportError {
             Self::Structure(error) => Some(error),
             Self::Access(error) => Some(error),
             Self::PlayerDead
+            | Self::PlayerBusy
             | Self::PreparedStrikeActive
             | Self::UnknownEquipment { .. }
             | Self::AlreadyMounted { .. }
