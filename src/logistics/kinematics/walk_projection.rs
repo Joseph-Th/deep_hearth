@@ -165,8 +165,9 @@ pub fn project_player_adjacent_walk(
 ///
 /// The current player must be standing, grounded, motionless, idle, and at a slow-simulation
 /// boundary with prior locomotion exertion settled. Every leg is resolved through the canonical
-/// body/collision kernel and the whole path must settle before the next slow boundary. The result's
-/// resource budget is the exact basal-plus-locomotion charge that will settle at that boundary.
+/// body/collision kernel. Straight consecutive legs retain held-input momentum; a turn requires
+/// braking at its waypoint, and the final destination must be motionless before the next slow
+/// boundary. The result's resource budget is the exact basal-plus-locomotion charge at that boundary.
 /// This function deliberately does not discover, rank, or route between destinations.
 pub fn project_player_walk_path(
     registries: &Registries,
@@ -235,8 +236,22 @@ fn project_walk_path_with_load(
         capacity,
     };
 
-    for &destination in destinations {
-        project_walk_leg(&mut projection, destination)?;
+    for (index, &destination) in destinations.iter().enumerate() {
+        let leg_origin = projection.body.voxel_position();
+        let continues_straight = destinations.get(index + 1).is_some_and(|&next| {
+            // Verify both edges before subtracting coordinates. Face-adjacent
+            // differences fit i64 even near the limits of the world grid.
+            leg_origin.is_face_adjacent_to(destination)
+                && leg_origin.y() == destination.y()
+                && destination.is_face_adjacent_to(next)
+                && destination.y() == next.y()
+                && destination.x() - leg_origin.x() == next.x() - destination.x()
+                && destination.z() - leg_origin.z() == next.z() - destination.z()
+        });
+        // Braking at every voxel on a straight path invents extra stops,
+        // travel time and repeated acceleration. Keep motion continuous until
+        // a real change of heading or the final requested destination.
+        project_walk_leg(&mut projection, destination, !continues_straight)?;
     }
     // Each projected control sample changes the persisted body or its velocity,
     // consuming one logistics revision on execution. Check the whole route and
@@ -320,6 +335,7 @@ struct WalkProjectionCursor<'a> {
 fn project_walk_leg(
     projection: &mut WalkProjectionCursor<'_>,
     destination: VoxelCoord,
+    settle_at_destination: bool,
 ) -> Result<(), PlayerWalkProjectionError> {
     let leg_origin = projection.body.voxel_position();
     if !leg_origin.is_face_adjacent_to(destination) || leg_origin.y() != destination.y() {
@@ -374,7 +390,11 @@ fn project_walk_leg(
             });
         }
     }
-    settle_projected_walk_velocity(projection, leg_origin, destination)
+    if settle_at_destination {
+        settle_projected_walk_velocity(projection, leg_origin, destination)
+    } else {
+        Ok(())
+    }
 }
 
 fn accrue_projected_walk_exertion(

@@ -503,7 +503,7 @@ fn sustained_haul_walk_takes_more_control_time_than_empty_handed_travel() {
 }
 
 #[test]
-fn adjacent_walk_projection_matches_control_execution_and_boundary_cost() {
+fn straight_walk_path_projection_matches_control_execution_and_boundary_cost() {
     let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
     let path = [
         VoxelCoord::new(1, floor_y, 0),
@@ -554,11 +554,13 @@ fn adjacent_walk_projection_matches_control_execution_and_boundary_cost() {
         .unwrap_or_else(|| panic!("walk projection survival player disappeared"));
     let mut actual_control_ticks = 0_u64;
     let mut passive_braking_translation_ticks = 0_u64;
+    let movement = PlayerControlInput::new(
+        HorizontalControlInput::new(1_000_000, 0)
+            .unwrap_or_else(|error| panic!("walk projection execution input failed: {error}")),
+    );
+    // The actual held input crosses both straight waypoints without an
+    // artificial stop; braking is required only at the final destination.
     for destination in path {
-        let movement = PlayerControlInput::new(
-            HorizontalControlInput::new(1_000_000, 0)
-                .unwrap_or_else(|error| panic!("walk projection execution input failed: {error}")),
-        );
         while state
             .logistics()
             .player()
@@ -568,31 +570,31 @@ fn adjacent_walk_projection_matches_control_execution_and_boundary_cost() {
                 .unwrap_or_else(|error| panic!("walk projection execution failed: {error}"));
             actual_control_ticks += 1;
         }
-        while state.logistics().player().is_some_and(|player| {
-            let velocity = player.body().horizontal_velocity();
-            velocity.x_nanometers_per_second() != 0 || velocity.z_nanometers_per_second() != 0
-        }) {
-            let before = state
-                .logistics()
-                .player()
-                .unwrap_or_else(|| panic!("braking player disappeared"))
-                .body()
-                .foot_position();
-            let _ = advance_control_tick(&registries, &mut state)
-                .unwrap_or_else(|error| panic!("walk projection braking failed: {error}"));
-            actual_control_ticks += 1;
-            let after = state
-                .logistics()
-                .player()
-                .unwrap_or_else(|| panic!("braking player disappeared"))
-                .body()
-                .foot_position();
-            passive_braking_translation_ticks += u64::from(before != after);
-            assert_eq!(
-                state.logistics().player().map(|player| player.position()),
-                Some(destination)
-            );
-        }
+    }
+    while state.logistics().player().is_some_and(|player| {
+        let velocity = player.body().horizontal_velocity();
+        velocity.x_nanometers_per_second() != 0 || velocity.z_nanometers_per_second() != 0
+    }) {
+        let before = state
+            .logistics()
+            .player()
+            .unwrap_or_else(|| panic!("braking player disappeared"))
+            .body()
+            .foot_position();
+        let _ = advance_control_tick(&registries, &mut state)
+            .unwrap_or_else(|error| panic!("walk projection braking failed: {error}"));
+        actual_control_ticks += 1;
+        let after = state
+            .logistics()
+            .player()
+            .unwrap_or_else(|| panic!("braking player disappeared"))
+            .body()
+            .foot_position();
+        passive_braking_translation_ticks += u64::from(before != after);
+        assert_eq!(
+            state.logistics().player().map(|player| player.position()),
+            Some(path[1])
+        );
     }
     assert!(
         passive_braking_translation_ticks > 0,
