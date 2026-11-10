@@ -3,6 +3,7 @@
 //! No resource is invented: each executable option uses real material lots,
 //! authored equipment, finite charged energy, and an explicit output owner.
 
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -13,7 +14,7 @@ use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
 use crate::inventory::{MaterialStackProjection, MaterialStackProjectionError, StockpileId};
 use crate::logistics::{PlayerInventoryProjectionError, project_player_inventory};
-use crate::material::CommodityKey;
+use crate::material::{CommodityKey, FormId};
 use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::production::{
     ProcessId, StartPlayerProcessError, StartProcessError, ValidatedStartProcess,
@@ -131,23 +132,40 @@ pub fn player_local_powered_comminution_options(
         )
         .collect::<Vec<_>>();
     let mut options = Vec::new();
+    // Capability, condition, and energy envelopes do not depend on feed lots or
+    // output destinations. A worksite may hold many separate grade/temperature
+    // stacks of one ore form: assess its physical providers once per input form
+    // during this read-only menu request, not once for every stack.
+    let mut capacities_by_form = BTreeMap::<FormId, Vec<AvailableComminutionCapacity>>::new();
     for source in sources {
         for stack in source.stacks() {
-            options.extend(options_for_stack(
-                registries,
-                state,
-                stack,
-                &equipment,
-                &stores,
-                &destinations,
-            ));
+            let capacities = capacities_by_form
+                .entry(stack.commodity().form())
+                .or_insert_with(|| {
+                    available_capacities_for_form(
+                        registries,
+                        state,
+                        stack.commodity().form(),
+                        &equipment,
+                        &stores,
+                    )
+                });
+            for &capacity in capacities.iter() {
+                for &destination in &destinations {
+                    if let Some(option) =
+                        ready_option_for_route(registries, state, stack, capacity, destination)
+                    {
+                        options.push(option);
+                    }
+                }
+            }
         }
     }
     Ok(options)
 }
 
-/// Shared process, machine, and power limit for every destination of one ore stack.
-/// Destination capacity changes the selected mass, not the provider's physical envelope.
+/// Shared process, machine, and power limit for every stack of an input form.
+/// Destination capacity and exact feed selection are still checked separately.
 #[derive(Clone, Copy)]
 struct AvailableComminutionCapacity {
     process: ProcessId,
@@ -214,53 +232,43 @@ fn ready_option_for_route(
     })
 }
 
-fn options_for_stack(
+fn available_capacities_for_form(
     registries: &Registries,
     state: &AppState,
-    stack: &MaterialStackProjection,
+    form: FormId,
     equipment: &[EquipmentId],
     stores: &[EnergyStoreId],
-    destinations: &[StockpileId],
-) -> Vec<PlayerComminutionOption> {
-    let mut options = Vec::new();
+) -> Vec<AvailableComminutionCapacity> {
+    let mut capacities = Vec::new();
     for definition in registries.ore_processing().comminution_definitions() {
-        if stack.commodity().form() != definition.input_form() {
+        if form != definition.input_form() {
             continue;
         }
-        for machine in equipment {
-            for store in stores {
-                // Pure equipment and supply checks are identical for every local output
-                // container. Resolve once, then price each destination's real headroom.
+        for &machine in equipment {
+            for &store in stores {
                 let Some(envelope) = assess_powered_ore_mass_envelope(
                     registries,
                     state,
                     definition.process(),
-                    *machine,
-                    *store,
+                    machine,
+                    store,
                 )
                 .ok() else {
                     continue;
                 };
                 let capacity = AvailableComminutionCapacity {
                     process: definition.process(),
-                    machine: *machine,
-                    store: *store,
+                    machine,
+                    store,
                     maximum_mass: envelope.maximum_mass(),
                 };
-                if capacity.maximum_mass.is_zero() {
-                    continue;
-                }
-                for destination in destinations {
-                    if let Some(option) =
-                        ready_option_for_route(registries, state, stack, capacity, *destination)
-                    {
-                        options.push(option);
-                    }
+                if !capacity.maximum_mass.is_zero() {
+                    capacities.push(capacity);
                 }
             }
         }
     }
-    options
+    capacities
 }
 
 /// Resolves the chosen ore quantity anew and returns the ordinary, revision-
