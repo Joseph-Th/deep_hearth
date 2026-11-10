@@ -4,6 +4,10 @@ use super::*;
 use crate::content::{BLOCK_STATE_STONE, build_registries};
 use crate::core::quantity::Energy;
 use crate::core::state::validate_loaded_state;
+use crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
+use crate::logistics::{
+    CONTROL_INPUT_PARTS_PER_MILLION, HorizontalControlInput, PlayerControlInput,
+};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::{validate_admit_player, validate_respawn_player};
@@ -267,4 +271,79 @@ fn reversed_walk_leg_brakes_before_turning_and_matches_live_motion() {
     );
     assert_eq!(live.logistics().player().unwrap().position(), origin);
     assert_eq!(validate_loaded_state(&registries, &live), Ok(()));
+}
+
+#[test]
+fn walk_projection_does_not_advertise_a_walk_across_missing_footing() {
+    use crate::world::{BlockStateId, set_generated_block_for_test};
+
+    let registries = build_registries();
+    let mut world = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &world,
+        WorldGenerationSeed::new(0x5741_4C4B_4C49_5645),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut world)
+    .unwrap();
+
+    let mut found = false;
+    'sites: for z in 2..12 {
+        for x in 2..12 {
+            let Some(floor) = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE - 2).rev().find(|&y| {
+                world.world().block_at(VoxelCoord::new(x, y, z)) == Some(BLOCK_STATE_STONE)
+            }) else {
+                continue;
+            };
+            let y = floor + 1;
+            if !(0..=2).all(|step| {
+                world.world().block_at(VoxelCoord::new(x + step, floor, z))
+                    == Some(BLOCK_STATE_STONE)
+                    && world
+                        .world()
+                        .has_standing_clearance(registries.world(), VoxelCoord::new(x + step, y, z))
+            }) {
+                continue;
+            }
+            let mut gap = world.clone();
+            for step in 1..=2 {
+                set_generated_block_for_test(
+                    registries.world(),
+                    &mut gap,
+                    VoxelCoord::new(x + step, floor, z),
+                    BlockStateId::AIR,
+                );
+            }
+            let origin = VoxelCoord::new(x, y, z);
+            if let Ok(admission) = validate_admit_player(&registries, &gap, origin) {
+                admission.commit(&mut gap).unwrap();
+                let destinations = [VoxelCoord::new(x + 1, y, z)];
+                let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &gap)).unwrap();
+                let replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+                    .unwrap()
+                    .into_state(&registries)
+                    .unwrap();
+                assert_eq!(gap, replay);
+                for actor in [&gap, &replay] {
+                    let result = project_player_walk_path(&registries, actor, &destinations);
+                    assert!(matches!(
+                        result,
+                        Err(PlayerWalkProjectionError::DestinationOvershot {
+                            destination,
+                            actual,
+                        }) if destination == destinations[0] && actual.y() < destination.y()
+                    ));
+                }
+                found = true;
+                break 'sites;
+            }
+        }
+    }
+    assert!(
+        found,
+        "seeded chunk must have flat terrain suitable for a gap probe"
+    );
 }
