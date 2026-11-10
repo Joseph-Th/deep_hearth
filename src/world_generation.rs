@@ -218,6 +218,9 @@ impl ValidatedInitialWildernessGeneration {
                 InitialWildernessGenerationCommitError::WaterAlreadyLocated { store: water_store },
             );
         }
+        if !state.kobold_state().is_pristine() {
+            return Err(InitialWildernessGenerationCommitError::KoboldsAlreadyGenerated);
+        }
 
         self.surface_generation.apply(state);
         self.geological_generation.apply(state);

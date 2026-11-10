@@ -207,6 +207,7 @@ pub enum InitialWildernessGenerationCommitError {
     WaterAlreadyLocated {
         store: FluidStoreId,
     },
+    KoboldsAlreadyGenerated,
 }
 
 impl Display for InitialWildernessGenerationCommitError {
@@ -272,6 +273,8 @@ impl Display for InitialWildernessGenerationCommitError {
                 "generated water store {} acquired a logistics location before wilderness commit",
                 store.value()
             ),
+            Self::KoboldsAlreadyGenerated => formatter
+                .write_str("opening kobold state changed before wilderness generation commit"),
         }
     }
 }

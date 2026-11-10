@@ -1818,6 +1818,35 @@ fn initial_wilderness_generation_rejects_stale_logistics_commit_without_owner_mu
 }
 
 #[test]
+fn initial_wilderness_generation_rejects_stale_kobolds_before_cross_owner_mutation() {
+    let registries = build_registries();
+    let spawn = VoxelCoord::new(0, 0, 0);
+    let validated = validate_generate_initial_wilderness(
+        &registries,
+        &AppState::new(),
+        WorldGenerationSeed::new(15),
+        spawn,
+    )
+    .unwrap();
+
+    let mut state = AppState::new();
+    state.kobold_state_mut().apply_opening_colony([
+        VoxelCoord::new(3, 0, 0),
+        VoxelCoord::new(4, 0, 0),
+        VoxelCoord::new(5, 0, 0),
+    ]);
+    let before = state.clone();
+    assert_eq!(
+        validated.commit(&mut state),
+        Err(InitialWildernessGenerationCommitError::KoboldsAlreadyGenerated)
+    );
+    assert_eq!(state, before);
+    assert!(state.surface().resources().next().is_none());
+    assert!(state.geology().deposits().next().is_none());
+    assert!(state.fluid().stores().next().is_none());
+}
+
+#[test]
 fn initial_wilderness_generation_rejects_stale_surface_commit_without_mutation() {
     let registries = build_registries();
     let spawn = VoxelCoord::new(0, 0, 0);
