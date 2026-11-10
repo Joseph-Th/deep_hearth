@@ -431,6 +431,21 @@ impl WorldState {
             && self.tree_trunk_at(head).is_none()
     }
 
+    /// Permanent rooted woodland needs a full terrain block, not temporary
+    /// support from another living trunk. Player footing intentionally permits
+    /// either support, but a trunk cannot outlive the tree beneath its roots.
+    pub(crate) fn has_tree_root_terrain_floor(
+        &self,
+        registry: &WorldRegistry,
+        root: VoxelCoord,
+    ) -> bool {
+        root.y().checked_sub(1).is_some_and(|floor_y| {
+            self.block_at(VoxelCoord::new(root.x(), floor_y, root.z()))
+                .and_then(|block| registry.block_for_state(block))
+                .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+        })
+    }
+
     pub(crate) fn represented_mass_at(
         &self,
         registry: &WorldRegistry,

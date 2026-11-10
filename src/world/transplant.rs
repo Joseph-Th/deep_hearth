@@ -151,6 +151,9 @@ fn destination_clear(registries: &Registries, state: &AppState, root: VoxelCoord
     if !state
         .world()
         .has_standing_clearance(registries.world(), root)
+        || !state
+            .world()
+            .has_tree_root_terrain_floor(registries.world(), root)
     {
         return false;
     }
@@ -245,3 +248,7 @@ pub fn validate_transplant_juvenile(
         player_action,
     })
 }
+
+#[cfg(test)]
+#[path = "transplant_footing_tests.rs"]
+mod footing_tests;

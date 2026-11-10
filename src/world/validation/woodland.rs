@@ -34,14 +34,7 @@ pub(super) fn validate_loaded_woodland(
             && previous_tree.is_none_or(|previous| previous < root)
             && tree.initial_wood().milligrams() > 0
             && tree.initial_wood().milligrams() <= 1_600_000_000
-            && root.y().checked_sub(1).is_some_and(|floor| {
-                state
-                    .block_at(crate::spatial::VoxelCoord::new(root.x(), floor, root.z()))
-                    .and_then(|block| registry.block_for_state(block))
-                    .is_some_and(|block| {
-                        block.collision() == super::super::BlockCollisionShape::FullCube
-                    })
-            })
+            && state.has_tree_root_terrain_floor(registry, root)
             && state.block_at(root) == Some(BlockStateId::AIR)
             && root.y().checked_add(1).is_some_and(|head| {
                 state.block_at(crate::spatial::VoxelCoord::new(root.x(), head, root.z()))
