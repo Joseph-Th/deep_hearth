@@ -727,6 +727,229 @@ fn local_drop_only_requires_control_stepping_when_pickup_can_transfer_matter() {
 }
 
 #[test]
+fn automatic_pickup_waits_for_drinking_and_cannot_skip_the_release_frame() {
+    use crate::content::FLUID_WATER;
+    use crate::core::quantity::Volume;
+    use crate::fluid::{
+        add_fluid_store_with_contents_for_fixture, calculate_fluid_volume_accounting,
+    };
+    use crate::logistics::validate_place_fluid_store;
+    use crate::survival::validate_drink;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let mass = Mass::from_milligrams(75_000);
+    let drop = insert_surface_resource_for_test(
+        &registries,
+        &mut state,
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let serving = Volume::from_microliters(250_000);
+    let water = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        serving,
+        FLUID_WATER,
+        serving,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_place_fluid_store(&state, water, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    let fluid_before = calculate_fluid_volume_accounting(&state).unwrap();
+    let drink = validate_drink(&registries, &state, water, serving)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(state.player_work().active().is_some());
+    assert!(
+        advance_control_tick(&registries, &mut state)
+            .unwrap()
+            .surface_drop_pickup()
+            .is_none(),
+        "the actor cannot gather loose matter with hands occupied by drinking"
+    );
+    assert_eq!(state.surface().get(drop).unwrap().remaining_mass(), mass);
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(replay, state);
+    while state.tick().value() + 1 < drink.completes_at().value() {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+        assert_eq!(state.surface().get(drop).unwrap().remaining_mass(), mass);
+    }
+
+    let before_boundary = state.clone();
+    assert_eq!(
+        advance_tick(&registries, &mut state),
+        Err(TickError::ControlSteppingRequired {
+            current: before_boundary.control_tick(),
+        })
+    );
+    assert_eq!(state, before_boundary);
+    let steps = CONTROL_TICKS_PER_SIMULATION_TICK
+        - state.control_tick().value() % CONTROL_TICKS_PER_SIMULATION_TICK;
+    for index in 0..steps {
+        let left = advance_control_tick(&registries, &mut state).unwrap();
+        let right = advance_control_tick(&registries, &mut replay).unwrap();
+        assert_eq!(left, right);
+        if index + 1 == steps {
+            assert_eq!(left.surface_drop_pickup().unwrap().resource(), drop);
+        } else {
+            assert!(left.surface_drop_pickup().is_none());
+        }
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(drop).unwrap().remaining_mass(),
+        Mass::ZERO
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(commodity),
+        mass
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(
+        calculate_fluid_volume_accounting(&state).unwrap(),
+        fluid_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn automatic_pickup_waits_for_eating_until_the_completion_frame() {
+    use crate::content::{FORM_FOOD, MATERIAL_GRAIN};
+    use crate::inventory::MaterialLotSelection;
+    use crate::survival::validate_eat;
+
+    let registries = build_registries();
+    let position = VoxelCoord::new(0, 0, 0);
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let mass = Mass::from_milligrams(80_000);
+    let mut state = AppState::new();
+    let drop = insert_surface_resource_for_test(
+        &registries,
+        &mut state,
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let meal = registries
+        .survival()
+        .physiology()
+        .direct_consumption()
+        .minimum_meal_mass();
+    let food = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+        meal,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    let eating = validate_eat(
+        &registries,
+        &state,
+        carried,
+        &[MaterialLotSelection::new(food, meal)],
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert!(
+        advance_control_tick(&registries, &mut state)
+            .unwrap()
+            .surface_drop_pickup()
+            .is_none(),
+        "the player cannot collect loose matter during an active meal"
+    );
+    while state.tick().value() + 1 < eating.completes_at().value() {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    let before = state.clone();
+    assert_eq!(
+        advance_tick(&registries, &mut state),
+        Err(TickError::ControlSteppingRequired {
+            current: before.control_tick(),
+        })
+    );
+    assert_eq!(state, before);
+    let remaining = CONTROL_TICKS_PER_SIMULATION_TICK
+        - state.control_tick().value() % CONTROL_TICKS_PER_SIMULATION_TICK;
+    for index in 0..remaining {
+        let outcome = advance_control_tick(&registries, &mut state).unwrap();
+        if index + 1 == remaining {
+            assert_eq!(outcome.surface_drop_pickup().unwrap().resource(), drop);
+        } else {
+            assert!(outcome.surface_drop_pickup().is_none());
+        }
+    }
+    assert_eq!(
+        state.surface().get(drop).unwrap().remaining_mass(),
+        Mass::ZERO
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(commodity),
+        mass
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn exhausted_lot_id_only_requires_control_stepping_for_mergeable_drops() {
     for mergeable in [false, true] {
         let registries = build_registries();

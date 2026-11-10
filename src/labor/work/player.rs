@@ -58,6 +58,13 @@ pub enum PlayerWork {
 }
 
 impl PlayerWork {
+    /// Eating and drinking claim the actor's unprotected hands even though
+    /// independent long-running labor may coexist with equipment support changes.
+    #[must_use]
+    pub(crate) const fn is_direct_consumption(self) -> bool {
+        matches!(self, Self::Eating { .. } | Self::Drinking { .. })
+    }
+
     /// Future world-owner revisions still owed directly by this work after admission.
     #[must_use]
     pub(in crate::labor) const fn future_world_revision_demand(self) -> u64 {

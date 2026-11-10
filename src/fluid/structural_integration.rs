@@ -141,12 +141,10 @@ fn validate_direct_action(state: &AppState) -> Result<PlayerActionGuard, FluidSu
     // Eating and drinking occupy the actor's hands. Other active work may
     // legitimately coexist with changes to independent structural support.
     if state.logistics().player().is_some()
-        && matches!(
-            state.player_work().active(),
-            Some(
-                crate::labor::PlayerWork::Eating { .. } | crate::labor::PlayerWork::Drinking { .. }
-            )
-        )
+        && state
+            .player_work()
+            .active()
+            .is_some_and(crate::labor::PlayerWork::is_direct_consumption)
     {
         return Err(FluidSupportError::PlayerBusy);
     }

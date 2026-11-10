@@ -2,11 +2,12 @@
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, ControlTick, SimulationTick};
+use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, ControlTick, SimulationTick, TickSpan};
 use crate::inventory::{
     MaterialIngressEntry, MaterialIngressError, MaterialLotId, StockpileId,
     ValidatedMaterialIngress, apply_material_ingress, validate_material_ingress,
 };
+use crate::labor::PlayerWork;
 use crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -58,6 +59,23 @@ impl SurfaceDropPickupOutcome {
 
 /// Shares the authoritative pickup eligibility gate with neutral slow stepping.
 fn available_pickup_destination(state: &AppState) -> Option<(StockpileId, VoxelCoord, Mass)> {
+    if state
+        .player_work()
+        .active()
+        .is_some_and(PlayerWork::is_direct_consumption)
+    {
+        // Consuming food or water occupies the same unprotected hands used to
+        // collect loose matter. No automatic transfer during the attention hold.
+        return None;
+    }
+    available_pickup_destination_when_hands_free(state)
+}
+
+/// Shared physical and revision eligibility, also used to check the frame
+/// immediately after a due eating/drinking interval releases its hands.
+fn available_pickup_destination_when_hands_free(
+    state: &AppState,
+) -> Option<(StockpileId, VoxelCoord, Mass)> {
     let player = state.logistics().player().copied()?;
     if !state
         .survival()
@@ -143,15 +161,27 @@ pub(crate) fn automatic_surface_pickup_requires_control_stepping(
     registries: &Registries,
     state: &AppState,
 ) -> bool {
-    let Some((destination, position, available_capacity)) = available_pickup_destination(state)
-    else {
+    let consumption_releases_next_boundary = state
+        .tick()
+        .checked_add_executable_span(TickSpan::new(1))
+        .is_some_and(|next| match state.player_work().active() {
+            Some(PlayerWork::Eating { work }) => work.completes_at() == next,
+            Some(PlayerWork::Drinking { work }) => work.completes_at() == next,
+            _ => false,
+        });
+    let destination = if consumption_releases_next_boundary {
+        available_pickup_destination_when_hands_free(state)
+    } else {
+        available_pickup_destination(state)
+    };
+    let Some((destination, position, available_capacity)) = destination else {
         return false;
     };
     // A reserved loose parcel cannot be picked up during hand gathering.
     // Intermediate slow ticks may skip neutral control samples; on the due
     // boundary, the final control sample releases the work reservation and
     // must be retained to collect any unclaimed remainder immediately.
-    if let Some(crate::labor::PlayerWork::SurfaceGathering { work }) = state.player_work().active()
+    if let Some(PlayerWork::SurfaceGathering { work }) = state.player_work().active()
         && let Some(resource) = state.surface().get(work.resource())
         && resource.kind() == SurfaceResourceKind::Drop
         && resource.remaining_mass() > work.gathered_mass()
