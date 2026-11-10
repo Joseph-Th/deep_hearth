@@ -14,8 +14,9 @@ pub(in crate::world) mod terrain;
 
 pub(super) use habitat::habitat_at;
 pub use habitat::{HabitatKind, assess_player_habitat};
+#[cfg(test)]
 pub(super) use minerals::seeded_mineral_state;
-use minerals::{seeded_surface_lode_state, select_mineral_grade};
+use minerals::{seeded_surface_lode_for_chunk, select_mineral_grade};
 use occupancy::validate_generated_chunk_occupancy;
 pub(crate) use occupancy::{
     first_buried_stationary_enclosure_in_world, first_embodied_structure_collision_in_world,
@@ -531,6 +532,7 @@ fn build_generated_chunk(
     let solid_mass = registry
         .represented_mass_for_state(profile.solid_state())
         .unwrap_or_else(|| unreachable!("validated generation profile has a block definition"));
+    let surface_heights = terrain::terrain_heights_for_chunk(profile.seed(), min_x, min_z);
     let mut chunk = WorldChunk::new(coord);
     // Alternate authored registries used by capability scenarios may not have ancient
     // relic blocks. Such worlds retain their valid original terrain identity.
@@ -552,14 +554,18 @@ fn build_generated_chunk(
         && mineral_states
             .iter()
             .all(|&ore| registry.get_state(ore).is_some());
+    let mineral_lenses = mineral_enabled.then(|| {
+        minerals::ChunkMineralLenses::new(registry, profile.seed(), min_x, min_z, mineral_states)
+    });
+    let surface_lode_site = mineral_enabled
+        .then(|| seeded_surface_lode_for_chunk(profile.seed(), coord, mineral_states))
+        .flatten();
     for local_z in 0..CHUNK_SIDE {
         for local_x in 0..CHUNK_SIDE {
             let x = min_x + local_x as i64;
             let z = min_z + local_z as i64;
-            let surface = terrain_height(profile.seed(), x, z);
-            let surface_lode = mineral_enabled
-                .then(|| seeded_surface_lode_state(profile.seed(), x, z, mineral_states))
-                .flatten();
+            let surface = surface_heights[local_z][local_x];
+            let surface_lode = surface_lode_site.and_then(|site| site.at(local_x, local_z));
             for y in WORLD_MIN_Y..=surface {
                 let position = VoxelCoord::new(x, y, z);
                 if temple.is_some_and(|site| site.surface_seal(surface, position)) {
@@ -590,13 +596,15 @@ fn build_generated_chunk(
                 // A visible outcrop connects exploratory observations to a real
                 // finite mineral body. Ordinary mining and excavation remove its
                 // physical blocks; later visits never regenerate those cells.
-                let shallow_ore = (y >= surface - 3).then_some(surface_lode).flatten();
+                let shallow_ore = (y >= surface - 3)
+                    .then_some(surface_lode)
+                    .flatten()
+                    .map(|ore| select_mineral_grade(registry, profile.seed(), position, ore));
                 if let Some(ore) = shallow_ore.or_else(|| {
-                    mineral_enabled
-                        .then(|| seeded_mineral_state(profile.seed(), position, mineral_states))
-                        .flatten()
+                    mineral_lenses
+                        .as_ref()
+                        .and_then(|lenses| lenses.at(local_x, y, local_z))
                 }) {
-                    let ore = select_mineral_grade(registry, profile.seed(), position, ore);
                     let mass = registry
                         .represented_mass_for_state(ore)
                         .unwrap_or_else(|| unreachable!("all mineral states are registered"));

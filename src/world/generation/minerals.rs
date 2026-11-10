@@ -1,34 +1,133 @@
 //! Deterministic seeded mineral lenses and grade selection inside generated rock.
 
 use super::terrain::mix64;
-use super::{BlockStateId, VoxelCoord, WorldGenerationSeed, WorldRegistry};
+use super::{BlockStateId, ChunkCoord, VoxelCoord, WorldGenerationSeed, WorldRegistry};
+
+const MINERAL_MIN_Y: i64 = -55;
+const MINERAL_MAX_Y: i64 = -26;
+const LENS_SIDE: usize = 4;
+const LENS_COLUMNS: usize = super::CHUNK_SIDE / LENS_SIDE;
+const LENS_MIN_Y: i64 = MINERAL_MIN_Y.div_euclid(LENS_SIDE as i64);
+const LENS_LEVELS: usize = (MINERAL_MAX_Y.div_euclid(LENS_SIDE as i64) - LENS_MIN_Y + 1) as usize;
+const _: () = assert!(
+    super::CHUNK_SIDE.is_multiple_of(LENS_SIDE),
+    "chunk mineral sampling requires whole lens cells"
+);
+
+/// Grade-resolved deep ore cells for one generated chunk, keyed by their
+/// four-metre geological lattice rather than by individual excavatable voxels.
+/// Every lookup within the authored vertical window resolves identical seeded
+/// mineral identity without repeating thousands of hashes for the same lens.
+pub(super) struct ChunkMineralLenses {
+    cells: [[[Option<BlockStateId>; LENS_LEVELS]; LENS_COLUMNS]; LENS_COLUMNS],
+}
+
+/// One district's two-by-two shallow outcrop, if this chunk owns its site.
+/// Every generated column in a chunk belongs to the same 32-metre district.
+#[derive(Clone, Copy)]
+pub(super) struct ChunkSurfaceLode {
+    local_x: usize,
+    local_z: usize,
+    ore: BlockStateId,
+}
+
+impl ChunkSurfaceLode {
+    #[must_use]
+    pub(super) fn at(self, x: usize, z: usize) -> Option<BlockStateId> {
+        ((self.local_x..self.local_x + 2).contains(&x)
+            && (self.local_z..self.local_z + 2).contains(&z))
+        .then_some(self.ore)
+    }
+}
+
+/// Derive the single possible shallow outcrop per chunk with one district hash.
+/// A separate pointwise seed-formula oracle verifies exact coordinates and
+/// material identity without retaining per-voxel hashing in generation.
+pub(super) fn seeded_surface_lode_for_chunk(
+    seed: WorldGenerationSeed,
+    chunk: ChunkCoord,
+    states: [BlockStateId; 8],
+) -> Option<ChunkSurfaceLode> {
+    let hash = mix64(
+        seed.value()
+            ^ (chunk.x().div_euclid(2) as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            ^ (chunk.z().div_euclid(2) as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F)
+            ^ 0x5355_5246_4143_454F,
+    );
+    if chunk.x().rem_euclid(2) as u64 != hash & 1
+        || chunk.z().rem_euclid(2) as u64 != (hash >> 1) & 1
+    {
+        return None;
+    }
+    Some(ChunkSurfaceLode {
+        local_x: 3 + ((hash >> 8) % 10) as usize,
+        local_z: 3 + ((hash >> 20) % 10) as usize,
+        ore: states[((hash >> 36) % states.len() as u64) as usize],
+    })
+}
+
+impl ChunkMineralLenses {
+    pub(super) fn new(
+        registry: &WorldRegistry,
+        seed: WorldGenerationSeed,
+        min_x: i64,
+        min_z: i64,
+        states: [BlockStateId; 8],
+    ) -> Self {
+        debug_assert_eq!(min_x.rem_euclid(super::CHUNK_SIDE as i64), 0);
+        debug_assert_eq!(min_z.rem_euclid(super::CHUNK_SIDE as i64), 0);
+        Self {
+            cells: std::array::from_fn(|z| {
+                std::array::from_fn(|x| {
+                    std::array::from_fn(|level| {
+                        // The first cell starts at -56, outside the legal ore
+                        // range. Sample at -55 while retaining the same lattice
+                        // identity and reject -56 at lookup time.
+                        let y = ((LENS_MIN_Y + level as i64) * LENS_SIDE as i64).max(MINERAL_MIN_Y);
+                        let position = VoxelCoord::new(
+                            min_x + (x * LENS_SIDE) as i64,
+                            y,
+                            min_z + (z * LENS_SIDE) as i64,
+                        );
+                        seeded_mineral_state(seed, position, states)
+                            .map(|ore| select_mineral_grade(registry, seed, position, ore))
+                    })
+                })
+            }),
+        }
+    }
+
+    #[must_use]
+    pub(super) fn at(&self, local_x: usize, y: i64, local_z: usize) -> Option<BlockStateId> {
+        if !(MINERAL_MIN_Y..=MINERAL_MAX_Y).contains(&y) {
+            return None;
+        }
+        let level = (y.div_euclid(LENS_SIDE as i64) - LENS_MIN_Y) as usize;
+        self.cells[local_z / LENS_SIDE][local_x / LENS_SIDE][level]
+    }
+}
 
 /// Sparse surface expressions of finite shallow mineral bodies. The two-by-two
 /// outcrop and the rock immediately below it have the same seeded identity.
 /// Each 32 m district has one site in a seed-chosen 16 m chunk, so exploration
 /// cannot leave entire neighboring districts barren by unlucky random rolls.
 /// No neighbor-chunk generation or per-visit discovery roll moves the ore.
+#[cfg(test)]
 pub(super) fn seeded_surface_lode_state(
     seed: WorldGenerationSeed,
     x: i64,
     z: i64,
     states: [BlockStateId; 8],
 ) -> Option<BlockStateId> {
-    let hash = mix64(
-        seed.value()
-            ^ (x.div_euclid(32) as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
-            ^ (z.div_euclid(32) as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F)
-            ^ 0x5355_5246_4143_454F,
-    );
-    let start_x = 16 * (hash & 1) as i64 + 3 + ((hash >> 8) % 10) as i64;
-    let start_z = 16 * ((hash >> 1) & 1) as i64 + 3 + ((hash >> 20) % 10) as i64;
-    if (start_x..start_x + 2).contains(&x.rem_euclid(32))
-        && (start_z..start_z + 2).contains(&z.rem_euclid(32))
-    {
-        Some(states[((hash >> 36) % states.len() as u64) as usize])
-    } else {
-        None
-    }
+    seeded_surface_lode_for_chunk(
+        seed,
+        ChunkCoord::containing(VoxelCoord::new(x, 0, z)),
+        states,
+    )?
+    .at(
+        x.rem_euclid(super::CHUNK_SIDE as i64) as usize,
+        z.rem_euclid(super::CHUNK_SIDE as i64) as usize,
+    )
 }
 
 #[cfg(test)]
@@ -43,7 +142,7 @@ pub(in crate::world) fn seeded_mineral_state(
     position: VoxelCoord,
     states: [BlockStateId; 8],
 ) -> Option<BlockStateId> {
-    if !(-55..=-26).contains(&position.y()) {
+    if !(MINERAL_MIN_Y..=MINERAL_MAX_Y).contains(&position.y()) {
         return None;
     }
     let hash = mix64(
