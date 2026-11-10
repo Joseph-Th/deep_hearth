@@ -28,6 +28,8 @@ pub enum GroundStockpileAllocationError {
 pub enum PlayerGroundStockpileAllocationError {
     PlayerNotInitialized,
     PlayerDead,
+    PlayerBusy,
+    PreparedStrikeActive,
     Allocation(GroundStockpileAllocationError),
 }
 
@@ -38,6 +40,12 @@ impl Display for PlayerGroundStockpileAllocationError {
                 formatter.write_str("player logistics is not initialized")
             }
             Self::PlayerDead => formatter.write_str("dead player cannot allocate ground storage"),
+            Self::PlayerBusy => {
+                formatter.write_str("player cannot allocate ground storage while work is active")
+            }
+            Self::PreparedStrikeActive => formatter.write_str(
+                "player must lower the prepared weapon before allocating ground storage",
+            ),
             Self::Allocation(error) => {
                 write!(formatter, "local ground storage allocation failed: {error}")
             }
@@ -49,7 +57,10 @@ impl Error for PlayerGroundStockpileAllocationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Allocation(error) => Some(error),
-            Self::PlayerNotInitialized | Self::PlayerDead => None,
+            Self::PlayerNotInitialized
+            | Self::PlayerDead
+            | Self::PlayerBusy
+            | Self::PreparedStrikeActive => None,
         }
     }
 }
@@ -84,6 +95,8 @@ impl Error for GroundStockpileAllocationError {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GroundStockpileAllocationCommitError {
     StaleSurvivalRevision { expected: u64, actual: u64 },
+    StalePlayerWorkRevision { expected: u64, actual: u64 },
+    StaleCombatRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
     StandingTreeOccupied { position: VoxelCoord },
@@ -95,6 +108,14 @@ impl Display for GroundStockpileAllocationCommitError {
             Self::StaleSurvivalRevision { expected, actual } => write!(
                 formatter,
                 "ground stockpile allocation expected survival revision {expected} but current revision is {actual}"
+            ),
+            Self::StalePlayerWorkRevision { expected, actual } => write!(
+                formatter,
+                "ground stockpile allocation expected player work revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleCombatRevision { expected, actual } => write!(
+                formatter,
+                "ground stockpile allocation expected combat revision {expected} but current revision is {actual}"
             ),
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
@@ -122,6 +143,7 @@ impl Error for GroundStockpileAllocationCommitError {}
 #[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedGroundStockpileAllocation {
     player_action: Option<PlayerActionGuard>,
+    player_attention_revisions: Option<(u64, u64)>,
     expected_logistics_revision: u64,
     next_logistics_revision: u64,
     position: VoxelCoord,
@@ -154,6 +176,24 @@ impl ValidatedGroundStockpileAllocation {
                     actual: stale.actual,
                 }
             })?;
+        }
+        if let Some((expected_work, expected_combat)) = self.player_attention_revisions {
+            let actual_work = state.player_work().revision();
+            if actual_work != expected_work {
+                return Err(
+                    GroundStockpileAllocationCommitError::StalePlayerWorkRevision {
+                        expected: expected_work,
+                        actual: actual_work,
+                    },
+                );
+            }
+            let actual_combat = state.combat().revision();
+            if actual_combat != expected_combat {
+                return Err(GroundStockpileAllocationCommitError::StaleCombatRevision {
+                    expected: expected_combat,
+                    actual: actual_combat,
+                });
+            }
         }
         // A new generated tree can occupy the requested voxel without changing
         // either inventory or logistics revisions. Recheck before allocating
@@ -220,6 +260,7 @@ pub(crate) fn validate_allocate_ground_stockpile(
         .unwrap_or_else(|| unreachable!("logistics headroom check includes ground allocation"));
     Ok(ValidatedGroundStockpileAllocation {
         player_action: None,
+        player_attention_revisions: None,
         expected_logistics_revision,
         next_logistics_revision,
         position,
@@ -237,9 +278,19 @@ pub(crate) fn validate_allocate_player_ground_stockpile_at(
     if state.logistics().player().is_none() {
         return Err(PlayerGroundStockpileAllocationError::PlayerNotInitialized);
     }
+    // Creating a stationary cache is a direct actor action, not an incidental
+    // background transfer: timed work and raised melee preparation own attention.
+    if state.player_work().active().is_some() {
+        return Err(PlayerGroundStockpileAllocationError::PlayerBusy);
+    }
+    if state.combat().has_prepared_strike() {
+        return Err(PlayerGroundStockpileAllocationError::PreparedStrikeActive);
+    }
     let mut validated = validate_allocate_ground_stockpile(state, position, capacity)
         .map_err(PlayerGroundStockpileAllocationError::Allocation)?;
     validated.player_action = Some(player_action);
+    validated.player_attention_revisions =
+        Some((state.player_work().revision(), state.combat().revision()));
     Ok(validated)
 }
 

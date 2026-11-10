@@ -18,6 +18,9 @@ use crate::structural::StructuralElementId;
 
 mod allocation;
 #[cfg(test)]
+#[path = "ground/allocation_attention_tests.rs"]
+mod allocation_attention_tests;
+#[cfg(test)]
 #[path = "ground/allocation_occupancy_tests.rs"]
 mod allocation_occupancy_tests;
 #[cfg(test)]
