@@ -397,13 +397,9 @@ fn trusted_load_rejects_out_of_range_and_duplicate_quick_access_state() {
     let mut invalid_active = base.clone();
     invalid_active["state"]["systems"]["logistics"]["active_quick_access_slot"] =
         serde_json::json!(9);
-    let invalid_active: LoadedSaveEnvelope = serde_json::from_value(invalid_active)
-        .unwrap_or_else(|error| panic!("out-of-range quick-access slot should decode: {error}"));
-    assert_eq!(
-        invalid_active.into_state(&registries),
-        Err(LoadError::InvalidState(StateValidationError::Logistics(
-            LogisticsValidationError::QuickAccessSlotOutOfRange { slot: 9 }
-        )))
+    assert!(
+        serde_json::from_value::<LoadedSaveEnvelope>(invalid_active).is_err(),
+        "an out-of-range slot must fail decoding before it enters a public query or action"
     );
 
     let mut duplicate = base;
@@ -421,4 +417,22 @@ fn trusted_load_rejects_out_of_range_and_duplicate_quick_access_state() {
             }
         )))
     );
+}
+
+#[test]
+fn deserialized_quick_access_slots_cannot_bypass_constructor_bounds() {
+    let last = u8::try_from(PLAYER_QUICK_ACCESS_SLOT_COUNT - 1).unwrap();
+    for valid in [0, last] {
+        let value = serde_json::json!(valid);
+        let decoded: PlayerQuickAccessSlot = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(decoded, PlayerQuickAccessSlot::new(valid).unwrap());
+        assert_eq!(serde_json::to_value(decoded).unwrap(), value);
+    }
+    let first_invalid = u8::try_from(PLAYER_QUICK_ACCESS_SLOT_COUNT).unwrap();
+    for invalid in [first_invalid, u8::MAX] {
+        assert!(
+            serde_json::from_value::<PlayerQuickAccessSlot>(serde_json::json!(invalid)).is_err(),
+            "serde must not manufacture an out-of-range public slot"
+        );
+    }
 }
