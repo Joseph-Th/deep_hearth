@@ -119,47 +119,69 @@ pub(super) fn reachable_water_from_junction(
             && crate::energy::assess_local_illumination(registries, state, to).level()
                 < SCOUT_DETERRENT_LIGHT_LEVEL
     };
-    // The ordinary patrol already goes straight from the junction to its tip.
-    // Drinking there costs no side excursion, so a viable tip source wins
-    // over equally close water off the route. A blocked or unusable tip
-    // still leaves the real side-branch search available.
+    let remaining = SCOUT_DRINK_VOLUME.checked_sub(colony.partial_drink)?;
+    // Compare the serving that the fluid owner can *actually withdraw*, not
+    // merely the existence of a water store. A drop on the normal patrol
+    // must not outrank a complete drink one safe step away.
+    //
+    // Volume is capped at the remaining ration. Equal servings prefer the
+    // patrol tip, then one-edge branches, then two-edge branches. Stable
+    // coordinates break ties; no remote water records or extra state are used.
     let tip = colony.route[2];
-    if safe(junction, tip)
-        && scout_visible_from(registries, state, junction, tip)
-        && usable_water_at(registries, state, tip).is_some()
-    {
+    let tip_volume = (safe(junction, tip) && scout_visible_from(registries, state, junction, tip))
+        .then(|| usable_water_at(registries, state, tip).map(|(_, volume)| volume))
+        .flatten();
+    if tip_volume == Some(remaining) {
         return Some((tip, None));
     }
-    // The water location index is cheap; visibility and local light are not.
-    // Keep only the shortest deterministic side route, without allocating a list.
-    let mut best_route = None;
+    let mut best_route = tip_volume.map(|volume| {
+        (
+            volume,
+            std::cmp::Reverse(0_u8),
+            std::cmp::Reverse(tip),
+            std::cmp::Reverse(None),
+        )
+    });
+    // The indexed water lookup is cheap; expensive sight and terrain
+    // decisions stay bounded to genuinely traversable, locally seen cells.
     for first in state.logistics().traversable_destinations(junction) {
         if first == colony.route[0]
-            || first == colony.route[2]
+            || first == tip
             || !safe(junction, first)
             || !scout_visible_from(registries, state, junction, first)
         {
             continue;
         }
-        if usable_water_at(registries, state, first).is_some() {
-            let route = (0_u8, first, None);
-            best_route = Some(best_route.map_or(route, |best| route.min(best)));
+        if let Some((_, volume)) = usable_water_at(registries, state, first) {
+            let route = (
+                volume,
+                std::cmp::Reverse(1_u8),
+                std::cmp::Reverse(first),
+                std::cmp::Reverse(None),
+            );
+            best_route = Some(best_route.map_or(route, |best| route.max(best)));
         }
         for goal in state.logistics().traversable_destinations(first) {
             if goal == junction
                 || goal == colony.route[0]
-                || goal == colony.route[2]
-                || usable_water_at(registries, state, goal).is_none()
+                || goal == tip
                 || !safe(first, goal)
                 || !scout_visible_from(registries, state, junction, goal)
             {
                 continue;
             }
-            let route = (1_u8, first, Some(goal));
-            best_route = Some(best_route.map_or(route, |best| route.min(best)));
+            if let Some((_, volume)) = usable_water_at(registries, state, goal) {
+                let route = (
+                    volume,
+                    std::cmp::Reverse(2_u8),
+                    std::cmp::Reverse(first),
+                    std::cmp::Reverse(Some(goal)),
+                );
+                best_route = Some(best_route.map_or(route, |best| route.max(best)));
+            }
         }
     }
-    best_route.map(|(_, first, goal)| (first, goal))
+    best_route.map(|(_, _, std::cmp::Reverse(first), std::cmp::Reverse(goal))| (first, goal))
 }
 
 /// The resident drinks at most the remaining part of one physical 60 mL
@@ -224,3 +246,7 @@ mod tests;
 #[cfg(test)]
 #[path = "hydration_partial_tests.rs"]
 mod partial_tests;
+
+#[cfg(test)]
+#[path = "hydration_route_tests.rs"]
+mod route_tests;
