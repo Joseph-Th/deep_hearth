@@ -140,7 +140,9 @@ fn fatal_simulation_boundary_clears_buffered_direct_actions_before_state_validat
     let registries = build_registries();
     let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0)
         .unwrap_or_else(|error| panic!("fatal-buffer direction invalid: {error}"));
-    for primary in [false, true] {
+    for (primary, override_on_boundary) in
+        [(false, false), (false, true), (true, false), (true, true)]
+    {
         let mut state = AppState::new();
         let _ = validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
             .unwrap_or_else(|error| panic!("fatal-buffer admission rejected: {error}"))
@@ -188,9 +190,20 @@ fn fatal_simulation_boundary_clears_buffered_direct_actions_before_state_validat
         );
 
         let mut boundary = None;
-        for _ in 1..CONTROL_TICKS_PER_SIMULATION_TICK {
+        for step in 1..CONTROL_TICKS_PER_SIMULATION_TICK {
+            let input = if override_on_boundary && step == CONTROL_TICKS_PER_SIMULATION_TICK - 1 {
+                if primary {
+                    PlayerDirectControlInput::NEUTRAL
+                        .with_secondary(SecondaryControlIntent::use_active(direction))
+                } else {
+                    PlayerDirectControlInput::NEUTRAL
+                        .with_primary(PrimaryControlIntent::shove(direction))
+                }
+            } else {
+                PlayerDirectControlInput::NEUTRAL
+            };
             boundary = Some(
-                advance_control_tick(&registries, &mut state)
+                advance_control_tick_with_direct_input(&registries, &mut state, input)
                     .unwrap_or_else(|error| panic!("fatal-buffer control failed: {error}")),
             );
         }
@@ -201,7 +214,7 @@ fn fatal_simulation_boundary_clears_buffered_direct_actions_before_state_validat
             Some(Vitality::ZERO)
         );
         assert!(!state.logistics().has_pending_direct_action());
-        if primary {
+        if primary ^ override_on_boundary {
             assert_eq!(
                 boundary.primary_action(),
                 Some(&PrimaryActionOutcome::PlayerDead)

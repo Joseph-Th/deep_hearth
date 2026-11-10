@@ -213,3 +213,113 @@ fn busy_player_combat_controls_report_rejections_without_interrupting_active_wor
         matter_before
     );
 }
+
+#[test]
+fn new_primary_input_cancels_queued_secondary_before_or_on_its_due_boundary() {
+    use crate::logistics::validate_buffer_player_secondary_use;
+    use crate::simulation::advance_control_tick;
+
+    for on_due_boundary in [false, true] {
+        let registries = build_registries();
+        let mut state = AppState::new();
+        validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        for _ in 0..if on_due_boundary { 71 } else { 1 } {
+            let _ = advance_control_tick(&registries, &mut state).unwrap();
+        }
+        let direction = ViewDirection::new(1_000_000, 0, 0).unwrap();
+        validate_buffer_player_secondary_use(&state, direction)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        assert!(state.logistics().pending_secondary_use().is_some());
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+
+        // The newer attack must not leave an earlier contextual use to fire later.
+        let input =
+            PlayerDirectControlInput::NEUTRAL.with_primary(PrimaryControlIntent::shove(direction));
+        let outcome =
+            advance_control_tick_with_direct_input(&registries, &mut state, input).unwrap();
+        let restored =
+            advance_control_tick_with_direct_input(&registries, &mut replay, input).unwrap();
+        assert_eq!(outcome, restored);
+        assert!(outcome.primary_action().is_some());
+        assert!(outcome.secondary_action().is_none());
+        assert!(!state.logistics().has_pending_direct_action());
+        assert_eq!(state, replay);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        while state.control_tick().value() < 72 {
+            let outcome = advance_control_tick(&registries, &mut state).unwrap();
+            let restored = advance_control_tick(&registries, &mut replay).unwrap();
+            assert_eq!(outcome, restored);
+            assert!(outcome.secondary_action().is_none());
+        }
+        assert_eq!(state, replay);
+    }
+}
+
+#[test]
+fn new_secondary_input_cancels_queued_primary_before_or_on_its_due_boundary() {
+    use crate::logistics::validate_buffer_player_primary_break;
+    use crate::simulation::advance_control_tick;
+    use crate::structural::StructuralElementId;
+
+    for on_due_boundary in [false, true] {
+        let registries = build_registries();
+        let mut state = AppState::new();
+        validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        for _ in 0..if on_due_boundary { 71 } else { 1 } {
+            let _ = advance_control_tick(&registries, &mut state).unwrap();
+        }
+        let direction = ViewDirection::new(1_000_000, 0, 0).unwrap();
+        // Buffered admission binds an identity; actual dismantling must recheck
+        // the physical target on the due boundary. This test cancels before that check.
+        validate_buffer_player_primary_break(&state, StructuralElementId::new(1), direction)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        assert!(state.logistics().pending_primary_break().is_some());
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+
+        // A later explicit placement request supersedes the old break even when
+        // the new request cannot actually construct storage at this location.
+        let input = PlayerDirectControlInput::NEUTRAL.with_secondary(
+            SecondaryControlIntent::place_storage(
+                crate::content::STORAGE_ROUGH_TIMBER_FIELD_BOX,
+                direction,
+            ),
+        );
+        let outcome =
+            advance_control_tick_with_direct_input(&registries, &mut state, input).unwrap();
+        let restored =
+            advance_control_tick_with_direct_input(&registries, &mut replay, input).unwrap();
+        assert_eq!(outcome, restored);
+        assert!(outcome.primary_action().is_none());
+        assert!(outcome.secondary_action().is_some());
+        assert!(!state.logistics().has_pending_direct_action());
+        assert_eq!(state, replay);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        while state.control_tick().value() < 72 {
+            let outcome = advance_control_tick(&registries, &mut state).unwrap();
+            let restored = advance_control_tick(&registries, &mut replay).unwrap();
+            assert_eq!(outcome, restored);
+            assert!(outcome.primary_action().is_none());
+        }
+        assert_eq!(state, replay);
+    }
+}

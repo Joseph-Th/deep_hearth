@@ -53,14 +53,19 @@ pub(super) fn attempt_direct_actions_after_quick_access(
     pending_secondary: Option<SecondaryActionOutcome>,
 ) -> DirectActionOutcomes {
     let combat_intent = input.primary().is_some_and(PrimaryControlIntent::is_combat);
-    // A different explicit one-shot action supersedes an older buffered action in
-    // the same control slot. Otherwise the obsolete action would execute on the next
-    // slow boundary even after the newer input was handled. Both buffered owners
-    // reserve the revision needed for this early cancellation.
-    if combat_intent || input.drop_active_selection() {
+    // Only one delayed direct action may own the next slow boundary. A new
+    // input on the other button supersedes that reservation as surely as a
+    // changed input on the same button. When both buttons are held together,
+    // primary retains first admission; neither button steals the other's
+    // freshly queued request during this frame.
+    if combat_intent
+        || input.drop_active_selection()
+        || (input.primary().is_none() && input.secondary().is_some())
+    {
         let _ = take_player_pending_primary_break(state);
     }
     if input.drop_active_selection()
+        || input.primary().is_some()
         || matches!(
             input.secondary(),
             Some(SecondaryControlIntent::PlaceStorage { .. })

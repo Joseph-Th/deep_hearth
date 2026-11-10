@@ -227,24 +227,29 @@ fn advance_control_tick_unstaged(
         .map(|plan| apply_automatic_surface_drop_pickup(state, plan));
     let quick_access = attempt_quick_access_selection(state, input.quick_access_slot());
     let pending_primary = if has_pending_primary && player_dead {
-        input
-            .primary()
-            .is_none()
+        (input.primary().is_none() && input.secondary().is_none() && !input.drop_active_selection())
             .then_some(PrimaryActionOutcome::PlayerDead)
-    } else if has_pending_primary && (input.primary().is_some() || input.drop_active_selection()) {
+    } else if has_pending_primary
+        && (input.primary().is_some()
+            || input.secondary().is_some()
+            || input.drop_active_selection())
+    {
         let _ = crate::logistics::take_player_pending_primary_break(state);
         None
     } else {
         attempt_pending_primary_break(registries, state)
     };
     let pending_secondary = if has_pending_secondary && player_dead {
-        (input.secondary().is_none() && !input.drop_active_selection())
+        (input.primary().is_none() && input.secondary().is_none() && !input.drop_active_selection())
             .then_some(SecondaryActionOutcome::PlayerDead)
     } else if has_pending_secondary
-        && (input.secondary().is_some() || input.drop_active_selection())
+        && (input.primary().is_some()
+            || input.secondary().is_some()
+            || input.drop_active_selection())
     {
-        // Dropping the selected item supersedes its buffered use even on the
-        // exact due boundary, before that use can start eating or drinking.
+        // A new command on either button, or dropping the selection,
+        // supersedes its buffered use even on the exact due boundary,
+        // before that use can start eating or drinking.
         let _ = crate::logistics::take_player_pending_secondary_use(state);
         None
     } else {

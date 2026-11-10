@@ -234,6 +234,12 @@ Ordinary domain rejection returns typed errors. Failed consequential operations 
 promised effect. Rejection preserves IDs, indexes, reservations, schedules, and other operation-owned state
 unless mutation of that state is itself the explicit failure contract.
 
+Buffered direct-control interactions share one exclusive pending slot across primary breaking and secondary
+contextual use. A later explicit command on either button, or dropping the active selection, supersedes
+an older pending gesture before it can execute on the next slow boundary. This cancellation is an
+intentional command effect even if the replacement action subsequently rejects; the cancelled gesture
+must not resurface on the due boundary or after save/load replay.
+
 ## Determinism
 
 Authoritative results depend only on immutable definitions, serialized runtime state, ordered explicit
