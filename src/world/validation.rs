@@ -128,25 +128,17 @@ fn validate_section(
             section_y: section.y(),
         });
     }
-    for state in section.palette() {
-        if registry.get_state(*state).is_none() {
+    for &state in section.palette() {
+        if registry.get_state(state).is_none() {
             return Err(WorldValidationError::UnknownSectionPaletteState {
                 chunk,
                 section_y: section.y(),
-                state: *state,
+                state,
             });
         }
     }
-    validate_section_mass(registry, chunk, section)
-}
-
-fn validate_section_mass(
-    registry: &WorldRegistry,
-    chunk: ChunkCoord,
-    section: &WorldSection,
-) -> Result<(), WorldValidationError> {
-    // A one-state section with no partial excavation represents 4,096 identical
-    // cells. Avoid thousands of redundant palette and registry lookups per load.
+    // Almost every deep generated section is a single physical block state.
+    // Keep its validation free of both cell iteration and a palette allocation.
     if let Some(state) = section.uniform_state_without_mass_overrides() {
         let per_cell = registry
             .represented_mass_for_state(state)
@@ -160,14 +152,32 @@ fn validate_section_mass(
             })?;
         return validate_section_mass_total(chunk, section, expected);
     }
+    // A mixed section has only a handful of unique block identities. Resolve
+    // their mass once, then use packed palette indices for every individual cell.
+    let palette_masses = section
+        .palette()
+        .iter()
+        .map(|&state| {
+            registry
+                .represented_mass_for_state(state)
+                .unwrap_or_else(|| unreachable!("validated block state has a block definition"))
+        })
+        .collect::<Vec<_>>();
+    validate_section_mass(chunk, section, &palette_masses)
+}
+
+fn validate_section_mass(
+    chunk: ChunkCoord,
+    section: &WorldSection,
+    palette_masses: &[Mass],
+) -> Result<(), WorldValidationError> {
     let mut expected = Mass::ZERO;
     for cell in 0..super::SECTION_CELL_COUNT {
-        let state = section
-            .state_at_index(cell)
+        let palette_index = section
+            .palette_index_at_index(cell)
             .unwrap_or_else(|| unreachable!("validated section resolves every cell"));
-        let default_mass = registry
-            .represented_mass_for_state(state)
-            .unwrap_or_else(|| unreachable!("validated block state has a block definition"));
+        let state = section.palette()[palette_index];
+        let default_mass = palette_masses[palette_index];
         let mass = match section.mass_override_at_index(cell) {
             Some(_) if state == BlockStateId::AIR => {
                 return Err(WorldValidationError::SectionMassOverrideOnAir {

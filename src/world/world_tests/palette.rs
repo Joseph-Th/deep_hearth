@@ -132,3 +132,59 @@ fn homogeneous_section_mass_summary_cannot_be_forged_on_load() {
         )))
     );
 }
+
+#[test]
+fn mixed_section_validation_preserves_palette_identity_and_override_diagnostics() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    generate(&mut state, ChunkCoord::new(0, 0));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let sections = encoded["state"]["systems"]["world"]["chunks"][0]["sections"]
+        .as_array_mut()
+        .unwrap();
+    let section_json = sections
+        .iter_mut()
+        .find(|section| {
+            section["palette"]
+                .as_array()
+                .is_some_and(|palette| palette.len() > 1)
+        })
+        .expect("generated surface must contain a mixed-state section");
+    let section: WorldSection = serde_json::from_value(section_json.clone()).unwrap();
+    for cell in 0..SECTION_CELL_COUNT {
+        let index = section
+            .palette_index_at_index(cell)
+            .expect("validated packed section must resolve each cell");
+        assert_eq!(section.state_at_index(cell), Some(section.palette()[index]));
+    }
+    assert_eq!(section.palette_index_at_index(SECTION_CELL_COUNT), None);
+    assert_eq!(section.state_at_index(SECTION_CELL_COUNT), None);
+
+    let (cell, default) = (0..SECTION_CELL_COUNT)
+        .find_map(|index| {
+            let state = section.state_at_index(index)?;
+            if state == BlockStateId::AIR || section.mass_override_at_index(index).is_some() {
+                return None;
+            }
+            let mass = registries.world().represented_mass_for_state(state)?;
+            Some((index, mass))
+        })
+        .expect("mixed generated terrain has an occupied cell without an override");
+    assert!(!default.is_zero());
+    let section_y = section.y();
+    section_json["mass_overrides"][cell.to_string()] = serde_json::json!(default.milligrams());
+    let invalid: LoadedSaveEnvelope = serde_json::from_value(encoded).unwrap();
+    assert_eq!(
+        invalid.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::World(
+            WorldValidationError::SectionMassOverrideNotBelowDefault {
+                chunk: ChunkCoord::new(0, 0),
+                section_y,
+                cell: u16::try_from(cell).unwrap(),
+                stored: default,
+                default,
+            }
+        )))
+    );
+}

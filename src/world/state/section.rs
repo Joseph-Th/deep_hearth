@@ -79,15 +79,25 @@ impl WorldSection {
 
     #[must_use]
     pub(crate) fn state_at_index(&self, index: usize) -> Option<BlockStateId> {
+        self.palette
+            .get(self.palette_index_at_index(index)?)
+            .copied()
+    }
+
+    /// Resolves the original palette slot rather than its block identity.
+    ///
+    /// Trusted-load mass checks can use this index to reuse one registered
+    /// default mass per palette entry instead of resolving material definitions
+    /// separately for every cell in a mixed section.
+    #[must_use]
+    pub(crate) fn palette_index_at_index(&self, index: usize) -> Option<usize> {
         if index >= SECTION_CELL_COUNT {
             return None;
         }
         if self.palette.len() == 1 {
-            return self.palette.first().copied();
+            return Some(0);
         }
-        let palette_index =
-            read_packed_index(&self.words, bits_for_palette(self.palette.len()), index)?;
-        self.palette.get(palette_index).copied()
+        read_packed_index(&self.words, bits_for_palette(self.palette.len()), index)
     }
 
     #[must_use]
