@@ -2,11 +2,13 @@
 
 use std::collections::BTreeSet;
 
+use crate::content::BLOCK_STATE_STONE;
 use crate::content::FLUID_WATER;
 use crate::core::quantity::Temperature;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::material::MaterialRegistry;
+use crate::spatial::VoxelCoord;
 use crate::structural::{SupportIndexValidationFault, validate_support_index};
 use crate::world::{ChunkCoord, seeded_spring_matches};
 
@@ -71,6 +73,13 @@ pub(crate) fn validate_loaded_natural_spring_locations(
         });
         if state.logistics().fluid_store_position(id) != Some(soil.position)
             || !state.world().has_generated_terrain_at(soil.position)
+            || !soil.position.y().checked_sub(1).is_some_and(|floor_y| {
+                state.world().block_at(VoxelCoord::new(
+                    soil.position.x(),
+                    floor_y,
+                    soil.position.z(),
+                )) == Some(BLOCK_STATE_STONE)
+            })
             || !seeded
             || !districts.insert(district)
         {

@@ -1,9 +1,11 @@
 //! Timed conserved player excavation of targeted block-world matter.
 
 mod errors;
+mod footing;
 mod runtime;
 mod selection;
 
+use footing::TerrainFootingOwner;
 pub(crate) use runtime::{
     BlockExcavationCancellationPlan, BlockExcavationTickError, apply_block_excavation_cancellation,
     apply_block_excavation_tick, decide_block_excavation_cancellation,
@@ -17,8 +19,7 @@ use crate::core::state::AppState;
 use crate::core::time::ControlTick;
 use crate::equipment::{EquipmentId, resolve_available_equipment_provider};
 use crate::inventory::{
-    StockpileId, ValidatedInboundReservation, validate_inbound_reservation,
-    validate_stockpile_storage,
+    ValidatedInboundReservation, validate_inbound_reservation, validate_stockpile_storage,
 };
 use crate::labor::{
     BlockExcavationOutputCustody, BlockExcavationWork, PlayerWork, ValidatedPlayerWorkStart,
@@ -28,7 +29,6 @@ use crate::logistics::validate_player_equipment_access;
 use crate::mining::{MiningMethodId, resolve_mining_physics};
 use crate::registry::Registries;
 use crate::spatial::{ViewDirection, VoxelCoord};
-use crate::structural::StructuralElementId;
 
 use super::{BlockStateId, PlayerBlockTarget, raycast_player_block};
 
@@ -374,131 +374,4 @@ fn validate_start_player_block_excavation_targeted(
         work,
         player_work,
     })
-}
-
-/// Every installed floor owner shares one ordered obstruction assessment so
-/// admission and stale-commit checks cannot disagree about who holds a cell.
-enum TerrainFootingOwner {
-    StorageEnclosure(StockpileId),
-    EnergyStore(crate::energy::EnergyStoreId),
-    StationaryEquipment(EquipmentId),
-    OpeningResident,
-    GroundedStructure(StructuralElementId),
-}
-
-impl TerrainFootingOwner {
-    fn at(state: &AppState, floor: VoxelCoord) -> Option<Self> {
-        storage_enclosure_resting_on(state, floor)
-            .map(Self::StorageEnclosure)
-            .or_else(|| stationary_energy_store_resting_on(state, floor).map(Self::EnergyStore))
-            .or_else(|| {
-                stationary_equipment_resting_on(state, floor).map(Self::StationaryEquipment)
-            })
-            .or_else(|| {
-                crate::kobolds::opening_kobold_stands_on(state, floor)
-                    .then_some(Self::OpeningResident)
-            })
-            .or_else(|| grounded_structure_resting_on(state, floor).map(Self::GroundedStructure))
-    }
-
-    fn admission_error(self, target: VoxelCoord) -> BlockExcavationError {
-        match self {
-            Self::StorageEnclosure(stockpile) => {
-                BlockExcavationError::StorageEnclosureRequiresFloor { target, stockpile }
-            }
-            Self::EnergyStore(store) => {
-                BlockExcavationError::EnergyStoreRequiresFloor { target, store }
-            }
-            Self::StationaryEquipment(equipment) => {
-                BlockExcavationError::StationaryEquipmentRequiresFloor { target, equipment }
-            }
-            Self::OpeningResident => BlockExcavationError::OpeningResidentRequiresFloor { target },
-            Self::GroundedStructure(element) => {
-                BlockExcavationError::GroundedStructureRequiresFloor { target, element }
-            }
-        }
-    }
-
-    fn commit_error(self, target: VoxelCoord) -> BlockExcavationCommitError {
-        match self {
-            Self::StorageEnclosure(stockpile) => {
-                BlockExcavationCommitError::StorageEnclosureRequiresFloor { target, stockpile }
-            }
-            Self::EnergyStore(store) => {
-                BlockExcavationCommitError::EnergyStoreRequiresFloor { target, store }
-            }
-            Self::StationaryEquipment(equipment) => {
-                BlockExcavationCommitError::StationaryEquipmentRequiresFloor { target, equipment }
-            }
-            Self::OpeningResident => {
-                BlockExcavationCommitError::OpeningResidentRequiresFloor { target }
-            }
-            Self::GroundedStructure(element) => {
-                BlockExcavationCommitError::GroundedStructureRequiresFloor { target, element }
-            }
-        }
-    }
-}
-
-/// The stationary index is authoritative for exact-cell enclosure custody. Loose material and
-/// empty ground stockpiles do not require a full-cube terrain floor.
-fn storage_enclosure_resting_on(state: &AppState, floor: VoxelCoord) -> Option<StockpileId> {
-    let above = VoxelCoord::new(floor.x(), floor.y().checked_add(1)?, floor.z());
-    state.logistics().stockpiles_at(above).find(|&id| {
-        state
-            .inventory()
-            .get_stockpile(id)
-            .is_some_and(|stockpile| stockpile.enclosure().is_some())
-    })
-}
-
-/// A material-built energy store cannot stay suspended when its original
-/// terrain footing is fully removed. Unembodied capability fixtures do not
-/// claim this physical support. Use the indexed local position, not all stores.
-fn stationary_energy_store_resting_on(
-    state: &AppState,
-    floor: VoxelCoord,
-) -> Option<crate::energy::EnergyStoreId> {
-    let above = VoxelCoord::new(floor.x(), floor.y().checked_add(1)?, floor.z());
-    state.logistics().energy_stores_at(above).find(|&id| {
-        state
-            .energy()
-            .get_store(id)
-            .is_some_and(|store| !store.embodied_material().is_empty())
-    })
-}
-
-/// Unmounted, material-built equipment has no simulated falling motion after
-/// it is assembled or dropped. Once mounted, its structural member owns the
-/// support instead of the ground directly beneath its current voxel.
-fn stationary_equipment_resting_on(state: &AppState, floor: VoxelCoord) -> Option<EquipmentId> {
-    let above = VoxelCoord::new(floor.x(), floor.y().checked_add(1)?, floor.z());
-    state.logistics().equipment_at(above).find(|&id| {
-        state
-            .equipment()
-            .get_equipment(id)
-            .is_some_and(|equipment| {
-                equipment.supported_by().is_none() && !equipment.embodied_material().is_empty()
-            })
-    })
-}
-
-/// Ground anchors remain attached to their actual supporting terrain until
-/// dismantled. An empty blueprint does not own physical matter and cannot
-/// reserve a permanent veto over earthworks.
-fn grounded_structure_resting_on(
-    state: &AppState,
-    floor: VoxelCoord,
-) -> Option<StructuralElementId> {
-    let above = VoxelCoord::new(floor.x(), floor.y().checked_add(1)?, floor.z());
-    state
-        .structures()
-        .elements_covering(above)
-        .filter(|member| {
-            member.is_grounded()
-                && !member.embodied_material().is_empty()
-                && member.bounds().min().y() == above.y()
-        })
-        .map(|member| member.id())
-        .min()
 }

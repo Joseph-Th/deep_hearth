@@ -323,6 +323,8 @@ For every consequential edge:
 - complete terrain excavation must not remove the last collidable footing beneath a material-built, located
   energy store or unmounted stationary equipment; partial cuts that retain the supporting block remain legal,
   and abstract unembodied fixtures and equipment mounted on structures do not claim ground protection;
+- finite natural springs generated into stone hollows retain their underlying collidable stone footing;
+  complete excavation cannot leave a suspended pool, while partial excavation keeps the hollow supported;
 - require each transmitting shaft roller to be sound in both pre-tick structural truth and the
   projected result of production loads, construction activation, and automatic mining output
   settlement; newly assembled rollers and newly released work become eligible only on the

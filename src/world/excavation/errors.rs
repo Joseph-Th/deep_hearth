@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::Mass;
 use crate::energy::EnergyStoreId;
 use crate::equipment::{EquipmentId, EquipmentProviderError};
+use crate::fluid::FluidStoreId;
 use crate::inventory::StockpileId;
 use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError};
 use crate::logistics::PlayerEquipmentAccessError;
@@ -49,6 +50,10 @@ pub enum BlockExcavationError {
     StationaryEquipmentRequiresFloor {
         target: VoxelCoord,
         equipment: EquipmentId,
+    },
+    NaturalSpringRequiresFloor {
+        target: VoxelCoord,
+        store: FluidStoreId,
     },
     OpeningResidentRequiresFloor {
         target: VoxelCoord,
@@ -144,6 +149,14 @@ impl Display for BlockExcavationError {
                 target.z(),
                 equipment.value()
             ),
+            Self::NaturalSpringRequiresFloor { target, store } => write!(
+                formatter,
+                "cannot remove block at ({},{},{}): natural spring {} requires its stone hollow",
+                target.x(),
+                target.y(),
+                target.z(),
+                store.value()
+            ),
             Self::OpeningResidentRequiresFloor { target } => write!(
                 formatter,
                 "cannot remove block at ({},{},{}): an opening resident still stands above it",
@@ -212,6 +225,7 @@ impl Error for BlockExcavationError {
             | Self::StandingTreeRequiresFloor { .. }
             | Self::EnergyStoreRequiresFloor { .. }
             | Self::StationaryEquipmentRequiresFloor { .. }
+            | Self::NaturalSpringRequiresFloor { .. }
             | Self::OpeningResidentRequiresFloor { .. }
             | Self::GroundedStructureRequiresFloor { .. }
             | Self::UnknownMethod { .. }
@@ -264,6 +278,10 @@ pub enum BlockExcavationCommitError {
     StationaryEquipmentRequiresFloor {
         target: VoxelCoord,
         equipment: EquipmentId,
+    },
+    NaturalSpringRequiresFloor {
+        target: VoxelCoord,
+        store: FluidStoreId,
     },
     OpeningResidentRequiresFloor {
         target: VoxelCoord,
@@ -330,6 +348,14 @@ impl Display for BlockExcavationCommitError {
                 target.z(),
                 equipment.value()
             ),
+            Self::NaturalSpringRequiresFloor { target, store } => write!(
+                formatter,
+                "block excavation cannot remove floor ({},{},{}): natural spring {} requires its hollow",
+                target.x(),
+                target.y(),
+                target.z(),
+                store.value()
+            ),
             Self::OpeningResidentRequiresFloor { target } => write!(
                 formatter,
                 "block excavation cannot remove floor ({},{},{}): an opening resident stands above it",
@@ -372,6 +398,7 @@ impl Error for BlockExcavationCommitError {
             | Self::StorageEnclosureRequiresFloor { .. }
             | Self::EnergyStoreRequiresFloor { .. }
             | Self::StationaryEquipmentRequiresFloor { .. }
+            | Self::NaturalSpringRequiresFloor { .. }
             | Self::OpeningResidentRequiresFloor { .. }
             | Self::GroundedStructureRequiresFloor { .. }
             | Self::EquipmentChanged => None,

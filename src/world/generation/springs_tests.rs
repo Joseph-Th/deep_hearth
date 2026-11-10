@@ -4,16 +4,99 @@ use super::super::{HabitatKind, habitat_at, terrain_height};
 use super::*;
 
 use crate::content::{FLUID_WATER, build_registries};
-use crate::core::state::{AppState, validate_loaded_state};
-use crate::fluid::calculate_fluid_volume_accounting;
+use crate::core::quantity::Mass;
+use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
+use crate::equipment::EquipmentId;
+use crate::fluid::{FluidValidationError, calculate_fluid_volume_accounting};
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::simulation::advance_control_tick;
 use crate::survival::{available_local_drink_sources, validate_drink};
 use crate::world::{
-    ChunkCoord, available_visible_generated_water, validate_generate_chunk,
-    validate_generate_player_neighborhood,
+    BlockExcavationError, BlockExcavationRequest, ChunkCoord, available_visible_generated_water,
+    validate_generate_chunk, validate_generate_player_neighborhood,
+    validate_start_player_block_excavation,
 };
+
+#[test]
+fn a_natural_spring_retains_its_last_collidable_stone_footing() {
+    use crate::content::MINING_METHOD_HAND_PICK;
+    use crate::spatial::{VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection};
+
+    let (registries, mut state, position) = generated_water_neighborhood();
+    let store = state.logistics().fluid_stores_at(position).next().unwrap();
+    let original_player = state.logistics().player().unwrap().position();
+    let floor = VoxelCoord::new(position.x(), position.y() - 1, position.z());
+    let full = state
+        .world()
+        .represented_mass_at(registries.world(), floor)
+        .unwrap();
+    crate::logistics::relocate_player_for_test(&mut state, position);
+    let down = ViewDirection::new(0, -VIEW_DIRECTION_PARTS_PER_MILLION, 0).unwrap();
+    let dig = |mass| {
+        BlockExcavationRequest::new(down, MINING_METHOD_HAND_PICK, EquipmentId::new(1), mass)
+    };
+    assert_eq!(
+        crate::world::raycast_player_block(&registries, &state, down)
+            .unwrap()
+            .unwrap()
+            .voxel(),
+        floor
+    );
+    let before = state.clone();
+    assert_eq!(
+        validate_start_player_block_excavation(&registries, &state, dig(full)).err(),
+        Some(BlockExcavationError::NaturalSpringRequiresFloor {
+            target: floor,
+            store
+        })
+    );
+    assert_eq!(state, before);
+
+    let revision = state.world().revision();
+    state.world_state_mut().apply_excavated_cell_mass(
+        revision,
+        revision + 1,
+        floor,
+        BLOCK_STATE_STONE,
+        full,
+        Mass::from_milligrams(1),
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(
+        validate_start_player_block_excavation(&registries, &state, dig(Mass::from_milligrams(1)),)
+            .err(),
+        Some(BlockExcavationError::NaturalSpringRequiresFloor {
+            target: floor,
+            store
+        })
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap(),
+        state
+    );
+
+    crate::logistics::relocate_player_for_test(&mut state, original_player);
+    let revision = state.world().revision();
+    state.world_state_mut().apply_excavated_cell_mass(
+        revision,
+        revision + 1,
+        floor,
+        BLOCK_STATE_STONE,
+        Mass::from_milligrams(1),
+        Mass::ZERO,
+    );
+    assert_eq!(
+        validate_loaded_state(&registries, &state),
+        Err(StateValidationError::Fluid(
+            FluidValidationError::InvalidNaturalSpring { store }
+        ))
+    );
+}
 
 fn generated_water_neighborhood() -> (crate::registry::Registries, AppState, VoxelCoord) {
     let registries = build_registries();
