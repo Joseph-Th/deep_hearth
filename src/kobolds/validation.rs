@@ -240,6 +240,20 @@ pub(crate) fn validate_loaded_kobolds(
     {
         return Err("invalid kobold patrol route or cursor");
     }
+    // The first movement is not due until the opening's authored scout
+    // deadline. Reaching the junction, tip, or second detour cell also takes
+    // one distinct physical patrol beat per edge. A saved cursor without
+    // tracks cannot skip that elapsed world time.
+    let earliest_step_at = match colony.scout_step {
+        0 => 0,
+        1 => FIRST_SCOUT_TICK,
+        2 => FIRST_SCOUT_TICK + SCOUT_STEP_TICKS,
+        3 => FIRST_SCOUT_TICK + 2 * SCOUT_STEP_TICKS,
+        _ => unreachable!("scout cursor was bounded above"),
+    };
+    if state.tick().value() < earliest_step_at {
+        return Err("kobold patrol cursor precedes its first physical route step");
+    }
     colony.validate_detour(state)?;
     // A corrupted route cursor must be rejected before either resident's
     // position accessor can be called. Those accessors assume a valid route.
@@ -300,3 +314,7 @@ pub(crate) fn validate_loaded_kobolds(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "temporal_validation_tests.rs"]
+mod temporal_tests;
