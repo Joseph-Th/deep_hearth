@@ -43,50 +43,65 @@ impl ResidualGraph {
         });
     }
 
-    /// Find one shortest residual path, respecting original input and lot identity ordering.
-    fn path(&self, source: usize, sink: usize) -> Option<Vec<(usize, usize)>> {
-        let mut previous = vec![None; self.edges.len()];
+    /// Augment one shortest residual path, respecting original input and lot identity ordering.
+    ///
+    /// A fragmented recipe may require many augmentations. Reusing the search frontier and
+    /// predecessor slots avoids allocating a node-sized vector and a separate path for every
+    /// distinct lot slice. Following predecessors twice keeps the bottleneck exact without
+    /// materializing a path at all.
+    fn augment(
+        &mut self,
+        source: usize,
+        sink: usize,
+        previous: &mut [Option<(usize, usize)>],
+        queue: &mut VecDeque<usize>,
+    ) -> bool {
+        previous.fill(None);
+        queue.clear();
         previous[source] = Some((source, 0));
-        let mut queue = VecDeque::from([source]);
-        while let Some(node) = queue.pop_front() {
+        queue.push_back(source);
+        'search: while let Some(node) = queue.pop_front() {
             for (index, edge) in self.edges[node].iter().enumerate() {
                 if edge.remaining_mg == 0 || previous[edge.to].is_some() {
                     continue;
                 }
                 previous[edge.to] = Some((node, index));
                 if edge.to == sink {
-                    let mut path = Vec::new();
-                    let mut current = sink;
-                    while current != source {
-                        let (prior, via) = previous[current]?;
-                        path.push((prior, via));
-                        current = prior;
-                    }
-                    return Some(path);
+                    break 'search;
                 }
                 queue.push_back(edge.to);
             }
         }
-        None
+        if previous[sink].is_none() {
+            return false;
+        }
+        let mut mass = u64::MAX;
+        let mut current = sink;
+        while current != source {
+            let (prior, via) = previous[current]
+                .expect("reachable residual sink has a complete predecessor chain");
+            mass = mass.min(self.edges[prior][via].remaining_mg);
+            current = prior;
+        }
+        current = sink;
+        while current != source {
+            let (prior, via) = previous[current]
+                .expect("reachable residual sink has a complete predecessor chain");
+            let reverse = self.edges[prior][via].reverse;
+            self.edges[prior][via].remaining_mg -= mass;
+            self.edges[current][reverse].remaining_mg = self.edges[current][reverse]
+                .remaining_mg
+                .checked_add(mass)
+                .expect("reverse residual flow cannot exceed its bounded edge capacity");
+            current = prior;
+        }
+        true
     }
 
     fn maximize(&mut self, source: usize, sink: usize) {
-        while let Some(path) = self.path(source, sink) {
-            let mass = path
-                .iter()
-                .map(|&(node, edge)| self.edges[node][edge].remaining_mg)
-                .min()
-                .expect("residual path contains at least one edge");
-            for (node, edge) in path {
-                let next = self.edges[node][edge].to;
-                let reverse = self.edges[node][edge].reverse;
-                self.edges[node][edge].remaining_mg -= mass;
-                self.edges[next][reverse].remaining_mg = self.edges[next][reverse]
-                    .remaining_mg
-                    .checked_add(mass)
-                    .expect("reverse residual flow cannot exceed its bounded edge capacity");
-            }
-        }
+        let mut previous = vec![None; self.edges.len()];
+        let mut queue = VecDeque::new();
+        while self.augment(source, sink, &mut previous, &mut queue) {}
     }
 }
 
@@ -179,3 +194,7 @@ fn allocate_commodity(
     }
     Some(assigned)
 }
+
+#[cfg(test)]
+#[path = "reassignment_tests.rs"]
+mod tests;
