@@ -1917,6 +1917,10 @@ fn a_temple_warden_sees_elevated_intruders_from_its_actual_upper_body() {
         .unwrap();
     apply_temple_warden_tick(&registries, &mut state, SimulationTick::new(5));
     apply_temple_warden_tick(&registries, &mut replay, SimulationTick::new(5));
+    // Directly exercising the owner must still produce a reachable persisted
+    // clock: the first patrol displacement occurs on the fifth slow tick.
+    crate::core::state::apply_clock_advance(&mut state, SimulationTick::new(5));
+    crate::core::state::apply_clock_advance(&mut replay, SimulationTick::new(5));
     assert_eq!(state, replay);
     assert_eq!(
         state
