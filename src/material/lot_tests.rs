@@ -27,6 +27,32 @@ fn pure_input_spec_accepts_only_exact_host_material() {
 }
 
 #[test]
+fn unconstrained_and_impurity_constrained_inputs_still_require_the_commodity_host() {
+    let host = MaterialId::new(3);
+    let other = MaterialId::new(4);
+    let commodity = CommodityKey::new(host, FormId::new(1));
+    let mass = Mass::from_milligrams(10);
+    let foreign = MaterialComposition::pure(other);
+    let hosted = MaterialComposition::new(vec![
+        CompositionComponent::new(host, 1),
+        CompositionComponent::new(other, COMPOSITION_PARTS_PER_MILLION - 1),
+    ])
+    .unwrap();
+
+    let unconstrained = MaterialInputSpec::new(commodity, mass);
+    assert!(!unconstrained.is_satisfied_by(&foreign));
+    assert!(unconstrained.is_satisfied_by(&hosted));
+
+    // The impurity range is satisfied by a pure foreign lot. Host ownership
+    // remains mandatory even when a constraint does not mention that host.
+    let impurity =
+        CompositionConstraint::new(other, 100_000, COMPOSITION_PARTS_PER_MILLION).unwrap();
+    let constrained = MaterialInputSpec::with_constraints(commodity, mass, vec![impurity]).unwrap();
+    assert!(!constrained.is_satisfied_by(&foreign));
+    assert!(constrained.is_satisfied_by(&hosted));
+}
+
+#[test]
 fn input_spec_rejects_duplicate_material_constraints() {
     let material = MaterialId::new(3);
     let constraint = CompositionConstraint::new(material, 100_000, 900_000)

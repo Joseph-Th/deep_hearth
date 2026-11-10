@@ -121,9 +121,14 @@ impl MaterialInputSpec {
 
     #[must_use]
     pub fn is_satisfied_by(&self, composition: &MaterialComposition) -> bool {
-        self.constraints
-            .iter()
-            .all(|constraint| constraint.is_satisfied_by(composition))
+        // The commodity host is part of the requirement even when no explicit
+        // assay range was authored. A foreign pure material must not pass a
+        // vacuous constraint check and be treated as an eligible ingredient.
+        composition.parts_per_million(self.commodity.material()) != 0
+            && self
+                .constraints
+                .iter()
+                .all(|constraint| constraint.is_satisfied_by(composition))
     }
 }
 
