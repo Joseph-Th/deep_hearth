@@ -1,6 +1,6 @@
 //! Deterministic planning for persistent lot identities across coalescing inventory ingress.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::core::time::SimulationTick;
 
@@ -12,8 +12,6 @@ use super::state::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct PlannedAvailableLot {
     id: MaterialLotId,
-    destination: StockpileId,
-    profile: MaterialLotProfile,
     storage_history: MaterialStorageHistory,
 }
 
@@ -22,7 +20,10 @@ struct PlannedAvailableLot {
 pub(in crate::inventory) struct LotIdentityPlanner<'a> {
     state: &'a InventoryState,
     excluded_existing: BTreeSet<MaterialLotId>,
-    available_arrivals: Vec<PlannedAvailableLot>,
+    // Index exact destination/profile cohorts once instead of rescanning unrelated
+    // arrivals for each parcel in a mixed-output transaction. Preserve arrival
+    // order within a profile for deterministic choice of lot identity.
+    available_arrivals: BTreeMap<(StockpileId, MaterialLotProfile), Vec<PlannedAvailableLot>>,
     initial_next_lot_id: u64,
     next_lot_id: u64,
 }
@@ -36,7 +37,7 @@ impl<'a> LotIdentityPlanner<'a> {
         Self {
             state,
             excluded_existing: excluded_existing.into_iter().collect(),
-            available_arrivals: Vec::new(),
+            available_arrivals: BTreeMap::new(),
             initial_next_lot_id: next_lot_id,
             next_lot_id,
         }
@@ -50,12 +51,13 @@ impl<'a> LotIdentityPlanner<'a> {
         profile: &MaterialLotProfile,
         storage_history: MaterialStorageHistory,
     ) {
-        self.available_arrivals.push(PlannedAvailableLot {
-            id,
-            destination,
-            profile: profile.clone(),
-            storage_history,
-        });
+        self.available_arrivals
+            .entry((destination, profile.clone()))
+            .or_default()
+            .push(PlannedAvailableLot {
+                id,
+                storage_history,
+            });
     }
 
     /// Returns an identity safe to place on the incoming record. If a compatible destination lot
@@ -91,10 +93,11 @@ impl<'a> LotIdentityPlanner<'a> {
             return Some(existing);
         }
 
-        if let Some(arrival) = self.available_arrivals.iter().find(|arrival| {
-            arrival.destination == destination
-                && lots_are_merge_compatible(
-                    &arrival.profile,
+        let key = (destination, profile.clone());
+        if let Some(arrival) = self.available_arrivals.get(&key).and_then(|arrivals| {
+            arrivals.iter().find(|arrival| {
+                lots_are_merge_compatible(
+                    profile,
                     arrival.storage_history,
                     profile,
                     storage_history,
@@ -102,18 +105,20 @@ impl<'a> LotIdentityPlanner<'a> {
                     preservation_multiplier_ppm,
                     merge_policy,
                 )
+            })
         }) {
             return Some(arrival.id);
         }
 
         let id = MaterialLotId::new(self.next_lot_id);
         self.next_lot_id = self.next_lot_id.checked_add(1)?;
-        self.available_arrivals.push(PlannedAvailableLot {
-            id,
-            destination,
-            profile: profile.clone(),
-            storage_history,
-        });
+        self.available_arrivals
+            .entry(key)
+            .or_default()
+            .push(PlannedAvailableLot {
+                id,
+                storage_history,
+            });
         Some(id)
     }
 
@@ -125,3 +130,7 @@ impl<'a> LotIdentityPlanner<'a> {
         self.next_lot_id != self.initial_next_lot_id
     }
 }
+
+#[cfg(test)]
+#[path = "lot_identity_tests.rs"]
+mod tests;
