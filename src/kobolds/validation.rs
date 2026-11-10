@@ -8,7 +8,7 @@ use crate::spatial::VoxelCoord;
 
 use super::{
     FIRST_SCOUT_TICK, FULL_BALANCE_PPM, KoboldColony, KoboldState, SCOUT_DRINK_INTERVAL_TICKS,
-    SCOUT_FORAGE_INTERVAL_TICKS, SCOUT_MEAL_INTERVAL_TICKS, SCOUT_MEAL_MASS,
+    SCOUT_DRINK_VOLUME, SCOUT_FORAGE_INTERVAL_TICKS, SCOUT_MEAL_INTERVAL_TICKS, SCOUT_MEAL_MASS,
     SCOUT_SAFE_SCAVENGE_TEMPERATURE, SCOUT_STEP_TICKS, SCOUT_WARY_INTERVAL_TICKS,
     scavenging::is_portable_drop, scrap_tools, temple_archivist, temple_guard,
 };
@@ -117,12 +117,7 @@ fn validate_consumed_fluids(
     state: &KoboldState,
 ) -> Result<(), &'static str> {
     if state.consumed_fluids.iter().any(|(fluid, volume)| {
-        volume.is_zero()
-            || *fluid != FLUID_WATER
-            || registries.fluid().get_fluid(*fluid).is_none()
-            || !volume
-                .microliters()
-                .is_multiple_of(u128::from(super::SCOUT_DRINK_VOLUME.microliters()))
+        volume.is_zero() || *fluid != FLUID_WATER || registries.fluid().get_fluid(*fluid).is_none()
     }) {
         return Err("kobold consumed water ledger is invalid");
     }
@@ -132,11 +127,23 @@ fn validate_consumed_fluids(
 fn validate_water_schedule(colony: &KoboldColony, state: &AppState) -> Result<(), &'static str> {
     let current = state.tick().value();
     let first_drink = FIRST_SCOUT_TICK + SCOUT_DRINK_INTERVAL_TICKS;
-    let ledger_present = !state.kobold_state().consumed_fluids.is_empty();
+    let consumed = state
+        .kobold_state()
+        .consumed_fluids
+        .get(&FLUID_WATER)
+        .copied()
+        .unwrap_or(crate::core::quantity::AggregateVolume::ZERO)
+        .microliters();
+    let serving = u128::from(SCOUT_DRINK_VOLUME.microliters());
+    if colony.partial_drink >= SCOUT_DRINK_VOLUME
+        || consumed % serving != u128::from(colony.partial_drink.microliters())
+    {
+        return Err("kobold credited drinking does not match finite consumed water");
+    }
     let valid_history = match (colony.last_drink_at, colony.last_drink_interval_ticks) {
-        (None, None) => !ledger_present && colony.next_drink_at.value() == first_drink,
+        (None, None) => consumed < serving && colony.next_drink_at.value() == first_drink,
         (Some(last), Some(interval)) => {
-            ledger_present
+            consumed >= serving
                 && last.value() >= first_drink
                 && last.value() <= current
                 && (last.value() - FIRST_SCOUT_TICK).is_multiple_of(SCOUT_STEP_TICKS)

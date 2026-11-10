@@ -147,6 +147,9 @@ struct KoboldColony {
     partial_meal: Mass,
     /// Remains overdue until the scout physically drinks.
     next_drink_at: SimulationTick,
+    /// Actually consumed water credited toward one unfinished 60 mL serving.
+    /// A partial draw never grants an entire new hydration interval.
+    partial_drink: Volume,
     /// The latest actual water visit establishes a checkable need deadline,
     /// even when the local temperature changes after the scout departs.
     #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
@@ -416,6 +419,7 @@ impl KoboldState {
             hungry: false,
             partial_meal: Mass::ZERO,
             next_drink_at: SimulationTick::new(FIRST_SCOUT_TICK + SCOUT_DRINK_INTERVAL_TICKS),
+            partial_drink: Volume::ZERO,
             last_drink_at: None,
             last_drink_interval_ticks: None,
             witnessed_machinery_at: None,

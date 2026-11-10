@@ -5,7 +5,7 @@ use crate::content::FLUID_WATER;
 use crate::core::quantity::{AggregateVolume, Volume};
 use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
-use crate::fluid::{FluidStoreId, validate_fluid_egress};
+use crate::fluid::{FluidStoreId, ValidatedFluidEgress, validate_fluid_egress};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::world::{WindCondition, exposed_air_at};
@@ -57,9 +57,28 @@ pub(super) fn usable_water_at(
     state: &AppState,
     position: VoxelCoord,
 ) -> Option<(FluidStoreId, Volume)> {
-    usable_water_sources_at(registries, state, position).find(|(store, _)| {
-        validate_fluid_egress(registries, state, *store, SCOUT_DRINK_VOLUME).is_ok()
-    })
+    selectable_water_withdrawal(registries, state, position)
+        .map(|(store, withdrawal)| (store, withdrawal.volume()))
+}
+
+/// Pick the most useful physically withdrawable local serving, with stable
+/// identity ties. A tiny first vessel must not displace a full second vessel.
+/// The selected fluid-owner proof is also reused by the actual drinking edge.
+fn selectable_water_withdrawal(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+) -> Option<(FluidStoreId, ValidatedFluidEgress)> {
+    let remaining =
+        SCOUT_DRINK_VOLUME.checked_sub(state.kobold_state().colony.as_ref()?.partial_drink)?;
+    usable_water_sources_at(registries, state, position)
+        .filter_map(|(store, available)| {
+            let volume = available.min(remaining);
+            validate_fluid_egress(registries, state, store, volume)
+                .ok()
+                .map(|withdrawal| (store, withdrawal))
+        })
+        .max_by_key(|(store, withdrawal)| (withdrawal.volume(), std::cmp::Reverse(*store)))
 }
 
 fn usable_water_sources_at<'a>(
@@ -74,7 +93,7 @@ fn usable_water_sources_at<'a>(
         .filter_map(move |id| {
             let contents = state.fluid().get_store(id)?.contents()?;
             (contents.fluid() == FLUID_WATER
-                && contents.volume() >= SCOUT_DRINK_VOLUME
+                && !contents.volume().is_zero()
                 && drink.is_some_and(|definition| {
                     definition
                         .consumption_temperature()
@@ -143,10 +162,10 @@ pub(super) fn reachable_water_from_junction(
     best_route.map(|(_, first, goal)| (first, goal))
 }
 
-/// The resident takes one physical 60 mL serving while standing beside the
-/// source. This uses the same fluid egress validation as player drinking and
-/// records every microliter as consumed by the colony. A blocked egress leaves
-/// both the water and the unmet need unchanged.
+/// The resident drinks at most the remaining part of one physical 60 mL
+/// serving. Every microliter enters terminal consumption accounting, including
+/// a partial drink that leaves the need overdue until another real visit.
+/// Blocked egress leaves both the water and the unmet need unchanged.
 pub(super) fn drink_on_scout_visit(
     registries: &Registries,
     state: &mut AppState,
@@ -162,35 +181,46 @@ pub(super) fn drink_on_scout_visit(
     if at < colony.next_drink_at || !opening_resident_can_depart(registries, state, from) {
         return None;
     }
-    let interval = drink_interval_at(registries, state, from, at);
-    let next_due = at.checked_add_span(TickSpan::new(interval))?;
+    let remaining = SCOUT_DRINK_VOLUME.checked_sub(colony.partial_drink)?;
+    let (store, withdrawal) = selectable_water_withdrawal(registries, state, from)?;
+    let volume = withdrawal.volume();
+    let next_partial = colony.partial_drink.checked_add(volume)?;
+    let completed = volume == remaining;
+    let next_schedule = if completed {
+        let interval = drink_interval_at(registries, state, from, at);
+        Some((interval, at.checked_add_span(TickSpan::new(interval))?))
+    } else {
+        None
+    };
     let next_total = state
         .kobold_state()
         .consumed_fluids
         .get(&FLUID_WATER)
         .copied()
         .unwrap_or(AggregateVolume::ZERO)
-        .checked_add(AggregateVolume::from_volume(SCOUT_DRINK_VOLUME))?;
-    // The first physically visible water store may have a blocked structural
-    // load change. Try the other real stores at this exact voxel before
-    // leaving the resident thirsty; never bypass the fluid owner's egress.
-    let (store, withdrawal) =
-        usable_water_sources_at(registries, state, from).find_map(|(store, _)| {
-            validate_fluid_egress(registries, state, store, SCOUT_DRINK_VOLUME)
-                .ok()
-                .map(|withdrawal| (store, withdrawal))
-        })?;
+        .checked_add(AggregateVolume::from_volume(volume))?;
     withdrawal.commit(state).ok()?;
     state
         .kobold_state_mut()
         .apply_drink(FLUID_WATER, next_total);
     let colony = state.kobold_state_mut().colony.as_mut()?;
-    colony.next_drink_at = next_due;
-    colony.last_drink_at = Some(at);
-    colony.last_drink_interval_ticks = Some(interval);
-    Some((store, SCOUT_DRINK_VOLUME))
+    colony.partial_drink = if completed {
+        Volume::ZERO
+    } else {
+        next_partial
+    };
+    if let Some((interval, next_due)) = next_schedule {
+        colony.next_drink_at = next_due;
+        colony.last_drink_at = Some(at);
+        colony.last_drink_interval_ticks = Some(interval);
+    }
+    Some((store, volume))
 }
 
 #[cfg(test)]
 #[path = "hydration_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "hydration_partial_tests.rs"]
+mod partial_tests;
