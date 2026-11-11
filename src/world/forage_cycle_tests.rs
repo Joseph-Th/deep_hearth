@@ -56,7 +56,6 @@ fn generated_plant() -> (Registries, AppState, crate::surface::SurfaceResourceId
 
 #[test]
 fn due_gathering_and_senescence_near_surface_revision_exhaustion_are_atomic() {
-    use crate::simulation::TickError;
     use crate::surface::{
         SurfaceResourceState, player_surface_gathering_options,
         validate_start_player_surface_gathering_option,
@@ -150,9 +149,11 @@ fn due_gathering_and_senescence_near_surface_revision_exhaustion_are_atomic() {
         Ok(())
     );
 
-    // A real 20 Hz boundary must reject atomically too. Ordinary control
-    // stepping settles the same harvest and weather front, but must not leak
-    // a consumed source or advanced clock if senescence has no revision left.
+    // A scheduled harvest owns the final surface revision. Optional natural
+    // senescence must yield to that promise rather than trap the actor at the
+    // completion boundary, in both ordinary and control-rate stepping.
+    let before = state.clone();
+    let before_mass = calculate_matter_accounting(&state).unwrap().total();
     let mut control = state.clone();
     for _ in 1..crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK {
         assert!(
@@ -162,25 +163,130 @@ fn due_gathering_and_senescence_near_surface_revision_exhaustion_are_atomic() {
                 .is_none()
         );
     }
-    let before_control_boundary = control.clone();
+    let control_outcome = crate::simulation::advance_control_tick(&registries, &mut control)
+        .expect("a reserved harvest must complete despite incidental senescence");
+    let ordinary_outcome = advance_tick(&registries, &mut state)
+        .expect("the same reserved harvest must complete on the headless path");
+    assert_eq!(control_outcome.simulation(), Some(&ordinary_outcome));
+    assert_eq!(state, control);
+    assert_ne!(state, before);
+    assert_eq!(state.tick(), due);
+    assert_eq!(state.surface().revision(), u64::MAX);
+    let harvested = state.surface().get(plant).unwrap();
+    assert_eq!(harvested.lifecycle(), SurfaceResourceLifecycle::Available);
     assert_eq!(
-        crate::simulation::advance_control_tick(&registries, &mut control),
-        Err(TickError::SurfaceRevisionExhausted)
+        harvested.remaining_mass(),
+        before
+            .surface()
+            .get(plant)
+            .unwrap()
+            .remaining_mass()
+            .checked_sub(batch)
+            .unwrap(),
     );
+    assert_eq!(state.player_work().active(), None);
     assert_eq!(
-        control, before_control_boundary,
-        "failed 20 Hz weather-front settlement cannot partially advance state"
+        calculate_matter_accounting(&state).unwrap().total(),
+        before_mass
     );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, restored);
+}
 
-    let before = state.clone();
+#[test]
+fn unrelated_due_stone_gathering_keeps_its_final_revision_over_vegetation_aging() {
+    use crate::content::{FORM_LUMP, MATERIAL_STONE};
+    use crate::core::quantity::Temperature;
+    use crate::material::{CommodityKey, MaterialComposition};
+    use crate::surface::{
+        SurfaceResourceSpec, SurfaceResourceState, player_surface_gathering_options,
+        validate_create_surface_resources, validate_start_player_surface_gathering_option,
+    };
+
+    let (registries, mut state, plant) = generated_plant();
+    let original_fruit = state.surface().get(plant).unwrap().remaining_mass();
+    let stone = crate::surface::SurfaceResourceId::new(state.surface().next_resource_id());
+    let stone_mass = Mass::from_milligrams(1_000_000);
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Opportunity,
+        state.logistics().player().unwrap().position(),
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        stone_mass,
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    validate_create_surface_resources(&registries, &state, [spec])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let available = player_surface_gathering_options(&registries, &state).unwrap();
+    let option = available
+        .into_iter()
+        .find(|option| option.resource() == stone)
+        .expect("ordinary stone should be gatherable");
+    let duration = option.duration_for_mass(stone_mass).unwrap().value();
+    let due = SimulationTick::new(FRUIT_SENESCENCE_TICKS);
+    assert!(duration > 0 && duration < due.value());
+    crate::core::state::apply_clock_advance(
+        &mut state,
+        SimulationTick::new(due.value() - duration),
+    );
+    let option = player_surface_gathering_options(&registries, &state)
+        .unwrap()
+        .into_iter()
+        .find(|option| option.resource() == stone)
+        .unwrap();
+    validate_start_player_surface_gathering_option(&registries, &state, option, stone_mass)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    while state.tick().value() < due.value() - 1 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert!(matches!(
+        state.player_work().active(),
+        Some(crate::labor::PlayerWork::SurfaceGathering { work })
+            if work.resource() == stone && work.completes_at() == due
+    ));
+    let encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut surface = encoded["state"]["systems"]["surface"].clone();
+    surface["revision"] = serde_json::json!(u64::MAX - 1);
+    let mut near_exhausted: SurfaceResourceState = serde_json::from_value(surface).unwrap();
+    near_exhausted.rebuild_derived_indexes();
+    *state.surface_state_mut() = near_exhausted;
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert!(!state.can_spend_surface_revisions(1));
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+
+    let outcome = advance_tick(&registries, &mut state)
+        .expect("scheduled stone gathering must not be blocked by an unrelated shrub");
     assert_eq!(
-        advance_tick(&registries, &mut state),
-        Err(TickError::SurfaceRevisionExhausted)
+        outcome.surface_gathering().map(|result| result.resource()),
+        Some(stone)
+    );
+    assert_eq!(state.tick(), due);
+    assert_eq!(state.surface().revision(), u64::MAX);
+    assert_eq!(state.player_work().active(), None);
+    assert_eq!(
+        state.surface().get(stone).unwrap().remaining_mass(),
+        Mass::ZERO
     );
     assert_eq!(
-        state, before,
-        "a completed harvest and natural senescence must reject as one atomic slow tick"
+        state.surface().get(plant).unwrap().remaining_mass(),
+        original_fruit,
+        "a nonessential senescence must defer rather than undo the unrelated harvest"
     );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

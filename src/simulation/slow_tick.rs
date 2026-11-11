@@ -37,7 +37,8 @@ use crate::survival::{
 use crate::world::{
     NaturalForageCycleError, apply_block_excavation_tick, apply_natural_forage_cycle,
     apply_tree_felling_wear, assess_player_weather_at, decide_block_excavation_tick,
-    decide_tree_felling_wear, validate_due_player_tree_felling,
+    decide_tree_felling_wear, forage_cycle_deferred_for_surface_reservation,
+    validate_due_player_tree_felling,
 };
 
 /// Advances the full slow simulation by one 3.6-second physical/accounting quantum.
@@ -60,9 +61,14 @@ pub(super) fn advance_simulation_tick(
     let weather_front = next_tick
         .value()
         .is_multiple_of(crate::world::WEATHER_FRONT_TICKS);
+    // Preserve the pre-settlement reservation decision. A due harvest can
+    // release this reservation before incidental vegetation is considered.
+    let defer_natural_forage_cycle =
+        weather_front && forage_cycle_deferred_for_surface_reservation(state);
     if weather_front
         && ((state.surface().perennial_resources().next().is_some()
-            && !state.can_spend_surface_revisions(1))
+            && !state.can_spend_surface_revisions(1)
+            && !defer_natural_forage_cycle)
             || (state.fluid().revision() == u64::MAX
                 && state.fluid().spring_soil().next().is_some()))
     {
@@ -73,6 +79,7 @@ pub(super) fn advance_simulation_tick(
             next_tick,
             locomotion_exertion,
             fall_vitality_loss_ppm,
+            defer_natural_forage_cycle,
         )?;
         *state = staged;
         return Ok(outcome);
@@ -83,6 +90,7 @@ pub(super) fn advance_simulation_tick(
         next_tick,
         locomotion_exertion,
         fall_vitality_loss_ppm,
+        defer_natural_forage_cycle,
     )
 }
 
@@ -92,6 +100,7 @@ fn advance_simulation_tick_unstaged(
     next_tick: SimulationTick,
     locomotion_exertion: SurvivalExertion,
     fall_vitality_loss_ppm: u32,
+    defer_natural_forage_cycle: bool,
 ) -> Result<TickOutcome, TickError> {
     let world_revision_before = state.world().revision();
     debug_assert_eq!(next_tick.value(), state.tick().value() + 1);
@@ -372,9 +381,11 @@ fn advance_simulation_tick_unstaged(
     // before residents assess a player's actual living threat: a death on this
     // very tick must not make a corpse deter or challenge a neighboring scout.
     let _ = apply_survival_tick(state, survival_plan);
-    apply_natural_forage_cycle(registries, state, next_tick).map_err(
-        |NaturalForageCycleError::RevisionExhausted| TickError::SurfaceRevisionExhausted,
-    )?;
+    if !defer_natural_forage_cycle {
+        apply_natural_forage_cycle(registries, state, next_tick).map_err(
+            |NaturalForageCycleError::RevisionExhausted| TickError::SurfaceRevisionExhausted,
+        )?;
+    }
     // Weather-front changes can move existing water between the exposed pool
     // and its shallow basin before residents choose whether to drink.
     let natural_water_plan = decide_natural_water_cycle(registries, state, next_tick)

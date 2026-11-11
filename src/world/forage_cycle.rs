@@ -36,6 +36,17 @@ const _: () = assert!(
 pub(crate) enum NaturalForageCycleError {
     RevisionExhausted,
 }
+
+/// Optional vegetation changes yield to a scheduled player's surface mutation.
+/// Capture this before due work settles, because the completion releases its
+/// reservation and must not be undone by incidental senescence on that tick.
+pub(crate) fn forage_cycle_deferred_for_surface_reservation(state: &AppState) -> bool {
+    state
+        .checked_future_surface_revision_demand()
+        .is_some_and(|future| future != 0)
+        && !state.can_spend_surface_revisions(1)
+}
+
 /// Fraction of the otherwise available fruit biomass that one rooted shrub
 /// may transfer at this weather front. These ratios never consume fluid or
 /// add material: the source is a fixed, previously present underground reserve.
@@ -103,11 +114,7 @@ pub(crate) fn apply_natural_forage_cycle(
     // vegetation changes rather than consuming that promised mutation space.
     // With no outstanding reservation, a genuinely exhausted revision still
     // reports an error instead of silently suppressing an otherwise due cycle.
-    if state
-        .checked_future_surface_revision_demand()
-        .is_some_and(|future| future != 0)
-        && !state.can_spend_surface_revisions(1)
-    {
+    if forage_cycle_deferred_for_surface_reservation(state) {
         return Ok(());
     }
     let growing_season = matches!(

@@ -41,7 +41,10 @@ pub(crate) use felling::{
     apply_tree_felling_wear, decide_tree_felling_wear, tree_felling_condition_after,
     tree_felling_duration, tree_felling_exertion, validate_due_player_tree_felling,
 };
-pub(crate) use forage_cycle::{NaturalForageCycleError, apply_natural_forage_cycle};
+pub(crate) use forage_cycle::{
+    NaturalForageCycleError, apply_natural_forage_cycle,
+    forage_cycle_deferred_for_surface_reservation,
+};
 pub use forage_scent::{
     ForageScent, ForageScentIntensity, ForageScentKind, assess_player_forage_scents,
 };
