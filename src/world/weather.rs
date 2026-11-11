@@ -176,30 +176,22 @@ impl PlayerWeather {
     /// and scent; a sealed cave does not inherit an outdoor wind surcharge.
     /// Missing terrain alone is never treated as a protective outdoor wall.
     pub(crate) fn sheltered_body_levels(self, registries: &Registries, state: &AppState) -> u8 {
-        let (Some(direction), Some(player)) = (self.wind_direction, state.logistics().player())
-        else {
+        let (Some(_), Some(player)) = (self.wind_direction, state.logistics().player()) else {
             return 0;
         };
-        let (dx, dz) = direction.delta();
         let position = player.position();
-        let (Some(x), Some(z), Some(head_y)) = (
-            position.x().checked_sub(dx),
-            position.z().checked_sub(dz),
-            position.y().checked_add(1),
-        ) else {
+        let Some(head_y) = position.y().checked_add(1) else {
             return 0;
         };
         [position.y(), head_y]
             .into_iter()
             .filter(|&y| {
-                let upwind = VoxelCoord::new(x, y, z);
-                let body_cell = VoxelCoord::new(position.x(), y, position.z());
-                state
-                    .world()
-                    .full_cell_collision_at(registries.world(), upwind)
-                    == Some(true)
-                    || state.structures().blocks_full_cell(upwind)
-                    || !wind_reaches_cell(registries, state, body_cell, self)
+                !wind_reaches_cell(
+                    registries,
+                    state,
+                    VoxelCoord::new(position.x(), y, position.z()),
+                    self,
+                )
             })
             .count() as u8
     }
@@ -347,34 +339,27 @@ fn wind_reaches_cell(
 
 /// Wind touching one physically open generated cell.
 ///
-/// A roof stops direct sky exposure but does not seal the air beneath a
-/// one-cell overhang. Regional wind can still enter directly from a
-/// sky-exposed, unobstructed upwind neighbor. A real upwind wall, standing
-/// trunk, full-cell construction, or unknown chunk blocks that inlet.
-/// This is deliberately a one-face local airflow rule, not a simulated
-/// ventilation network through arbitrary underground corridors.
+/// The same upwind wall, trunk, full-cell construction, or unknown chunk
+/// shelters the player and the local sources of sound and scent. Sky-exposed
+/// air still needs an unobstructed horizontal inlet when the front is windy;
+/// beneath a one-cell roof, that inlet must itself see the sky. This is a
+/// local one-face airflow rule, not underground ventilation simulation.
 fn wind_reaches_clear_cell(
     registries: &Registries,
     state: &AppState,
     position: VoxelCoord,
     weather: PlayerWeather,
 ) -> bool {
-    if super::sky::has_open_sky(registries, state, position) {
-        return true;
-    }
+    let open_sky = super::sky::has_open_sky(registries, state, position);
     let Some((dx, dz)) = weather.wind_direction().map(WindDirection::delta) else {
-        return false;
+        return open_sky;
     };
     let (Some(x), Some(z)) = (position.x().checked_sub(dx), position.z().checked_sub(dz)) else {
         return false;
     };
     let upwind = VoxelCoord::new(x, position.y(), z);
-    state
-        .world()
-        .full_cell_collision_at(registries.world(), upwind)
-        == Some(false)
-        && !state.structures().blocks_full_cell(upwind)
-        && super::sky::has_open_sky(registries, state, upwind)
+    has_clear_air_cell(registries, state, upwind)
+        && (open_sky || super::sky::has_open_sky(registries, state, upwind))
 }
 
 pub(super) fn local_airflow_at(

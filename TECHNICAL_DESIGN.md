@@ -350,10 +350,12 @@ not deduplicate solely by timestamp. The scout likewise reacts to actual
 grounded sprint-speed player movement audible from its current position, not
 to remote player coordinates or stationary intent. Outdoor regional gusts
 reduce footfall and running-hearing distance using source-local airflow at
-the actual event time. Open sky admits wind directly; beneath a roof it can
-still enter from an immediately adjacent, unobstructed upwind sky opening.
-An actual windbreak or extended roof prevents that inlet, so sheltered
-caverns retain their unmuffled sound path. The same physical-air rule drives
+the actual event time. Even under open sky, a windward wall or trunk blocks
+wind at the sheltered source cell; it still needs a clear upwind air inlet.
+Beneath a roof that inlet must also see the sky. An actual windbreak or
+extended roof prevents that inlet, so sheltered caverns retain their
+unmuffled sound path. Player wind cooling, footfalls and scent share this
+same physical-air rule, which drives
 distant windborne berry and nut scent, while nearby food remains smellable
 through bounded face-connected air diffusion without revealing source
 coordinates. No persistent ventilation network or general acoustic

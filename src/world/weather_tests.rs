@@ -329,6 +329,22 @@ fn upwind_terrain_reduces_actual_cooling_and_the_player_forecast_without_changin
             set_generated_block_for_test(registries.world(), &mut actor, upper, BLOCK_STATE_STONE);
         }
         assert_eq!(assess_player_weather(&registries, &actor), Some(weather));
+        assert_eq!(
+            local_airflow_at(&registries, &actor, position, front).map(PlayerWeather::wind),
+            (blocked == 0).then_some(weather.wind()),
+            "ground-level sound and scent must see the same upwind barrier as player warmth"
+        );
+        assert_eq!(
+            local_airflow_at(
+                &registries,
+                &actor,
+                VoxelCoord::new(position.x(), position.y() + 1, position.z()),
+                front,
+            )
+            .map(PlayerWeather::wind),
+            (blocked < 2).then_some(weather.wind()),
+            "the open head-level inlet must remain windy behind a one-block windbreak"
+        );
         let forecast = assess_player_unheated_comfort_runway(&registries, &actor).unwrap();
         assert_eq!(forecast.wind_shelter(), Some(shelter));
         assert_eq!(

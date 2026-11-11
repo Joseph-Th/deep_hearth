@@ -707,6 +707,35 @@ fn a_roofed_open_air_patch_still_carries_wind_until_an_upwind_wall_shields_it() 
         crate::world::weather::exposed_air_at(&registries, &outdoor, source, outdoor.tick())
             .is_some()
     );
+    let wind = weather_at(&registries, seed, source, outdoor.tick());
+    let (dx, dz) = wind.wind_direction().unwrap().delta();
+    let upwind = VoxelCoord::new(source.x() - dx, source.y(), source.z() - dz);
+    let mut open_windbreak = outdoor.clone();
+    set_generated_block_for_test(
+        registries.world(),
+        &mut open_windbreak,
+        upwind,
+        BLOCK_STATE_STONE,
+    );
+    assert!(crate::world::sky::has_open_sky(
+        &registries,
+        &open_windbreak,
+        source
+    ));
+    assert_eq!(
+        crate::world::weather::wind_at_generated_position(
+            &registries,
+            &open_windbreak,
+            source,
+            open_windbreak.tick()
+        ),
+        None,
+        "the same upwind wall must shelter an exposed scent source"
+    );
+    assert!(
+        assess_player_forage_scents(&registries, &open_windbreak).is_empty(),
+        "a sky opening above the source cannot carry berries through an upwind stone windbreak"
+    );
     let mut roofed = outdoor.clone();
     let roof = VoxelCoord::new(source.x(), source.y() + 2, source.z());
     assert_eq!(roofed.world().block_at(roof), Some(BlockStateId::AIR));
@@ -715,9 +744,6 @@ fn a_roofed_open_air_patch_still_carries_wind_until_an_upwind_wall_shields_it() 
         crate::world::weather::exposed_air_at(&registries, &roofed, source, roofed.tick())
             .is_none()
     );
-    let wind = weather_at(&registries, seed, source, roofed.tick());
-    let (dx, dz) = wind.wind_direction().unwrap().delta();
-    let upwind = VoxelCoord::new(source.x() - dx, source.y(), source.z() - dz);
     assert_eq!(
         crate::world::weather::wind_at_generated_position(
             &registries,
@@ -733,8 +759,8 @@ fn a_roofed_open_air_patch_still_carries_wind_until_an_upwind_wall_shields_it() 
         assess_player_forage_scents(&registries, &outdoor)
     );
 
-    // Only actual wind shelter, not the roof alone, removes the distant
-    // plume. The wall is upstream, so the downwind scent corridor remains open.
+    // The same wall shelters an open or roofed source. It is upstream,
+    // so the downwind scent corridor itself remains unobstructed.
     set_generated_block_for_test(registries.world(), &mut roofed, upwind, BLOCK_STATE_STONE);
     assert_eq!(
         crate::world::weather::wind_at_generated_position(

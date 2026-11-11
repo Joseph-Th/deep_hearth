@@ -1089,13 +1089,39 @@ fn a_real_sprint_behind_a_stone_corner_makes_the_scout_hold_back_but_quiet_play_
 #[test]
 fn actual_wind_fronts_mask_surface_steps_without_muffling_underground_passages() {
     let (registries, state) = solid_generated_chunk();
-    let surface = (-10..=10)
-        .find(|&y| {
-            state.world().block_at(VoxelCoord::new(2, y, 2)) == Some(BlockStateId::AIR)
-                && state.world().block_at(VoxelCoord::new(2, y - 1, 2)) != Some(BlockStateId::AIR)
+    // A local rise can obstruct one wind direction without a built wall.
+    // Use a real open clearing so all three regional fronts remain observable
+    // before testing their attenuation and a newly erected windbreak.
+    let surface = (1..15_i64)
+        .flat_map(|x| (1..15_i64).map(move |z| (x, z)))
+        .find_map(|(x, z)| {
+            (-10..=10).find_map(|y| {
+                let position = VoxelCoord::new(x, y, z);
+                let below = VoxelCoord::new(x, y - 1, z);
+                if state.world().block_at(position) != Some(BlockStateId::AIR)
+                    || state.world().block_at(below) == Some(BlockStateId::AIR)
+                    || crate::world::assess_generated_skylight(&registries, &state, position) == 0
+                {
+                    return None;
+                }
+                [(1, 0), (-1, 0), (0, 1), (0, -1)]
+                    .into_iter()
+                    .all(|(dx, dz)| {
+                        let neighbor = VoxelCoord::new(x + dx, y, z + dz);
+                        state
+                            .world()
+                            .full_cell_collision_at(registries.world(), neighbor)
+                            == Some(false)
+                            && crate::world::assess_generated_skylight(
+                                &registries,
+                                &state,
+                                neighbor,
+                            ) > 0
+                    })
+                    .then_some(position)
+            })
         })
-        .map(|y| VoxelCoord::new(2, y, 2))
-        .expect("seeded terrain has a surface above the stone");
+        .expect("generated terrain provides a sky-exposed clearing with four open inlets");
     assert_eq!(state.world().block_at(surface), Some(BlockStateId::AIR));
     let mut observed = [false; 3];
     for front in 0..40 {
@@ -1141,6 +1167,22 @@ fn actual_wind_fronts_mask_surface_steps_without_muffling_underground_passages()
     let at = SimulationTick::new(200);
     let outdoor_wind = wind_at_generated_position(&registries, &state, surface, at).unwrap();
     assert_eq!(outdoor_wind, WindCondition::Breeze);
+    let mut shielded_directions = 0;
+    for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+        let mut walled = state.clone();
+        let neighbor = VoxelCoord::new(surface.x() + dx, surface.y(), surface.z() + dz);
+        set_generated_block_for_test(registries.world(), &mut walled, neighbor, BLOCK_STATE_STONE);
+        if wind_at_generated_position(&registries, &walled, surface, at).is_none() {
+            shielded_directions += 1;
+            assert_eq!(wind_masked_reach(&registries, &walled, surface, at, 6), 6);
+        } else {
+            assert_eq!(wind_masked_reach(&registries, &walled, surface, at, 6), 5);
+        }
+    }
+    assert_eq!(
+        shielded_directions, 1,
+        "only the upwind wall shields the sound source"
+    );
     let mut covered = state.clone();
     let roof = VoxelCoord::new(surface.x(), surface.y() + 3, surface.z());
     assert_eq!(covered.world().block_at(roof), Some(BlockStateId::AIR));
