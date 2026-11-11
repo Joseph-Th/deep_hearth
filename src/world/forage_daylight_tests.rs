@@ -10,17 +10,17 @@ fn odd_day_length_prices_actual_light_not_four_equal_quarters() {
     let original_fruit = Mass::from_milligrams(4_000);
 
     assert_eq!(
-        ripened_crop_for_calendar(short_day, reserve, original_fruit, RootMoisture::NoBasin, 0),
+        ripened_crop(short_day, reserve, original_fruit, RootMoisture::NoBasin, 0),
         Mass::from_milligrams(1_000),
         "unshaded plants retain their quarter-fruit crop across calendars"
     );
     assert_eq!(
-        ripened_crop_for_calendar(short_day, reserve, original_fruit, RootMoisture::NoBasin, 8),
+        ripened_crop(short_day, reserve, original_fruit, RootMoisture::NoBasin, 8),
         Mass::from_milligrams(210),
         "shaded plants receive 8 of 38 actual tick-level daylight units"
     );
     assert_eq!(
-        ripened_crop_for_calendar(
+        ripened_crop(
             authored_day,
             reserve,
             original_fruit,
@@ -31,7 +31,7 @@ fn odd_day_length_prices_actual_light_not_four_equal_quarters() {
         "the ordinary evenly divided day keeps its existing crop size"
     );
     assert_eq!(
-        ripened_crop_for_calendar(
+        ripened_crop(
             short_day,
             reserve,
             original_fruit,
@@ -41,7 +41,7 @@ fn odd_day_length_prices_actual_light_not_four_equal_quarters() {
         Mass::ZERO
     );
     assert_eq!(
-        ripened_crop_for_calendar(
+        ripened_crop(
             short_day,
             Mass::from_milligrams(100),
             original_fruit,

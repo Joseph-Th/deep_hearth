@@ -10,7 +10,9 @@ use crate::inventory::allocation::{
     ValidatedEmptyStockpileAllocation, validate_empty_stockpile_allocation,
 };
 use crate::inventory::{StockpileId, StockpileStorageProfile};
+use crate::logistics::{player_body_is_grounded, player_body_uses_generated_world};
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
+use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
 /// Failure while allocating one empty loose ground stockpile.
@@ -30,6 +32,7 @@ pub enum PlayerGroundStockpileAllocationError {
     PlayerDead,
     PlayerBusy,
     PreparedStrikeActive,
+    PlayerAirborne,
     Allocation(GroundStockpileAllocationError),
 }
 
@@ -46,6 +49,9 @@ impl Display for PlayerGroundStockpileAllocationError {
             Self::PreparedStrikeActive => formatter.write_str(
                 "player must lower the prepared weapon before allocating ground storage",
             ),
+            Self::PlayerAirborne => formatter.write_str(
+                "player cannot create a stationary ground stockpile while airborne in generated terrain",
+            ),
             Self::Allocation(error) => {
                 write!(formatter, "local ground storage allocation failed: {error}")
             }
@@ -60,7 +66,8 @@ impl Error for PlayerGroundStockpileAllocationError {
             Self::PlayerNotInitialized
             | Self::PlayerDead
             | Self::PlayerBusy
-            | Self::PreparedStrikeActive => None,
+            | Self::PreparedStrikeActive
+            | Self::PlayerAirborne => None,
         }
     }
 }
@@ -99,6 +106,8 @@ pub enum GroundStockpileAllocationCommitError {
     StaleCombatRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
+    StaleWorldRevision { expected: u64, actual: u64 },
+    StaleStructureRevision { expected: u64, actual: u64 },
     StandingTreeOccupied { position: VoxelCoord },
 }
 
@@ -125,6 +134,14 @@ impl Display for GroundStockpileAllocationCommitError {
                 formatter,
                 "ground stockpile allocation expected inventory revision {expected} but current revision is {actual}"
             ),
+            Self::StaleWorldRevision { expected, actual } => write!(
+                formatter,
+                "ground stockpile allocation expected world revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleStructureRevision { expected, actual } => write!(
+                formatter,
+                "ground stockpile allocation expected structural revision {expected} but current revision is {actual}"
+            ),
             Self::StandingTreeOccupied { position } => write!(
                 formatter,
                 "ground allocation cannot commit inside standing tree trunk at ({},{},{})",
@@ -144,6 +161,8 @@ impl Error for GroundStockpileAllocationCommitError {}
 pub struct ValidatedGroundStockpileAllocation {
     player_action: Option<PlayerActionGuard>,
     player_attention_revisions: Option<(u64, u64)>,
+    /// Ordinary player placement binds its footing; bootstrap allocations own no such claim.
+    player_footing_revisions: Option<(u64, u64)>,
     expected_logistics_revision: u64,
     next_logistics_revision: u64,
     position: VoxelCoord,
@@ -193,6 +212,24 @@ impl ValidatedGroundStockpileAllocation {
                     expected: expected_combat,
                     actual: actual_combat,
                 });
+            }
+        }
+        if let Some((expected_world, expected_structure)) = self.player_footing_revisions {
+            let actual_world = state.world().revision();
+            if actual_world != expected_world {
+                return Err(GroundStockpileAllocationCommitError::StaleWorldRevision {
+                    expected: expected_world,
+                    actual: actual_world,
+                });
+            }
+            let actual_structure = state.structures().revision();
+            if actual_structure != expected_structure {
+                return Err(
+                    GroundStockpileAllocationCommitError::StaleStructureRevision {
+                        expected: expected_structure,
+                        actual: actual_structure,
+                    },
+                );
             }
         }
         // A new generated tree can occupy the requested voxel without changing
@@ -261,6 +298,7 @@ pub(crate) fn validate_allocate_ground_stockpile(
     Ok(ValidatedGroundStockpileAllocation {
         player_action: None,
         player_attention_revisions: None,
+        player_footing_revisions: None,
         expected_logistics_revision,
         next_logistics_revision,
         position,
@@ -300,6 +338,7 @@ pub(crate) fn validate_allocate_player_ground_stockpile_at(
 /// The lower-level allocator remains available to world/bootstrap adapters that separately own why
 /// a custody record exists at a specific voxel.
 pub fn validate_allocate_player_ground_stockpile(
+    registries: &Registries,
     state: &AppState,
     capacity: Mass,
 ) -> Result<ValidatedGroundStockpileAllocation, PlayerGroundStockpileAllocationError> {
@@ -308,6 +347,21 @@ pub fn validate_allocate_player_ground_stockpile(
         .player()
         .map(|player| player.position())
         .ok_or(PlayerGroundStockpileAllocationError::PlayerNotInitialized)?;
-    validate_allocate_player_ground_stockpile_at(state, position, capacity)
+    let mut allocation = validate_allocate_player_ground_stockpile_at(state, position, capacity)?;
+    // This is a player-facing place-and-leave action, not bootstrap placement.
+    // An empty cache can receive material immediately, so creating it in open
+    // air would otherwise pin future stockpile custody at an unsupported voxel.
+    let locomotion = registries.survival().physiology().locomotion();
+    if player_body_uses_generated_world(state, locomotion)
+        && !player_body_is_grounded(registries, state)
+    {
+        return Err(PlayerGroundStockpileAllocationError::PlayerAirborne);
+    }
+    allocation.player_footing_revisions =
+        Some((state.world().revision(), state.structures().revision()));
+    Ok(allocation)
 }
 
+#[cfg(test)]
+#[path = "allocation_tests.rs"]
+mod tests;

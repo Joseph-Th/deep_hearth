@@ -658,13 +658,14 @@ fn component_maintenance_preserves_upgrade_and_exchanges_exact_embodied_trace() 
     assert_eq!(completion.condition_after(), Condition::PRISTINE);
     validate_loaded_state(&registries, &state)
         .unwrap_or_else(|error| panic!("component service final state audit failed: {error}"));
-    let recovery =
-        validate_allocate_player_ground_stockpile(&state, Mass::from_milligrams(1_020_000))
-            .unwrap_or_else(|error| panic!("component service recovery allocation failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| {
-                panic!("component service recovery allocation commit failed: {error}")
-            });
+    let recovery = validate_allocate_player_ground_stockpile(
+        &registries,
+        &state,
+        Mass::from_milligrams(1_020_000),
+    )
+    .unwrap_or_else(|error| panic!("component service recovery allocation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("component service recovery allocation commit failed: {error}"));
     let encoded =
         serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap_or_else(|error| {
             panic!("component service persistence serialization failed: {error}")

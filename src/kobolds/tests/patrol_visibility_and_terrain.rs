@@ -1077,7 +1077,7 @@ fn scout_event_at_dusk_does_not_use_the_previous_ticks_daylight() {
         .unwrap();
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     assert!(
-        crate::world::player_can_see_local_cell(&registries, &state, observer, junction),
+        crate::world::player_can_see_from_eye(&registries, &state, observer, junction),
         "the preceding dusk phase still provides real sky light"
     );
 
@@ -1092,7 +1092,7 @@ fn scout_event_at_dusk_does_not_use_the_previous_ticks_daylight() {
     assert_eq!(state.tick(), SimulationTick::new(dusk));
     assert_eq!(colony(&state).scout_position(), junction);
     assert!(
-        !crate::world::player_can_see_local_cell(&registries, &state, observer, junction),
+        !crate::world::player_can_see_from_eye(&registries, &state, observer, junction),
         "the settled night phase has no daylight or artificial illumination"
     );
     assert_eq!(
@@ -1126,22 +1126,22 @@ fn visible_scout_return_does_not_expose_cargo_abandoned_outside_sight() {
         den.y(),
         den.z() + 2 * (den.z() - junction.z()),
     );
-    assert!(crate::world::player_can_see_local_cell(
-        &registries,
-        &state,
-        observer,
-        den
-    ));
-    assert!(!crate::world::player_can_see_local_cell(
-        &registries,
-        &state,
-        observer,
-        junction
-    ));
     validate_admit_player(&registries, &state, observer)
         .unwrap()
         .commit(&mut state)
         .unwrap();
+    assert!(crate::world::player_can_see_from_eye(
+        &registries,
+        &state,
+        observer,
+        den,
+    ));
+    assert!(!crate::world::player_can_see_from_eye(
+        &registries,
+        &state,
+        observer,
+        junction,
+    ));
     advance_to_tick(&registries, &mut state, 194);
     let matter_before = calculate_matter_accounting(&state).unwrap().total();
     let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
@@ -1197,22 +1197,22 @@ fn witnessed_abandoned_cargo_remains_reported_when_scout_retires_out_of_sight() 
         junction.y(),
         junction.z() + 2 * (junction.z() - den.z()),
     );
-    assert!(crate::world::player_can_see_local_cell(
-        &registries,
-        &state,
-        observer,
-        junction
-    ));
-    assert!(!crate::world::player_can_see_local_cell(
-        &registries,
-        &state,
-        observer,
-        den
-    ));
     validate_admit_player(&registries, &state, observer)
         .unwrap()
         .commit(&mut state)
         .unwrap();
+    assert!(crate::world::player_can_see_from_eye(
+        &registries,
+        &state,
+        observer,
+        junction,
+    ));
+    assert!(!crate::world::player_can_see_from_eye(
+        &registries,
+        &state,
+        observer,
+        den,
+    ));
     advance_to_tick(&registries, &mut state, 194);
 
     let conserved = calculate_matter_accounting(&state).unwrap().total();

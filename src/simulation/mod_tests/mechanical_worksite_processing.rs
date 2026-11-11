@@ -298,19 +298,30 @@ fn player_runs_unattended_crusher_at_the_far_end_of_a_material_built_power_link(
 
     // The three finite ground bays are ordinarily allocated by the player.
     // Mined ore is deposited as one exact grade-preserving stack.
-    let feed = validate_allocate_player_ground_stockpile(&state, Mass::from_milligrams(150_000))
-        .unwrap()
-        .commit(&mut state)
-        .unwrap();
-    let out = validate_allocate_player_ground_stockpile(&state, Mass::from_milligrams(65_000))
-        .unwrap()
-        .commit(&mut state)
-        .unwrap();
-    let second_out =
-        validate_allocate_player_ground_stockpile(&state, Mass::from_milligrams(150_000))
-            .unwrap()
-            .commit(&mut state)
-            .unwrap();
+    let feed = validate_allocate_player_ground_stockpile(
+        &registries,
+        &state,
+        Mass::from_milligrams(150_000),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let out = validate_allocate_player_ground_stockpile(
+        &registries,
+        &state,
+        Mass::from_milligrams(65_000),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let second_out = validate_allocate_player_ground_stockpile(
+        &registries,
+        &state,
+        Mass::from_milligrams(150_000),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
     let stack = project_material_stacks(&registries, &state, carried)
         .unwrap()
         .into_iter()

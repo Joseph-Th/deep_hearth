@@ -766,7 +766,7 @@ fn unlit_generated_den_alarm_remains_audible_without_disclosing_its_exact_origin
         den,
         listener,
     ));
-    assert!(!crate::world::player_can_see_local_cell(
+    assert!(!crate::world::player_can_see_from_eye(
         &registries,
         &state,
         listener,

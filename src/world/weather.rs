@@ -324,16 +324,57 @@ pub(super) fn weather_at(
     }
 }
 
-/// Source-local outdoor wind for physical sound attenuation. Generated rock
-/// caverns are not exposed to surface gusts; missing chunk truth does not
-/// invent atmospheric masking for an unobserved place.
+/// Wind touching one physically open generated cell.
+///
+/// A roof stops direct sky exposure but does not seal the air beneath a
+/// one-cell overhang. Regional wind can still enter directly from a
+/// sky-exposed, unobstructed upwind neighbor. A real upwind wall, standing
+/// trunk, full-cell construction, or unknown chunk blocks that inlet.
+/// This is deliberately a one-face local airflow rule, not a simulated
+/// ventilation network through arbitrary underground corridors.
+pub(super) fn local_airflow_at(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    at: SimulationTick,
+) -> Option<PlayerWeather> {
+    if state
+        .world()
+        .full_cell_collision_at(registries.world(), position)
+        != Some(false)
+        || state.structures().blocks_full_cell(position)
+    {
+        return None;
+    }
+    let seed = state.world().generation_profile()?.seed().value();
+    let weather = weather_at(registries, seed, position, at);
+    if super::sky::has_open_sky(registries, state, position) {
+        return Some(weather);
+    }
+    let (dx, dz) = weather.wind_direction()?.delta();
+    let upwind = VoxelCoord::new(
+        position.x().checked_sub(dx)?,
+        position.y(),
+        position.z().checked_sub(dz)?,
+    );
+    (state
+        .world()
+        .full_cell_collision_at(registries.world(), upwind)
+        == Some(false)
+        && !state.structures().blocks_full_cell(upwind)
+        && super::sky::has_open_sky(registries, state, upwind))
+    .then_some(weather)
+}
+
+/// Source-local wind for physical sound attenuation. Caverns without a real
+/// upwind inlet cannot inherit surface gusts or mask otherwise audible sounds.
 pub(crate) fn wind_at_generated_position(
     registries: &Registries,
     state: &AppState,
     position: VoxelCoord,
     at: SimulationTick,
 ) -> Option<WindCondition> {
-    exposed_air_at(registries, state, position, at).map(PlayerWeather::wind)
+    local_airflow_at(registries, state, position, at).map(PlayerWeather::wind)
 }
 
 #[cfg(test)]

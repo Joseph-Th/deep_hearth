@@ -64,22 +64,24 @@ fn trusted_load_rejects_pending_meal_with_forged_spoiled_storage_history() {
 }
 
 #[test]
-fn trusted_load_rejects_pending_meal_below_authored_intake_minimum() {
+fn trusted_load_rejects_pending_meal_with_unreconciled_trace_mass() {
     let registries = build_registries();
     let minimum = minimum_meal_mass(&registries);
     let state = eating_state(&registries, minimum);
-    let below_minimum = minimum
+    let tampered_mass = minimum
         .checked_sub(Mass::from_milligrams(1))
-        .unwrap_or_else(|| panic!("pending meal minimum fixture underflowed"));
+        .unwrap_or_else(|| panic!("pending meal mass fixture underflowed"));
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("pending meal minimum serialization failed: {error}"));
     encoded["state"]["systems"]["survival"]["direct_consumption"]["pending"]["Eating"]["consumed"]
-        [0]["trace"]["mass"] = serde_json::json!(below_minimum.milligrams());
+        [0]["trace"]["mass"] = serde_json::json!(tampered_mass.milligrams());
 
     assert_eq!(
         decode_tampered(encoded, "pending-meal-below-minimum").into_state(&registries),
         Err(LoadError::InvalidState(StateValidationError::Survival(
-            SurvivalValidationError::PendingEatingMassBelowIntakeMinimum
+            SurvivalValidationError::PendingEatingAccountingMismatch {
+                material: MATERIAL_GRAIN,
+            }
         )))
     );
 }
@@ -343,22 +345,22 @@ fn trusted_load_rejects_pending_drink_duration_mismatch() {
 }
 
 #[test]
-fn trusted_load_rejects_pending_drink_below_authored_minimum() {
+fn trusted_load_rejects_pending_drink_inconsistent_with_consumed_water() {
     let registries = build_registries();
     let minimum = minimum_drink_volume(&registries);
     let state = drinking_state(&registries, minimum);
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))
         .unwrap_or_else(|error| panic!("pending-drink-minimum serialization failed: {error}"));
-    let below_minimum = minimum
+    let tampered_volume = minimum
         .checked_sub(Volume::from_microliters(1))
         .unwrap_or_else(|| panic!("pending-drink minimum fixture underflowed"));
     encoded["state"]["systems"]["survival"]["direct_consumption"]["pending"]["Drinking"]["volume"] =
-        serde_json::json!(below_minimum.microliters());
+        serde_json::json!(tampered_volume.microliters());
 
     assert_eq!(
         decode_tampered(encoded, "pending-drink-minimum").into_state(&registries),
         Err(LoadError::InvalidState(StateValidationError::Survival(
-            SurvivalValidationError::PendingDrinkingVolumeInvalid
+            SurvivalValidationError::PendingDrinkingAccountingMismatch { fluid: FLUID_WATER }
         )))
     );
 }

@@ -527,11 +527,11 @@ pub(super) fn acquire_raw_kit<T>(
         Some(raw_mass),
         "liberation generated opening must deliver exactly the disclosed raw kit demand into carried custody"
     );
-    let parts = validate_allocate_player_ground_stockpile(&state, raw_mass)
+    let parts = validate_allocate_player_ground_stockpile(registries, &state, raw_mass)
         .unwrap_or_else(|error| panic!("liberation parts allocation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("liberation parts allocation commit failed: {error}"));
-    let panel_feed = validate_allocate_player_ground_stockpile(&state, raw_mass)
+    let panel_feed = validate_allocate_player_ground_stockpile(registries, &state, raw_mass)
         .unwrap_or_else(|error| panic!("liberation panel-feed allocation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("liberation panel-feed allocation commit failed: {error}"));

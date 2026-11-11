@@ -8,7 +8,7 @@ use crate::core::time::SimulationTick;
 use crate::material::MaterialId;
 use crate::player::{PlayerActionGuard, PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
-use crate::spatial::{NANOMETERS_PER_VOXEL, VoxelCoord};
+use crate::spatial::VoxelCoord;
 
 use super::definitions::StructuralProfileId;
 use super::geometry::StructuralGeometryError;
@@ -290,6 +290,10 @@ pub enum PlanPlayerStructuralElementCommitError {
         expected: u64,
         actual: u64,
     },
+    StaleWorldRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleLogisticsRevision {
         expected: u64,
         actual: u64,
@@ -320,6 +324,10 @@ impl Display for PlanPlayerStructuralElementCommitError {
             Self::StaleStructureRevision { expected, actual } => write!(
                 formatter,
                 "structural revision changed from {expected} to {actual} before planning commit"
+            ),
+            Self::StaleWorldRevision { expected, actual } => write!(
+                formatter,
+                "world revision changed from {expected} to {actual} before structural planning commit"
             ),
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
@@ -364,6 +372,7 @@ pub struct ValidatedPlayerStructuralElementPlan {
     player_action: PlayerActionGuard,
     record: StructuralElementRecord,
     expected_tick: SimulationTick,
+    expected_world_revision: u64,
     expected_structure_revision: u64,
     expected_logistics_revision: u64,
     expected_player_position: VoxelCoord,
@@ -399,6 +408,12 @@ impl ValidatedPlayerStructuralElementPlan {
             return Err(PlanPlayerStructuralElementCommitError::TickChanged {
                 expected: self.expected_tick,
                 actual: state.tick(),
+            });
+        }
+        if state.world().revision() != self.expected_world_revision {
+            return Err(PlanPlayerStructuralElementCommitError::StaleWorldRevision {
+                expected: self.expected_world_revision,
+                actual: state.world().revision(),
             });
         }
         if state.structures().revision() != self.expected_structure_revision {
@@ -463,65 +478,10 @@ impl ValidatedPlayerStructuralElementPlan {
     }
 }
 
-pub(crate) fn bounds_are_within_player_reach(
-    registries: &Registries,
-    state: &AppState,
-    bounds: crate::spatial::VoxelBounds,
-) -> bool {
-    if bounds.voxel_count() != Some(1) {
-        return false;
-    }
-    let target = bounds.min();
-    if crate::logistics::player_body_occupies_voxel(registries, state, target) {
-        return false;
-    }
-    let Some(player) = state.logistics().player().copied() else {
-        return false;
-    };
-    let locomotion = registries.survival().physiology().locomotion();
-    let eye_height = match player.body().stance() {
-        crate::logistics::PlayerStance::Standing => locomotion.standing_eye_height(),
-        crate::logistics::PlayerStance::Crouching => locomotion.crouching_eye_height(),
-    };
-    let foot = player.body().foot_position();
-    let eye = [
-        i128::from(foot.x_nanometers()),
-        i128::from(foot.y_nanometers()) + i128::from(eye_height.micrometers()) * 1_000,
-        i128::from(foot.z_nanometers()),
-    ];
-    voxel_is_within_reach(
-        eye,
-        [target.x(), target.y(), target.z()],
-        u128::from(locomotion.interaction_reach().micrometers()) * 1_000,
-    )
-}
-
-fn voxel_is_within_reach(eye: [i128; 3], voxel: [i64; 3], reach: u128) -> bool {
-    // Authored reach fits signed world-point nanometers, so its square fits u128. Subtracting
-    // each axis square from the remaining radius budget also avoids intermediate sum overflow.
-    let mut remaining_squared = reach * reach;
-    for (point, coordinate) in eye.into_iter().zip(voxel) {
-        let minimum = i128::from(coordinate) * i128::from(NANOMETERS_PER_VOXEL);
-        let maximum = minimum + i128::from(NANOMETERS_PER_VOXEL);
-        let signed_distance = if point < minimum {
-            minimum - point
-        } else if point > maximum {
-            point - maximum
-        } else {
-            0
-        };
-        let distance = u128::try_from(signed_distance)
-            .unwrap_or_else(|_| unreachable!("voxel-to-eye distance is nonnegative"));
-        if distance > reach {
-            return false;
-        }
-        let Some(remaining) = remaining_squared.checked_sub(distance * distance) else {
-            return false;
-        };
-        remaining_squared = remaining;
-    }
-    true
-}
+mod reach;
+pub(crate) use reach::bounds_are_within_player_reach;
+#[cfg(test)]
+use reach::voxel_is_within_reach;
 
 fn validate_plan_player_structural_element(
     registries: &Registries,
@@ -598,6 +558,7 @@ fn validate_plan_player_structural_element(
         player_action,
         record: build_record(state, id, profile, material, geometry, supports.is_empty()),
         expected_tick: state.tick(),
+        expected_world_revision: state.world().revision(),
         expected_structure_revision: state.structures().revision(),
         expected_logistics_revision: state.logistics().revision(),
         expected_player_position: position,

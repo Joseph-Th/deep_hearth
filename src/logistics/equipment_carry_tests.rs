@@ -17,7 +17,10 @@ use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::spatial::VoxelCoord;
 
-use super::{PlayerEquipmentCarryError, validate_drop_equipment, validate_pickup_equipment};
+use super::{
+    PlayerEquipmentCarryCommitError, PlayerEquipmentCarryError, validate_drop_equipment,
+    validate_pickup_equipment,
+};
 
 const ORIGIN: VoxelCoord = VoxelCoord::new(0, 0, 0);
 const ROOM_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
@@ -291,4 +294,140 @@ fn equipment_pickup_rejects_existing_material_over_body_envelope_without_mutatio
         })
     );
     assert_eq!(state, before);
+}
+
+#[test]
+fn portable_tool_cannot_be_left_suspended_by_an_airborne_player() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::core::state::validate_loaded_state;
+    use crate::logistics::player_body_is_grounded;
+    use crate::matter::calculate_matter_accounting;
+    use crate::simulation::advance_control_tick;
+    use crate::world::{
+        ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
+        validate_generate_chunk,
+    };
+
+    let (registries, mut state, pick) = admitted_pick_fixture();
+    validate_pickup_equipment(&registries, &state, pick)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    // A valid player can leave a ledge and fall. Introduce the generated terrain
+    // after moving the controlled fixture above it, then use real gravity samples.
+    relocate_player_for_test(&mut state, VoxelCoord::new(5, 10, 5));
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0xB00C_CAEA),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let floor = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| state.world().block_at(VoxelCoord::new(5, y, 5)) == Some(BLOCK_STATE_STONE))
+        .unwrap();
+    relocate_player_for_test(&mut state, VoxelCoord::new(5, floor + 3, 5));
+    let _ = advance_control_tick(&registries, &mut state).unwrap();
+    assert!(!player_body_is_grounded(&registries, &state));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let before = state.clone();
+    assert_eq!(
+        validate_drop_equipment(&registries, &state, pick).err(),
+        Some(PlayerEquipmentCarryError::PlayerAirborne),
+        "a stationary tool would otherwise hang where the player was falling"
+    );
+    assert_eq!(state, before);
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for _ in 0..100 {
+        if player_body_is_grounded(&registries, &state) {
+            break;
+        }
+        let live = advance_control_tick(&registries, &mut state).unwrap();
+        let loaded = advance_control_tick(&registries, &mut replay).unwrap();
+        assert_eq!(live, loaded);
+        assert_eq!(state, replay);
+    }
+    assert!(player_body_is_grounded(&registries, &state));
+    for actor in [&mut state, &mut replay] {
+        validate_drop_equipment(&registries, actor, pick)
+            .unwrap()
+            .commit(actor)
+            .unwrap();
+        assert_eq!(
+            actor.logistics().stationary_equipment_position(pick),
+            Some(VoxelCoord::new(5, floor + 1, 5))
+        );
+        assert_eq!(
+            calculate_matter_accounting(actor).unwrap().total(),
+            conserved
+        );
+        assert_eq!(validate_loaded_state(&registries, actor), Ok(()));
+    }
+    assert_eq!(state, replay);
+}
+
+#[test]
+fn validated_equipment_drop_rejects_removed_footing_before_commit() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::logistics::player_body_is_grounded;
+    use crate::world::{
+        BlockStateId, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
+        set_generated_block_for_test, validate_generate_chunk,
+    };
+
+    let (registries, mut state, pick) = admitted_pick_fixture();
+    validate_pickup_equipment(&registries, &state, pick)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    relocate_player_for_test(&mut state, VoxelCoord::new(32, 40, 32));
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0xD0A5_F007),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let floor_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| state.world().block_at(VoxelCoord::new(5, y, 5)) == Some(BLOCK_STATE_STONE))
+        .unwrap();
+    relocate_player_for_test(&mut state, VoxelCoord::new(5, floor_y + 1, 5));
+    assert!(player_body_is_grounded(&registries, &state));
+    let drop = validate_drop_equipment(&registries, &state, pick).unwrap();
+    let expected_world_revision = state.world().revision();
+
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(5, floor_y, 5),
+        BlockStateId::AIR,
+    );
+    assert!(!player_body_is_grounded(&registries, &state));
+    let before = state.clone();
+    assert_eq!(
+        drop.commit(&mut state).err(),
+        Some(PlayerEquipmentCarryCommitError::StaleWorldRevision {
+            expected: expected_world_revision,
+            actual: before.world().revision(),
+        }),
+    );
+    assert_eq!(
+        state, before,
+        "rejected drop must not change either custody owner"
+    );
+    assert!(state.logistics().is_equipment_carried(pick));
 }

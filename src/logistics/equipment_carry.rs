@@ -10,6 +10,7 @@ use crate::inventory::{
     StockpileCapacityChangeCommitError, StockpileCapacityChangeError,
     ValidatedStockpileCapacityChange, validate_stockpile_capacity_change,
 };
+use crate::logistics::{player_body_is_grounded, player_body_uses_generated_world};
 use crate::player::{PlayerActionGuard, PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -19,6 +20,7 @@ pub enum PlayerEquipmentCarryError {
     PlayerNotAdmitted,
     PlayerDead,
     PlayerBusy,
+    PlayerAirborne,
     PreparedStrikeActive,
     UnknownEquipment {
         equipment: EquipmentId,
@@ -70,6 +72,9 @@ impl Display for PlayerEquipmentCarryError {
             Self::PlayerBusy => {
                 formatter.write_str("player cannot move equipment while work is active")
             }
+            Self::PlayerAirborne => formatter.write_str(
+                "player cannot leave stationary equipment suspended in generated terrain",
+            ),
             Self::PreparedStrikeActive => {
                 formatter.write_str("player must lower the prepared weapon before moving equipment")
             }
@@ -161,6 +166,8 @@ pub enum PlayerEquipmentCarryCommitError {
     StaleLogisticsRevision { expected: u64, actual: u64 },
     StaleCombatRevision { expected: u64, actual: u64 },
     StaleEquipmentRevision { expected: u64, actual: u64 },
+    StaleWorldRevision { expected: u64, actual: u64 },
+    StaleStructureRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
     CarriedCapacityChanged { expected: Mass, actual: Mass },
     PlayerBecameBusy,
@@ -185,6 +192,14 @@ impl Display for PlayerEquipmentCarryCommitError {
             Self::StaleEquipmentRevision { expected, actual } => write!(
                 formatter,
                 "equipment carry expected equipment revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleWorldRevision { expected, actual } => write!(
+                formatter,
+                "equipment drop expected world revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleStructureRevision { expected, actual } => write!(
+                formatter,
+                "equipment drop expected structural revision {expected} but current revision is {actual}"
             ),
             Self::StaleInventoryRevision { expected, actual } => write!(
                 formatter,
@@ -224,6 +239,8 @@ pub struct ValidatedPlayerEquipmentCarry {
     expected_equipment_revision: u64,
     expected_logistics_revision: u64,
     expected_combat_revision: u64,
+    /// Only dropping stationary equipment depends on the continued existence of footing.
+    drop_footing_revisions: Option<(u64, u64)>,
     next_logistics_revision: u64,
     direction: EquipmentCarryDirection,
     capacity: ValidatedStockpileCapacityChange,
@@ -265,6 +282,22 @@ impl ValidatedPlayerEquipmentCarry {
             return Err(PlayerEquipmentCarryCommitError::EquipmentBecameBusy {
                 equipment: self.equipment,
             });
+        }
+        if let Some((expected_world, expected_structure)) = self.drop_footing_revisions {
+            let actual_world = state.world().revision();
+            if actual_world != expected_world {
+                return Err(PlayerEquipmentCarryCommitError::StaleWorldRevision {
+                    expected: expected_world,
+                    actual: actual_world,
+                });
+            }
+            let actual_structure = state.structures().revision();
+            if actual_structure != expected_structure {
+                return Err(PlayerEquipmentCarryCommitError::StaleStructureRevision {
+                    expected: expected_structure,
+                    actual: actual_structure,
+                });
+            }
         }
         self.capacity.precheck(state).map_err(|error| match error {
             StockpileCapacityChangeCommitError::StaleInventoryRevision { expected, actual } => {
@@ -422,6 +455,7 @@ pub fn validate_pickup_equipment(
         expected_equipment_revision: state.equipment().revision(),
         expected_logistics_revision,
         expected_combat_revision: state.combat().revision(),
+        drop_footing_revisions: None,
         next_logistics_revision,
         direction: EquipmentCarryDirection::Pickup { position },
         capacity,
@@ -436,6 +470,15 @@ pub fn validate_drop_equipment(
     let (action, mass) = common_validation(registries, state, equipment)?;
     if !state.logistics().is_equipment_carried(equipment) {
         return Err(PlayerEquipmentCarryError::NotCarried { equipment });
+    }
+    // Stationary equipment has voxel custody but no gravity simulation. Do
+    // not freeze carried matter at an unsupported falling position; headless
+    // opening-graph fixtures do not have generated floor authority.
+    let locomotion = registries.survival().physiology().locomotion();
+    if player_body_uses_generated_world(state, locomotion)
+        && !player_body_is_grounded(registries, state)
+    {
+        return Err(PlayerEquipmentCarryError::PlayerAirborne);
     }
     let player = state
         .logistics()
@@ -471,6 +514,7 @@ pub fn validate_drop_equipment(
         expected_equipment_revision: state.equipment().revision(),
         expected_logistics_revision,
         expected_combat_revision: state.combat().revision(),
+        drop_footing_revisions: Some((state.world().revision(), state.structures().revision())),
         next_logistics_revision,
         direction: EquipmentCarryDirection::Drop {
             position: player.position(),

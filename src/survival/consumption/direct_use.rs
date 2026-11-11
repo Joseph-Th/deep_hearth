@@ -11,14 +11,14 @@ use crate::material::CommodityKey;
 use crate::registry::Registries;
 use crate::survival::Vitality;
 
-use super::{
-    EatError, MealMetabolicProjectionError, ValidatedEat, project_minimum_meal_to_metabolic_target,
-};
+use super::{EatError, MealMetabolicProjectionError, ValidatedEat};
 
 mod drink;
 mod lot;
 mod portions;
-use super::eating::validate_eat_with_mode;
+use super::eating::{
+    project_minimum_meal_to_metabolic_target_for_available_source, validate_eat_with_mode,
+};
 pub use drink::{
     DrinkStoreToTargetError, validate_drink_store_to_full, validate_drink_store_to_hydration_target,
 };
@@ -212,7 +212,7 @@ fn validate_eat_stack_up_to(
     let direct = registries.survival().physiology().direct_consumption();
     let available = stack.mass();
     let portion = desired.min(available).min(direct.maximum_meal_mass());
-    if portion < direct.minimum_meal_mass() {
+    if portion < direct.minimum_meal_mass() && portion != available {
         return Err(EatStackToTargetError::InsufficientStackMass {
             available,
             required: direct.minimum_meal_mass(),
@@ -269,11 +269,12 @@ fn validate_eat_stack_to_metabolic_target_with_mode(
         })?;
     let effective_metabolic_energy =
         metabolic_energy_after_pending_locomotion(state, player.metabolic_energy());
-    let projected = project_minimum_meal_to_metabolic_target(
+    let projected = project_minimum_meal_to_metabolic_target_for_available_source(
         registries.survival().physiology(),
         food,
         effective_metabolic_energy,
         target,
+        stack.mass(),
     )
     .map_err(EatStackToTargetError::Projection)?;
     let Some(projected) = projected else {

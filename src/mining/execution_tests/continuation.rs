@@ -614,13 +614,14 @@ fn awaiting_settlement_mining_job_keeps_historical_tool_physics_after_tool_upgra
         "mining trace",
     );
 
-    let reinforcement_source =
-        validate_allocate_player_ground_stockpile(&state, Mass::from_milligrams(20_000))
-            .unwrap_or_else(|error| panic!("mining trace reinforcement allocation failed: {error}"))
-            .commit(&mut state)
-            .unwrap_or_else(|error| {
-                panic!("mining trace reinforcement allocation commit failed: {error}")
-            });
+    let reinforcement_source = validate_allocate_player_ground_stockpile(
+        &registries,
+        &state,
+        Mass::from_milligrams(20_000),
+    )
+    .unwrap_or_else(|error| panic!("mining trace reinforcement allocation failed: {error}"))
+    .commit(&mut state)
+    .unwrap_or_else(|error| panic!("mining trace reinforcement allocation commit failed: {error}"));
     deposit_lot_for_test(
         &registries,
         &mut state,

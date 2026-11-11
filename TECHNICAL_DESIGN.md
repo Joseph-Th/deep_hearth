@@ -157,16 +157,19 @@ use selects a store only if the canonical fuel validator admits exactly one.
 Full or occupied stores cannot mask that sole usable destination; multiple
 admissible stores remain an explicit choice, and a lone blocked store retains
 its specific rejection.
-The empty-hand contextual action does not let visible but sub-minimum water
-remainders, an inadmissible local withdrawal, a full hydration reserve, or
-an unusable gathering source block an otherwise valid local gather.
+The empty-hand contextual action does not let an inadmissible local withdrawal,
+a full hydration reserve, or an unusable gathering source block an otherwise
+valid local gather. The drinking owner allows a sub-serving sip only when it
+exhausts the actual finite source; this final remnant is a real admissible water
+choice and therefore competes with gathering or other viable water sources.
 When the admitted player's hydration is full and gathering offers no action,
 multiple local water stores yield the same no-op rather than a false source
 ambiguity. A surviving logistics-only fixture without a survival actor does
 not acquire that satisfaction state.
 Those stores remain observable; without gathering, the direct drinking path
-still reports its specific insufficiency or already-satisfied outcome. A real
-drink serving and a gatherable source remain explicitly ambiguous.
+reports a source-specific rejection when withdrawal is impossible or an
+already-satisfied outcome when no drink is needed. Any admissible drink,
+including a complete final remnant, and a gatherable source remain explicitly ambiguous.
 At a simultaneous voxel-face crossing, physical tree trunks take occlusion priority over
 otherwise selectable adjacent air targets, as do solid blocks and embodied full-cell panels.
 Material-backed storage enclosure construction checks live opening and temple resident occupancy
@@ -346,10 +349,15 @@ queried. Distinct kinds can share an original tick, so an audio adapter must
 not deduplicate solely by timestamp. The scout likewise reacts to actual
 grounded sprint-speed player movement audible from its current position, not
 to remote player coordinates or stationary intent. Outdoor regional gusts
-reduce footfall and running-hearing distance, using wind at the real sound
-source and event time; caves and physically roofed sources retain their
-unmuffled sheltered-air path. This is a renderer-neutral consequence, not
-an implemented sound mixer, wildlife chorus or general acoustic simulation.
+reduce footfall and running-hearing distance using source-local airflow at
+the actual event time. Open sky admits wind directly; beneath a roof it can
+still enter from an immediately adjacent, unobstructed upwind sky opening.
+An actual windbreak or extended roof prevents that inlet, so sheltered
+caverns retain their unmuffled sound path. The same physical-air rule drives
+distant windborne berry and nut scent, while nearby food remains smellable
+through bounded face-connected air diffusion without revealing source
+coordinates. No persistent ventilation network or general acoustic
+simulation is claimed.
 
 ### Opening-resident water need
 
@@ -391,7 +399,7 @@ or whether the caller is crossing an ownership boundary it does not control.
 ## Global runtime facts
 
 - `ControlTick` is the persisted high-frequency direct-control/kinematic clock at 20 Hz (50 ms). `SimulationTick` is the persisted slow physical/accounting/calendar clock; exactly 72 control ticks form one 3.6-second simulation quantum. `TickSpan` remains relative slow-simulation duration.
-- The built-in calendar maps 24,000 simulation ticks to 86,400 seconds. Calendar acceleration therefore does not define the direct-control timestep.
+- The built-in calendar maps 24,000 simulation ticks to 86,400 seconds. Calendar acceleration therefore does not define the direct-control timestep. Outdoor skylight follows four integer day phases; perennial crop exposure weights their actual tick durations rather than assuming a valid calendar always divides evenly into quarters. The ripening transfer still draws only from finite root biomass.
 - Rate-authored slow physics integrate against the 3.6-second physical simulation quantum. Slow-owned survival, production, mining-job, thermal, storage-age, and similar `TickSpan` schedules remain on that exact accounting clock. Responsive block excavation is an explicit exception: its authored `TickSpan` duration, exertion, and wear are converted to exact `ControlTick` substeps with cumulative rounding that preserves the whole authored total.
 - Work scheduled directly in `TickSpan` may be admitted only on an exact control/simulation boundary. Validation tokens that create such slow work bind the exact `ControlTick`, so a validate/commit race across a 50 ms control advance cannot shorten the authored interval. Responsive operations that explicitly convert an authored span to exact control time, currently block excavation, may admit off-boundary while preserving the same physical total.
 - Familiar one-shot direct input is not discarded merely because its slow owner cannot admit work on that control sample. Logistics may persist exactly one off-boundary direct-action request while reserving the revision required to clear it. Contextual use stores request tick, current voxel, active selection, and fixed-point view direction; structural break additionally stores the exact targeted member so delayed admission cannot turn into terrain excavation or a replacement-member action. The next slow boundary clears the buffer and re-resolves the canonical action against current owner state; changed locality, selection, or structural target yields a context-change outcome rather than stale authorization. Fresh same-kind boundary input supersedes older buffered intent. A persistable state may contain that buffer only before its due boundary.
@@ -453,9 +461,16 @@ actor when survival is initialized. The root locality query enforces that condit
 the authoritative logistics position: a dead body still occupies its physical
 location and its carried matter remains recoverable at respawn. Logistics-only
 capability fixtures retain resource observations, but resident sightings and
-patrol reports still require a living survival actor. Resident water eligibility
-uses the same authored drink temperature range as player drinking, while finite
-withdrawal and its structural load remain owned by the fluid system.
+patrol reports still require a living survival actor. Generated-world local sight
+for resources, water, residents, tracks and witnessed event details originates at
+the stance-dependent continuous player eye shared with block targeting. An
+illuminated lower cell at the local horizontal limit remains visible when both
+eye-height and lower-height paths are clear. A low opening beneath an opaque
+overhang does not grant a separate feet-height viewpoint.
+
+Resident water eligibility uses the same authored drink temperature range as player
+drinking, while finite withdrawal and its structural load remain owned by the
+fluid system.
 
 The survival owner's thermal comfort is a finite short-horizon reserve. Open-air or
 overhead-covered exposure spends comfort on each slow tick, and local dissipated heat
@@ -1021,16 +1036,18 @@ survival + logistics + carried inventory -> atomic ordinary player admission
 ```
 
 When multiple straight shaft runs compete for a roller or an endpoint store, the tick planner
-compares their feasible whole-energy deliveries without reserving shared capacity first. Each
-connected conflict group of at most 16 candidate transfers is arbitrated for greatest aggregate
-useful delivery, then lowest aggregate source draw and stable candidate priority. Larger groups
-compare greedy ranking with an exact optimum of their first 16 ranked candidates, completed with
-any further compatible paths, before up to two rounds of beneficial single-shaft and bounded
-paired-shaft replacements. Retaining the small exact optimum prevents a weak seventeenth path
-from discarding the stronger four-path delivery that requires three incumbent paths to be released
-together. The larger-group search remains an approximation, not an unbounded exact solver.
-Disjoint runs can use distinct stores at the same endpoint, receipts retain stable physical-run
-order, and no roller or store contributes to more than one transfer in a tick.
+compares feasible whole-energy deliveries before reserving shared capacity. Ranked candidates
+incrementally join physical conflict components. Components with at most 16 transfers receive
+exact maximum-delivery arbitration, breaking ties by lower source draw and stable priority. For
+larger groups, feasible accepted work is retained across candidate additions and component merges:
+a weaker shaft cannot reduce aggregate delivery merely by changing the conflict graph. Cached
+store and roller occupancy admits disjoint new paths without rescanning every old candidate.
+Rejected paths may trigger bounded one- and two-incumbent exchanges; newly merged large groups
+and the first exact-to-bounded transition also compare an exact 16-candidate baseline, greedy
+completion, and bounded weak-connector partitions. These larger searches are approximations, not
+unbounded optimal solvers, and adopt only strictly better delivered work or equal work with less
+draw. Disjoint runs can use distinct stores at the same endpoint, receipts retain stable
+physical-run order, and no roller or store contributes to more than one transfer in a tick.
 
 Slow-tick shaft transmission spends an energy-owner revision only after accounting for future
 production and manual-power completion reservations and unavoidable same-tick passive loss.
@@ -1279,6 +1296,13 @@ stationary assets, and structural elements, and a `FullCube` terrain block direc
 This contact rule belongs to player interaction, not the general-purpose stockpile custody allocator. It checks
 support at placement time only: later terrain removal and general terrain-dependent structural collapse are not
 currently modeled.
+
+Player-created loose ground stockpiles, portable-equipment drops, and stationary energy-store assembly in
+generated terrain require a grounded body at validation. Their deferred commit tokens bind the world and
+structural revisions used to establish that footing, and reject changed ground conditions before allocating
+custody or consuming assembly material. Ordinary pickup and world/bootstrap allocation do not claim this
+footing dependency. This guards the validation-to-commit interval; it does not simulate gravity or collapse
+for stationary assets after successful placement.
 
 Slow `TickSpan` player work may start in generated-world body mode only at an exact control/simulation boundary
 while the body is grounded and horizontally stopped. Ordinary player locomotion has no separate slow-work movement

@@ -42,7 +42,7 @@ pub(super) fn settle_scout_visit_care(
     let (heard_junk_alarm, alarm_pulses) = apply_watchman_tick(registries, state, at);
     // Preserve the witnessed source even if the scout later moves out of sight.
     let care_visible = observer.is_some_and(|player| {
-        crate::world::player_can_see_local_cell_at(registries, state, player, from, at)
+        crate::world::player_can_see_from_eye_at(registries, state, player, from, at)
     });
     // Discard and cache clearing release matter into a neighboring cell. Seeing
     // care at the den cannot reveal the ID of a parcel now outside sight.
@@ -51,7 +51,7 @@ pub(super) fn settle_scout_visit_care(
         care_visible
             && observer.is_some_and(|player| {
                 state.surface().get(*id).is_some_and(|record| {
-                    crate::world::player_can_see_local_cell_at(
+                    crate::world::player_can_see_from_eye_at(
                         registries,
                         state,
                         player,

@@ -556,7 +556,10 @@ fn direct_consumption_duration_scales_with_exact_quantity() {
         definition.meal_duration(Mass::from_milligrams(10)),
         Some(TickSpan::new(1))
     );
-    assert_eq!(definition.meal_duration(Mass::from_milligrams(9)), None);
+    assert_eq!(
+        definition.meal_duration(Mass::from_milligrams(9)),
+        Some(TickSpan::new(1))
+    );
     assert_eq!(definition.meal_duration(Mass::ZERO), None);
     assert_eq!(definition.meal_duration(Mass::from_milligrams(1_001)), None);
     assert_eq!(

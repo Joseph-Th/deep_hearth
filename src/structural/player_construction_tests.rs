@@ -18,12 +18,15 @@ use crate::player::validate_admit_player;
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
-    CancelPlayerStructuralPlanError, GroundedStructuralElementPlan,
-    PlanPlayerStructuralElementError, StructuralElementGeometry, SupportedStructuralElementPlan,
+    CancelPlayerStructuralPlanCommitError, CancelPlayerStructuralPlanError,
+    GroundedStructuralElementPlan, PlanPlayerStructuralElementCommitError,
+    PlanPlayerStructuralElementError, PlayerStructuralDismantlingCommitError,
+    PlayerStructuralDismantlingError, StructuralElementGeometry, SupportedStructuralElementPlan,
     add_structural_element, materialize_structural_element_for_test,
     validate_activate_structural_element, validate_cancel_player_structural_plan,
     validate_plan_player_grounded_structural_element,
     validate_plan_player_supported_structural_element,
+    validate_start_player_structural_dismantling,
 };
 use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec, insert_surface_resource_for_test};
 use crate::survival::{Vitality, player_record};
@@ -33,6 +36,204 @@ use crate::world::{
 };
 
 const MEMBER_MASS_MG: u64 = 6_500_000;
+
+#[test]
+fn generated_wall_prevents_structural_work_through_solid_terrain() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let spawn = VoxelCoord::new(0, 0, 0);
+    let target = VoxelCoord::new(2, 0, 0);
+    let wall = VoxelCoord::new(1, 1, 0);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    for x in 0..=2 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(x, -1, 0),
+            BLOCK_STATE_STONE,
+        );
+        for y in 0..=2 {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut state,
+                VoxelCoord::new(x, y, 0),
+                BlockStateId::AIR,
+            );
+        }
+    }
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let geometry = StructuralElementGeometry::new(
+        VoxelBounds::new(target, VoxelCoord::new(3, 1, 1)).unwrap(),
+        Length::from_micrometers(2_000_000),
+        Area::from_square_millimeters(5_000),
+    )
+    .unwrap();
+    let plan = GroundedStructuralElementPlan::new(
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+    );
+    let blueprint = validate_plan_player_grounded_structural_element(&registries, &state, plan)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let log = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(MEMBER_MASS_MG),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let selection = [MaterialLotSelection::new(
+        log,
+        Mass::from_milligrams(MEMBER_MASS_MG),
+    )];
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let pending_construction = validate_start_player_structural_construction(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        blueprint,
+        &selection,
+    )
+    .unwrap();
+    let pending_plan =
+        validate_plan_player_grounded_structural_element(&registries, &state, plan).unwrap();
+    let pending_cancel =
+        validate_cancel_player_structural_plan(&registries, &state, blueprint).unwrap();
+    let expected_world = state.world().revision();
+
+    set_generated_block_for_test(registries.world(), &mut state, wall, BLOCK_STATE_STONE);
+    let actual_world = state.world().revision();
+    let before = state.clone();
+    assert_eq!(
+        pending_plan.commit(&mut state),
+        Err(PlanPlayerStructuralElementCommitError::StaleWorldRevision {
+            expected: expected_world,
+            actual: actual_world,
+        }),
+    );
+    assert_eq!(
+        pending_cancel.commit(&mut state),
+        Err(CancelPlayerStructuralPlanCommitError::StaleWorldRevision {
+            expected: expected_world,
+            actual: actual_world,
+        }),
+    );
+    assert_eq!(
+        pending_construction.commit(&mut state),
+        Err(PlayerStructuralConstructionCommitError::Material(
+            StructuralConstructionCommitError::StaleWorldRevision {
+                expected: expected_world,
+                actual: actual_world,
+            }
+        )),
+    );
+    assert_eq!(
+        validate_start_player_structural_construction(
+            &registries,
+            &state,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+            blueprint,
+            &selection,
+        )
+        .err(),
+        Some(PlayerStructuralConstructionError::ElementOutOfReach { element: blueprint }),
+    );
+    assert_eq!(
+        validate_plan_player_grounded_structural_element(&registries, &state, plan).err(),
+        Some(PlanPlayerStructuralElementError::TargetOutOfReach { player: spawn }),
+    );
+    assert_eq!(
+        validate_cancel_player_structural_plan(&registries, &state, blueprint).err(),
+        Some(CancelPlayerStructuralPlanError::ElementOutOfReach { element: blueprint }),
+    );
+    assert_eq!(state, before);
+
+    set_generated_block_for_test(registries.world(), &mut state, wall, BlockStateId::AIR);
+    let cancelled = validate_cancel_player_structural_plan(&registries, &state, blueprint)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(cancelled, blueprint);
+
+    // The same LOS rule applies after real materialization and activation, not
+    // merely to empty blueprints. Complete a legitimate build, then obstruct
+    // the player before the dismantling token is committed.
+    let built_blueprint =
+        validate_plan_player_grounded_structural_element(&registries, &state, plan)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    let work = validate_start_player_structural_construction(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        built_blueprint,
+        &selection,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    while state.tick() < work.completes_at() {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    let pending_dismantling = validate_start_player_structural_dismantling(
+        &registries,
+        &state,
+        built_blueprint,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    )
+    .unwrap();
+    let expected_world = state.world().revision();
+    set_generated_block_for_test(registries.world(), &mut state, wall, BLOCK_STATE_STONE);
+    let actual_world = state.world().revision();
+    let before = state.clone();
+    assert_eq!(
+        pending_dismantling.commit(&mut state),
+        Err(PlayerStructuralDismantlingCommitError::StaleWorldRevision {
+            expected: expected_world,
+            actual: actual_world,
+        }),
+    );
+    assert_eq!(
+        validate_start_player_structural_dismantling(
+            &registries,
+            &state,
+            built_blueprint,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        )
+        .err(),
+        Some(PlayerStructuralDismantlingError::ElementOutOfReach {
+            element: built_blueprint,
+        }),
+    );
+    assert_eq!(state, before);
+    set_generated_block_for_test(registries.world(), &mut state, wall, BlockStateId::AIR);
+    let _ = validate_start_player_structural_dismantling(
+        &registries,
+        &state,
+        built_blueprint,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    )
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
 
 fn local_member_geometry() -> StructuralElementGeometry {
     let bounds = VoxelBounds::new(VoxelCoord::new(1, 0, 0), VoxelCoord::new(2, 1, 1))

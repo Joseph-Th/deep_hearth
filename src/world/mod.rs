@@ -59,8 +59,8 @@ pub use generation::{
     validate_generate_chunk, validate_generate_player_neighborhood,
 };
 pub(crate) use local_visibility::{
-    has_clear_two_step_sightline, nearby_two_step_cells, player_can_see_local_cell,
-    player_can_see_local_cell_at, within_manhattan_reach,
+    has_clear_two_step_sightline, nearby_two_step_cells, player_can_see_from_eye,
+    player_can_see_from_eye_at, within_manhattan_reach,
 };
 pub use sky::assess_generated_skylight;
 pub(crate) use sky::is_generated_night;
@@ -72,6 +72,7 @@ pub use state::{
     CHUNK_SIDE, ChunkCoord, SECTION_CELL_COUNT, SECTION_SIDE, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y,
     WorldChunk, WorldSection, WorldState,
 };
+pub(crate) use targeting::player_eye_voxel;
 pub use targeting::{PlayerBlockTarget, PlayerBlockTargetError, raycast_player_block};
 pub(crate) use targeting::{raycast_player_air_voxel, raycast_player_air_voxel_with_reach};
 pub use transplant::{

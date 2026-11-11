@@ -11,10 +11,8 @@ use crate::material::CommodityKey;
 use crate::registry::Registries;
 use crate::survival::Vitality;
 
-use super::super::{
-    EatError, MealMetabolicProjectionError, ValidatedEat, project_minimum_meal_to_metabolic_target,
-    validate_eat,
-};
+use super::super::eating::project_minimum_meal_to_metabolic_target_for_available_source;
+use super::super::{EatError, MealMetabolicProjectionError, ValidatedEat, validate_eat};
 use super::{metabolic_energy_after_pending_locomotion, selected_food_dietary_refill_mass};
 
 /// Failure while composing a selected physical food lot into an exact eating transaction.
@@ -147,7 +145,7 @@ fn validate_eat_lot_up_to(
     let direct = registries.survival().physiology().direct_consumption();
     let available = lot_record.mass();
     let portion = desired.min(available).min(direct.maximum_meal_mass());
-    if portion < direct.minimum_meal_mass() {
+    if portion < direct.minimum_meal_mass() && portion != available {
         return Err(EatLotToTargetError::InsufficientLotMass {
             lot,
             available,
@@ -198,11 +196,12 @@ pub fn validate_eat_lot_to_metabolic_target(
         .ok_or(EatLotToTargetError::NotEdible {
             commodity: lot_record.commodity(),
         })?;
-    let projected = project_minimum_meal_to_metabolic_target(
+    let projected = project_minimum_meal_to_metabolic_target_for_available_source(
         registries.survival().physiology(),
         food,
         metabolic_energy_after_pending_locomotion(state, player.metabolic_energy()),
         target,
+        lot_record.mass(),
     )
     .map_err(EatLotToTargetError::Projection)?;
     let Some(projected) = projected else {

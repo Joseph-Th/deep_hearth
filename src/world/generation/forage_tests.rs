@@ -150,8 +150,10 @@ fn generated_forage_is_one_local_physical_opportunity_not_an_infinite_refill() {
     let mut visibility = state.clone();
     let middle = VoxelCoord::new(position.x() + 1, position.y(), position.z());
     let observer = VoxelCoord::new(position.x() + 2, position.y(), position.z());
+    let overhead = VoxelCoord::new(middle.x(), middle.y() + 1, middle.z());
     for cell in [
         middle,
+        overhead,
         observer,
         VoxelCoord::new(observer.x(), observer.y() + 1, observer.z()),
     ] {
@@ -170,6 +172,34 @@ fn generated_forage_is_one_local_physical_opportunity_not_an_infinite_refill() {
         )
         .any(|sighting| sighting.resource() == source_id),
         "two-cell unobstructed local evidence should be visible"
+    );
+    crate::world::set_generated_block_for_test(
+        registries.world(),
+        &mut visibility,
+        overhead,
+        BLOCK_STATE_STONE,
+    );
+    assert!(
+        crate::surface::AdjacentSurfaceResource::visible_in_generated_world(
+            &registries,
+            &visibility
+        )
+        .all(|sighting| sighting.resource() != source_id),
+        "an opaque eye-height overhang hides a low forage opportunity"
+    );
+    crate::world::set_generated_block_for_test(
+        registries.world(),
+        &mut visibility,
+        overhead,
+        BlockStateId::AIR,
+    );
+    assert!(
+        crate::surface::AdjacentSurfaceResource::visible_in_generated_world(
+            &registries,
+            &visibility
+        )
+        .any(|sighting| sighting.resource() == source_id),
+        "removing the overhang restores the real sightline"
     );
     crate::world::set_generated_block_for_test(
         registries.world(),

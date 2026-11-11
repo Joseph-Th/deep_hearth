@@ -230,7 +230,9 @@ impl DirectConsumptionDefinition {
 
     #[must_use]
     pub fn meal_duration(self, mass: Mass) -> Option<TickSpan> {
-        if mass < self.minimum_meal_mass || mass > self.maximum_meal_mass {
+        // A fully exhausted food lot can contain less than one ordinary serving.
+        // Its finite eating time still needs a valid persisted work schedule.
+        if mass.is_zero() || mass > self.maximum_meal_mass {
             return None;
         }
         Some(Self::scaled_duration(

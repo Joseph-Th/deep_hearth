@@ -67,9 +67,10 @@ fn spring_survey_selects_the_wettest_reachable_basin_at_spatial_boundaries() {
 
 #[test]
 fn exhausted_basin_does_not_make_a_rooted_crop_worse_than_no_basin() {
+    let calendar = build_registries().core().calendar();
     let roots = Mass::from_milligrams(200_000_000);
     let original_fruit = Mass::from_milligrams(100_000_000);
-    let crop = |moisture| ripened_crop(roots, original_fruit, moisture, 0);
+    let crop = |moisture| ripened_crop(calendar, roots, original_fruit, moisture, 0);
 
     let no_basin = crop(RootMoisture::NoBasin);
     let empty_basin = crop(RootMoisture::Basin { fraction_ppm: 0 });
@@ -86,6 +87,7 @@ fn exhausted_basin_does_not_make_a_rooted_crop_worse_than_no_basin() {
 
     let maximum = Mass::from_milligrams(u64::MAX);
     let maximum_crop = ripened_crop(
+        calendar,
         maximum,
         maximum,
         RootMoisture::Basin {

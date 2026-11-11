@@ -168,6 +168,10 @@ impl Error for PlayerStructuralDismantlingError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerStructuralDismantlingCommitError {
+    StaleWorldRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleStructureRevision {
         expected: u64,
         actual: u64,
@@ -193,6 +197,10 @@ pub enum PlayerStructuralDismantlingCommitError {
 impl Display for PlayerStructuralDismantlingCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleWorldRevision { expected, actual } => write!(
+                formatter,
+                "structural dismantling expected world revision {expected} but current revision is {actual}"
+            ),
             Self::StaleStructureRevision { expected, actual } => write!(
                 formatter,
                 "structural dismantling expected structure revision {expected} but current revision is {actual}"
@@ -241,7 +249,8 @@ impl Error for PlayerStructuralDismantlingCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Work(error) => Some(error),
-            Self::StaleStructureRevision { .. }
+            Self::StaleWorldRevision { .. }
+            | Self::StaleStructureRevision { .. }
             | Self::StaleLogisticsRevision { .. }
             | Self::StaleInventoryRevision { .. }
             | Self::PlayerMoved { .. }

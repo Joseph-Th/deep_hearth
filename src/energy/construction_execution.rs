@@ -12,7 +12,10 @@ use crate::inventory::{
     validate_stockpile_stored_mass_changes, validate_temperature_limited_consumption_selection,
     validate_unreserved_stockpile_structural_load_headroom,
 };
-use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
+use crate::logistics::{
+    PlayerStockpileAccessError, player_body_is_grounded, player_body_uses_generated_world,
+    validate_player_stockpile_access,
+};
 use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE};
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
@@ -25,6 +28,7 @@ use super::{EnergyStoreDefinitionId, EnergyStoreId};
 pub enum EnergyStoreAssemblyError {
     PlayerDead,
     PlayerBusy,
+    PlayerAirborne,
     PreparedStrikeActive,
     Access(PlayerStockpileAccessError),
     UnknownDefinition {
@@ -68,6 +72,9 @@ impl Display for EnergyStoreAssemblyError {
             Self::PlayerBusy => {
                 formatter.write_str("player cannot assemble energy storage while work is active")
             }
+            Self::PlayerAirborne => formatter.write_str(
+                "player cannot assemble stationary energy storage while airborne in generated terrain",
+            ),
             Self::PreparedStrikeActive => formatter.write_str(
                 "player must lower the prepared weapon before assembling energy storage",
             ),
@@ -149,6 +156,7 @@ impl Error for EnergyStoreAssemblyError {
             Self::StructuralLoad(error) => Some(error),
             Self::PlayerDead
             | Self::PlayerBusy
+            | Self::PlayerAirborne
             | Self::PreparedStrikeActive
             | Self::UnknownDefinition { .. }
             | Self::NoAssemblyProfile { .. }
@@ -171,6 +179,8 @@ pub enum EnergyStoreAssemblyCommitError {
     StaleCombatRevision { expected: u64, actual: u64 },
     StaleSurvival { expected: u64, actual: u64 },
     StaleLogistics { expected: u64, actual: u64 },
+    StaleWorld { expected: u64, actual: u64 },
+    StaleStructures { expected: u64, actual: u64 },
     StaleInventory { expected: u64, actual: u64 },
     StaleEnergy { expected: u64, actual: u64 },
     Structure(StructuralCommitError),
@@ -193,6 +203,14 @@ impl Display for EnergyStoreAssemblyCommitError {
             Self::StaleLogistics { expected, actual } => write!(
                 formatter,
                 "energy-store construction expected logistics revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleWorld { expected, actual } => write!(
+                formatter,
+                "energy-store construction expected world revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleStructures { expected, actual } => write!(
+                formatter,
+                "energy-store construction expected structural revision {expected} but current revision is {actual}"
             ),
             Self::StaleInventory { expected, actual } => write!(
                 formatter,
@@ -218,6 +236,8 @@ impl Error for EnergyStoreAssemblyCommitError {
             | Self::StaleCombatRevision { .. }
             | Self::StaleSurvival { .. }
             | Self::StaleLogistics { .. }
+            | Self::StaleWorld { .. }
+            | Self::StaleStructures { .. }
             | Self::StaleInventory { .. }
             | Self::StaleEnergy { .. } => None,
         }
@@ -231,6 +251,8 @@ pub struct ValidatedEnergyStoreAssembly {
     next_store_id: u64,
     expected_energy_revision: u64,
     expected_logistics_revision: u64,
+    /// Stationary player assembly requires the same world and structural footing at commit.
+    placement_footing_revisions: Option<(u64, u64)>,
     expected_combat_revision: u64,
     logistics_placement: Option<(u64, crate::spatial::VoxelCoord)>,
     next_energy_revision: u64,
@@ -277,6 +299,22 @@ impl ValidatedEnergyStoreAssembly {
                 actual: state.energy().revision(),
             });
         }
+        if let Some((expected_world, expected_structure)) = self.placement_footing_revisions {
+            let actual_world = state.world().revision();
+            if actual_world != expected_world {
+                return Err(EnergyStoreAssemblyCommitError::StaleWorld {
+                    expected: expected_world,
+                    actual: actual_world,
+                });
+            }
+            let actual_structure = state.structures().revision();
+            if actual_structure != expected_structure {
+                return Err(EnergyStoreAssemblyCommitError::StaleStructures {
+                    expected: expected_structure,
+                    actual: actual_structure,
+                });
+            }
+        }
         state.energy().assert_allocation_available(
             &self.record,
             self.next_store_id,
@@ -320,6 +358,16 @@ pub fn validate_assemble_energy_store(
     }
     if state.logistics().player().is_some() && state.combat().has_prepared_strike() {
         return Err(EnergyStoreAssemblyError::PreparedStrikeActive);
+    }
+    // An assembled machine receives a permanent world location immediately.
+    // Unlike a carried tool it has no falling motion or airborne landing plan.
+    if state.logistics().player().is_some() {
+        let locomotion = registries.survival().physiology().locomotion();
+        if player_body_uses_generated_world(state, locomotion)
+            && !player_body_is_grounded(registries, state)
+        {
+            return Err(EnergyStoreAssemblyError::PlayerAirborne);
+        }
     }
     let definition_record = registries
         .energy()
@@ -433,6 +481,8 @@ pub fn validate_assemble_energy_store(
         next_store_id,
         expected_energy_revision,
         expected_logistics_revision,
+        placement_footing_revisions: logistics_placement
+            .map(|_| (state.world().revision(), state.structures().revision())),
         expected_combat_revision: state.combat().revision(),
         logistics_placement,
         next_energy_revision,
@@ -444,3 +494,7 @@ pub fn validate_assemble_energy_store(
 #[cfg(test)]
 #[path = "construction_execution_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "construction_footing_tests.rs"]
+mod footing_tests;

@@ -52,8 +52,7 @@ pub fn available_visible_generated_water(
         // exact-position index before expensive sight and sky queries;
         // this is only a private candidate gate, not remote disclosure.
         let mut stores = state.logistics().fluid_stores_at(to).peekable();
-        if stores.peek().is_none() || !super::player_can_see_local_cell(registries, state, from, to)
-        {
+        if stores.peek().is_none() || !super::player_can_see_from_eye(registries, state, from, to) {
             continue;
         }
         for store in stores {

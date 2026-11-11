@@ -266,7 +266,7 @@ fn player_ground_stockpile_allocation_derives_current_voxel_and_requires_admissi
     let mut state = AppState::new();
     let capacity = Mass::from_milligrams(12_000_000);
     assert_eq!(
-        validate_allocate_player_ground_stockpile(&state, capacity).err(),
+        validate_allocate_player_ground_stockpile(&registries, &state, capacity).err(),
         Some(PlayerGroundStockpileAllocationError::PlayerNotInitialized)
     );
 
@@ -277,7 +277,7 @@ fn player_ground_stockpile_allocation_derives_current_voxel_and_requires_admissi
         .unwrap_or_else(|error| {
             panic!("player-local ground allocation setup commit failed: {error}")
         });
-    let stockpile = validate_allocate_player_ground_stockpile(&state, capacity)
+    let stockpile = validate_allocate_player_ground_stockpile(&registries, &state, capacity)
         .unwrap_or_else(|error| panic!("player-local ground allocation failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("player-local ground allocation commit failed: {error}"));

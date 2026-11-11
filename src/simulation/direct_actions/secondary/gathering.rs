@@ -96,16 +96,15 @@ pub(in crate::simulation::direct_actions) fn attempt_empty_hand_secondary_action
                     .is_zero()
             })
     });
-    // Local observation must still report finite, too-small water remainders.
-    // The default gesture, however, cannot let an impossible or unnecessary
-    // drink mask an otherwise actionable local gathering opportunity.
-    let minimum_drink = physiology.direct_consumption().minimum_drink_volume();
+    // A sub-serving final remnant is actionable when the drinking owner can
+    // consume the entire finite source. Never reimplement the old serving
+    // threshold here, since that would hide a real choice beside gathering.
+    // Owner admission still filters unavailable, unsafe, and unnecessary drinks.
     let actionable_drink_sources = observed_drink_sources
         .iter()
         .copied()
         .filter(|source| {
             needs_hydration
-                && source.available_volume() >= minimum_drink
                 && assess_drink_store_to_full_admission(registries, state, source.store())
         })
         .collect::<Vec<_>>();

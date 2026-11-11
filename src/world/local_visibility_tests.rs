@@ -35,11 +35,12 @@ fn explicit_event_skylight_observes_dusk_and_dawn_without_changing_committed_tim
     let dusk = SimulationTick::new(day * 3 / 4);
     let dawn = SimulationTick::new(day);
     apply_clock_advance(&mut state, SimulationTick::new(dusk.value() - 1));
-    assert!(player_can_see_local_cell(
+    assert!(player_can_see_local_cell_at(
         &registries,
         &state,
         observer,
-        target
+        target,
+        state.tick()
     ));
     assert!(!player_can_see_local_cell_at(
         &registries,
@@ -51,11 +52,12 @@ fn explicit_event_skylight_observes_dusk_and_dawn_without_changing_committed_tim
     assert_eq!(state.tick().value(), dusk.value() - 1);
 
     apply_clock_advance(&mut state, SimulationTick::new(dawn.value() - 1));
-    assert!(!player_can_see_local_cell(
+    assert!(!player_can_see_local_cell_at(
         &registries,
         &state,
         observer,
-        target
+        target,
+        state.tick()
     ));
     assert!(player_can_see_local_cell_at(
         &registries,

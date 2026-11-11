@@ -10,6 +10,7 @@ use crate::inventory::{
     ConsumptionSelectionError, MaterialEgressError, ValidatedMaterialEgress, apply_material_egress,
     validate_consumption_selection, validate_material_egress_from_selection,
 };
+use crate::logistics::{player_body_is_grounded, player_body_uses_generated_world};
 use crate::material::{CommodityKey, MaterialInputSpec};
 use crate::player::{
     PlayerActionGuard, PlayerActionValidationError, StalePlayerSurvival, validate_player_action,
@@ -31,6 +32,7 @@ pub enum PlayerMaterialDropError {
     PlayerNotAdmitted,
     PlayerDead,
     PlayerBusy,
+    PlayerAirborne,
     PreparedStrikeActive,
     NoCarriedMaterial { commodity: CommodityKey },
     InventoryRevisionExhausted,
@@ -51,6 +53,9 @@ impl Display for PlayerMaterialDropError {
             Self::PlayerBusy => {
                 formatter.write_str("player cannot drop carried material while work is active")
             }
+            Self::PlayerAirborne => formatter.write_str(
+                "player cannot place a persistent loose parcel while airborne in generated terrain",
+            ),
             Self::PreparedStrikeActive => formatter
                 .write_str("player must lower the prepared weapon before dropping material"),
             Self::NoCarriedMaterial { commodity } => write!(
@@ -89,6 +94,7 @@ impl Error for PlayerMaterialDropError {
             Self::PlayerNotAdmitted
             | Self::PlayerDead
             | Self::PlayerBusy
+            | Self::PlayerAirborne
             | Self::PreparedStrikeActive
             | Self::NoCarriedMaterial { .. }
             | Self::InventoryRevisionExhausted
@@ -372,6 +378,16 @@ pub fn validate_drop_player_material(
         .player()
         .copied()
         .ok_or(PlayerMaterialDropError::PlayerNotAdmitted)?;
+    // Surface parcels have persistent voxel custody but no falling trajectory.
+    // In generated terrain, an airborne drop would freeze matter at the actor's
+    // current height, possibly several unsupported cells above the ground.
+    // Leave opening-graph fixtures alone until they acquire body/terrain truth.
+    let locomotion = registries.survival().physiology().locomotion();
+    if player_body_uses_generated_world(state, locomotion)
+        && !player_body_is_grounded(registries, state)
+    {
+        return Err(PlayerMaterialDropError::PlayerAirborne);
+    }
     let source = player.carried_stockpile();
     let source_record = state
         .inventory()
@@ -482,3 +498,7 @@ pub fn validate_drop_player_material(
         surface,
     })
 }
+
+#[cfg(test)]
+#[path = "material_drop_tests.rs"]
+mod tests;

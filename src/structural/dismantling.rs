@@ -54,6 +54,7 @@ impl StructuralDismantlingStartOutcome {
 
 #[must_use]
 pub struct ValidatedPlayerStructuralDismantlingStart {
+    expected_world_revision: u64,
     expected_structure_revision: u64,
     expected_logistics_revision: u64,
     expected_player_position: VoxelCoord,
@@ -69,6 +70,12 @@ impl ValidatedPlayerStructuralDismantlingStart {
         self,
         state: &mut AppState,
     ) -> Result<StructuralDismantlingStartOutcome, PlayerStructuralDismantlingCommitError> {
+        if state.world().revision() != self.expected_world_revision {
+            return Err(PlayerStructuralDismantlingCommitError::StaleWorldRevision {
+                expected: self.expected_world_revision,
+                actual: state.world().revision(),
+            });
+        }
         if state.structures().revision() != self.expected_structure_revision {
             return Err(
                 PlayerStructuralDismantlingCommitError::StaleStructureRevision {
@@ -250,6 +257,7 @@ pub fn validate_start_player_structural_dismantling(
     )
     .map_err(PlayerStructuralDismantlingError::Work)?;
     Ok(ValidatedPlayerStructuralDismantlingStart {
+        expected_world_revision: state.world().revision(),
         expected_structure_revision: state.structures().revision(),
         expected_logistics_revision: state.logistics().revision(),
         expected_player_position: player.position(),

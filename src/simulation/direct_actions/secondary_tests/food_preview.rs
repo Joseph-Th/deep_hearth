@@ -15,7 +15,7 @@ use crate::simulation::{
     advance_tick,
 };
 use crate::spatial::{ViewDirection, VoxelCoord};
-use crate::survival::{EatStackToTargetError, validate_eat_stack_to_full};
+use crate::survival::validate_eat_stack_to_full;
 
 fn selected_berries(mass: Mass) -> (Registries, AppState) {
     let registries = build_registries();
@@ -52,19 +52,21 @@ fn use_selected_food() -> PlayerDirectControlInput {
 }
 
 #[test]
-fn undersized_food_is_rejected_on_input_without_queueing_a_doomed_meal() {
-    let (registries, mut state) = selected_berries(Mass::from_milligrams(1));
+fn final_food_crumb_starts_on_input_and_conserves_matter_through_replay() {
+    use crate::core::quantity::AggregateMass;
+
+    let crumb = Mass::from_milligrams(1);
+    let (registries, mut state) = selected_berries(crumb);
     let _ = advance_tick(&registries, &mut state).unwrap();
     let carried = state.logistics().player().unwrap().carried_stockpile();
     let stack = project_material_stacks(&registries, &state, carried).unwrap();
     assert_eq!(stack.len(), 1);
-    let expected = validate_eat_stack_to_full(&registries, &state, &stack[0])
-        .expect_err("an undersized serving cannot admit eating");
-    assert!(matches!(
-        expected,
-        EatStackToTargetError::InsufficientStackMass { .. }
-    ));
-    let before = state.clone();
+    assert!(
+        validate_eat_stack_to_full(&registries, &state, &stack[0])
+            .unwrap()
+            .is_some(),
+        "a complete, edible final crumb is a legal finite-source meal"
+    );
     let conserved = calculate_matter_accounting(&state).unwrap().total();
     let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
     let mut restored = serde_json::from_slice::<LoadedSaveEnvelope>(&save)
@@ -79,14 +81,41 @@ fn undersized_food_is_rejected_on_input_without_queueing_a_doomed_meal() {
         advance_control_tick_with_direct_input(&registries, &mut restored, use_selected_food())
             .unwrap();
     assert_eq!(outcome, replay);
-    assert_eq!(
+    assert!(matches!(
         outcome.secondary_action(),
-        Some(&SecondaryActionOutcome::EatingRejected(expected))
-    );
+        Some(SecondaryActionOutcome::EatingStarted(meal)) if meal.total_mass() == crumb
+    ));
     assert_eq!(state, restored);
-    assert_eq!(state.inventory(), before.inventory());
-    assert_eq!(state.survival(), before.survival());
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .stored_mass(),
+        Mass::ZERO
+    );
+    assert_eq!(
+        state.survival().consumed_mass(MATERIAL_BERRIES),
+        AggregateMass::from_mass(crumb)
+    );
     assert!(state.logistics().pending_secondary_use().is_none());
+    assert!(matches!(
+        state.player_work().active(),
+        Some(crate::labor::PlayerWork::Eating { .. })
+    ));
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    restored = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    let _ = advance_tick(&registries, &mut restored).unwrap();
+    assert_eq!(state, restored);
     assert!(state.player_work().active().is_none());
     assert_eq!(
         calculate_matter_accounting(&state).unwrap().total(),

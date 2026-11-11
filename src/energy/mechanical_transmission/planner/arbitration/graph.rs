@@ -153,6 +153,48 @@ struct RankedCandidateOwners {
     runs: BTreeMap<usize, usize>,
 }
 
+/// Incremental physical conflict components. Existing disjoint allocations
+/// remain compatible when a newly discovered transfer connects their graphs.
+/// The oldest component remains the union root, avoiding full membership
+/// copies when ordinary workshops acquire another candidate path.
+pub(super) struct RankedConflictComponents {
+    parents: Vec<usize>,
+    owners: RankedCandidateOwners,
+}
+
+impl RankedConflictComponents {
+    pub(super) fn new(candidate_count: usize) -> Self {
+        Self {
+            parents: (0..candidate_count).collect(),
+            owners: RankedCandidateOwners::default(),
+        }
+    }
+
+    /// Returns the surviving root and the roots of components absorbed by it.
+    /// A new isolated candidate starts its own component.
+    pub(super) fn insert(
+        &mut self,
+        pair: ShaftPair,
+        runs: &[ShaftRun],
+        local: usize,
+    ) -> (usize, Vec<usize>) {
+        let previous = self.owners.prior_roots(pair, runs, &mut self.parents);
+        let surviving = previous.iter().next().copied().unwrap_or(local);
+        for &component in &previous {
+            join(&mut self.parents, surviving, component);
+        }
+        join(&mut self.parents, surviving, local);
+        self.owners.observe(pair, runs, local);
+        (
+            surviving,
+            previous
+                .into_iter()
+                .filter(|component| *component != surviving)
+                .collect(),
+        )
+    }
+}
+
 impl RankedCandidateOwners {
     fn prior_roots(
         &self,
@@ -191,32 +233,25 @@ impl RankedCandidateOwners {
     }
 }
 
-/// Ranked cutoffs immediately before a low-priority candidate merges two
-/// previously independent conflict components. Parallel weak connectors
-/// leave no individual articulation in the final graph, but the first such
-/// connector still exposes an exact pre-merge partition. Bound the number of
-/// partitions examined without repeatedly rebuilding candidate prefixes.
+/// Find cutoffs immediately before a late-ranked shaft joins previously
+/// independent conflict components. Only a bounded number are needed by the
+/// sensitivity planner: stream union-find events without retaining a per-pair
+/// merge history or scanning the rest of a large graph after the bound is met.
 pub(super) fn ranked_merge_prefixes(
     pairs: &[ShaftPair],
     runs: &[ShaftRun],
     indices: &[usize],
 ) -> Vec<usize> {
-    let mut parents = (0..indices.len()).collect::<Vec<_>>();
-    let mut owners = RankedCandidateOwners::default();
+    let mut components = RankedConflictComponents::new(indices.len());
     let mut cutoffs = Vec::new();
     for (local, &index) in indices.iter().enumerate() {
-        let pair = pairs[index];
-        let prior_components = owners.prior_roots(pair, runs, &mut parents);
-        if prior_components.len() > 1
-            && local > super::EXACT_CONFLICT_LIMIT
-            && cutoffs.len() < WEAK_CONNECTOR_PROBES
-        {
+        let (_, joined) = components.insert(pairs[index], runs, local);
+        if !joined.is_empty() && local > super::EXACT_CONFLICT_LIMIT {
             cutoffs.push(local);
+            if cutoffs.len() == WEAK_CONNECTOR_PROBES {
+                break;
+            }
         }
-        for previous in prior_components {
-            join(&mut parents, local, previous);
-        }
-        owners.observe(pair, runs, local);
     }
     cutoffs
 }

@@ -12,11 +12,14 @@ use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::surface::SurfaceResourceKind;
 use crate::survival::{FoodFreshness, Vitality, assess_surface_food_freshness};
 
-use super::weather::{REGION_SIDE_VOXELS, weather_at};
+use super::weather::{REGION_SIDE_VOXELS, local_airflow_at};
 use super::{BlockCollisionShape, WindCondition, WindDirection, assess_player_weather};
 
 const MAX_AIR_STEPS: u8 = 8;
 const CALM_AIR_STEPS: u8 = 3;
+/// Odor immediately around a source disperses through open air even upwind.
+/// Beyond this local envelope, only the directional wind plume is detectable.
+const LOCAL_DIFFUSION_STEPS: u8 = 2;
 const BREEZE_AIR_STEPS: u8 = 6;
 const MAX_VERTICAL_DEVIATION: u64 = 2;
 const STRONG_SCENT_STEPS: u8 = 4;
@@ -124,6 +127,11 @@ fn scent_reaches_player(
     wind_direction: Option<WindDirection>,
     air_steps: u8,
 ) -> bool {
+    // Local diffusion is not a long-distance wind clue. Never make food
+    // one or two open-air steps away inexplicably odorless on its upwind side.
+    if air_steps <= LOCAL_DIFFUSION_STEPS {
+        return true;
+    }
     let Some(direction) = wind_direction else {
         return air_steps <= CALM_AIR_STEPS;
     };
@@ -145,7 +153,6 @@ fn live_food_scent(
     state: &AppState,
     position: VoxelCoord,
     distance: u8,
-    world_seed: u64,
     observer: VoxelCoord,
 ) -> impl Iterator<Item = ForageScent> {
     state
@@ -166,16 +173,15 @@ fn live_food_scent(
             ) {
                 return None;
             }
-            // Source-local wind controls emission, even when the observer is
-            // across a regional weather boundary with an opposing front.
-            let source_weather = weather_at(registries, world_seed, position, state.tick());
-            if distance > scent_reach(source_weather.wind())
-                || !scent_reaches_player(
-                    position,
-                    observer,
-                    source_weather.wind_direction(),
-                    distance,
-                )
+            // Real sky exposure or an unobstructed upwind inlet can carry
+            // the regional plume. A sealed source retains only local diffusion;
+            // a one-cell awning alone does not make horizontal wind disappear.
+            let (wind, direction) = local_airflow_at(registries, state, position, state.tick())
+                .map_or((WindCondition::Calm, None), |weather| {
+                    (weather.wind(), weather.wind_direction())
+                });
+            if distance > scent_reach(wind)
+                || !scent_reaches_player(position, observer, direction, distance)
             {
                 return None;
             }
@@ -220,12 +226,6 @@ pub fn assess_player_forage_scents(registries: &Registries, state: &AppState) ->
     let Some(weather) = assess_player_weather(registries, state) else {
         return Vec::new();
     };
-    let world_seed = state
-        .world()
-        .generation_profile()
-        .expect("observable generated weather requires a generation profile")
-        .seed()
-        .value();
     if !passable_air(registries, state, start) {
         return Vec::new();
     }
@@ -245,7 +245,7 @@ pub fn assess_player_forage_scents(registries: &Registries, state: &AppState) ->
     let mut queue = VecDeque::from([(start, 0u8)]);
     let mut best: [Option<ForageScentIntensity>; 2] = [None, None];
     while let Some((voxel, steps)) = queue.pop_front() {
-        for scent in live_food_scent(registries, state, voxel, steps, world_seed, start) {
+        for scent in live_food_scent(registries, state, voxel, steps, start) {
             let index = match scent.kind {
                 ForageScentKind::SweetFruit => 0,
                 ForageScentKind::WildNuts => 1,

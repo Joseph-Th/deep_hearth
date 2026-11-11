@@ -66,13 +66,11 @@ fn player_sees_resident_body_at(
     body_cells: impl IntoIterator<Item = VoxelCoord>,
     at: SimulationTick,
 ) -> bool {
-    let Some(head_y) = player.y().checked_add(1) else {
-        return false;
-    };
-    let player_head = VoxelCoord::new(player.x(), head_y, player.z());
-    body_cells.into_iter().any(|cell| {
-        [player, player_head]
-            .into_iter()
-            .any(|eye| crate::world::player_can_see_local_cell_at(registries, state, eye, cell, at))
-    })
+    body_cells
+        .into_iter()
+        .any(|cell| crate::world::player_can_see_from_eye_at(registries, state, player, cell, at))
 }
+
+#[cfg(test)]
+#[path = "visibility_tests.rs"]
+mod tests;

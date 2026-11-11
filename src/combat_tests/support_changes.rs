@@ -100,10 +100,14 @@ fn prepared_strike_excludes_all_three_physical_support_assignments_and_stale_tok
     .unwrap()
     .commit(&mut state)
     .unwrap();
-    let bay = validate_allocate_player_ground_stockpile(&state, Mass::from_milligrams(200_000))
-        .unwrap()
-        .commit(&mut state)
-        .unwrap();
+    let bay = validate_allocate_player_ground_stockpile(
+        &registries,
+        &state,
+        Mass::from_milligrams(200_000),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
     let vessel = add_fluid_store(&mut state, Volume::from_microliters(500_000)).unwrap();
     validate_place_fluid_store(&state, vessel, at)
         .unwrap()

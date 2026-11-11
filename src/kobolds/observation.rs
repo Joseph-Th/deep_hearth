@@ -146,7 +146,7 @@ impl KoboldState {
                     .and_then(|id| state.surface().get(id))
                     .filter(|drop| {
                         drop.lifecycle() == SurfaceResourceLifecycle::Available
-                            && crate::world::player_can_see_local_cell(
+                            && crate::world::player_can_see_from_eye(
                                 registries,
                                 state,
                                 position,

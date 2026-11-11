@@ -55,7 +55,7 @@ fn moisture_adjusted_crop(open_crop: u64, moisture: RootMoisture) -> u64 {
 
 /// Ripening transfers existing biomass only when light supports a whole-milligram
 /// crop. Dense overlapping crowns and fractional yields retain the root reserve.
-fn ripened_crop_for_calendar(
+fn ripened_crop(
     calendar: CalendarDefinition,
     root_reserve: Mass,
     original_fruit: Mass,
@@ -78,24 +78,6 @@ fn ripened_crop_for_calendar(
     let lit_batch =
         u64::try_from(lit_batch).expect("daylight cannot increase a moisture-adjusted crop");
     Mass::from_milligrams(root_reserve.milligrams().min(lit_batch))
-}
-
-/// Existing vegetation unit tests evaluate the authored day; runtime decisions
-/// always provide their actual calendar to the same crop formula.
-#[cfg(test)]
-fn ripened_crop(
-    root_reserve: Mass,
-    original_fruit: Mass,
-    moisture: RootMoisture,
-    shade: u8,
-) -> Mass {
-    ripened_crop_for_calendar(
-        crate::content::build_registries().core().calendar(),
-        root_reserve,
-        original_fruit,
-        moisture,
-        shade,
-    )
 }
 
 /// A stripped plant needs real elapsed growth time; drought-tolerant scrub
@@ -214,7 +196,7 @@ pub(crate) fn apply_natural_forage_cycle(
                 return None;
             }
             let moisture = moisture.get_or_init(|| RootMoistureSurvey::observe(state));
-            let batch = ripened_crop_for_calendar(
+            let batch = ripened_crop(
                 registries.core().calendar(),
                 plant.root_reserve,
                 plant.original_fruit,

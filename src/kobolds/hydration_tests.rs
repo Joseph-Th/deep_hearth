@@ -151,13 +151,13 @@ fn witnessed_outer_patrol_drink_survives_unseen_return_without_disclosing_destin
         .unwrap()
         .commit(&mut state)
         .unwrap();
-    assert!(crate::world::player_can_see_local_cell(
+    assert!(crate::world::player_can_see_from_eye(
         &registries,
         &state,
         observer,
         tip
     ));
-    assert!(!crate::world::player_can_see_local_cell(
+    assert!(!crate::world::player_can_see_from_eye(
         &registries,
         &state,
         observer,

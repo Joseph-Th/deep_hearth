@@ -143,7 +143,7 @@ fn unlit_temple_warden_does_not_bypass_generated_world_player_visibility() {
         "the room has no finite local light source"
     );
     assert!(
-        !crate::world::player_can_see_local_cell(&registries, &state, observer, post),
+        !crate::world::player_can_see_from_eye(&registries, &state, observer, post),
         "ordinary generated-world observation must not confer night vision"
     );
     assert!(
@@ -194,13 +194,13 @@ fn unlit_temple_warden_does_not_bypass_generated_world_player_visibility() {
     );
     let observer_head = VoxelCoord::new(observer.x(), observer.y() + 1, observer.z());
     let post_head = VoxelCoord::new(post.x(), post.y() + 1, post.z());
-    assert!(!crate::world::player_can_see_local_cell(
+    assert!(!crate::world::has_clear_two_step_sightline(
         &registries,
         &lower_obstructed,
         observer,
         post,
     ));
-    assert!(crate::world::player_can_see_local_cell(
+    assert!(crate::world::has_clear_two_step_sightline(
         &registries,
         &lower_obstructed,
         observer_head,

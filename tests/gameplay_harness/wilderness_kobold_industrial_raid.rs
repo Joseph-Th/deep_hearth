@@ -131,10 +131,11 @@ pub(super) fn exercise_player_built_worksite_raid(print: bool) {
     // does not assemble the physical machine. A loose ground cache alone
     // cannot teach an otherwise unalerted colony to extract inventory lots.
     let mut unwitnessed = state.clone();
-    let unalerted_stock = validate_allocate_player_ground_stockpile(&unwitnessed, EXPOSED_STOCK)
-        .unwrap()
-        .commit(&mut unwitnessed)
-        .unwrap();
+    let unalerted_stock =
+        validate_allocate_player_ground_stockpile(&registries, &unwitnessed, EXPOSED_STOCK)
+            .unwrap()
+            .commit(&mut unwitnessed)
+            .unwrap();
     put_chips_at_worksite(&registries, &mut unwitnessed, unalerted_stock, carried);
     return_to_camp(&registries, &mut unwitnessed, junction, fork, spawn);
     let drive =
@@ -208,7 +209,7 @@ pub(super) fn exercise_player_built_worksite_raid(print: bool) {
     );
 
     let mut exposed = state.clone();
-    let open = validate_allocate_player_ground_stockpile(&exposed, EXPOSED_STOCK)
+    let open = validate_allocate_player_ground_stockpile(&registries, &exposed, EXPOSED_STOCK)
         .unwrap()
         .commit(&mut exposed)
         .unwrap();

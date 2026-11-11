@@ -97,6 +97,40 @@ pub fn project_minimum_meal_to_metabolic_target(
     current: Energy,
     target: Energy,
 ) -> Result<Option<MinimumMealMetabolicProjection>, MealMetabolicProjectionError> {
+    project_meal_to_metabolic_target_with_minimum(
+        physiology,
+        food,
+        current,
+        target,
+        physiology.direct_consumption().minimum_meal_mass(),
+    )
+}
+
+/// A selected stack may contain less than the normal serving minimum. Its
+/// entire remainder is the only admissible sub-serving portion.
+pub(in crate::survival::consumption) fn project_minimum_meal_to_metabolic_target_for_available_source(
+    physiology: PhysiologyDefinition,
+    food: FoodDefinition,
+    current: Energy,
+    target: Energy,
+    available: Mass,
+) -> Result<Option<MinimumMealMetabolicProjection>, MealMetabolicProjectionError> {
+    project_meal_to_metabolic_target_with_minimum(
+        physiology,
+        food,
+        current,
+        target,
+        available.min(physiology.direct_consumption().minimum_meal_mass()),
+    )
+}
+
+fn project_meal_to_metabolic_target_with_minimum(
+    physiology: PhysiologyDefinition,
+    food: FoodDefinition,
+    current: Energy,
+    target: Energy,
+    minimum_meal_mass: Mass,
+) -> Result<Option<MinimumMealMetabolicProjection>, MealMetabolicProjectionError> {
     let maximum = physiology.maximum_metabolic_energy();
     if current > maximum {
         return Err(MealMetabolicProjectionError::CurrentEnergyExceedsMaximum { current, maximum });
@@ -109,7 +143,6 @@ pub fn project_minimum_meal_to_metabolic_target(
     }
 
     let direct = physiology.direct_consumption();
-    let minimum_meal_mass = direct.minimum_meal_mass();
     let maximum_meal_mass = direct.maximum_meal_mass();
     let reserve_gap = target
         .checked_sub(current)

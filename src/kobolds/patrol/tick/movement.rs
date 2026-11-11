@@ -224,7 +224,7 @@ pub(super) fn settle_scout_movement(
     // but the identity and mass of parcels on the ground still require
     // their actual ground cell to be visible.
     let destination_ground_visible = observer.is_some_and(|player| {
-        crate::world::player_can_see_local_cell_at(
+        crate::world::player_can_see_from_eye_at(
             registries,
             state,
             player,
@@ -237,7 +237,7 @@ pub(super) fn settle_scout_movement(
     // actual sight envelope.
     let observed_abandoned_drop = abandoned_drop.filter(|_| {
         observer.is_some_and(|player| {
-            crate::world::player_can_see_local_cell_at(registries, state, player, from, next_tick)
+            crate::world::player_can_see_from_eye_at(registries, state, player, from, next_tick)
         })
     });
     let reported = visible

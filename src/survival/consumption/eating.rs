@@ -29,6 +29,7 @@ use super::super::FoodCategory;
 use super::super::state::{PendingConsumedFoodTrace, PendingConsumedMatterBaseline, PendingEating};
 use super::direct_consumption_survival_revisions;
 pub use errors::{EatCommitError, EatError};
+pub(super) use projection::project_minimum_meal_to_metabolic_target_for_available_source;
 pub use projection::{
     MealMetabolicProjectionError, MinimumMealMetabolicProjection,
     project_minimum_meal_to_metabolic_target,
@@ -45,9 +46,10 @@ struct ConsumedMassAccounting {
 fn validate_meal_duration(
     direct_consumption: DirectConsumptionDefinition,
     mass: Mass,
+    exhausts_selected_lots: bool,
 ) -> Result<TickSpan, EatError> {
     let minimum = direct_consumption.minimum_meal_mass();
-    if mass < minimum {
+    if mass < minimum && !exhausts_selected_lots {
         return Err(EatError::MealMassBelowIntakeMinimum { mass, minimum });
     }
     let maximum = direct_consumption.maximum_meal_mass();
@@ -311,7 +313,19 @@ pub(super) fn validate_eat_with_mode(
         return Err(EatError::HydrationOverflow);
     }
     let total_mass = exact_selection.total_consumed();
-    let duration = validate_meal_duration(physiology.direct_consumption(), total_mass)?;
+    // A sub-serving meal may only consume whole finite lots. Do not allow
+    // repeated tiny slices from a larger source to bypass the normal floor.
+    let exhausts_selected_lots = exact_selection.lot_selections().all(|selected| {
+        state
+            .inventory()
+            .get_lot(selected.lot())
+            .is_some_and(|record| record.mass() == selected.mass())
+    });
+    let duration = validate_meal_duration(
+        physiology.direct_consumption(),
+        total_mass,
+        exhausts_selected_lots,
+    )?;
     let completes_at = state
         .tick()
         .checked_add_executable_span(duration)

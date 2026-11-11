@@ -76,6 +76,10 @@ impl Error for CancelPlayerStructuralPlanError {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CancelPlayerStructuralPlanCommitError {
+    StaleWorldRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleSurvivalRevision {
         expected: u64,
         actual: u64,
@@ -111,6 +115,7 @@ impl Error for CancelPlayerStructuralPlanCommitError {}
 pub struct ValidatedPlayerStructuralPlanCancellation {
     player_action: PlayerActionGuard,
     element: StructuralElementId,
+    expected_world_revision: u64,
     expected_structure_revision: u64,
     next_structure_revision: u64,
     expected_logistics_revision: u64,
@@ -128,6 +133,12 @@ impl ValidatedPlayerStructuralPlanCancellation {
                 actual: stale.actual,
             }
         })?;
+        if state.world().revision() != self.expected_world_revision {
+            return Err(CancelPlayerStructuralPlanCommitError::StaleWorldRevision {
+                expected: self.expected_world_revision,
+                actual: state.world().revision(),
+            });
+        }
         if state.structures().revision() != self.expected_structure_revision {
             return Err(
                 CancelPlayerStructuralPlanCommitError::StaleStructureRevision {
@@ -208,6 +219,7 @@ pub fn validate_cancel_player_structural_plan(
     Ok(ValidatedPlayerStructuralPlanCancellation {
         player_action,
         element,
+        expected_world_revision: state.world().revision(),
         expected_structure_revision,
         next_structure_revision,
         expected_logistics_revision: state.logistics().revision(),

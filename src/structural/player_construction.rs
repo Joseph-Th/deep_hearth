@@ -109,6 +109,10 @@ impl Error for PlayerStructuralConstructionError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerStructuralConstructionCommitError {
+    StaleWorldRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleLogistics {
         expected: u64,
         actual: u64,
@@ -124,6 +128,10 @@ pub enum PlayerStructuralConstructionCommitError {
 impl Display for PlayerStructuralConstructionCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleWorldRevision { expected, actual } => write!(
+                formatter,
+                "world revision changed from {expected} to {actual} before structural construction commit"
+            ),
             Self::StaleLogistics { expected, actual } => write!(
                 formatter,
                 "structural construction logistics revision changed from {expected} to {actual} before commit"
@@ -168,13 +176,16 @@ impl Error for PlayerStructuralConstructionCommitError {
         match self {
             Self::Material(error) => Some(error),
             Self::Work(error) => Some(error),
-            Self::StaleLogistics { .. } | Self::PlayerMoved { .. } => None,
+            Self::StaleWorldRevision { .. }
+            | Self::StaleLogistics { .. }
+            | Self::PlayerMoved { .. } => None,
         }
     }
 }
 
 #[must_use]
 pub struct ValidatedPlayerStructuralConstructionStart {
+    expected_world_revision: u64,
     expected_logistics_revision: u64,
     expected_player_position: VoxelCoord,
     material: Option<ValidatedStructuralConstruction>,
@@ -210,6 +221,14 @@ impl ValidatedPlayerStructuralConstructionStart {
                 .precheck(state)
                 .map_err(PlayerStructuralConstructionCommitError::Material)?;
         }
+        if state.world().revision() != self.expected_world_revision {
+            return Err(
+                PlayerStructuralConstructionCommitError::StaleWorldRevision {
+                    expected: self.expected_world_revision,
+                    actual: state.world().revision(),
+                },
+            );
+        }
         self.work_start
             .precheck(state)
             .map_err(PlayerStructuralConstructionCommitError::Work)?;
@@ -241,6 +260,14 @@ impl ValidatedPlayerStructuralConstructionStart {
         material
             .precheck_before_planned_member(state, record, projected_structure_revision)
             .map_err(PlayerStructuralConstructionCommitError::Material)?;
+        if state.world().revision() != self.expected_world_revision {
+            return Err(
+                PlayerStructuralConstructionCommitError::StaleWorldRevision {
+                    expected: self.expected_world_revision,
+                    actual: state.world().revision(),
+                },
+            );
+        }
         self.work_start
             .precheck(state)
             .map_err(PlayerStructuralConstructionCommitError::Work)?;
@@ -412,6 +439,7 @@ pub fn validate_start_player_structural_construction(
     )
     .map_err(PlayerStructuralConstructionError::Work)?;
     Ok(ValidatedPlayerStructuralConstructionStart {
+        expected_world_revision: state.world().revision(),
         expected_logistics_revision: state.logistics().revision(),
         expected_player_position: context.player_position,
         material,
@@ -527,6 +555,7 @@ fn validate_start_player_structural_construction_for_planned_member_with_support
     )
     .map_err(PlayerStructuralConstructionError::Work)?;
     Ok(ValidatedPlayerStructuralConstructionStart {
+        expected_world_revision: state.world().revision(),
         expected_logistics_revision: state.logistics().revision(),
         expected_player_position: context.player_position,
         material: Some(material),

@@ -35,6 +35,142 @@ fn set_player_reserves(state: &mut AppState, metabolic_energy: Energy, hydration
 }
 
 #[test]
+fn final_subminimum_food_lot_is_edible_and_replays_through_both_stack_adapters() {
+    use crate::core::quantity::AggregateMass;
+    use crate::core::state::validate_loaded_state;
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+    use crate::player::validate_admit_player;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    for _ in 0..5 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+
+    let minimum = registries
+        .survival()
+        .physiology()
+        .direct_consumption()
+        .minimum_meal_mass();
+    let last_mass = minimum.checked_sub(Mass::from_milligrams(1)).unwrap();
+    let source = add_solid_stockpile_for_test(&mut state, minimum).unwrap();
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        last_mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_place_ground_stockpile(&state, source, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let stack = project_material_stacks(&registries, &state, source)
+        .unwrap()
+        .remove(0);
+    let energy_before = state.survival().player().unwrap().metabolic_energy();
+    let reachable_target = energy_before
+        .checked_add(Energy::from_nanojoules(1))
+        .unwrap();
+
+    let lot_plan = validate_eat_lot_to_metabolic_target(&registries, &state, lot, reachable_target)
+        .unwrap()
+        .expect("an attainable exact target must accept the final food lot");
+    let stack_plan =
+        validate_eat_stack_to_metabolic_target(&registries, &state, &stack, reachable_target)
+            .unwrap()
+            .expect("selected-stack target must accept the same finite remainder");
+    let default_plan = validate_eat_stack_to_full(&registries, &state, &stack)
+        .unwrap()
+        .expect("default food use must not strand an edible remainder");
+
+    let mut lot_state = state.clone();
+    let mut default_state = state.clone();
+    let outcome = stack_plan.commit(&mut state).unwrap();
+    assert_eq!(outcome, lot_plan.commit(&mut lot_state).unwrap());
+    assert_eq!(outcome, default_plan.commit(&mut default_state).unwrap());
+    assert_eq!(state, lot_state);
+    assert_eq!(state, default_state);
+    assert_eq!(outcome.total_mass(), last_mass);
+    assert!(state.inventory().get_lot(lot).is_none());
+    assert_eq!(
+        state.survival().consumed_mass(MATERIAL_BERRIES),
+        AggregateMass::from_mass(last_mass)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.tick() < outcome.completes_at() {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+        let _ = advance_tick(&registries, &mut replay).unwrap();
+        assert_eq!(state, replay);
+    }
+    assert!(state.survival().player().unwrap().metabolic_energy() > energy_before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn partial_subminimum_food_slice_from_a_larger_lot_remains_rejected() {
+    use crate::inventory::MaterialLotSelection;
+    use crate::player::validate_admit_player;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let minimum = registries
+        .survival()
+        .physiology()
+        .direct_consumption()
+        .minimum_meal_mass();
+    let portion = minimum.checked_sub(Mass::from_milligrams(1)).unwrap();
+    let source = add_solid_stockpile_for_test(&mut state, minimum).unwrap();
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        minimum,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_place_ground_stockpile(&state, source, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    let before = state.clone();
+    assert_eq!(
+        validate_eat(
+            &registries,
+            &state,
+            source,
+            &[MaterialLotSelection::new(lot, portion)],
+        )
+        .err(),
+        Some(EatError::MealMassBelowIntakeMinimum {
+            mass: portion,
+            minimum,
+        })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn visible_stack_meal_composes_multiple_food_categories_without_lot_ids() {
     let registries = build_registries();
     let mut state = AppState::new();

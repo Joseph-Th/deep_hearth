@@ -230,6 +230,21 @@ fn player_view_origin_and_reach(
     Ok((origin, reach_nanometers))
 }
 
+/// The authoritative first-person eye cell for local observations.
+///
+/// Resident sightings use the same stance and continuous foot position as
+/// block targeting. Neither occupied body cell is an independent viewpoint.
+pub(crate) fn player_eye_voxel(registries: &Registries, state: &AppState) -> Option<VoxelCoord> {
+    let body = state.logistics().player()?.body();
+    player_eye_origin(
+        body.foot_position(),
+        body.stance(),
+        registries.survival().physiology().locomotion(),
+    )
+    .ok()
+    .map(WorldPoint::containing_voxel)
+}
+
 fn player_eye_origin(
     foot: WorldPoint,
     stance: PlayerStance,

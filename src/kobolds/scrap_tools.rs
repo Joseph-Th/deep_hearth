@@ -13,7 +13,9 @@ use crate::core::time::{SimulationTick, TickSpan};
 use crate::material::FormId;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
-use crate::surface::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceRecord};
+use crate::surface::{
+    SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle, SurfaceResourceRecord,
+};
 
 use super::{
     FIRST_SCOUT_TICK, KoboldColony, SCOUT_CARRY_LIMIT, SCOUT_SAFE_SCAVENGE_TEMPERATURE,
@@ -152,11 +154,14 @@ fn is_iron_scrap_tooth(resource: &SurfaceResourceRecord) -> bool {
         && resource.remaining_mass() >= MINIMUM_IRON_SCRAP_TOOTH
 }
 
+/// The relay's clapper has priority over any improvised pry handle.
+fn pry_handle_is_free(state: &AppState, colony: &KoboldColony) -> bool {
+    !super::junkworks::junction_has_relay_core(state, colony)
+        && !super::junkworks::den_or_relay_needs_striker(state, colony.route[0])
+}
+
 fn selected_handle(state: &AppState, colony: &KoboldColony) -> Option<SurfaceResourceId> {
-    // Active copper warning machinery needs its clapper before scrap tools.
-    if super::junkworks::junction_has_relay_core(state, colony)
-        || super::junkworks::den_or_relay_needs_striker(state, colony.route[0])
-    {
+    if !pry_handle_is_free(state, colony) {
         return None;
     }
     state
@@ -230,40 +235,62 @@ pub(super) fn junction_awaits_better_head(state: &AppState, colony: &KoboldColon
         )
 }
 
+/// Resolve the exact completed pair, not the first separately selected
+/// handle and head. Unfitted spares cannot displace an assembled worksite tool.
+/// A moved, depleted, hot or otherwise unusable part invalidates only its own
+/// pair; no other parcel inherits that fitting work.
+fn fitted_junction_scrap_lever(
+    state: &AppState,
+    colony: &KoboldColony,
+) -> Option<KoboldScrapLever> {
+    let fitting = colony
+        .pry_fitting
+        .filter(|work| work.completed_at.is_some())?;
+    if !pry_handle_is_free(state, colony) {
+        return None;
+    }
+    let handle = state.surface().get(fitting.handle)?;
+    let head = state.surface().get(fitting.head)?;
+    if handle.position() != colony.route[1]
+        || head.position() != colony.route[1]
+        || handle.lifecycle() != SurfaceResourceLifecycle::Available
+        || head.lifecycle() != SurfaceResourceLifecycle::Available
+        || !is_handle(handle)
+    {
+        return None;
+    }
+    let kind = if is_iron_shoe(head) {
+        KoboldPryHeadKind::IronShoe
+    } else if is_iron_scrap_tooth(head) {
+        KoboldPryHeadKind::IronScrapTooth
+    } else if is_copper_fulcrum(head) {
+        KoboldPryHeadKind::CopperFulcrum
+    } else {
+        return None;
+    };
+    Some(KoboldScrapLever {
+        position: colony.route[1],
+        handle: fitting.handle,
+        head: fitting.head,
+        kind,
+    })
+}
+
 pub(super) fn current_junction_scrap_lever(
     state: &AppState,
     colony: &KoboldColony,
 ) -> Option<KoboldScrapLever> {
+    // A proposed upgrade remains unfitted until its scheduled work completes.
+    if let Some(fitted) = fitted_junction_scrap_lever(state, colony) {
+        return Some(fitted);
+    }
     let handle = selected_handle(state, colony)?;
-    // A newly found iron upgrade is not fitted merely by being put beside
-    // an already working copper head. Until real fitting begins, the old
-    // completed pair remains active and its identity is still recoverable.
-    let fitted = colony
-        .pry_fitting
-        .filter(|work| work.completed_at.is_some())
-        .and_then(|work| {
-            selected_iron(state, colony)
-                .filter(|head| work.matches(handle, *head))
-                .map(|head| (head, KoboldPryHeadKind::IronShoe))
-                .or_else(|| {
-                    selected_iron_scrap(state, colony)
-                        .filter(|head| work.matches(handle, *head))
-                        .map(|head| (head, KoboldPryHeadKind::IronScrapTooth))
-                })
-                .or_else(|| {
-                    selected_copper(state, colony)
-                        .filter(|head| work.matches(handle, *head))
-                        .map(|head| (head, KoboldPryHeadKind::CopperFulcrum))
-                })
-        });
-    let (head, kind) = fitted.or_else(|| {
-        selected_stone_fallback(state, colony).map(|id| (id, KoboldPryHeadKind::StoneWedge))
-    })?;
+    let head = selected_stone_fallback(state, colony)?;
     Some(KoboldScrapLever {
         position: colony.route[1],
         handle,
         head,
-        kind,
+        kind: KoboldPryHeadKind::StoneWedge,
     })
 }
 
@@ -278,17 +305,21 @@ pub(super) fn apply_pry_fitting_tick(
     let Some(colony) = state.kobold_state().colony.as_ref() else {
         return false;
     };
-    let parts = selected_handle(state, colony)
-        .zip(selected_metal_head(state, colony).map(|(head, _)| head));
+    let fitted = fitted_junction_scrap_lever(state, colony);
+    // A different part of the same capability is not an upgrade. Keep the
+    // completed physical pair and its fitting schedule unless a stronger head
+    // can actually justify a new two-slot fitting operation.
+    let parts = match (fitted, selected_metal_head(state, colony)) {
+        (Some(tool), Some((head, kind))) if kind != tool.kind() => Some((tool.handle(), head)),
+        (Some(tool), _) => Some((tool.handle(), tool.head())),
+        (None, Some((head, _))) => selected_handle(state, colony).map(|handle| (handle, head)),
+        (None, None) => None,
+    };
     let can_work =
         colony.scout_step == 1 && colony.scavenged_drop.is_none() && !colony.hungry && !pressured;
     let previous = colony.pry_fitting;
     let retained = previous.filter(|work| {
-        let still_assembled = work.completed_at.is_some()
-            && selected_handle(state, colony) == Some(work.handle)
-            && (selected_iron(state, colony) == Some(work.head)
-                || selected_copper(state, colony) == Some(work.head)
-                || selected_iron_scrap(state, colony) == Some(work.head));
+        let still_assembled = fitted.is_some_and(|tool| work.matches(tool.handle(), tool.head()));
         (!can_work && still_assembled)
             || (parts.is_some_and(|(handle, head)| work.matches(handle, head))
                 && (work.completed_at.is_some() || can_work))
@@ -421,7 +452,7 @@ pub fn available_nearby_kobold_pry_work(
         return None;
     }
     let player = super::living_player_observer(state)?;
-    crate::world::player_can_see_local_cell(registries, state, player, colony.route[1]).then_some(
+    crate::world::player_can_see_from_eye(registries, state, player, colony.route[1]).then_some(
         KoboldPryWorkSighting {
             position: colony.route[1],
             handle: work.handle,
@@ -431,9 +462,9 @@ pub fn available_nearby_kobold_pry_work(
     )
 }
 
-/// The scout leaves its selected handle, currently fitted head, next upgrade
-/// and one stone fallback at the actual worksite. All other pieces remain
-/// ordinary salvage; even staged parts are freely recoverable by the player.
+/// The scout leaves both pieces of its completed fitted pair, its next
+/// selected upgrade, and one stone fallback at the actual worksite. Other
+/// pieces remain ordinary salvage; staged parts can still be taken by the player.
 pub(super) fn is_staged_scrap_tool_part(
     state: &AppState,
     resource: &SurfaceResourceRecord,
@@ -451,7 +482,7 @@ pub(super) fn is_staged_scrap_tool_part(
     resource.id() == handle
         || selected.is_some_and(|(head, _)| head == resource.id())
         || current_junction_scrap_lever(state, colony)
-            .is_some_and(|tool| tool.head() == resource.id())
+            .is_some_and(|tool| tool.handle() == resource.id() || tool.head() == resource.id())
         || (selected.is_some_and(|(_, kind)| kind != KoboldPryHeadKind::StoneWedge)
             && selected_stone_fallback(state, colony) == Some(resource.id()))
 }
@@ -495,7 +526,7 @@ pub fn available_nearby_kobold_scrap_lever(
 ) -> Option<KoboldScrapLever> {
     let colony = state.kobold_state().colony.as_ref()?;
     let player = super::living_player_observer(state)?;
-    crate::world::player_can_see_local_cell(registries, state, player, colony.route[1])
+    crate::world::player_can_see_from_eye(registries, state, player, colony.route[1])
         .then(|| current_junction_scrap_lever(state, colony))
         .flatten()
 }

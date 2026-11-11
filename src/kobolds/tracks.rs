@@ -246,9 +246,7 @@ pub fn available_nearby_kobold_tracks<'a>(
         .filter(move |track| {
             observer.is_some_and(|player| {
                 state.tick().value().saturating_sub(track.at.value()) <= TRACK_VISIBLE_TICKS
-                    && crate::world::player_can_see_local_cell(
-                        registries, state, player, track.from,
-                    )
+                    && crate::world::player_can_see_from_eye(registries, state, player, track.from)
             })
         })
 }

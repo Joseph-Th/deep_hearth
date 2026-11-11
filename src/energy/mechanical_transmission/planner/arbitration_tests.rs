@@ -709,3 +709,55 @@ fn ranked_merges_match_actual_conflict_components_with_repeated_shaft_runs() {
         "fixtures must include late physical component merges"
     );
 }
+
+#[test]
+fn adding_a_weaker_shaft_cannot_reduce_existing_useful_work() {
+    // Prefixes represent workshops gradually adding lower-priority paths.
+    // Even a heuristic must not lose previously delivered work merely
+    // because an additional possible transfer was discovered.
+    for pattern in 0..256_u64 {
+        let mut entropy = pattern.wrapping_add(0xA55A_6B19_4C30_53E1);
+        let mut next = || {
+            entropy = entropy
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            entropy >> 32
+        };
+        let mut runs = Vec::new();
+        let mut pairs = Vec::new();
+        for index in 0..28_usize {
+            let rollers = (0..2 + (next() % 2))
+                .map(|_| StructuralElementId::new(1 + (next() % 17) as u32))
+                .collect();
+            runs.push(ShaftRun { rollers });
+            let source = 1 + next() % 19;
+            let destination = 20 + next() % 19;
+            let delivered = (28 - index) as u128 * 10 + u128::from(next() % 10);
+            pairs.push(candidate(
+                index,
+                index as u32 + 1,
+                source,
+                destination,
+                delivered,
+                delivered + 15,
+            ));
+        }
+        let mut previous = None;
+        for count in EXACT_CONFLICT_LIMIT..=pairs.len() {
+            let chosen = select_shaft_pairs(&pairs[..count], &runs);
+            let work = chosen
+                .iter()
+                .map(|pair| pair.transfer.delivered().nanojoules())
+                .sum::<u128>();
+            let selected = chosen.iter().map(|pair| pair.run).collect::<Vec<_>>();
+            if let Some((previous_work, previous_selected)) = previous {
+                assert!(
+                    work >= previous_work,
+                    "adding ranked path {} reduced useful work for pattern {pattern}: {previous_work} {previous_selected:?} to {work} {selected:?}",
+                    count - 1
+                );
+            }
+            previous = Some((work, selected));
+        }
+    }
+}

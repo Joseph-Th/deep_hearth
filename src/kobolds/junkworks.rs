@@ -277,7 +277,7 @@ pub fn available_nearby_kobold_junk_rig(
 ) -> Option<KoboldJunkRig> {
     let colony = state.kobold_state().colony.as_ref()?;
     let player = super::living_player_observer(state)?;
-    crate::world::player_can_see_local_cell(registries, state, player, colony.route[0])
+    crate::world::player_can_see_from_eye(registries, state, player, colony.route[0])
         .then(|| current_den_rig(state, colony))
         .flatten()
 }
@@ -291,7 +291,7 @@ pub fn available_nearby_kobold_junk_relay(
 ) -> Option<KoboldJunkRig> {
     let colony = state.kobold_state().colony.as_ref()?;
     let player = super::living_player_observer(state)?;
-    crate::world::player_can_see_local_cell(registries, state, player, colony.route[1])
+    crate::world::player_can_see_from_eye(registries, state, player, colony.route[1])
         .then(|| current_rig_at(state, colony, colony.route[1]))
         .flatten()
 }
@@ -326,7 +326,7 @@ pub(super) fn locally_audible_alarm_pulses(
     let mut pulses = Vec::new();
     if super::acoustics::can_hear_junk_rig(registries, state, source, player) {
         pulses.push(KoboldAlarmPulse {
-            position: crate::world::player_can_see_local_cell_at(
+            position: crate::world::player_can_see_from_eye_at(
                 registries,
                 state,
                 player,
@@ -342,7 +342,7 @@ pub(super) fn locally_audible_alarm_pulses(
         && super::acoustics::can_hear_junk_rig(registries, state, relay, player)
     {
         pulses.push(KoboldAlarmPulse {
-            position: crate::world::player_can_see_local_cell_at(
+            position: crate::world::player_can_see_from_eye_at(
                 registries,
                 state,
                 player,

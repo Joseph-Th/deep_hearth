@@ -1,10 +1,8 @@
-//! Bounded aggregate-work arbitration for independent sets of physical shaft transfers.
+//! Monotone, bounded aggregate-work arbitration for physical shaft transfers.
 //!
-//! Small connected conflict groups are solved exactly. Exceptionally large
-//! groups retain an exact optimum over their first sixteen ranked candidates,
-//! then compare it with greedy selection and bounded replacements. Weak
-//! connector removal also considers small suffix cuts: parallel paths can
-//! connect independent groups without any one path being an articulation.
+//! Components retain proven feasible allocations when new candidate paths
+//! arrive or connect previously independent workshops. Small groups are exact;
+//! large-group heuristics can improve, but never discard, already useful work.
 
 use super::*;
 
@@ -144,13 +142,6 @@ fn exact_group_indices(pairs: &[ShaftPair], runs: &[ShaftRun], indices: &[usize]
         .iter()
         .enumerate()
         .filter_map(|(index, &original)| (best.mask & (1_u32 << index) != 0).then_some(original))
-        .collect()
-}
-
-fn exact_group(pairs: &[ShaftPair], runs: &[ShaftRun], indices: &[usize]) -> Vec<ShaftPair> {
-    exact_group_indices(pairs, runs, indices)
-        .into_iter()
-        .map(|index| pairs[index])
         .collect()
 }
 
@@ -360,7 +351,38 @@ fn refine_weak_connector_splits(
             current_work = completed_work;
         }
     }
+    // A low-priority accepted path can block a more productive correlated
+    // exchange. Re-solve once without the weakest chosen candidate and offer
+    // it back only after rebuilding the stronger allocation. The probe must
+    // not depend on this path being the very last ranked candidate: unrelated
+    // paths added later must not erase its earlier improvement.
+    if let Some(&weakest) = selected.last() {
+        let remaining = indices
+            .iter()
+            .copied()
+            .filter(|index| *index != weakest)
+            .collect::<Vec<_>>();
+        let retained = solve_candidate_subset(pairs, runs, &remaining);
+        let completed = greedy_completion(pairs, runs, indices, &retained, &[]);
+        if better_aggregate_work(aggregate_work(pairs, &completed), current_work) {
+            selected = completed;
+        }
+    }
     selected
+}
+
+/// A bounded sensitivity probe may disconnect a large conflict graph.
+/// Preserve independent exact solutions; otherwise use the same existing
+/// large-group heuristic without recursively reconsidering weak connectors.
+fn solve_candidate_subset(pairs: &[ShaftPair], runs: &[ShaftRun], indices: &[usize]) -> Vec<usize> {
+    if let Some(separated) = completion_for_split_groups(pairs, runs, indices) {
+        return separated;
+    }
+    if indices.len() <= EXACT_CONFLICT_LIMIT {
+        exact_group_indices(pairs, runs, indices)
+    } else {
+        greedy_group_indices(pairs, runs, indices, false)
+    }
 }
 
 /// Excluding a bounded number of paths allows each remaining independent
@@ -411,26 +433,13 @@ fn completion_for_split_groups(
     Some(selected)
 }
 
-/// Select the greatest combined useful energy for compact conflicting groups.
-/// All groups are physically disjoint; large or unusually dense groups use
-/// bounded local improvements rather than exponential subset enumeration.
-pub(super) fn select_shaft_pairs(pairs: &[ShaftPair], runs: &[ShaftRun]) -> Vec<ShaftPair> {
-    let mut selected = Vec::new();
-    for indices in conflict_groups(pairs, runs) {
-        if indices.len() <= EXACT_CONFLICT_LIMIT {
-            selected.extend(exact_group(pairs, runs, &indices));
-        } else {
-            selected.extend(
-                greedy_group_indices(pairs, runs, &indices, true)
-                    .into_iter()
-                    .map(|index| pairs[index]),
-            );
-        }
-    }
-    selected.sort_unstable_by_key(|pair| pair.run);
-    selected
-}
+mod selection;
+pub(super) use selection::select_shaft_pairs;
 
 #[cfg(test)]
 #[path = "arbitration_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "arbitration/incremental_tests.rs"]
+mod incremental_tests;

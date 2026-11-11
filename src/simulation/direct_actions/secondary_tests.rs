@@ -470,7 +470,7 @@ fn observed_water_without_a_survival_actor_does_not_invent_full_hydration() {
 }
 
 #[test]
-fn unusable_water_remainder_does_not_obstruct_empty_hand_gathering() {
+fn drinkable_final_water_remnant_is_a_real_choice_alongside_gathering() {
     use crate::core::quantity::Volume;
     use crate::survival::available_local_drink_sources;
 
@@ -488,12 +488,17 @@ fn unusable_water_remainder_does_not_obstruct_empty_hand_gathering() {
             .map(|source| source.store())
             .collect::<Vec<_>>(),
         stores,
-        "the observed water remains visible even when it cannot be consumed"
+        "the final water remnant must remain visible as a finite source"
     );
-    assert!(matches!(
+    let before = state.clone();
+    assert_eq!(
         attempt_empty_hand_secondary_action(&registries, &mut state),
-        SecondaryActionOutcome::SurfaceGatheringStarted(_)
-    ));
+        SecondaryActionOutcome::AmbiguousEmptyHandContext {
+            drink_sources: 1,
+            surface_resources: 1,
+        }
+    );
+    assert_eq!(state, before);
     assert_eq!(
         state.fluid().get_store(stores[0]).unwrap().stored_volume(),
         Volume::from_microliters(minimum - 1)
@@ -501,7 +506,7 @@ fn unusable_water_remainder_does_not_obstruct_empty_hand_gathering() {
 }
 
 #[test]
-fn contextual_drinking_ignores_empty_servings_but_preserves_actual_ambiguity() {
+fn contextual_drinking_counts_drainable_remnants_in_source_ambiguity() {
     use crate::core::quantity::Volume;
 
     let minimum = build_registries()
@@ -512,10 +517,13 @@ fn contextual_drinking_ignores_empty_servings_but_preserves_actual_ambiguity() {
     let tiny = Volume::from_microliters(minimum.microliters() - 1);
     let (registries, mut state, stores) =
         water_and_gathering_context(&[tiny, minimum], false, true);
-    assert!(matches!(
+    let before = state.clone();
+    assert_eq!(
         attempt_empty_hand_secondary_action(&registries, &mut state),
-        SecondaryActionOutcome::DrinkingStarted(outcome) if outcome.store() == stores[1]
-    ));
+        SecondaryActionOutcome::AmbiguousLocalDrinkSources { count: 2 }
+    );
+    assert_eq!(state, before);
+    assert_eq!(stores.len(), 2);
 
     let (registries, mut state, _) = water_and_gathering_context(&[minimum], true, true);
     assert_eq!(
@@ -805,7 +813,6 @@ fn unavailable_water_egress_cannot_mask_local_gathering() {
 #[test]
 fn water_only_context_retains_specific_failure_and_satisfaction_results() {
     use crate::core::quantity::Volume;
-    use crate::survival::DrinkStoreToTargetError;
 
     let minimum = build_registries()
         .survival()
@@ -814,13 +821,15 @@ fn water_only_context_retains_specific_failure_and_satisfaction_results() {
         .minimum_drink_volume();
     let tiny = Volume::from_microliters(minimum.microliters() - 1);
     let (registries, mut state, stores) = water_and_gathering_context(&[tiny], false, true);
-    assert_eq!(
+    assert!(matches!(
         attempt_empty_hand_secondary_action(&registries, &mut state),
-        SecondaryActionOutcome::DrinkingRejected(DrinkStoreToTargetError::InsufficientVolume {
-            store: stores[0],
-            available: tiny,
-            required: minimum,
-        })
+        SecondaryActionOutcome::DrinkingStarted(outcome)
+            if outcome.store() == stores[0] && outcome.volume() == tiny
+    ));
+    assert_eq!(state.fluid().get_store(stores[0]).unwrap().contents(), None);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
     );
 
     let (registries, mut state, _) = water_and_gathering_context(&[minimum], false, false);

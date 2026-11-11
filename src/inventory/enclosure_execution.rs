@@ -189,6 +189,14 @@ pub(crate) fn validate_place_player_storage_at(
             compact_depth_um: residue_depth,
         });
     }
+    // Building a new enclosure must meet the same floor rule as enclosing an
+    // existing stockpile. Otherwise direct placement can freeze built matter in
+    // midair even though a constructed stockpile at that site would be rejected.
+    if !generated_enclosure_has_ground_support(registries, state, position) {
+        return Err(PlayerStoragePlacementError::Construction(
+            StorageEnclosureConstructionError::UnsupportedFloor { position },
+        ));
+    }
     let allocation = validate_allocate_player_ground_stockpile_at(
         state,
         position,
@@ -728,3 +736,7 @@ fn plan_enclosure_materials(
 #[cfg(test)]
 #[path = "enclosure_execution_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "enclosure_footing_tests.rs"]
+mod footing_tests;

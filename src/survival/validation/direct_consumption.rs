@@ -43,9 +43,6 @@ fn validate_pending_meal_envelope(
         return Err(SurvivalValidationError::PendingEatingEmpty);
     }
     let direct = registry.physiology().direct_consumption();
-    if total_mass < direct.minimum_meal_mass() {
-        return Err(SurvivalValidationError::PendingEatingMassBelowIntakeMinimum);
-    }
     if total_mass > direct.maximum_meal_mass() {
         return Err(SurvivalValidationError::PendingEatingMassExceedsIntakeLimit);
     }

@@ -121,7 +121,18 @@ fn due_gathering_and_senescence_near_surface_revision_exhaustion_are_atomic() {
             .remaining_mass()
             > batch
     );
+    let mut control_success = with_two_revisions.clone();
     let successful = advance_tick(&registries, &mut with_two_revisions).unwrap();
+    let mut control_result = None;
+    for _ in 0..crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK {
+        let control = crate::simulation::advance_control_tick(&registries, &mut control_success)
+            .expect("one available vegetation revision admits both due transitions");
+        if let Some(outcome) = control.simulation() {
+            control_result = Some(outcome.clone());
+        }
+    }
+    assert_eq!(control_result, Some(successful.clone()));
+    assert_eq!(control_success, with_two_revisions);
     assert_eq!(
         successful
             .surface_gathering()
@@ -137,6 +148,28 @@ fn due_gathering_and_senescence_near_surface_revision_exhaustion_are_atomic() {
     assert_eq!(
         validate_loaded_state(&registries, &with_two_revisions),
         Ok(())
+    );
+
+    // A real 20 Hz boundary must reject atomically too. Ordinary control
+    // stepping settles the same harvest and weather front, but must not leak
+    // a consumed source or advanced clock if senescence has no revision left.
+    let mut control = state.clone();
+    for _ in 1..crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK {
+        assert!(
+            crate::simulation::advance_control_tick(&registries, &mut control)
+                .unwrap()
+                .simulation()
+                .is_none()
+        );
+    }
+    let before_control_boundary = control.clone();
+    assert_eq!(
+        crate::simulation::advance_control_tick(&registries, &mut control),
+        Err(TickError::SurfaceRevisionExhausted)
+    );
+    assert_eq!(
+        control, before_control_boundary,
+        "failed 20 Hz weather-front settlement cannot partially advance state"
     );
 
     let before = state.clone();
@@ -422,19 +455,21 @@ fn spent_perennial_provenance_does_not_permanently_reserve_building_land() {
 
 #[test]
 fn canopy_darkness_and_sub_milligram_yields_leave_root_matter_intact() {
+    let calendar = build_registries().core().calendar();
     let roots = Mass::from_milligrams(800);
     let fruit = Mass::from_milligrams(800);
     assert_eq!(
-        ripened_crop(roots, fruit, RootMoisture::NoBasin, 8),
+        ripened_crop(calendar, roots, fruit, RootMoisture::NoBasin, 8),
         Mass::from_milligrams(48),
         "midday skylight still reaches a canopy with shade eight"
     );
     assert_eq!(
-        ripened_crop(roots, fruit, RootMoisture::NoBasin, 14),
+        ripened_crop(calendar, roots, fruit, RootMoisture::NoBasin, 14),
         Mass::ZERO
     );
     assert_eq!(
         ripened_crop(
+            calendar,
             Mass::from_milligrams(1),
             Mass::from_milligrams(1),
             RootMoisture::NoBasin,
@@ -444,15 +479,15 @@ fn canopy_darkness_and_sub_milligram_yields_leave_root_matter_intact() {
         "fractional milligrams cannot be rounded into edible food"
     );
     assert_eq!(
-        ripened_crop(roots, fruit, RootMoisture::NoBasin, 6),
+        ripened_crop(calendar, roots, fruit, RootMoisture::NoBasin, 6),
         Mass::from_milligrams(75)
     );
     assert_eq!(
-        ripened_crop(roots, fruit, RootMoisture::NoBasin, 0),
+        ripened_crop(calendar, roots, fruit, RootMoisture::NoBasin, 0),
         Mass::from_milligrams(200)
     );
     assert_eq!(
-        ripened_crop(roots, fruit, RootMoisture::NoBasin, 0)
+        ripened_crop(calendar, roots, fruit, RootMoisture::NoBasin, 0)
             .checked_add(Mass::from_milligrams(600)),
         Some(roots)
     );

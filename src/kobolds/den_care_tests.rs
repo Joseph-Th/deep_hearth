@@ -1679,13 +1679,13 @@ fn den_care_does_not_reveal_parcels_ejected_beyond_the_observers_sight() {
             .unwrap()
             .commit(&mut state)
             .unwrap();
-        assert!(crate::world::player_can_see_local_cell(
+        assert!(crate::world::player_can_see_from_eye(
             &registries,
             &state,
             observer,
             den
         ));
-        assert!(!crate::world::player_can_see_local_cell(
+        assert!(!crate::world::player_can_see_from_eye(
             &registries,
             &state,
             observer,

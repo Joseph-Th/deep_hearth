@@ -88,20 +88,12 @@ pub(crate) fn nearby_two_step_cells(center: VoxelCoord) -> impl Iterator<Item = 
     })
 }
 
-/// One visual rule shared by player-facing water, forage, and resident observations.
+/// Lit visibility between two explicit voxel cells, independent of actor pose.
 ///
-/// The generated world has no automatic night vision. Physical line of sight
-/// alone cannot reveal an unlit cell. Ungenerated authored routes retain
-/// their existing geometric observation contract because they have no sky.
-pub(crate) fn player_can_see_local_cell(
-    registries: &Registries,
-    state: &AppState,
-    observer: VoxelCoord,
-    target: VoxelCoord,
-) -> bool {
-    player_can_see_local_cell_at(registries, state, observer, target, state.tick())
-}
-
+/// The generated world has no automatic night vision. Ungenerated authored
+/// routes retain geometric observation because they have no sky. For player
+/// observations, prefer `player_can_see_from_eye` instead of treating the
+/// character's feet as an additional viewpoint.
 /// Event observation uses the incoming tick's skylight before the root clock
 /// advances. Occlusion and artificial illumination still read committed owners.
 pub(crate) fn player_can_see_local_cell_at(
@@ -116,6 +108,56 @@ pub(crate) fn player_can_see_local_cell_at(
             && !state.world().has_generated_terrain_at(target))
             || super::sky::assess_generated_skylight_at(registries, state, target, at) > 0
             || crate::energy::assess_local_illumination(registries, state, target).level() > 0)
+}
+
+/// A player-facing observation starts at the actual stance-dependent eye.
+///
+/// A slightly downward view of ground-level matter can cross the horizontal
+/// two-cell envelope even when its Manhattan distance from the eye is three.
+/// Both height corridors must be clear: a low opening beneath a solid lintel
+/// cannot act as an additional eye at the player's feet.
+pub(crate) fn player_can_see_from_eye_at(
+    registries: &Registries,
+    state: &AppState,
+    player: VoxelCoord,
+    target: VoxelCoord,
+    at: SimulationTick,
+) -> bool {
+    if state
+        .logistics()
+        .player()
+        .is_none_or(|record| record.position() != player)
+    {
+        return false;
+    }
+    let Some(eye) = super::player_eye_voxel(registries, state) else {
+        return false;
+    };
+    if player_can_see_local_cell_at(registries, state, eye, target, at) {
+        return true;
+    }
+    // A downward view splits at one real intermediate height, rather than
+    // borrowing an independent view from the feet. When the player stands one
+    // voxel above the target (for example, overlooking a den), the same
+    // two-corridor requirement applies to the steeper downward sightline.
+    let bridge_y = match eye.y().checked_sub(target.y()) {
+        Some(1) if player.y() == target.y() => eye.y(),
+        Some(2) if player.y().checked_sub(target.y()) == Some(1) => player.y(),
+        _ => return false,
+    };
+    let bridge = VoxelCoord::new(target.x(), bridge_y, target.z());
+    has_clear_two_step_sightline(registries, state, eye, bridge)
+        && player_can_see_local_cell_at(registries, state, player, target, at)
+}
+
+/// The same eye-based observation at the committed simulation tick.
+pub(crate) fn player_can_see_from_eye(
+    registries: &Registries,
+    state: &AppState,
+    player: VoxelCoord,
+    target: VoxelCoord,
+) -> bool {
+    player_can_see_from_eye_at(registries, state, player, target, state.tick())
 }
 
 #[cfg(test)]

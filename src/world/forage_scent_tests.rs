@@ -15,6 +15,7 @@ use crate::surface::{
     AdjacentSurfaceResource, SurfaceResourceSpec, player_surface_gathering_options,
     validate_create_surface_resources, validate_start_player_surface_gathering_option,
 };
+use crate::world::weather::weather_at;
 use crate::world::{
     BlockStateId, ChunkCoord, WorldGenerationSeed, assess_player_weather,
     set_generated_block_for_test, validate_generate_chunk,
@@ -73,6 +74,93 @@ fn berry_patch_with_profile(
         .unwrap();
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     (registries, state, site)
+}
+
+#[test]
+fn diffusion_is_local_and_distant_scents_still_follow_the_wind() {
+    let source = VoxelCoord::new(0, 0, 0);
+    for (wind, dx, dz) in [
+        (WindDirection::East, 1_i64, 0_i64),
+        (WindDirection::West, -1, 0),
+        (WindDirection::North, 0, -1),
+        (WindDirection::South, 0, 1),
+    ] {
+        for distance in 0..=LOCAL_DIFFUSION_STEPS {
+            let step = i64::from(distance);
+            let upwind = VoxelCoord::new(-dx * step, 0, -dz * step);
+            assert!(scent_reaches_player(source, upwind, Some(wind), distance));
+        }
+        let beyond = LOCAL_DIFFUSION_STEPS + 1;
+        let step = i64::from(beyond);
+        assert!(
+            !scent_reaches_player(
+                source,
+                VoxelCoord::new(-dx * step, 0, -dz * step),
+                Some(wind),
+                beyond,
+            ),
+            "upwind sensing beyond the diffusion envelope would leak a remote clue"
+        );
+        assert!(scent_reaches_player(
+            source,
+            VoxelCoord::new(dx * step, 0, dz * step),
+            Some(wind),
+            beyond,
+        ));
+    }
+}
+
+#[test]
+fn fresh_forage_remains_smellable_in_adjacent_open_air_on_its_upwind_side() {
+    let (registries, original, source) = single_real_berry_patch();
+    let seed = original
+        .world()
+        .generation_profile()
+        .unwrap()
+        .seed()
+        .value();
+    let (witnessed, neighbor) = (0..30_u64)
+        .find_map(|front| {
+            let at = SimulationTick::new(front * 200);
+            let wind = weather_at(&registries, seed, source, at).wind_direction()?;
+            let (dx, dz) = wind.delta();
+            let neighbor = VoxelCoord::new(source.x() - dx, source.y(), source.z() - dz);
+            if !original
+                .world()
+                .has_standing_clearance(registries.world(), neighbor)
+            {
+                return None;
+            }
+            let mut state = original.clone();
+            apply_clock_advance(&mut state, at);
+            crate::logistics::relocate_player_for_test(&mut state, neighbor);
+            Some((state, neighbor))
+        })
+        .expect("regional fronts and an adjacent clearing provide a nearby upwind food witness");
+    assert_eq!(neighbor.y(), source.y());
+    assert!(neighbor.is_face_adjacent_to(source));
+    let before = witnessed.clone();
+    assert_eq!(
+        assess_player_forage_scents(&registries, &witnessed),
+        vec![ForageScent {
+            kind: ForageScentKind::SweetFruit,
+            intensity: ForageScentIntensity::Distinct,
+        }],
+        "a wind plume can extend downwind, but cannot eliminate scent one open cell from food"
+    );
+    assert_eq!(witnessed, before);
+    assert_eq!(validate_loaded_state(&registries, &witnessed), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &witnessed)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, before);
+    assert!(
+        assess_player_forage_scents(&registries, &restored)
+            .iter()
+            .any(|scent| scent.kind() == ForageScentKind::SweetFruit)
+    );
 }
 
 fn single_real_berry_patch() -> (Registries, AppState, VoxelCoord) {
@@ -560,6 +648,133 @@ fn find_downwind_witness(
 ) -> (AppState, VoxelCoord) {
     try_find_downwind_witness(registries, original, site, ForageScentKind::SweetFruit)
         .expect("seeded wind, generated air and finite berry patch provide a real sensory trail")
+}
+
+#[test]
+fn a_roofed_open_air_patch_still_carries_wind_until_an_upwind_wall_shields_it() {
+    let (registries, original, source) = single_real_berry_patch();
+    let seed = original
+        .world()
+        .generation_profile()
+        .unwrap()
+        .seed()
+        .value();
+    let (outdoor, observer) = (0..60_u64)
+        .find_map(|front| {
+            let at = SimulationTick::new(front * 200);
+            let direction = weather_at(&registries, seed, source, at).wind_direction()?;
+            let (dx, dz) = direction.delta();
+            let mut state = original.clone();
+            apply_clock_advance(&mut state, at);
+            let upwind = VoxelCoord::new(source.x() - dx, source.y(), source.z() - dz);
+            // Source-local wind can enter beneath the roof only from this
+            // genuinely open, sky-exposed upstream cell.
+            if state
+                .world()
+                .full_cell_collision_at(registries.world(), upwind)
+                != Some(false)
+                || !crate::world::sky::has_open_sky(&registries, &state, upwind)
+            {
+                return None;
+            }
+            for range in 4..=6_i64 {
+                let x = source.x() + dx * range;
+                let z = source.z() + dz * range;
+                let Some(y) = (-10..=5).rev().find(|&y| {
+                    state.world().block_at(VoxelCoord::new(x, y, z)) != Some(BlockStateId::AIR)
+                }) else {
+                    continue;
+                };
+                let position = VoxelCoord::new(x, y + 1, z);
+                if state.world().block_at(position) != Some(BlockStateId::AIR)
+                    || state.world().tree_trunk_at(position).is_some()
+                {
+                    continue;
+                }
+                crate::logistics::relocate_player_for_test(&mut state, position);
+                if assess_player_forage_scents(&registries, &state)
+                    .iter()
+                    .any(|cue| cue.kind() == ForageScentKind::SweetFruit)
+                {
+                    return Some((state, position));
+                }
+            }
+            None
+        })
+        .expect("generated outdoor wind carries the real berry scent at least four air steps");
+    assert!(source.x().abs_diff(observer.x()) + source.z().abs_diff(observer.z()) >= 4);
+    assert!(
+        crate::world::weather::exposed_air_at(&registries, &outdoor, source, outdoor.tick())
+            .is_some()
+    );
+    let mut roofed = outdoor.clone();
+    let roof = VoxelCoord::new(source.x(), source.y() + 2, source.z());
+    assert_eq!(roofed.world().block_at(roof), Some(BlockStateId::AIR));
+    set_generated_block_for_test(registries.world(), &mut roofed, roof, BLOCK_STATE_STONE);
+    assert!(
+        crate::world::weather::exposed_air_at(&registries, &roofed, source, roofed.tick())
+            .is_none()
+    );
+    let wind = weather_at(&registries, seed, source, roofed.tick());
+    let (dx, dz) = wind.wind_direction().unwrap().delta();
+    let upwind = VoxelCoord::new(source.x() - dx, source.y(), source.z() - dz);
+    assert_eq!(
+        crate::world::weather::wind_at_generated_position(
+            &registries,
+            &roofed,
+            source,
+            roofed.tick()
+        ),
+        Some(wind.wind()),
+        "a small overhang cannot eliminate wind entering through a sky-exposed upstream face"
+    );
+    assert_eq!(
+        assess_player_forage_scents(&registries, &roofed),
+        assess_player_forage_scents(&registries, &outdoor)
+    );
+
+    // Only actual wind shelter, not the roof alone, removes the distant
+    // plume. The wall is upstream, so the downwind scent corridor remains open.
+    set_generated_block_for_test(registries.world(), &mut roofed, upwind, BLOCK_STATE_STONE);
+    assert_eq!(
+        crate::world::weather::wind_at_generated_position(
+            &registries,
+            &roofed,
+            source,
+            roofed.tick()
+        ),
+        None
+    );
+    let conserved = calculate_matter_accounting(&roofed).unwrap().total();
+    assert!(
+        assess_player_forage_scents(&registries, &roofed).is_empty(),
+        "a real upstream barrier shields the covered source from its outdoor wind"
+    );
+
+    crate::logistics::relocate_player_for_test(&mut roofed, source);
+    assert_eq!(
+        assess_player_forage_scents(&registries, &roofed),
+        vec![ForageScent {
+            kind: ForageScentKind::SweetFruit,
+            intensity: ForageScentIntensity::Distinct,
+        }],
+        "covered berries must still diffuse scent to someone beside them"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&roofed).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &roofed), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &roofed)).unwrap();
+    let replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(replay, roofed);
+    assert_eq!(
+        assess_player_forage_scents(&registries, &replay),
+        assess_player_forage_scents(&registries, &roofed)
+    );
 }
 
 #[test]

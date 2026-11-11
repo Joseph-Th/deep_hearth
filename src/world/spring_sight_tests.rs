@@ -96,6 +96,27 @@ fn generated_water_sight_is_physical_even_when_the_water_is_not_drinkable() {
         expected,
         "hot water is still visible, but rock, distance, and missing graph edges do not disclose other sources"
     );
+    // A waist-high view from the player's feet would incorrectly disclose
+    // water behind an opaque overhang. The physical eye and the low passage
+    // must both have an open line to the source.
+    let mut overhung = state.clone();
+    let lintel = VoxelCoord::new(second.x(), y + 1, second.z());
+    set_generated_block_for_test(registries.world(), &mut overhung, lintel, BLOCK_STATE_STONE);
+    assert!(
+        crate::world::has_clear_two_step_sightline(&registries, &overhung, player, first),
+        "ground-level geometry alone still has a clear passage"
+    );
+    assert!(
+        !observed(&overhung).contains(&(first_id, first)),
+        "the eye-height barrier hides water beyond the low passage"
+    );
+    assert!(
+        observed(&overhung).contains(&(hot_id, scalding)),
+        "unrelated visible water must remain disclosed"
+    );
+    set_generated_block_for_test(registries.world(), &mut overhung, lintel, BlockStateId::AIR);
+    assert_eq!(observed(&overhung), expected);
+
     let before = state.clone();
     assert!(matches!(
         validate_drink(

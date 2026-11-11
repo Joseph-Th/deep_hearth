@@ -1766,3 +1766,117 @@ fn scout_stages_physical_pry_parts_and_player_interception_reverses_its_effect()
         "tool abrasion and its debris must persist together"
     );
 }
+
+#[test]
+fn loose_older_parts_do_not_displace_a_completed_fitted_scrap_lever() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    for (from, to) in [(DEN, JUNCTION), (JUNCTION, TIP)] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([DEN, JUNCTION, TIP]);
+
+    // These older, untouched parts are initially outside the scout's worksite.
+    // The actual fitted pair has newer IDs and occupies the junction.
+    let sidestep = VoxelCoord::new(0, 0, 1);
+    let loose_handle = drop_at(
+        &registries,
+        &mut state,
+        sidestep,
+        MATERIAL_WOOD,
+        FORM_HANDLE,
+        Mass::from_milligrams(50_000),
+    );
+    let loose_copper = drop_at(
+        &registries,
+        &mut state,
+        sidestep,
+        MATERIAL_COPPER,
+        FORM_INGOT,
+        Mass::from_milligrams(50_000),
+    );
+    let fitted_handle = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_WOOD,
+        FORM_HANDLE,
+        Mass::from_milligrams(50_000),
+    );
+    let fitted_copper = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_COPPER,
+        FORM_INGOT,
+        Mass::from_milligrams(50_000),
+    );
+    advance_to(&registries, &mut state, 190);
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    let fitting = colony
+        .pry_fitting
+        .expect("scout must finish the physical fitting");
+    assert!(fitting.completed_at.is_some());
+    assert_eq!(
+        (fitting.handle, fitting.head),
+        (fitted_handle, fitted_copper)
+    );
+
+    // Bringing separate spare parts into the same cell must not silently
+    // detach the physically completed pair or schedule an identical refit.
+    for id in [loose_handle, loose_copper] {
+        assert!(crate::surface::relocate_scavenged_drop_step(
+            &registries,
+            &mut state,
+            id,
+            sidestep,
+            JUNCTION,
+        ));
+    }
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let tool = current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+        .expect("an unfitted spare cannot hide the already fitted working tool");
+    assert_eq!((tool.handle(), tool.head()), (fitted_handle, fitted_copper));
+
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 195);
+    advance_to(&registries, &mut replay, 195);
+    assert_eq!(state, replay);
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    let fitting = colony
+        .pry_fitting
+        .expect("spare parts cannot restart finished fitting");
+    assert!(fitting.completed_at.is_some());
+    assert_eq!(
+        (fitting.handle, fitting.head),
+        (fitted_handle, fitted_copper)
+    );
+    let tool = current_junction_scrap_lever(&state, colony)
+        .expect("spare parts cannot disable the completed pair at the next work slot");
+    assert_eq!((tool.handle(), tool.head()), (fitted_handle, fitted_copper));
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    // Removing the original fitted head must disable that specific pair.
+    // The otherwise equivalent spare cannot silently inherit its fitting.
+    assert!(crate::surface::relocate_scavenged_drop_step(
+        &registries,
+        &mut state,
+        fitted_copper,
+        JUNCTION,
+        sidestep,
+    ));
+    assert!(
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .is_none(),
+        "unfitted spare copper cannot inherit work performed on a different identity"
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}

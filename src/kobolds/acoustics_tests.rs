@@ -1138,17 +1138,37 @@ fn actual_wind_fronts_mask_surface_steps_without_muffling_underground_passages()
         6,
         "surface gusts cannot mask sound in a rock tunnel"
     );
+    let at = SimulationTick::new(200);
+    let outdoor_wind = wind_at_generated_position(&registries, &state, surface, at).unwrap();
+    assert_eq!(outdoor_wind, WindCondition::Breeze);
     let mut covered = state.clone();
     let roof = VoxelCoord::new(surface.x(), surface.y() + 3, surface.z());
     assert_eq!(covered.world().block_at(roof), Some(BlockStateId::AIR));
     set_generated_block_for_test(registries.world(), &mut covered, roof, BLOCK_STATE_STONE);
     assert_eq!(
-        wind_at_generated_position(&registries, &covered, surface, SimulationTick::new(200)),
-        None,
-        "a physical overhead roof shelters an otherwise windy surface"
+        wind_at_generated_position(&registries, &covered, surface, at),
+        Some(outdoor_wind),
+        "one roof cell leaves the windward side open to the outdoors"
     );
+    assert_eq!(wind_masked_reach(&registries, &covered, surface, at, 6), 5);
+
+    // Extend the roof across every windward neighbor. The air beneath still
+    // transmits sound, but none of its immediate inlet cells sees the sky.
+    for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+        let neighbor_roof = VoxelCoord::new(roof.x() + dx, roof.y(), roof.z() + dz);
+        if covered.world().block_at(neighbor_roof) == Some(BlockStateId::AIR) {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut covered,
+                neighbor_roof,
+                BLOCK_STATE_STONE,
+            );
+        }
+    }
     assert_eq!(
-        wind_masked_reach(&registries, &covered, surface, SimulationTick::new(200), 6),
-        6
+        wind_at_generated_position(&registries, &covered, surface, at),
+        None,
+        "the extended roof blocks the immediate sky-exposed wind inlet"
     );
+    assert_eq!(wind_masked_reach(&registries, &covered, surface, at, 6), 6);
 }

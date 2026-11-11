@@ -61,7 +61,7 @@ impl AdjacentSurfaceResource {
                     // illumination queries when no live resource occupies them.
                     let mut resources = state.surface().available_resources_at(Some(to)).peekable();
                     if resources.peek().is_none()
-                        || !crate::world::player_can_see_local_cell(registries, state, from, to)
+                        || !crate::world::player_can_see_from_eye(registries, state, from, to)
                     {
                         continue;
                     }
