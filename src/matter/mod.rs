@@ -337,9 +337,9 @@ fn calculate_total_mass(parts: &[AggregateMass]) -> Result<AggregateMass, Matter
 ///
 /// Finite geological deposits own extractable matter until mining completion. Completed mining output
 /// awaiting settlement remains mining-owned until the automatic settlement transaction transfers it
-/// into inventory. Structural embodiment remains
-/// structure-owned because no demolition/recovery operation exists. Production start transfers input
-/// matter from inventory to the durable in-process output snapshot until completion. Reservations and
+/// into inventory. Structural embodiment remains structure-owned until a validated dismantling
+/// transfers its exact embodied mass back into inventory. Production start transfers input matter
+/// from inventory to the durable in-process output snapshot until completion. Reservations and
 /// unfinished mining output plans are not matter owners and are excluded from this projection.
 /// Because the result includes hidden geological truth, it is suitable for conservation audits and
 /// post-hoc diagnostics, not as a player-observation surface.
