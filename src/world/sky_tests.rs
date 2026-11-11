@@ -242,13 +242,32 @@ fn crown_shade_falls_toward_the_perimeter_and_daylight_budget_matches_sky_levels
     assert_eq!(crown_shade_at_distance(1, 0), 2);
     assert_eq!(crown_shade_at_distance(1, 1), 2);
     assert_eq!(crown_shade_at_distance(0, 0), 0);
+    let calendar = build_registries().core().calendar();
+    let phase_ticks = u128::from(calendar.ticks_per_day() / 4);
     assert_eq!(
-        daylight_exposure_after_canopy(0),
-        OPEN_DAYLIGHT_EXPOSURE_SUM
+        daylight_exposure_after_canopy(calendar, 0),
+        29 * phase_ticks
     );
-    assert_eq!(daylight_exposure_after_canopy(8), 7);
-    assert_eq!(daylight_exposure_after_canopy(12), 2);
-    assert_eq!(daylight_exposure_after_canopy(14), 0);
+    assert_eq!(daylight_exposure_after_canopy(calendar, 8), 7 * phase_ticks);
+    assert_eq!(
+        daylight_exposure_after_canopy(calendar, 12),
+        2 * phase_ticks
+    );
+    assert_eq!(daylight_exposure_after_canopy(calendar, 14), 0);
+}
+
+#[test]
+fn short_valid_day_exposes_the_actual_daylight_integral() {
+    use crate::core::time::CalendarDefinition;
+
+    // Five 3.6-second ticks form a physically valid 18-second day. The sky's
+    // four phases last 2, 1, 1, and 1 ticks, not 1.25 ticks each.
+    let calendar = CalendarDefinition::new(5, 18, 8, 12);
+    let actual_daylight = [9_u128, 9, 14, 6, 0].into_iter().sum::<u128>();
+    assert_eq!(daylight_exposure_after_canopy(calendar, 0), actual_daylight);
+    assert_eq!(daylight_exposure_after_canopy(calendar, 8), 8);
+    assert_eq!(daylight_exposure_after_canopy(calendar, 12), 2);
+    assert_eq!(daylight_exposure_after_canopy(calendar, 14), 0);
 }
 
 /// A real seed-rooted deciduous tree changes the understory as atmospheric

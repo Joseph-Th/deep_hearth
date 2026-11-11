@@ -5,7 +5,7 @@
 //! through a roof, a stone ceiling or an unknown column.
 
 use crate::core::state::AppState;
-use crate::core::time::{Season, SimulationTick};
+use crate::core::time::{CalendarDefinition, Season, SimulationTick};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
@@ -14,21 +14,26 @@ use super::{ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y};
 const MAX_CANOPY_RADIUS: i64 = 3;
 const CANOPY_VERTICAL_REACH_ABOVE_ROOT: i64 = 5;
 
-/// Quarter-day direct-sky brightness. The same levels drive both visible
-/// skylight and the daylight budget supporting a rooted plant's next crop.
+/// Direct-sky brightness across four day phases. The same levels drive both
+/// visible skylight and the daylight budget supporting a rooted plant's next crop.
 const SKY_PHASE_BRIGHTNESS: [u8; 4] = [9, 14, 6, 0];
-pub(super) const OPEN_DAYLIGHT_EXPOSURE_SUM: u64 = SKY_PHASE_BRIGHTNESS[0] as u64
-    + SKY_PHASE_BRIGHTNESS[1] as u64
-    + SKY_PHASE_BRIGHTNESS[2] as u64
-    + SKY_PHASE_BRIGHTNESS[3] as u64;
 
-/// Total represented daylight received over the four equal day phases.
-/// This is an exposure potential, independent of the ripening front's hour.
-pub(super) fn daylight_exposure_after_canopy(shade: u8) -> u64 {
-    SKY_PHASE_BRIGHTNESS
-        .into_iter()
-        .map(|level| u64::from(level.saturating_sub(shade)))
-        .sum()
+/// Whole-day skylight exposure at the same phase boundaries as the observed
+/// sky. Valid calendars need not divide evenly into four phases: assigning
+/// every phase equal weight would give plants a different light budget from
+/// the one actually seen during that day.
+pub(super) fn daylight_exposure_after_canopy(calendar: CalendarDefinition, shade: u8) -> u128 {
+    let day_ticks = u128::from(calendar.ticks_per_day());
+    let mut phase_start = 0_u128;
+    let mut exposure = 0_u128;
+    for (phase, level) in (1_u128..=4).zip(SKY_PHASE_BRIGHTNESS) {
+        // sky_brightness uses floor(day_tick * 4 / day_ticks), so the
+        // first tick of each new phase is ceil(phase * day_ticks / 4).
+        let phase_end = (phase * day_ticks).div_ceil(4);
+        exposure += (phase_end - phase_start) * u128::from(level.saturating_sub(shade));
+        phase_start = phase_end;
+    }
+    exposure
 }
 
 /// The crown core extends to neighboring cells; farther rings receive

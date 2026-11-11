@@ -6,17 +6,15 @@
 //! photosynthetic source or loot respawn.
 
 use crate::content::BLOCK_STATE_STONE;
+use crate::core::arithmetic::checked_mul_div_with_remainder;
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::core::time::{Season, SimulationTick};
+use crate::core::time::{CalendarDefinition, Season, SimulationTick};
 use crate::registry::Registries;
 use crate::surface::SurfaceResourceLifecycle;
 
 use super::generation::{HabitatKind, habitat_at};
-use super::sky::{
-    OPEN_DAYLIGHT_EXPOSURE_SUM, daylight_exposure_after_canopy, has_open_sky,
-    living_canopy_shade_at,
-};
+use super::sky::{daylight_exposure_after_canopy, has_open_sky, living_canopy_shade_at};
 use super::weather::weather_at;
 
 mod moisture;
@@ -57,23 +55,47 @@ fn moisture_adjusted_crop(open_crop: u64, moisture: RootMoisture) -> u64 {
 
 /// Ripening transfers existing biomass only when light supports a whole-milligram
 /// crop. Dense overlapping crowns and fractional yields retain the root reserve.
+fn ripened_crop_for_calendar(
+    calendar: CalendarDefinition,
+    root_reserve: Mass,
+    original_fruit: Mass,
+    moisture: RootMoisture,
+    shade: u8,
+) -> Mass {
+    let daylight = daylight_exposure_after_canopy(calendar, shade);
+    if daylight == 0 || root_reserve.is_zero() {
+        return Mass::ZERO;
+    }
+    let open_batch = (original_fruit.milligrams() / 4).max(1);
+    let watered_batch = moisture_adjusted_crop(open_batch, moisture);
+    let (lit_batch, _) = checked_mul_div_with_remainder(
+        u128::from(watered_batch),
+        daylight,
+        daylight_exposure_after_canopy(calendar, 0),
+        0,
+    )
+    .expect("a bounded crop scaled by available daylight fits u128");
+    let lit_batch =
+        u64::try_from(lit_batch).expect("daylight cannot increase a moisture-adjusted crop");
+    Mass::from_milligrams(root_reserve.milligrams().min(lit_batch))
+}
+
+/// Existing vegetation unit tests evaluate the authored day; runtime decisions
+/// always provide their actual calendar to the same crop formula.
+#[cfg(test)]
 fn ripened_crop(
     root_reserve: Mass,
     original_fruit: Mass,
     moisture: RootMoisture,
     shade: u8,
 ) -> Mass {
-    let daylight = daylight_exposure_after_canopy(shade);
-    if daylight == 0 || root_reserve.is_zero() {
-        return Mass::ZERO;
-    }
-    let open_batch = (original_fruit.milligrams() / 4).max(1);
-    let watered_batch = moisture_adjusted_crop(open_batch, moisture);
-    let lit_batch = u64::try_from(
-        u128::from(watered_batch) * u128::from(daylight) / u128::from(OPEN_DAYLIGHT_EXPOSURE_SUM),
+    ripened_crop_for_calendar(
+        crate::content::build_registries().core().calendar(),
+        root_reserve,
+        original_fruit,
+        moisture,
+        shade,
     )
-    .expect("daylight cannot increase a bounded moisture-adjusted crop");
-    Mass::from_milligrams(root_reserve.milligrams().min(lit_batch))
 }
 
 /// A stripped plant needs real elapsed growth time; drought-tolerant scrub
@@ -188,11 +210,12 @@ pub(crate) fn apply_natural_forage_cycle(
             // leave their unspent mass in its actual root reserve; no water,
             // organic matter or food is silently removed or manufactured.
             let shade = living_canopy_shade_at(registries, state, source.position(), at);
-            if daylight_exposure_after_canopy(shade) == 0 {
+            if daylight_exposure_after_canopy(registries.core().calendar(), shade) == 0 {
                 return None;
             }
             let moisture = moisture.get_or_init(|| RootMoistureSurvey::observe(state));
-            let batch = ripened_crop(
+            let batch = ripened_crop_for_calendar(
+                registries.core().calendar(),
                 plant.root_reserve,
                 plant.original_fruit,
                 moisture.at(source.position()),
@@ -232,3 +255,7 @@ mod tests;
 #[cfg(test)]
 #[path = "forage_moisture_tests.rs"]
 mod moisture_tests;
+
+#[cfg(test)]
+#[path = "forage_daylight_tests.rs"]
+mod daylight_tests;
