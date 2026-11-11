@@ -3,7 +3,7 @@
 use super::TextureLayer;
 use crate::texture::{
     PackedTexel, PaletteSlot, ShadeIndex, TEXTURE_MIP_LEVEL_COUNT, TEXTURE_SIDE,
-    TEXTURE_TEXEL_COUNT,
+    TEXTURE_TEXEL_COUNT, TextureAlphaMode,
 };
 
 /// One mip level with all unique pattern layers stored contiguously in layer-major order.
@@ -42,8 +42,10 @@ impl IndexedMipLevel {
 pub(super) fn build_mip_levels(
     layers: Vec<&[PackedTexel; TEXTURE_TEXEL_COUNT]>,
     cutout_opacity: Vec<Option<[u8; 256]>>,
+    alpha_modes: Vec<TextureAlphaMode>,
 ) -> Vec<IndexedMipLevel> {
     assert_eq!(layers.len(), cutout_opacity.len());
+    assert_eq!(layers.len(), alpha_modes.len());
     let layer_count = layers.len();
     let mut current = Vec::with_capacity(layer_count.saturating_mul(TEXTURE_TEXEL_COUNT));
     for &layer in &layers {
@@ -63,7 +65,7 @@ pub(super) fn build_mip_levels(
         if side == 1 {
             break;
         }
-        downsample_layers_in_place(&mut current, side, layer_count);
+        downsample_layers_in_place(&mut current, side, &alpha_modes);
         side /= 2;
         for (layer_index, opacity) in cutout_opacity.iter().enumerate() {
             if let Some(opacity) = opacity {
@@ -203,8 +205,9 @@ fn representative_cutout_texel(
 fn downsample_layers_in_place(
     source: &mut Vec<PackedTexel>,
     source_side: usize,
-    layer_count: usize,
+    alpha_modes: &[TextureAlphaMode],
 ) {
+    let layer_count = alpha_modes.len();
     let source_stride = source_side * source_side;
     let target_side = source_side / 2;
     let target_stride = target_side * target_side;
@@ -222,14 +225,18 @@ fn downsample_layers_in_place(
                     source[top_left + source_side],
                     source[top_left + source_side + 1],
                 ];
-                source[target_offset + y * target_side + x] = resolve_mip_texel(samples);
+                source[target_offset + y * target_side + x] =
+                    resolve_mip_texel(samples, alpha_modes[layer]);
             }
         }
     }
     source.truncate(layer_count.saturating_mul(target_stride));
 }
 
-pub(super) fn resolve_mip_texel(samples: [PackedTexel; 4]) -> PackedTexel {
+pub(super) fn resolve_mip_texel(
+    samples: [PackedTexel; 4],
+    alpha_mode: TextureAlphaMode,
+) -> PackedTexel {
     // A 2x2 mip footprint has only four candidates. Counting those candidates directly avoids
     // zeroing and scanning the full 16-slot palette histogram for every output texel.
     let mut selected_slot = samples[0].palette_slot().value();
@@ -255,10 +262,19 @@ pub(super) fn resolve_mip_texel(samples: [PackedTexel; 4]) -> PackedTexel {
         }
     }
     let rounded_shade = (shade_sum + shade_count / 2) / shade_count;
-    PackedTexel::new(
-        PaletteSlot::new(selected_slot),
-        ShadeIndex::new(
-            u8::try_from(rounded_shade).unwrap_or_else(|_| panic!("shade exceeds texel range")),
-        ),
-    )
+    let shade = if alpha_mode == TextureAlphaMode::Blend {
+        // Blended ramps may author intermediate alpha for distant coverage.
+        // Retain shade interpolation for that explicitly translucent path.
+        u8::try_from(rounded_shade).expect("averaged four-bit shade fits u8")
+    } else {
+        // An unused shade between opaque samples may be transparent. Opaque
+        // and cutout mip levels must select an actually represented shade.
+        samples
+            .into_iter()
+            .filter(|sample| sample.palette_slot().value() == selected_slot)
+            .map(|sample| sample.shade().value())
+            .min_by_key(|&shade| (u16::from(shade).abs_diff(rounded_shade), shade))
+            .unwrap_or_else(|| unreachable!("selected slot occurs in the sampled footprint"))
+    };
+    PackedTexel::new(PaletteSlot::new(selected_slot), ShadeIndex::new(shade))
 }

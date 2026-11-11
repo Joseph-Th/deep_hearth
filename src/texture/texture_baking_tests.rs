@@ -260,13 +260,154 @@ fn cutout_representative_shades_cannot_cross_an_alpha_boundary() {
 }
 
 #[test]
-fn mip_resolution_prefers_majority_slot_and_rounds_its_shades() {
-    let mip = resolve_mip_texel([
-        PackedTexel::new(PaletteSlot::new(1), ShadeIndex::new(2)),
-        PackedTexel::new(PaletteSlot::new(1), ShadeIndex::new(5)),
-        PackedTexel::new(PaletteSlot::new(1), ShadeIndex::new(8)),
-        PackedTexel::new(PaletteSlot::new(0), ShadeIndex::new(15)),
-    ]);
+fn opaque_mip_levels_cannot_introduce_transparency_from_unused_palette_shades() {
+    let mut colors = [ColorRgba8::opaque(20, 30, 40); PALETTE_RAMP_COLOR_COUNT];
+    // The original image uses only two opaque anchors. Interpolating their
+    // shade indices would select an unused transparent shade between them.
+    colors[1] = ColorRgba8::new(0, 0, 0, 0);
+    let texture = TextureId::new(1);
+    let texels = std::array::from_fn(|index| {
+        PackedTexel::new(
+            PaletteSlot::new(0),
+            ShadeIndex::new(if index % 2 == 0 { 0 } else { 2 }),
+        )
+    });
+    let registry = TextureRegistry::new(
+        [PaletteRampDefinition::new(RAMP_A, "opaque anchors", colors)],
+        [TextureDefinition::new(
+            texture,
+            "opaque alternating shades",
+            TexturePalette::new(vec![RAMP_A]),
+            TextureAlphaMode::Opaque,
+            texels,
+        )],
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+    );
+    let baked = registry.bake_texture_array();
+    for mip in 0..TEXTURE_MIP_LEVEL_COUNT {
+        let side = baked.mip_levels()[mip].side();
+        for y in 0..side {
+            for x in 0..side {
+                assert_eq!(
+                    baked.sample(texture, mip, x, y).unwrap().alpha(),
+                    u8::MAX,
+                    "an opaque texture acquired a transparent pixel at mip {mip}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn blended_mip_levels_retain_authored_intermediate_opacity() {
+    let mut colors = [ColorRgba8::opaque(20, 30, 40); PALETTE_RAMP_COLOR_COUNT];
+    colors[0] = ColorRgba8::new(20, 30, 40, 0);
+    colors[1] = ColorRgba8::new(20, 30, 40, 128);
+    colors[2] = ColorRgba8::new(20, 30, 40, u8::MAX);
+    let texture = TextureId::new(1);
+    let texels = std::array::from_fn(|index| {
+        PackedTexel::new(
+            PaletteSlot::new(0),
+            ShadeIndex::new(if index % 2 == 0 { 0 } else { 2 }),
+        )
+    });
+    let registry = TextureRegistry::new(
+        [PaletteRampDefinition::new(RAMP_A, "alpha blend", colors)],
+        [TextureDefinition::new(
+            texture,
+            "alternating blend alpha",
+            TexturePalette::new(vec![RAMP_A]),
+            TextureAlphaMode::Blend,
+            texels,
+        )],
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+    );
+    let baked = registry.bake_texture_array();
+    assert_eq!(baked.sample(texture, 0, 0, 0).unwrap().alpha(), 0);
+    assert_eq!(baked.sample(texture, 0, 1, 0).unwrap().alpha(), u8::MAX);
+    for mip in 1..TEXTURE_MIP_LEVEL_COUNT {
+        let side = baked.mip_levels()[mip].side();
+        for y in 0..side {
+            for x in 0..side {
+                assert_eq!(
+                    baked.sample(texture, mip, x, y).unwrap().alpha(),
+                    128,
+                    "blended alpha should resolve to the authored intermediate shade"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn identical_patterns_with_different_alpha_modes_get_independent_mips() {
+    let mut opaque_colors = [ColorRgba8::opaque(20, 30, 40); PALETTE_RAMP_COLOR_COUNT];
+    opaque_colors[1] = ColorRgba8::new(20, 30, 40, 0);
+    let mut blend_colors = opaque_colors;
+    blend_colors[0] = ColorRgba8::new(20, 30, 40, 0);
+    blend_colors[1] = ColorRgba8::new(20, 30, 40, 128);
+
+    let pattern = std::array::from_fn(|index| {
+        PackedTexel::new(
+            PaletteSlot::new(0),
+            ShadeIndex::new(if index % 2 == 0 { 0 } else { 2 }),
+        )
+    });
+    let opaque = TextureId::new(1);
+    let blended = TextureId::new(2);
+    let registry = TextureRegistry::new(
+        [
+            PaletteRampDefinition::new(RAMP_A, "solid", opaque_colors),
+            PaletteRampDefinition::new(RAMP_B, "translucent", blend_colors),
+        ],
+        [
+            TextureDefinition::new(
+                opaque,
+                "opaque pattern",
+                TexturePalette::new(vec![RAMP_A]),
+                TextureAlphaMode::Opaque,
+                pattern,
+            ),
+            TextureDefinition::new(
+                blended,
+                "blend pattern",
+                TexturePalette::new(vec![RAMP_B]),
+                TextureAlphaMode::Blend,
+                pattern,
+            ),
+        ],
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+        std::iter::empty(),
+    );
+    let baked = registry.bake_texture_array();
+    assert_eq!(baked.pattern_layer_count(), 2);
+    assert_ne!(
+        baked.get_descriptor(opaque).unwrap().layer(),
+        baked.get_descriptor(blended).unwrap().layer(),
+    );
+    assert_eq!(baked.sample(opaque, 1, 0, 0).unwrap().alpha(), u8::MAX);
+    assert_eq!(baked.sample(blended, 1, 0, 0).unwrap().alpha(), 128);
+}
+
+#[test]
+fn mip_resolution_prefers_majority_slot_and_nearest_source_shade() {
+    let mip = resolve_mip_texel(
+        [
+            PackedTexel::new(PaletteSlot::new(1), ShadeIndex::new(2)),
+            PackedTexel::new(PaletteSlot::new(1), ShadeIndex::new(5)),
+            PackedTexel::new(PaletteSlot::new(1), ShadeIndex::new(8)),
+            PackedTexel::new(PaletteSlot::new(0), ShadeIndex::new(15)),
+        ],
+        TextureAlphaMode::Opaque,
+    );
 
     assert_eq!(mip.palette_slot(), PaletteSlot::new(1));
     assert_eq!(mip.shade(), ShadeIndex::new(5));

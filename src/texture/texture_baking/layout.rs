@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::texture::{
     PALETTE_RAMP_COLOR_COUNT, PackedTexel, TEXTURE_PALETTE_SLOT_COUNT, TEXTURE_TEXEL_COUNT,
-    TextureRegistry,
+    TextureAlphaMode, TextureRegistry,
 };
 
 use super::{BakedTextureDescriptor, TextureLayer, TexturePaletteRow};
@@ -13,6 +13,7 @@ pub(super) struct BakedTextureLayout<'registry> {
     pub(super) descriptors_by_texture: Vec<Option<BakedTextureDescriptor>>,
     pub(super) patterns: Vec<&'registry [PackedTexel; TEXTURE_TEXEL_COUNT]>,
     pub(super) cutout_opacity: Vec<Option<[u8; 256]>>,
+    pub(super) alpha_modes: Vec<TextureAlphaMode>,
     pub(super) palette_rows: Vec<[u16; TEXTURE_PALETTE_SLOT_COUNT]>,
 }
 
@@ -20,10 +21,16 @@ pub(super) fn bake_texture_layout(registry: &TextureRegistry) -> BakedTextureLay
     let texture_count = registry.textures_in_id_order().len();
     let mut patterns = Vec::<&[PackedTexel; TEXTURE_TEXEL_COUNT]>::new();
     let mut cutout_opacity = Vec::new();
-    // Cutout coverage depends on palette alpha, not just on the raw pattern:
-    // two palettes sharing indices may disagree about which texels are holes.
+    let mut alpha_modes = Vec::new();
+    // Cutout coverage depends on palette alpha. Blended mips interpolate shades,
+    // while opaque mips preserve an actually sampled alpha. Different alpha
+    // modes cannot share a GPU layer even if their source indices are identical.
     let mut pattern_layers = HashMap::<
-        (&[PackedTexel; TEXTURE_TEXEL_COUNT], Option<[u8; 256]>),
+        (
+            &[PackedTexel; TEXTURE_TEXEL_COUNT],
+            TextureAlphaMode,
+            Option<[u8; 256]>,
+        ),
         TextureLayer,
     >::with_capacity(texture_count);
     let mut palette_rows = Vec::<[u16; TEXTURE_PALETTE_SLOT_COUNT]>::new();
@@ -63,7 +70,7 @@ pub(super) fn bake_texture_layout(registry: &TextureRegistry) -> BakedTextureLay
                 }
                 used_opacity
             });
-        let layer = match pattern_layers.get(&(pattern, opacity)) {
+        let layer = match pattern_layers.get(&(pattern, definition.alpha_mode(), opacity)) {
             Some(layer) => *layer,
             None => {
                 let layer =
@@ -72,7 +79,8 @@ pub(super) fn bake_texture_layout(registry: &TextureRegistry) -> BakedTextureLay
                     }));
                 patterns.push(pattern);
                 cutout_opacity.push(opacity);
-                pattern_layers.insert((pattern, opacity), layer);
+                alpha_modes.push(definition.alpha_mode());
+                pattern_layers.insert((pattern, definition.alpha_mode(), opacity), layer);
                 layer
             }
         };
@@ -106,6 +114,7 @@ pub(super) fn bake_texture_layout(registry: &TextureRegistry) -> BakedTextureLay
         descriptors_by_texture,
         patterns,
         cutout_opacity,
+        alpha_modes,
         palette_rows,
     }
 }
