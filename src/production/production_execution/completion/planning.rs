@@ -58,7 +58,10 @@ pub(crate) fn plan_player_death_suspension(
     // unavailability. Merely discarding the resume would checkpoint physical support revisions
     // while leaving the job outside the labor-suspension index, stranding WIP after respawn.
     // Jobs already waiting for labor need no redundant change; due completions still finish.
+    // Completion jobs originate from the ordered due-job index. Use that ordering
+    // for lookups rather than rescanning every due job for each availability change.
     let due_jobs = &plan.jobs;
+    debug_assert!(due_jobs.windows(2).all(|pair| pair[0] < pair[1]));
     plan.availability_changes.retain_mut(|change| {
         let ProductionAvailabilityChange::Resumed {
             job,
@@ -68,7 +71,7 @@ pub(crate) fn plan_player_death_suspension(
         else {
             return true;
         };
-        if due_jobs.contains(&job) {
+        if due_jobs.binary_search(&job).is_ok() {
             return true;
         }
         let record = state.production().get_job(job).unwrap_or_else(|| {
@@ -98,7 +101,7 @@ pub(crate) fn plan_player_death_suspension(
     let Some(PlayerWork::ManualProduction { job }) = state.player_work().active() else {
         return Ok(());
     };
-    if plan.jobs.contains(&job) {
+    if due_jobs.binary_search(&job).is_ok() {
         return Ok(());
     }
     if let Some(change) = find_availability_change(&plan.availability_changes, job) {
