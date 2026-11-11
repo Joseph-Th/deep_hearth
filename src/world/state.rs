@@ -1,6 +1,7 @@
 //! Authoritative generated-world state, compact chunks and block-space queries.
 
 use std::collections::BTreeMap;
+use std::fmt::{Debug, Formatter};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -289,7 +290,7 @@ fn deserialize_btree_map_no_duplicates_tree_index<
 
 /// Authoritative generated block-world storage. Chunk absence means not generated/loaded as world
 /// truth, while section absence inside a present chunk means canonical air.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorldState {
     revision: u64,
@@ -312,6 +313,19 @@ pub struct WorldState {
     felled_trees: BTreeMap<VoxelCoord, FelledTreeRecord>,
     /// Append-only authoritative path of seed-origin-preserving sapling relocations.
     transplants: Vec<TransplantedTreeRecord>,
+}
+
+/// Public diagnostics must not reveal the deterministic generation seed. It
+/// determines undiscovered resource placements and belongs to world-generation
+/// authority, not to an actor-readable observation or incidental debug log.
+impl Debug for WorldState {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("WorldState")
+            .field("revision", &self.revision)
+            .field("generated_chunk_count", &self.chunks.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl WorldState {

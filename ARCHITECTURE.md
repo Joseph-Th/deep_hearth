@@ -269,6 +269,8 @@ registry schemas.
   observation publicly. Untrusted bytes decode only through
   `LoadedSaveEnvelope`; `into_state` is the promotion boundary that checks exact schemas, rebuilds derived
   indexes, and validates the complete state graph before returning runtime state.
+  Root and world-state debug output retain bounded diagnostics but omit the generator seed, since
+  that identity could reveal undiscovered deterministic geology and natural-resource positions.
 - Persisted player admission is all-or-nothing. A promoted save may contain no player, or the ordinary player
   must exist coherently across survival and logistics with carried inventory custody. Survival-only or
   logistics-only actor state is valid only for explicitly controlled in-memory fixtures and is not persistable

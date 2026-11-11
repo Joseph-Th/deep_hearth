@@ -93,12 +93,45 @@ fn local_equipment_observation_does_not_traverse_remote_dangling_custody() {
 
 #[test]
 fn app_state_debug_does_not_expose_hidden_geology() {
-    let state = AppState::new();
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{ChunkCoord, WorldGenerationSeed, validate_generate_chunk};
 
-    let debug = format!("{state:?}");
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let seed = WorldGenerationSeed::new(0xA1B2_C3D4_E5F6_0719);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
 
-    assert!(debug.contains("geological_knowledge"));
-    assert!(!debug.contains("geology:"));
+    for debug in [format!("{state:?}"), format!("{:?}", state.world())] {
+        assert!(debug.contains("WorldState"));
+        assert!(
+            !debug.contains(&format!("{seed:?}")),
+            "world seed enables inference of hidden deterministic geology"
+        );
+        assert!(
+            !debug.contains("WorldGenerationProfile"),
+            "world generator internals must not become public diagnostics"
+        );
+        assert!(!debug.contains("geology:"));
+    }
+    assert!(format!("{state:?}").contains("geological_knowledge"));
+
+    // Debug redaction must not change the complete trusted save payload.
+    let saved =
+        serde_json::to_vec(&crate::persistence::SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<crate::persistence::LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
 }
 
 #[test]
