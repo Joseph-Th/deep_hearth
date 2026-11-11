@@ -185,7 +185,7 @@ pub struct LogisticsState {
 /// become one ground cache while the new player receives a fresh carrier.
 pub(super) struct PlayerRespawnCustody<'a> {
     pub(super) fresh_carried_stockpile: StockpileId,
-    pub(super) death_position: VoxelCoord,
+    pub(super) cache_position: VoxelCoord,
     pub(super) dropped_equipment: &'a [EquipmentId],
 }
 
@@ -246,7 +246,7 @@ impl LogisticsState {
     ) {
         let PlayerRespawnCustody {
             fresh_carried_stockpile: carried_stockpile,
-            death_position,
+            cache_position,
             dropped_equipment,
         } = custody;
         assert_eq!(self.revision, expected_revision);
@@ -269,11 +269,11 @@ impl LogisticsState {
         );
         let previous = self
             .stockpile_locations
-            .insert(expected_player.carried_stockpile(), death_position);
+            .insert(expected_player.carried_stockpile(), cache_position);
         assert!(previous.is_none());
         assert!(
             self.stockpiles_by_position
-                .entry(death_position)
+                .entry(cache_position)
                 .or_default()
                 .insert(expected_player.carried_stockpile())
         );
@@ -282,11 +282,11 @@ impl LogisticsState {
                 !self.equipment_locations.contains_key(equipment),
                 "carried equipment cannot already have a stationary location"
             );
-            let previous = self.equipment_locations.insert(*equipment, death_position);
+            let previous = self.equipment_locations.insert(*equipment, cache_position);
             assert!(previous.is_none());
             assert!(
                 self.equipment_by_position
-                    .entry(death_position)
+                    .entry(cache_position)
                     .or_default()
                     .insert(*equipment)
             );

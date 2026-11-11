@@ -382,7 +382,46 @@ fn airborne_death_avoids_a_second_fall_when_a_nearby_supported_respawn_exists() 
     let spawn = VoxelCoord::new(0, floor_y, 0);
     let nearby = VoxelCoord::new(1, floor_y, 0);
     let death = VoxelCoord::new(2, floor_y, 0);
-    validate_admit_player(&registries, &state, spawn)
+    let carried = validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let parcel_mass = Mass::from_milligrams(500_000);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        parcel_mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+    }
+    let pick = validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_pickup_equipment(&registries, &state, pick)
         .unwrap()
         .commit(&mut state)
         .unwrap();
@@ -412,6 +451,31 @@ fn airborne_death_avoids_a_second_fall_when_a_nearby_supported_respawn_exists() 
     assert!(!recovery.used_spawn_anchor());
     assert_eq!(recovery.position(), nearby);
     assert_eq!(recovery.death_position(), death);
+    assert_eq!(
+        recovery.death_cache_position(),
+        VoxelCoord::new(2, floor_y - 1, 0)
+    );
+    assert_eq!(recovery.death_cache(), carried);
+    assert_eq!(recovery.dropped_equipment(), &[pick]);
+    assert_eq!(
+        state
+            .logistics()
+            .stationary_stockpile_position(recovery.death_cache()),
+        Some(VoxelCoord::new(2, floor_y - 1, 0)),
+        "an airborne death cache must settle on the next solid floor"
+    );
+    assert_eq!(
+        state.logistics().stationary_equipment_position(pick),
+        Some(recovery.death_cache_position())
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .stored_mass(),
+        parcel_mass
+    );
     assert!(player_body_is_grounded(&registries, &state));
     assert_eq!(
         validate_respawn_player(&registries, &replay)
@@ -425,6 +489,93 @@ fn airborne_death_avoids_a_second_fall_when_a_nearby_supported_respawn_exists() 
         calculate_matter_accounting(&state).unwrap().total(),
         matter_before
     );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn void_death_recovers_carried_matter_at_supported_respawn_instead_of_in_open_air() {
+    use crate::core::state::validate_loaded_state;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x5253_5041_574E),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let floor_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| state.world().block_at(VoxelCoord::new(0, y, 0)) == Some(BLOCK_STATE_STONE))
+        .unwrap()
+        + 1;
+    let spawn = VoxelCoord::new(0, floor_y, 0);
+    let death = VoxelCoord::new(2, floor_y + 5, 0);
+    let carried = validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let parcel_mass = Mass::from_milligrams(250_000);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        parcel_mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    for y in WORLD_MIN_Y..=death.y() + 1 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(death.x(), y, death.z()),
+            BlockStateId::AIR,
+        );
+    }
+    relocate_player_for_test(&mut state, death);
+    mark_player_dead(&mut state);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    let outcome = validate_respawn_player(&registries, &state)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(outcome.death_position(), death);
+    assert_eq!(outcome.position(), spawn);
+    assert_eq!(outcome.death_cache_position(), spawn);
+    assert_eq!(
+        state.logistics().stationary_stockpile_position(carried),
+        Some(spawn)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .stored_mass(),
+        parcel_mass
+    );
+    assert_eq!(
+        validate_respawn_player(&registries, &replay)
+            .unwrap()
+            .commit(&mut replay)
+            .unwrap(),
+        outcome
+    );
+    assert_eq!(state, replay);
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 

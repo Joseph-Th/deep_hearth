@@ -13,6 +13,7 @@ use crate::inventory::allocation::{
 use crate::inventory::{StockpileId, StockpileStorageProfile};
 use crate::registry::Registries;
 use crate::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord};
+use crate::world::{WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y};
 
 use super::{
     PlayerBodyState, PlayerLogisticsRecord, first_player_body_collision,
@@ -54,6 +55,39 @@ fn grounded_respawn_body_at(
         && (!state.world().has_generated_terrain_at(position)
             || player_body_is_grounded_at(registries, state, body)))
     .then_some(body)
+}
+
+/// Ground formerly carried matter on the first physical floor in its death
+/// column, rather than pinning stationary custody in air. The first obstacle
+/// stops descent, even when a lower room has another floor. Ungenerated
+/// opening graphs have no authoritative terrain floor.
+fn death_cache_landing(
+    registries: &Registries,
+    state: &AppState,
+    death: VoxelCoord,
+) -> Option<VoxelCoord> {
+    if !state.world().has_generated_terrain_at(death) {
+        return Some(death);
+    }
+    let top = death.y().min(WORLD_MAX_Y_EXCLUSIVE - 1);
+    if top < WORLD_MIN_Y {
+        return None;
+    }
+    let mut last_clear = None;
+    for y in (WORLD_MIN_Y..=top).rev() {
+        let at = VoxelCoord::new(death.x(), y, death.z());
+        let blocked_by_world =
+            state.world().full_cell_collision_at(registries.world(), at) != Some(false);
+        let blocked_by_structure = state.structures().elements_covering(at).any(|element| {
+            !element.embodied_material().is_empty()
+                && element.geometry().covers_horizontal_footprint()
+        });
+        if blocked_by_world || blocked_by_structure {
+            return last_clear;
+        }
+        last_clear = Some(at);
+    }
+    None
 }
 
 fn nearby_supported_respawn_body(
@@ -213,6 +247,7 @@ pub(crate) struct ValidatedPlayerLogisticsRespawn {
     respawn_body: PlayerBodyState,
     used_spawn_anchor: bool,
     death_position: VoxelCoord,
+    death_cache_position: VoxelCoord,
     death_cache: StockpileId,
     dropped_equipment: Vec<EquipmentId>,
     carried: ValidatedEmptyStockpileAllocation,
@@ -267,7 +302,7 @@ impl ValidatedPlayerLogisticsRespawn {
             self.respawn_body,
             super::state::PlayerRespawnCustody {
                 fresh_carried_stockpile: carried_stockpile,
-                death_position: self.death_position,
+                cache_position: self.death_cache_position,
                 dropped_equipment: &self.dropped_equipment,
             },
         );
@@ -275,6 +310,7 @@ impl ValidatedPlayerLogisticsRespawn {
             position: self.respawn_body.voxel_position(),
             used_spawn_anchor: self.used_spawn_anchor,
             death_position: self.death_position,
+            death_cache_position: self.death_cache_position,
             death_cache: self.death_cache,
             carried_stockpile,
             dropped_equipment: self.dropped_equipment,
@@ -288,6 +324,7 @@ pub(crate) struct PlayerLogisticsRespawnOutcome {
     pub(crate) position: VoxelCoord,
     pub(crate) used_spawn_anchor: bool,
     pub(crate) death_position: VoxelCoord,
+    pub(crate) death_cache_position: VoxelCoord,
     pub(crate) death_cache: StockpileId,
     pub(crate) carried_stockpile: StockpileId,
     pub(crate) dropped_equipment: Vec<EquipmentId>,
@@ -366,6 +403,10 @@ pub(crate) fn validate_player_logistics_respawn(
         respawn_body,
         used_spawn_anchor,
         death_position: player.position(),
+        // A fall without a supporting floor keeps all cargo recoverable at
+        // the safe respawn point rather than manufacturing a floating cache.
+        death_cache_position: death_cache_landing(registries, state, player.position())
+            .unwrap_or_else(|| respawn_body.voxel_position()),
         death_cache: player.carried_stockpile(),
         dropped_equipment: state.logistics().carried_equipment().collect(),
         carried,

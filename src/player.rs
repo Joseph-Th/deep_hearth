@@ -38,6 +38,7 @@ pub struct PlayerRespawnOutcome {
     position: VoxelCoord,
     used_spawn_anchor: bool,
     death_position: VoxelCoord,
+    death_cache_position: VoxelCoord,
     death_cache: StockpileId,
     carried_stockpile: StockpileId,
     dropped_equipment: Vec<EquipmentId>,
@@ -57,6 +58,12 @@ impl PlayerRespawnOutcome {
     #[must_use]
     pub const fn death_position(&self) -> VoxelCoord {
         self.death_position
+    }
+
+    /// Actual resting position of the old carried stockpile and dropped tools.
+    #[must_use]
+    pub const fn death_cache_position(&self) -> VoxelCoord {
+        self.death_cache_position
     }
 
     #[must_use]
@@ -124,6 +131,7 @@ impl ValidatedPlayerRespawn {
             position: logistics.position,
             used_spawn_anchor: logistics.used_spawn_anchor,
             death_position: logistics.death_position,
+            death_cache_position: logistics.death_cache_position,
             death_cache: logistics.death_cache,
             carried_stockpile: logistics.carried_stockpile,
             dropped_equipment: logistics.dropped_equipment,
@@ -219,7 +227,9 @@ fn map_logistics_error(error: InitializePlayerLogisticsError) -> PlayerAdmission
 /// Validates explicit recovery from terminal player survival state.
 ///
 /// Exact carried matter remains in the old inventory stockpile, which becomes a local death cache;
-/// carried equipment becomes stationary at the death voxel. The player receives a fresh empty
+/// carried equipment lands with it on the first solid floor beneath a generated-world death.
+/// When no floor exists in that column, recovery places the cache at the safe respawn site.
+/// The original death position is retained separately. The player receives a fresh empty
 /// body-sized carried stockpile and returns to the original admitted spawn when it remains clear
 /// and, in generated terrain, supported by the same floor geometry as continuous body motion.
 /// An obstructed or unsupported generated anchor falls back to the death-body location when
