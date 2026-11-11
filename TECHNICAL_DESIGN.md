@@ -1766,9 +1766,12 @@ scene graphs, renderer objects, and frame scheduling remain adapter/orchestratio
 authority.
 
 Texture and shader definitions are immutable registry content. Texture baking is deterministic and
-renderer-neutral. Opaque and blended indexed patterns share baked layers when their texel patterns
-match. Cutout textures additionally bind their resolved alpha masks to layer identity; each
-reduced mip preserves the nearest representable overall opaque-pixel coverage from the original
+renderer-neutral. Indexed patterns share baked layers only when their alpha modes match;
+cutouts additionally bind their resolved, used-texel opacity masks to layer identity.
+Opaque mip reduction selects the nearest represented shade so an unused transparent
+palette entry cannot turn an opaque texture into a distant hole. Blended mips retain
+intermediate-shade interpolation to preserve authored translucent coverage. Each cutout
+mip preserves the nearest representable overall opaque-pixel coverage from the original
 tile, with deterministic spatial ties and a shade selected from source samples of the same
 opacity. Sparse meshes therefore keep their openings rather than turning into solid distant
 surfaces. WGSL libraries/programs have typed identities, deterministic assembly, validated
