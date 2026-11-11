@@ -560,11 +560,10 @@ fn build_generated_chunk(
     let surface_lode_site = mineral_enabled
         .then(|| seeded_surface_lode_for_chunk(profile.seed(), coord, mineral_states))
         .flatten();
-    for local_z in 0..CHUNK_SIDE {
-        for local_x in 0..CHUNK_SIDE {
+    for (local_z, row) in surface_heights.iter().enumerate() {
+        for (local_x, &surface) in row.iter().enumerate() {
             let x = min_x + local_x as i64;
             let z = min_z + local_z as i64;
-            let surface = surface_heights[local_z][local_x];
             let surface_lode = surface_lode_site.and_then(|site| site.at(local_x, local_z));
             for y in WORLD_MIN_Y..=surface {
                 let position = VoxelCoord::new(x, y, z);

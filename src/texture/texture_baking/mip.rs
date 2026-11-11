@@ -211,7 +211,7 @@ fn downsample_layers_in_place(
     let source_stride = source_side * source_side;
     let target_side = source_side / 2;
     let target_stride = target_side * target_side;
-    for layer in 0..layer_count {
+    for (layer, &alpha_mode) in alpha_modes.iter().enumerate() {
         let source_offset = layer * source_stride;
         let target_offset = layer * target_stride;
         for y in 0..target_side {
@@ -226,7 +226,7 @@ fn downsample_layers_in_place(
                     source[top_left + source_side + 1],
                 ];
                 source[target_offset + y * target_side + x] =
-                    resolve_mip_texel(samples, alpha_modes[layer]);
+                    resolve_mip_texel(samples, alpha_mode);
             }
         }
     }
