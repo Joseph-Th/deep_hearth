@@ -10,9 +10,9 @@ use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::SurfaceResourceId;
 
-use super::super::SCOUT_DETERRENT_LIGHT_LEVEL;
 use super::super::patrol::{scout_can_enter, scout_sees_guarded_cell};
 use super::super::visibility::scout_visible_from;
+use super::super::{SCOUT_BULK_SPLIT_BATCH, SCOUT_DETERRENT_LIGHT_LEVEL};
 use super::{
     SCOUT_MEAL_MASS, best_local_forage, food_serving_priority, is_contestable_drop,
     is_portable_drop, local_unenclosed_stockpile_target, scout_wants_loose_drop,
@@ -109,21 +109,41 @@ pub(in crate::kobolds) fn reachable_far_stockpile(
         .min()
 }
 
-/// Select whole, den-fitting parcels before sources requiring a split.
-/// Within each transfer-cost tier, edible loot wins, then a complete meal,
-/// then the largest partial meal. Stable identity breaks remaining ties.
+/// Intact cargo is cheapest to move. A hungry scout must first compare what
+/// one actual pickup can yield: a complete meal from a split is preferable to
+/// a tiny intact fragment. Mixed salvage retains whole-before-split handling.
 fn detour_loot_priority(
     resource: &crate::surface::SurfaceResourceRecord,
     capacity: Mass,
+    food_only: bool,
 ) -> (bool, bool, bool, u64, SurfaceResourceId) {
     let (inadequate_food, partial_size) = food_serving_priority(resource);
-    (
-        !is_portable_drop(resource) || resource.remaining_mass() > capacity,
-        resource.commodity().form() != crate::content::FORM_FOOD,
-        inadequate_food,
-        partial_size,
-        resource.id(),
-    )
+    let needs_split = !is_portable_drop(resource) || resource.remaining_mass() > capacity;
+    let split_yield = resource
+        .remaining_mass()
+        .min(capacity)
+        .min(SCOUT_BULK_SPLIT_BATCH);
+    if food_only {
+        (
+            if needs_split {
+                split_yield < SCOUT_MEAL_MASS
+            } else {
+                inadequate_food
+            },
+            needs_split,
+            false,
+            partial_size,
+            resource.id(),
+        )
+    } else {
+        (
+            needs_split,
+            resource.commodity().form() != crate::content::FORM_FOOD,
+            inadequate_food,
+            partial_size,
+            resource.id(),
+        )
+    }
 }
 
 pub(super) fn unguarded_unlit_cell(
@@ -197,8 +217,8 @@ pub(in crate::kobolds) fn reachable_side_drop(
                         && scout_wants_loose_drop(registries, state, resource, at)
                         && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
                 })
-                .min_by_key(|resource| detour_loot_priority(resource, capacity))
-                .map(|resource| (detour_loot_priority(resource, capacity), destination))
+                .min_by_key(|resource| detour_loot_priority(resource, capacity, food_only))
+                .map(|resource| (detour_loot_priority(resource, capacity, food_only), destination))
         })
         // Lighting propagation is more expensive than an indexed local parcel lookup.
         .filter(|(_, destination)| {
@@ -245,8 +265,14 @@ pub(in crate::kobolds) fn reachable_far_drop(
                                 && (!food_only
                                     || resource.commodity().form() == crate::content::FORM_FOOD)
                         })
-                        .min_by_key(|resource| detour_loot_priority(resource, capacity))
-                        .map(|resource| (detour_loot_priority(resource, capacity), first, goal))
+                        .min_by_key(|resource| detour_loot_priority(resource, capacity, food_only))
+                        .map(|resource| {
+                            (
+                                detour_loot_priority(resource, capacity, food_only),
+                                first,
+                                goal,
+                            )
+                        })
                 })
         })
         .filter(|(_, first, goal)| {
@@ -287,9 +313,9 @@ pub(in crate::kobolds) fn reachable_detour_drop(
                     && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
             })
     };
-    // A tiny intact fragment should not defeat a genuinely adequate ration
-    // one more route edge away. When no full meal can be carried, retain the
-    // existing whole-before-split, distance-first fallback for partial food.
+    // A genuinely complete distant intact ration justifies one extra edge.
+    // Otherwise a complete nearby split must beat a distant tiny fragment;
+    // the return edge can actually recover that meal in one operation.
     if food_only && let Some(first) = side.filter(|first| whole_at(*first, SCOUT_MEAL_MASS)) {
         return Some((first, None));
     }
@@ -299,6 +325,30 @@ pub(in crate::kobolds) fn reachable_detour_drop(
     {
         return Some((first, Some(goal)));
     }
+    let complete_split_at = |position| {
+        state
+            .surface()
+            .available_resources_at(Some(position))
+            .any(|resource| {
+                is_contestable_drop(resource, capacity)
+                    && scout_wants_loose_drop(registries, state, resource, at)
+                    && resource.commodity().form() == crate::content::FORM_FOOD
+                    && (!is_portable_drop(resource) || resource.remaining_mass() > capacity)
+                    && resource
+                        .remaining_mass()
+                        .min(capacity)
+                        .min(SCOUT_BULK_SPLIT_BATCH)
+                        >= SCOUT_MEAL_MASS
+            })
+    };
+    if food_only && let Some(first) = side.filter(|first| complete_split_at(*first)) {
+        return Some((first, None));
+    }
+    if food_only && let Some((first, goal)) = far.filter(|(_, goal)| complete_split_at(*goal)) {
+        return Some((first, Some(goal)));
+    }
+    // Only partial portions remain. Prefer intact cargo and the nearer edge,
+    // then a local split when there is no suitable intact parcel.
     if let Some(first) = side.filter(|first| whole_at(*first, Mass::ZERO)) {
         return Some((first, None));
     }

@@ -1283,6 +1283,228 @@ fn hungry_scout_hauls_whole_distant_food_instead_of_splitting_a_nearer_cache() {
 }
 
 #[test]
+fn hungry_scout_prefers_nearby_full_split_to_distant_crumb() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let path = route(&mut state);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([path.den, path.junction, path.tip]);
+    while state.tick().value() < 580 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert!(state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        path.junction
+    );
+    let plan = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            drop(path.side_food, true, 2_000_000),
+            drop(path.far_food, true, 1_000),
+        ],
+    )
+    .unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut state).unwrap();
+    let original_matter = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(
+        super::reachable_detour_drop(
+            &registries,
+            &state,
+            super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
+            Mass::from_milligrams(500_000),
+            state.tick(),
+            true,
+        ),
+        Some((path.side_food, None)),
+        "a nearby splittable full ration must beat a distant 1 g fragment"
+    );
+
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.tick().value() < 600 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(ids[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_750_000),
+        "the scout must split real local food rather than teleporting a ration"
+    );
+    assert_eq!(
+        state.surface().get(ids[1]).unwrap().position(),
+        path.far_food
+    );
+    assert_eq!(
+        state.surface().get(ids[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_000)
+    );
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        original_matter
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn hungry_scout_passes_nearby_crumb_for_distant_full_split() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let path = route(&mut state);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([path.den, path.junction, path.tip]);
+    while state.tick().value() < 580 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    let plan = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            drop(path.side_stone, true, 1_000),
+            drop(path.far_food, true, 700_000),
+        ],
+    )
+    .unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut state).unwrap();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(
+        super::reachable_detour_drop(
+            &registries,
+            &state,
+            super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
+            Mass::from_milligrams(500_000),
+            state.tick(),
+            true,
+        ),
+        Some((path.side_food, Some(path.far_food))),
+        "one farther split can feed the scout; a nearer fragment cannot"
+    );
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.tick().value() < 610 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(ids[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_000)
+    );
+    assert_eq!(
+        state.surface().get(ids[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(450_000)
+    );
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn hungry_scout_compares_real_bulk_transfer_with_distant_forage() {
+    use crate::content::MATERIAL_WILD_NUTS;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let path = route(&mut state);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([path.den, path.junction, path.tip]);
+    while state.tick().value() < 580 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert!(state.kobold_state().colony.as_ref().unwrap().hungry);
+    let wild_food = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Opportunity,
+        path.far_food,
+        CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+        Mass::from_milligrams(120_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_WILD_NUTS),
+    )
+    .unwrap();
+    let plan = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            drop(path.side_food, true, 700_000),
+            drop(path.side_food, true, 1_000),
+            wild_food,
+        ],
+    )
+    .unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut state).unwrap();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.tick().value() < 585 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    let scout = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(scout.scout_position(), path.side_food);
+    assert_eq!(
+        scout.detour_goal, None,
+        "the real 250 g split outranks a 120 g forage trip despite a 1 g crumb"
+    );
+    while state.tick().value() < 600 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(ids[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(450_000)
+    );
+    assert_eq!(
+        state.surface().get(ids[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_000)
+    );
+    assert_eq!(
+        state.surface().get(ids[2]).unwrap().remaining_mass(),
+        Mass::from_milligrams(120_000)
+    );
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn intercepted_far_food_restores_local_split_without_inventing_the_missing_haul() {
     use crate::content::MATERIAL_WILD_NUTS;
     use crate::logistics::relocate_player_for_test;

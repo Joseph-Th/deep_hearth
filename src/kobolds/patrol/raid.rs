@@ -16,9 +16,8 @@ use super::super::junkworks::{
 };
 use super::super::scavenging::{
     ScavengeRoute, best_local_forage, has_local_scout_interest, is_portable_drop,
-    local_portable_source, local_split_source, reachable_detour_drop, reachable_detour_food,
-    reachable_far_stockpile, reachable_inherited_salvage, reachable_side_stockpile,
-    scout_wants_loose_drop,
+    local_portable_source, reachable_detour_drop, reachable_detour_food, reachable_far_stockpile,
+    reachable_inherited_salvage, reachable_side_stockpile, scout_wants_loose_drop,
 };
 use super::super::scrap_tools::{is_needed_outer_tool_part, junction_awaits_better_head};
 use super::super::visibility::scout_visible_from;
@@ -323,26 +322,22 @@ pub(super) fn choose_outbound_detour(
                 at,
                 true,
                 colony.mobilized_at.is_some(),
-            )
-            .and_then(|id| state.surface().get(id))
-            .map(|drop| drop.remaining_mass());
-            let drop_yield = portable.or_else(|| {
-                local_split_source(
-                    registries,
-                    state,
-                    drop_goal,
-                    den_space,
-                    at,
-                    true,
-                    colony.mobilized_at.is_some(),
-                )
-                .and_then(|id| state.surface().get(id))
-                .map(|drop| {
-                    drop.remaining_mass()
-                        .min(colony.salvage_batch())
-                        .min(den_space)
-                })
-            });
+            );
+            // Reuse the return-edge's actual one-parcel choice. A small intact
+            // morsel must not hide a complete meal from the same site's bulk
+            // cache when comparing this visit with a separate forage route.
+            let drop_yield = recoverable_local_food_serving(
+                registries,
+                state,
+                colony,
+                ScoutPatrolContext {
+                    from: drop_goal,
+                    forage_ready: false,
+                    ..context
+                },
+                portable,
+                true,
+            );
             let forage_goal = forage_route.1.unwrap_or(forage_route.0);
             let forage_yield = best_local_forage(
                 registries,
