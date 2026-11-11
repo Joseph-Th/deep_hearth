@@ -70,6 +70,235 @@ fn drop(position: VoxelCoord, food: bool, mass: u64) -> SurfaceResourceSpec {
 }
 
 #[test]
+fn scouts_select_unreserved_local_material_during_player_gathering() {
+    use crate::content::{
+        SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS, SURFACE_GATHERING_HAND_FORAGE_BERRIES,
+    };
+    use crate::surface::validate_start_player_surface_gathering;
+
+    for (kind, commodity, method, is_forage) in [
+        (
+            SurfaceResourceKind::Opportunity,
+            CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+            SURFACE_GATHERING_HAND_FORAGE_BERRIES,
+            true,
+        ),
+        (
+            SurfaceResourceKind::Drop,
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
+            false,
+        ),
+    ] {
+        let registries = build_registries();
+        let mut state = AppState::new();
+        let position = VoxelCoord::new(0, 0, 0);
+        validate_admit_player(&registries, &state, position)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        let resources = validate_create_surface_resources(
+            &registries,
+            &state,
+            [250_000, 100_000].map(|mass| {
+                SurfaceResourceSpec::new(
+                    kind,
+                    position,
+                    commodity,
+                    Mass::from_milligrams(mass),
+                    Temperature::from_millikelvin(293_150),
+                    MaterialComposition::pure(commodity.material()),
+                )
+                .unwrap()
+            }),
+        )
+        .unwrap();
+        let ids = resources.resource_ids().collect::<Vec<_>>();
+        resources.commit(&mut state).unwrap();
+        validate_start_player_surface_gathering(
+            &registries,
+            &state,
+            method,
+            ids[0],
+            Mass::from_milligrams(50_000),
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+        let matter_before = calculate_matter_accounting(&state).unwrap().total();
+        if is_forage {
+            assert_eq!(
+                super::best_local_forage(
+                    &registries,
+                    &state,
+                    position,
+                    state.tick(),
+                    Mass::from_milligrams(500_000),
+                ),
+                Some((Mass::from_milligrams(100_000), ids[1])),
+                "the largest patch is unavailable while player gathering reserves it"
+            );
+        } else {
+            assert_eq!(
+                local_portable_source(
+                    &registries,
+                    &state,
+                    position,
+                    Mass::from_milligrams(500_000),
+                    state.tick(),
+                    false,
+                    false,
+                ),
+                Some(ids[1]),
+                "the scout must skip the player-reserved loose parcel"
+            );
+        }
+        assert_eq!(
+            calculate_matter_accounting(&state).unwrap().total(),
+            matter_before
+        );
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+}
+
+#[test]
+fn den_feeding_skips_food_reserved_for_player_gathering() {
+    use crate::content::SURFACE_GATHERING_HAND_FORAGE_BERRIES;
+    use crate::surface::validate_start_player_surface_gathering;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let path = route(&mut state);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([path.den, path.junction, path.tip]);
+    validate_admit_player(&registries, &state, path.den)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let resources = validate_create_surface_resources(
+        &registries,
+        &state,
+        [drop(path.den, true, 25_000), drop(path.den, true, 50_000)],
+    )
+    .unwrap();
+    let ids = resources.resource_ids().collect::<Vec<_>>();
+    resources.commit(&mut state).unwrap();
+    validate_start_player_surface_gathering(
+        &registries,
+        &state,
+        SURFACE_GATHERING_HAND_FORAGE_BERRIES,
+        ids[0],
+        Mass::from_milligrams(5_000),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    for game in [&mut state, &mut replay] {
+        let at = game.tick();
+        assert_eq!(
+            super::super::feeding::consume_den_meal(
+                &registries,
+                game,
+                path.den,
+                at,
+                Mass::from_milligrams(20_000),
+                Mass::from_milligrams(20_000),
+            ),
+            Some((ids[1], Mass::from_milligrams(20_000))),
+            "the resident must eat available food rather than steal a reserved ration"
+        );
+        assert_eq!(
+            game.surface().get(ids[0]).unwrap().remaining_mass(),
+            Mass::from_milligrams(25_000)
+        );
+        assert_eq!(
+            game.surface().get(ids[1]).unwrap().remaining_mass(),
+            Mass::from_milligrams(30_000)
+        );
+        assert_eq!(calculate_matter_accounting(game).unwrap().total(), before);
+        assert_eq!(validate_loaded_state(&registries, game), Ok(()));
+    }
+    assert_eq!(state, replay);
+}
+
+#[test]
+fn watch_ration_uses_only_unreserved_fragments() {
+    use crate::content::SURFACE_GATHERING_HAND_FORAGE_BERRIES;
+    use crate::surface::validate_start_player_surface_gathering;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let path = route(&mut state);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([path.den, path.junction, path.tip]);
+    validate_admit_player(&registries, &state, path.den)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let resources = validate_create_surface_resources(
+        &registries,
+        &state,
+        [15_000, 12_000, 8_000].map(|mass| drop(path.den, true, mass)),
+    )
+    .unwrap();
+    let ids = resources.resource_ids().collect::<Vec<_>>();
+    resources.commit(&mut state).unwrap();
+    validate_start_player_surface_gathering(
+        &registries,
+        &state,
+        SURFACE_GATHERING_HAND_FORAGE_BERRIES,
+        ids[0],
+        Mass::from_milligrams(5_000),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let before = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    for game in [&mut state, &mut replay] {
+        assert!(
+            super::super::feeding::consume_complete_den_ration(
+                &registries,
+                game,
+                path.den,
+                game.tick(),
+            ),
+            "an exact complete meal is available from two unreserved fragments"
+        );
+        assert_eq!(
+            game.surface().get(ids[0]).unwrap().remaining_mass(),
+            Mass::from_milligrams(15_000),
+        );
+        assert_eq!(
+            game.surface().get(ids[1]).unwrap().remaining_mass(),
+            Mass::ZERO,
+        );
+        assert_eq!(
+            game.surface().get(ids[2]).unwrap().remaining_mass(),
+            Mass::ZERO,
+        );
+        assert_eq!(calculate_matter_accounting(game).unwrap().total(), before);
+        assert_eq!(validate_loaded_state(&registries, game), Ok(()));
+    }
+    assert_eq!(state, replay);
+}
+
+#[test]
 fn trusted_load_rejects_hot_parcel_forged_into_a_returning_scouts_custody() {
     let registries = build_registries();
     let mut state = AppState::new();

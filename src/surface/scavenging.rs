@@ -16,7 +16,10 @@ use super::{
 /// A timed player harvest has already reserved its exact source mass and
 /// physical position. All scout-owned surface transfers must honor the same
 /// exclusion as automatic player pickup, even when revision headroom remains.
-fn resource_reserved_for_player_gathering(state: &AppState, resource: SurfaceResourceId) -> bool {
+pub(crate) fn resource_reserved_for_player_gathering(
+    state: &AppState,
+    resource: SurfaceResourceId,
+) -> bool {
     state
         .player_work()
         .active()

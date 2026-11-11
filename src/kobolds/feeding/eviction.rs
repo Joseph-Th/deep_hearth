@@ -8,7 +8,7 @@ use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{
     SurfaceResourceId, SurfaceResourceKind, relocate_scavenged_drop_step,
-    split_bulk_scavenged_drop_step,
+    resource_reserved_for_player_gathering, split_bulk_scavenged_drop_step,
 };
 use crate::survival::{FoodFreshness, assess_surface_food_freshness};
 
@@ -45,6 +45,7 @@ pub(super) fn discard_unfit_den_food(
         .available_resources_at(Some(den))
         .filter(|resource| {
             resource.temperature() <= SCOUT_SAFE_SCAVENGE_TEMPERATURE
+                && !resource_reserved_for_player_gathering(state, resource.id())
                 && resource.kind() == SurfaceResourceKind::Drop
                 && resource.commodity().form() == crate::content::FORM_FOOD
                 && !matches!(
@@ -112,6 +113,7 @@ pub(super) fn clear_inert_cache_for_food(
                             < SCOUT_DETERRENT_LIGHT_LEVEL))
         })
         .flat_map(|position| state.surface().available_resources_at(Some(position)))
+        .filter(|resource| !resource_reserved_for_player_gathering(state, resource.id()))
         .filter(|resource| match resource.kind() {
             SurfaceResourceKind::Opportunity => {
                 forage_ready && scout_wants_food_opportunity(registries, resource, at)
@@ -144,6 +146,7 @@ pub(super) fn clear_inert_cache_for_food(
         .available_resources_at(Some(den))
         .filter(|resource| {
             resource.temperature() <= SCOUT_SAFE_SCAVENGE_TEMPERATURE
+                && !resource_reserved_for_player_gathering(state, resource.id())
                 && resource.kind() == SurfaceResourceKind::Drop
                 && resource.commodity().form() != crate::content::FORM_FOOD
         })
@@ -234,6 +237,7 @@ pub(super) fn clear_inert_cache_for_industry(
         .available_resources_at(Some(den))
         .filter(|resource| {
             resource.temperature() <= SCOUT_SAFE_SCAVENGE_TEMPERATURE
+                && !resource_reserved_for_player_gathering(state, resource.id())
                 && resource.kind() == SurfaceResourceKind::Drop
                 && resource.commodity().form() != crate::content::FORM_FOOD
                 && !is_servant_era_salvage(resource)

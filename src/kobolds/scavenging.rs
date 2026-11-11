@@ -8,7 +8,10 @@ use crate::core::time::SimulationTick;
 use crate::material::CommodityKey;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
-use crate::surface::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle};
+use crate::surface::{
+    SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle,
+    resource_reserved_for_player_gathering,
+};
 
 mod routes;
 mod stockpiles;
@@ -34,6 +37,18 @@ use super::{
     DEN_LOOSE_CACHE_LIMIT, SCOUT_CARRY_LIMIT, SCOUT_MEAL_MASS, SCOUT_SAFE_SCAVENGE_TEMPERATURE,
 };
 
+/// A surface source held by active player gathering cannot satisfy a scout
+/// forage attempt, even if its remaining mass and freshness look preferable.
+fn scout_can_forage_resource(
+    registries: &Registries,
+    state: &AppState,
+    resource: &crate::surface::SurfaceResourceRecord,
+    at: SimulationTick,
+) -> bool {
+    !resource_reserved_for_player_gathering(state, resource.id())
+        && scout_wants_food_opportunity(registries, resource, at)
+}
+
 /// Choose the largest *recoverable* local forage portion, rather than the oldest
 /// nearly depleted patch. A forage attempt consumes the same long cooldown
 /// regardless of its yield. Identity only breaks ties between equal servings.
@@ -51,7 +66,7 @@ pub(super) fn best_local_forage(
     state
         .surface()
         .available_resources_at(Some(position))
-        .filter(|resource| scout_wants_food_opportunity(registries, resource, at))
+        .filter(|resource| scout_can_forage_resource(registries, state, resource, at))
         .map(|resource| (resource.remaining_mass().min(maximum_mass), resource.id()))
         .max_by_key(|(mass, id)| (*mass, Reverse(*id)))
 }
@@ -68,6 +83,7 @@ pub(super) fn scout_wants_loose_drop(
     // Loose parcels must satisfy the same bare-handed heat limit as exposed stockpile lots.
     resource.temperature() <= SCOUT_SAFE_SCAVENGE_TEMPERATURE
         && scout_wants_drop(registries, resource, at)
+        && !resource_reserved_for_player_gathering(state, resource.id())
         && !is_staged_relay_component(state, resource)
         && !is_staged_scrap_tool_part(state, resource)
 }
@@ -192,7 +208,7 @@ pub(super) fn scout_goal_has_supplies(
                 && scout_wants_loose_drop(registries, state, resource, at))
                 || (forage_ready
                     && !space.is_zero()
-                    && scout_wants_food_opportunity(registries, resource, at))
+                    && scout_can_forage_resource(registries, state, resource, at))
         })
         || (mobilized
             && !space.is_zero()
@@ -220,7 +236,7 @@ pub(super) fn has_local_scout_interest(
                 (loose && resource.commodity().form() == crate::content::FORM_FOOD)
                     || (forage_ready
                         && !space.is_zero()
-                        && scout_wants_food_opportunity(registries, resource, at))
+                        && scout_can_forage_resource(registries, state, resource, at))
             } else {
                 loose
             }

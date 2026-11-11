@@ -8,7 +8,10 @@ use crate::core::state::AppState;
 use crate::core::time::{SimulationTick, TickSpan};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
-use crate::surface::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceRecord};
+use crate::surface::{
+    SurfaceResourceId, SurfaceResourceKind, SurfaceResourceRecord,
+    resource_reserved_for_player_gathering,
+};
 use crate::survival::{FoodFreshness, assess_surface_food_freshness};
 
 mod eviction;
@@ -158,7 +161,9 @@ pub(super) fn consume_den_meal(
         .surface()
         .available_resources_at(Some(den))
         .filter_map(|resource| {
-            if resource.kind() != SurfaceResourceKind::Drop {
+            if resource.kind() != SurfaceResourceKind::Drop
+                || resource_reserved_for_player_gathering(state, resource.id())
+            {
                 return None;
             }
             if !matches!(
@@ -235,6 +240,7 @@ pub(super) fn consume_complete_den_ration(
         .available_resources_at(Some(den))
         .filter(|resource| {
             resource.kind() == SurfaceResourceKind::Drop
+                && !resource_reserved_for_player_gathering(state, resource.id())
                 && matches!(
                     assess_surface_food_freshness(registries, resource, at),
                     Some(FoodFreshness::Fresh { .. })

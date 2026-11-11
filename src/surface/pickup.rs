@@ -14,7 +14,10 @@ use crate::spatial::VoxelCoord;
 use crate::survival::Vitality;
 
 use super::material_drop::PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS;
-use super::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceRecord};
+use super::{
+    SurfaceResourceId, SurfaceResourceKind, SurfaceResourceRecord,
+    resource_reserved_for_player_gathering,
+};
 
 #[must_use]
 pub(crate) struct SurfaceDropPickupPlan {
@@ -106,12 +109,7 @@ fn pickup_eligible_at(state: &AppState, resource: &SurfaceResourceRecord, at: Co
     // completes. Do not preempt that future withdrawal with automatic pickup;
     // unrelated local drops may still be collected.
     // Both exclusions control neutral fast-forward and actual pickup.
-    let reserved_for_gathering = matches!(
-        state.player_work().active(),
-        Some(crate::labor::PlayerWork::SurfaceGathering { work })
-            if work.resource() == resource.id()
-    );
-    !reserved_for_gathering
+    !resource_reserved_for_player_gathering(state, resource.id())
         && resource.temperature() <= MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE
         && resource
             .automatic_pickup_delay_started_at()

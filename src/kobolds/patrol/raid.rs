@@ -10,7 +10,6 @@ use crate::energy::assess_local_illumination;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
-use super::super::feeding::scout_wants_food_opportunity;
 use super::super::junkworks::{
     den_or_relay_needs_striker, den_or_relay_wants_iron_chime, is_iron_chime_striker,
     is_junk_striker,
@@ -285,13 +284,11 @@ pub(super) fn choose_outbound_detour(
     let loose_cache =
         |food_only| reachable_detour_drop(registries, state, route, den_space, at, food_only);
     let wild_food = || {
-        let local_food_remains = state
-            .surface()
-            .available_resources_at(Some(junction))
-            .any(|resource| scout_wants_food_opportunity(registries, resource, at));
+        let maximum_mass = colony.forage_batch().min(den_space);
+        let local_food_remains =
+            best_local_forage(registries, state, junction, at, maximum_mass).is_some();
         (forage_ready && !den_space.is_zero() && !local_food_remains)
             .then(|| {
-                let maximum_mass = colony.forage_batch().min(den_space);
                 let shortage = SCOUT_MEAL_MASS
                     .checked_sub(colony.partial_meal)
                     .expect("trusted resident's partial meal is below a full ration");

@@ -50,8 +50,8 @@ pub(crate) use pickup::{
 
 pub(crate) use scavenging::{
     ScavengedPortionRequest, abrade_scavenged_tool_head, forage_food_to_adjacent_den,
-    relocate_scavenged_drop_step, split_bulk_scavenged_drop_step,
-    split_bulk_scavenged_drop_with_head_wear,
+    relocate_scavenged_drop_step, resource_reserved_for_player_gathering,
+    split_bulk_scavenged_drop_step, split_bulk_scavenged_drop_with_head_wear,
 };
 
 pub use state::{
