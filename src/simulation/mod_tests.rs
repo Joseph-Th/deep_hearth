@@ -1385,7 +1385,8 @@ fn opaque_overhead_cover_reduces_thermal_exposure_without_warming() {
         crate::core::time::SimulationTick::new(open.tick().value() + 1),
     )
     .expect("generated terrain must expose next-tick weather");
-    let cooling = weather.cooling_multiplier_ppm();
+    let open_cooling = weather.felt_cooling_multiplier_ppm(&registries, &open);
+    let covered_cooling = weather.felt_cooling_multiplier_ppm(&registries, &covered);
     let _ = advance_tick(&registries, &mut open)
         .unwrap_or_else(|error| panic!("open thermal exposure tick failed: {error}"));
     let _ = advance_tick(&registries, &mut covered)
@@ -1406,14 +1407,14 @@ fn opaque_overhead_cover_reduces_thermal_exposure_without_warming() {
     assert_eq!(
         before - open_after,
         thermal.exposure_loss_ppm_per_tick(crate::survival::ThermalExposure::GeneratedOpen {
-            cooling_multiplier_ppm: cooling,
+            cooling_multiplier_ppm: open_cooling,
         })
     );
     assert_eq!(
         before - covered_after,
         thermal.exposure_loss_ppm_per_tick(
             crate::survival::ThermalExposure::GeneratedOverheadCover {
-                cooling_multiplier_ppm: cooling,
+                cooling_multiplier_ppm: covered_cooling,
             }
         )
     );
@@ -1462,6 +1463,7 @@ fn overhead_cover_can_be_above_standing_headroom_without_an_immediate_ceiling() 
         crate::core::time::SimulationTick::new(state.tick().value() + 1),
     )
     .unwrap();
+    let cooling = weather.felt_cooling_multiplier_ppm(&registries, &state);
     let _ = advance_tick(&registries, &mut state).unwrap();
     assert_eq!(
         before - state.survival().player().unwrap().thermal_comfort_ppm(),
@@ -1470,7 +1472,7 @@ fn overhead_cover_can_be_above_standing_headroom_without_an_immediate_ceiling() 
             .physiology()
             .thermal_comfort()
             .exposure_loss_ppm_per_tick(crate::survival::ThermalExposure::GeneratedOverheadCover {
-                cooling_multiplier_ppm: weather.cooling_multiplier_ppm(),
+                cooling_multiplier_ppm: cooling,
             })
     );
     set_generated_block_for_test(

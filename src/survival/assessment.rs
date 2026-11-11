@@ -27,8 +27,8 @@ pub struct PlayerUnheatedComfortRunway {
     weather_changes_in: Option<TickSpan>,
 }
 
-/// Extent to which solid material immediately upwind shields the standing body.
-/// Shelter changes the wind surcharge, not the ambient temperature or sky cover.
+/// Number of body levels shielded from real local airflow by walls, trunks,
+/// or the lack of an open inlet beneath cover. Regional air temperature stays unchanged.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerWindShelter {
     Calm,
@@ -171,6 +171,9 @@ impl PlayerUnheatedComfortRunway {
 
 /// Combines real current cover, live survival reserve and authored warmth loss.
 /// The projection is deliberately conditional on staying in place without a heat source.
+/// Alternative open/covered rates hold the current wind-inlet geometry fixed:
+/// they compare overhead insulation, not an unplanned roof demolition or construction
+/// that could also change which body levels receive regional wind.
 #[must_use]
 pub fn assess_player_unheated_comfort_runway(
     registries: &Registries,
@@ -185,7 +188,7 @@ pub fn assess_player_unheated_comfort_runway(
     let weather = crate::world::assess_player_weather(registries, state);
     let wind_shelter = weather.map(|weather| match weather.wind_direction() {
         None => PlayerWindShelter::Calm,
-        Some(_) => match weather.upwind_windbreak_levels(registries, state) {
+        Some(_) => match weather.sheltered_body_levels(registries, state) {
             0 => PlayerWindShelter::Exposed,
             1 => PlayerWindShelter::Partial,
             2 => PlayerWindShelter::Sheltered,

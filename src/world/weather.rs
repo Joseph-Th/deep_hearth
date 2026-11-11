@@ -170,11 +170,12 @@ impl PlayerWeather {
         self.cooling_multiplier_ppm
     }
 
-    /// Number of player-height cells shielded directly upwind (zero, one or two).
-    /// A one-voxel berm protects the lower body; a two-voxel wall or standing
-    /// tree trunk blocks wind across the whole standing profile. Missing terrain
-    /// is never treated as a protective wall.
-    pub(crate) fn upwind_windbreak_levels(self, registries: &Registries, state: &AppState) -> u8 {
+    /// Number of player-height cells not reached by the regional wind (zero, one or two).
+    /// A wall or trunk blocks its level even outdoors. Beneath a roof, wind
+    /// additionally needs the same directly sky-exposed inlet as local sound
+    /// and scent; a sealed cave does not inherit an outdoor wind surcharge.
+    /// Missing terrain alone is never treated as a protective outdoor wall.
+    pub(crate) fn sheltered_body_levels(self, registries: &Registries, state: &AppState) -> u8 {
         let (Some(direction), Some(player)) = (self.wind_direction, state.logistics().player())
         else {
             return 0;
@@ -191,17 +192,19 @@ impl PlayerWeather {
         [position.y(), head_y]
             .into_iter()
             .filter(|&y| {
-                let voxel = VoxelCoord::new(x, y, z);
+                let upwind = VoxelCoord::new(x, y, z);
+                let body_cell = VoxelCoord::new(position.x(), y, position.z());
                 state
                     .world()
-                    .full_cell_collision_at(registries.world(), voxel)
+                    .full_cell_collision_at(registries.world(), upwind)
                     == Some(true)
-                    || state.structures().blocks_full_cell(voxel)
+                    || state.structures().blocks_full_cell(upwind)
+                    || !wind_reaches_cell(registries, state, body_cell, self)
             })
             .count() as u8
     }
 
-    /// Ambient temperature remains unchanged behind a windbreak. Only the
+    /// Ambient temperature remains unchanged by local shelter. Only the
     /// convective wind surcharge is reduced, by half per sheltered body level;
     /// both the survival tick and the player's forecast use this same rule.
     pub(crate) fn felt_cooling_multiplier_ppm(
@@ -210,7 +213,7 @@ impl PlayerWeather {
         state: &AppState,
     ) -> u32 {
         let wind = wind_cooling_ppm(self.wind);
-        let exposed_levels = 2 - u32::from(self.upwind_windbreak_levels(registries, state));
+        let exposed_levels = 2 - u32::from(self.sheltered_body_levels(registries, state));
         let celsius = (i64::from(self.ambient_temperature.millikelvin()) - 273_150) / 1_000;
         air_cooling_multiplier_ppm(
             i32::try_from(celsius).expect("authored weather temperature fits i32 Celsius"),
@@ -324,6 +327,24 @@ pub(super) fn weather_at(
     }
 }
 
+fn has_clear_air_cell(registries: &Registries, state: &AppState, position: VoxelCoord) -> bool {
+    state
+        .world()
+        .full_cell_collision_at(registries.world(), position)
+        == Some(false)
+        && !state.structures().blocks_full_cell(position)
+}
+
+fn wind_reaches_cell(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    weather: PlayerWeather,
+) -> bool {
+    has_clear_air_cell(registries, state, position)
+        && wind_reaches_clear_cell(registries, state, position, weather)
+}
+
 /// Wind touching one physically open generated cell.
 ///
 /// A roof stops direct sky exposure but does not seal the air beneath a
@@ -332,38 +353,44 @@ pub(super) fn weather_at(
 /// trunk, full-cell construction, or unknown chunk blocks that inlet.
 /// This is deliberately a one-face local airflow rule, not a simulated
 /// ventilation network through arbitrary underground corridors.
+fn wind_reaches_clear_cell(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    weather: PlayerWeather,
+) -> bool {
+    if super::sky::has_open_sky(registries, state, position) {
+        return true;
+    }
+    let Some((dx, dz)) = weather.wind_direction().map(WindDirection::delta) else {
+        return false;
+    };
+    let (Some(x), Some(z)) = (position.x().checked_sub(dx), position.z().checked_sub(dz)) else {
+        return false;
+    };
+    let upwind = VoxelCoord::new(x, position.y(), z);
+    state
+        .world()
+        .full_cell_collision_at(registries.world(), upwind)
+        == Some(false)
+        && !state.structures().blocks_full_cell(upwind)
+        && super::sky::has_open_sky(registries, state, upwind)
+}
+
 pub(super) fn local_airflow_at(
     registries: &Registries,
     state: &AppState,
     position: VoxelCoord,
     at: SimulationTick,
 ) -> Option<PlayerWeather> {
-    if state
-        .world()
-        .full_cell_collision_at(registries.world(), position)
-        != Some(false)
-        || state.structures().blocks_full_cell(position)
-    {
+    // Most queried sound/scent origins are not exposed air. Reject their
+    // solid cells before resolving regional weather or tracing the sky.
+    if !has_clear_air_cell(registries, state, position) {
         return None;
     }
     let seed = state.world().generation_profile()?.seed().value();
     let weather = weather_at(registries, seed, position, at);
-    if super::sky::has_open_sky(registries, state, position) {
-        return Some(weather);
-    }
-    let (dx, dz) = weather.wind_direction()?.delta();
-    let upwind = VoxelCoord::new(
-        position.x().checked_sub(dx)?,
-        position.y(),
-        position.z().checked_sub(dz)?,
-    );
-    (state
-        .world()
-        .full_cell_collision_at(registries.world(), upwind)
-        == Some(false)
-        && !state.structures().blocks_full_cell(upwind)
-        && super::sky::has_open_sky(registries, state, upwind))
-    .then_some(weather)
+    wind_reaches_clear_cell(registries, state, position, weather).then_some(weather)
 }
 
 /// Source-local wind for physical sound attenuation. Caverns without a real

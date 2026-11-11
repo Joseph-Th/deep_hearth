@@ -477,10 +477,19 @@ overhead-covered exposure spends comfort on each slow tick, and local dissipated
 can restore it. Exactly spending the last reserve has one tick of deficit grace;
 once the player is already at zero comfort, merely balancing ongoing exposure
 does not prevent cold vitality loss. Net warming must restore positive comfort
-to stop that injury. The conditional unheated-comfort forecast uses the same
+to stop that injury. Regional wind increases convective cooling only at body
+levels it can reach. Outdoors, an upwind wall or trunk shelters the obstructed
+level; under a roof, the same direct sky or unobstructed upwind sky inlet used by
+local sound and scent must exist. A sealed covered space retains regional ambient
+temperature but has no outdoor wind surcharge. The survival tick and conditional
+unheated-comfort forecast use the identical physical exposure test.
+The conditional unheated-comfort forecast uses the same
 integer cooling per tick as survival: a zero rate has no finite discomfort
 horizon (`None`), while an already chilly or cold player has an immediate
 zero-tick warning even when the current weather entails no additional cooling.
+Its alternative open/covered rates hold current wind-inlet geometry fixed;
+they compare insulation alone and do not predict the ventilation change from
+building or removing a specific roof.
 Actual roof availability remains separately visible, so missing terrain truth
 is distinguishable from a physically stable warmth reserve.
 

@@ -369,6 +369,140 @@ fn upwind_terrain_reduces_actual_cooling_and_the_player_forecast_without_changin
 }
 
 #[test]
+fn covered_player_needs_a_real_wind_inlet_at_each_exposed_body_level() {
+    use crate::core::state::apply_clock_advance;
+    use crate::survival::PlayerWindShelter;
+    use crate::world::{BlockStateId, set_generated_block_for_test};
+
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5745_4154_4845_5253);
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let position = VoxelCoord::new(
+        8,
+        super::super::generation::terrain_height(seed, 8, 8) + 1,
+        8,
+    );
+    validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let front = (0..30)
+        .map(|index| SimulationTick::new(index * WEATHER_FRONT_TICKS))
+        .find(|&at| {
+            let weather = weather_at(&registries, seed.value(), position, at);
+            weather.wind_direction().is_some()
+                && weather.ambient_temperature().millikelvin() < 293_150
+        })
+        .expect("a windy cool front exists");
+    apply_clock_advance(&mut state, front);
+    let weather = assess_player_weather(&registries, &state).unwrap();
+    let (dx, dz) = weather.wind_direction().unwrap().delta();
+    let upwind = VoxelCoord::new(position.x() - dx, position.y(), position.z() - dz);
+    let upwind_head = VoxelCoord::new(upwind.x(), upwind.y() + 1, upwind.z());
+    let upwind_roof = VoxelCoord::new(upwind.x(), upwind.y() + 2, upwind.z());
+    let roof = VoxelCoord::new(position.x(), position.y() + 2, position.z());
+    assert!(state.world().tree_trunk_at(upwind).is_none());
+    assert!(state.world().tree_trunk_at(upwind_head).is_none());
+    for cell in [upwind, upwind_head] {
+        set_generated_block_for_test(registries.world(), &mut state, cell, BlockStateId::AIR);
+    }
+    for cell in [roof, upwind_roof] {
+        set_generated_block_for_test(registries.world(), &mut state, cell, BLOCK_STATE_STONE);
+    }
+    assert!(!super::super::sky::has_open_sky(
+        &registries,
+        &state,
+        position
+    ));
+    assert_eq!(local_airflow_at(&registries, &state, position, front), None);
+
+    let mut rates = Vec::new();
+    for (open_inlet, lower_wall, shelter, sheltered_levels) in [
+        (false, false, PlayerWindShelter::Sheltered, 2),
+        (true, true, PlayerWindShelter::Partial, 1),
+        (true, false, PlayerWindShelter::Exposed, 0),
+    ] {
+        let mut actor = state.clone();
+        if open_inlet {
+            set_generated_block_for_test(
+                registries.world(),
+                &mut actor,
+                upwind_roof,
+                BlockStateId::AIR,
+            );
+        }
+        if lower_wall {
+            set_generated_block_for_test(registries.world(), &mut actor, upwind, BLOCK_STATE_STONE);
+        }
+        assert_eq!(
+            local_airflow_at(&registries, &actor, position, front).is_some(),
+            open_inlet && !lower_wall
+        );
+        assert_eq!(
+            local_airflow_at(
+                &registries,
+                &actor,
+                VoxelCoord::new(position.x(), position.y() + 1, position.z()),
+                front,
+            )
+            .is_some(),
+            open_inlet
+        );
+        assert_eq!(
+            weather.sheltered_body_levels(&registries, &actor),
+            sheltered_levels
+        );
+        assert_eq!(
+            assess_player_unheated_comfort_runway(&registries, &actor)
+                .unwrap()
+                .wind_shelter(),
+            Some(shelter)
+        );
+        assert_eq!(assess_player_weather(&registries, &actor), Some(weather));
+        let cooling = weather.felt_cooling_multiplier_ppm(&registries, &actor);
+        if !open_inlet {
+            let celsius = (weather.ambient_temperature().millikelvin() as i32 - 273_150) / 1_000;
+            assert_eq!(cooling, air_cooling_multiplier_ppm(celsius, 0));
+        }
+        let before = actor.survival().player().unwrap().thermal_comfort_ppm();
+        let loss = registries
+            .survival()
+            .physiology()
+            .thermal_comfort()
+            .exposure_loss_ppm_per_tick(ThermalExposure::GeneratedOverheadCover {
+                cooling_multiplier_ppm: cooling,
+            });
+        let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &actor)).unwrap();
+        let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        for _ in 0..crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK {
+            let _ = advance_control_tick(&registries, &mut actor).unwrap();
+            let _ = advance_control_tick(&registries, &mut replay).unwrap();
+        }
+        assert_eq!(actor, replay);
+        assert_eq!(
+            actor.survival().player().unwrap().thermal_comfort_ppm(),
+            before - loss
+        );
+        assert_eq!(validate_loaded_state(&registries, &actor), Ok(()));
+        rates.push(cooling);
+    }
+    assert!(rates[0] < rates[1] && rates[1] < rates[2]);
+}
+
+#[test]
 fn outdoor_cooling_tapers_monotonically_into_neutral_summer_air() {
     for wind in [
         WindCondition::Calm,
