@@ -13,7 +13,7 @@ use crate::inventory::{
     validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::logistics::{
-    PlayerStockpileAccessError, player_body_is_grounded, player_body_uses_generated_world,
+    PlayerStockpileAccessError, player_body_uses_generated_world, player_placement_has_fixed_floor,
     validate_player_stockpile_access,
 };
 use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE};
@@ -73,7 +73,7 @@ impl Display for EnergyStoreAssemblyError {
                 formatter.write_str("player cannot assemble energy storage while work is active")
             }
             Self::PlayerAirborne => formatter.write_str(
-                "player cannot assemble stationary energy storage while airborne in generated terrain",
+                "player must stand on fixed footing before assembling stationary energy storage",
             ),
             Self::PreparedStrikeActive => formatter.write_str(
                 "player must lower the prepared weapon before assembling energy storage",
@@ -360,11 +360,11 @@ pub fn validate_assemble_energy_store(
         return Err(EnergyStoreAssemblyError::PreparedStrikeActive);
     }
     // An assembled machine receives a permanent world location immediately.
-    // Unlike a carried tool it has no falling motion or airborne landing plan.
+    // A moving resident or a neighboring ledge cannot support its actual site.
     if state.logistics().player().is_some() {
         let locomotion = registries.survival().physiology().locomotion();
         if player_body_uses_generated_world(state, locomotion)
-            && !player_body_is_grounded(registries, state)
+            && !player_placement_has_fixed_floor(registries, state)
         {
             return Err(EnergyStoreAssemblyError::PlayerAirborne);
         }

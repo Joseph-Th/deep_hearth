@@ -156,6 +156,16 @@ allocation rejects a living trunk at admission and before inventory mutation at
 commit. Production output admission and commit likewise reject a located ground
 destination in generated rock before reserving physical inbound output; once
 reserved, incoming matter prevents later terrain from burying that destination.
+Player-originated persistent voxel custody (loose material drops, ground caches,
+portable equipment drops, and equipment or energy-store assembly) requires
+fixed footing under the exact custody voxel in generated terrain. A temple
+resident can momentarily support the player's body but may walk away; its
+collision does not authorize leaving stationary matter behind. Likewise a
+ledge under the edge of the continuous body can support the player without
+supporting an object in the adjacent empty voxel where the discrete position
+resolves. These actions share the logistics owner's fixed-floor collision and
+exact-site assessment; ungenerated opening-graph actions retain their own
+locality contracts.
 
 ## Abstraction and dependency direction
 

@@ -10,7 +10,7 @@ use crate::inventory::{
     ConsumptionSelectionError, MaterialEgressError, ValidatedMaterialEgress, apply_material_egress,
     validate_consumption_selection, validate_material_egress_from_selection,
 };
-use crate::logistics::{player_body_is_grounded, player_body_uses_generated_world};
+use crate::logistics::{player_body_uses_generated_world, player_placement_has_fixed_floor};
 use crate::material::{CommodityKey, MaterialInputSpec};
 use crate::player::{
     PlayerActionGuard, PlayerActionValidationError, StalePlayerSurvival, validate_player_action,
@@ -54,7 +54,7 @@ impl Display for PlayerMaterialDropError {
                 formatter.write_str("player cannot drop carried material while work is active")
             }
             Self::PlayerAirborne => formatter.write_str(
-                "player cannot place a persistent loose parcel while airborne in generated terrain",
+                "player must stand on fixed footing before leaving a persistent loose parcel",
             ),
             Self::PreparedStrikeActive => formatter
                 .write_str("player must lower the prepared weapon before dropping material"),
@@ -379,12 +379,12 @@ pub fn validate_drop_player_material(
         .copied()
         .ok_or(PlayerMaterialDropError::PlayerNotAdmitted)?;
     // Surface parcels have persistent voxel custody but no falling trajectory.
-    // In generated terrain, an airborne drop would freeze matter at the actor's
-    // current height, possibly several unsupported cells above the ground.
+    // A drop needs fixed footing under its custody voxel. A moving resident
+    // or a ledge beneath only the body's edge cannot support the parcel.
     // Leave opening-graph fixtures alone until they acquire body/terrain truth.
     let locomotion = registries.survival().physiology().locomotion();
     if player_body_uses_generated_world(state, locomotion)
-        && !player_body_is_grounded(registries, state)
+        && !player_placement_has_fixed_floor(registries, state)
     {
         return Err(PlayerMaterialDropError::PlayerAirborne);
     }

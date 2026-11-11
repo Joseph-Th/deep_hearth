@@ -37,7 +37,7 @@ pub(crate) use collision::{
 };
 use exertion::resolve_control_exertion;
 use horizontal::{player_voxel_change_allowed, resolve_horizontal_motion};
-pub(crate) use vertical::player_body_has_fixed_floor;
+pub(crate) use vertical::{player_body_has_fixed_floor, player_placement_has_fixed_floor};
 use vertical::{resolve_vertical_control, supporting_floor_y};
 
 const MICROSECONDS_PER_SECOND: i128 = 1_000_000;

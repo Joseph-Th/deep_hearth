@@ -134,3 +134,76 @@ fn equipment_assembly_rechecks_footing_before_consuming_stock() {
     );
     assert_eq!(state, before);
 }
+
+#[test]
+fn tool_assembly_cannot_use_moving_resident_as_permanent_footing() {
+    use crate::logistics::player_body_has_fixed_floor;
+    use crate::world::{BlockStateId, set_generated_block_for_test, temple_warden_route_at};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x0054_454D_504C_4553),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let post = temple_warden_route_at(&registries, &state, VoxelCoord::new(8, -19, 8))
+        .expect("seeded temple warden has a physical post")[0];
+    for y in post.y() + 2..=post.y() + 4 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(post.x(), y, post.z()),
+            BlockStateId::AIR,
+        );
+    }
+    let carried = validate_admit_player(
+        &registries,
+        &state,
+        VoxelCoord::new(post.x(), post.y() + 2, post.z()),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap()
+    .carried_stockpile();
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_TOOL),
+            Mass::from_milligrams(800_000),
+        ),
+        (
+            CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+            Mass::from_milligrams(200_000),
+        ),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+    }
+    assert!(player_body_is_grounded(&registries, &state));
+    assert!(!player_body_has_fixed_floor(&registries, &state));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let before = state.clone();
+    assert_eq!(
+        validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, carried).err(),
+        Some(EquipmentAssemblyError::PlayerAirborne),
+    );
+    assert_eq!(state, before);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+}

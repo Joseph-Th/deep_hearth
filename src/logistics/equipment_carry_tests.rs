@@ -431,3 +431,62 @@ fn validated_equipment_drop_rejects_removed_footing_before_commit() {
     );
     assert!(state.logistics().is_equipment_carried(pick));
 }
+
+#[test]
+fn carried_equipment_cannot_be_dropped_from_movable_resident_footing() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::core::state::validate_loaded_state;
+    use crate::logistics::{player_body_has_fixed_floor, player_body_is_grounded};
+    use crate::matter::calculate_matter_accounting;
+    use crate::world::{
+        BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
+        temple_warden_route_at, validate_generate_chunk,
+    };
+
+    let (registries, mut state, pick) = admitted_pick_fixture();
+    validate_pickup_equipment(&registries, &state, pick)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    relocate_player_for_test(&mut state, VoxelCoord::new(32, 40, 32));
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x0054_454D_504C_4553),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let post = temple_warden_route_at(&registries, &state, VoxelCoord::new(8, -19, 8))
+        .expect("seeded temple warden has a physical post")[0];
+    for y in post.y() + 2..=post.y() + 4 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(post.x(), y, post.z()),
+            BlockStateId::AIR,
+        );
+    }
+    relocate_player_for_test(
+        &mut state,
+        VoxelCoord::new(post.x(), post.y() + 2, post.z()),
+    );
+    assert!(player_body_is_grounded(&registries, &state));
+    assert!(!player_body_has_fixed_floor(&registries, &state));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let before = state.clone();
+    assert_eq!(
+        validate_drop_equipment(&registries, &state, pick).err(),
+        Some(PlayerEquipmentCarryError::PlayerAirborne),
+    );
+    assert_eq!(state, before);
+    assert!(state.logistics().is_equipment_carried(pick));
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+}

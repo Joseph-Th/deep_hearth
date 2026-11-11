@@ -14,7 +14,7 @@ use crate::inventory::{
     validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::logistics::{
-    PlayerStockpileAccessError, player_body_is_grounded, player_body_uses_generated_world,
+    PlayerStockpileAccessError, player_body_uses_generated_world, player_placement_has_fixed_floor,
     validate_player_stockpile_access,
 };
 use crate::maintenance::Condition;
@@ -123,7 +123,7 @@ impl Display for EquipmentAssemblyError {
                 formatter.write_str("player cannot assemble equipment while work is active")
             }
             Self::PlayerAirborne => formatter.write_str(
-                "player cannot assemble stationary equipment while airborne in generated terrain",
+                "player must stand on fixed footing before assembling stationary equipment",
             ),
             Self::PreparedStrikeActive => formatter
                 .write_str("player must lower the prepared weapon before assembling equipment"),
@@ -413,12 +413,12 @@ pub fn validate_assemble_equipment(
     if state.logistics().player().is_some() && state.combat().has_prepared_strike() {
         return Err(EquipmentAssemblyError::PreparedStrikeActive);
     }
-    // Assembly creates stationary voxel custody, even for portable tools. A
-    // falling player cannot leave an assembled item floating without gravity.
+    // Assembly creates stationary voxel custody, even for portable tools.
+    // A moving resident or an adjacent ledge cannot support the assembly voxel.
     if state.logistics().player().is_some() {
         let locomotion = registries.survival().physiology().locomotion();
         if player_body_uses_generated_world(state, locomotion)
-            && !player_body_is_grounded(registries, state)
+            && !player_placement_has_fixed_floor(registries, state)
         {
             return Err(EquipmentAssemblyError::PlayerAirborne);
         }

@@ -10,7 +10,7 @@ use crate::inventory::allocation::{
     ValidatedEmptyStockpileAllocation, validate_empty_stockpile_allocation,
 };
 use crate::inventory::{StockpileId, StockpileStorageProfile};
-use crate::logistics::{player_body_is_grounded, player_body_uses_generated_world};
+use crate::logistics::{player_body_uses_generated_world, player_placement_has_fixed_floor};
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -50,7 +50,7 @@ impl Display for PlayerGroundStockpileAllocationError {
                 "player must lower the prepared weapon before allocating ground storage",
             ),
             Self::PlayerAirborne => formatter.write_str(
-                "player cannot create a stationary ground stockpile while airborne in generated terrain",
+                "player must stand on fixed footing before creating stationary ground storage",
             ),
             Self::Allocation(error) => {
                 write!(formatter, "local ground storage allocation failed: {error}")
@@ -349,11 +349,11 @@ pub fn validate_allocate_player_ground_stockpile(
         .ok_or(PlayerGroundStockpileAllocationError::PlayerNotInitialized)?;
     let mut allocation = validate_allocate_player_ground_stockpile_at(state, position, capacity)?;
     // This is a player-facing place-and-leave action, not bootstrap placement.
-    // An empty cache can receive material immediately, so creating it in open
-    // air would otherwise pin future stockpile custody at an unsupported voxel.
+    // An empty cache can receive material immediately. Neither a moving resident
+    // nor a ledge adjacent to the exact custody voxel provides fixed footing.
     let locomotion = registries.survival().physiology().locomotion();
     if player_body_uses_generated_world(state, locomotion)
-        && !player_body_is_grounded(registries, state)
+        && !player_placement_has_fixed_floor(registries, state)
     {
         return Err(PlayerGroundStockpileAllocationError::PlayerAirborne);
     }

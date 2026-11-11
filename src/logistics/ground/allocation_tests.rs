@@ -164,3 +164,55 @@ fn validated_ground_cache_rejects_removed_footing_before_commit() {
         "rejected allocation must preserve owner identities"
     );
 }
+
+#[test]
+fn ground_cache_cannot_rely_on_a_moving_resident_as_footing() {
+    use crate::logistics::player_body_has_fixed_floor;
+    use crate::world::{BlockStateId, set_generated_block_for_test, temple_warden_route_at};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x0054_454D_504C_4553),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let post = temple_warden_route_at(&registries, &state, VoxelCoord::new(8, -19, 8))
+        .expect("seeded temple warden has a physical post")[0];
+    for y in post.y() + 2..=post.y() + 4 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(post.x(), y, post.z()),
+            BlockStateId::AIR,
+        );
+    }
+    validate_admit_player(
+        &registries,
+        &state,
+        VoxelCoord::new(post.x(), post.y() + 2, post.z()),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert!(player_body_is_grounded(&registries, &state));
+    assert!(!player_body_has_fixed_floor(&registries, &state));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let before = state.clone();
+    assert_eq!(
+        validate_allocate_player_ground_stockpile(
+            &registries,
+            &state,
+            Mass::from_milligrams(100_000),
+        )
+        .err(),
+        Some(PlayerGroundStockpileAllocationError::PlayerAirborne),
+    );
+    assert_eq!(state, before);
+}

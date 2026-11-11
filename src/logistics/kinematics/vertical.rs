@@ -247,6 +247,35 @@ pub(crate) fn player_body_has_fixed_floor(registries: &Registries, state: &AppSt
         == Some(foot)
 }
 
+/// Stationary custody appears in the player's discrete voxel, not across the
+/// entire continuous body footprint. A player may stand on the lip of a shaft:
+/// the adjacent ledge supports the body, but it cannot support a parcel, tool,
+/// cache or machine placed in the empty voxel under the player's center.
+///
+/// Use the same fixed collision authority and exact foot face as player
+/// physics; do not count movable residents as permanent support.
+pub(crate) fn player_placement_has_fixed_floor(registries: &Registries, state: &AppState) -> bool {
+    if !player_body_has_fixed_floor(registries, state) {
+        return false;
+    }
+    let Some(player) = state.logistics().player() else {
+        return false;
+    };
+    let Some(below_foot) = player.body().foot_position().y_nanometers().checked_sub(1) else {
+        return false;
+    };
+    let position = player.position();
+    player_cell_has_fixed_support(
+        registries,
+        state,
+        VoxelCoord::new(
+            position.x(),
+            below_foot.div_euclid(NANOMETERS_PER_VOXEL),
+            position.z(),
+        ),
+    )
+}
+
 pub(super) fn supporting_floor_y(
     registries: &Registries,
     state: &AppState,
