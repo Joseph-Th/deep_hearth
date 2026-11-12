@@ -971,6 +971,87 @@ fn trusted_load_rejects_embodied_timber_inside_existing_generated_stone() {
 }
 
 #[test]
+fn trusted_load_structure_collision_keeps_chunk_first_member_order_across_sparse_world() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let mut state = AppState::new();
+    for coord in [
+        ChunkCoord::new(-2, 0),
+        ChunkCoord::new(0, 0),
+        ChunkCoord::new(2, 0),
+        ChunkCoord::new(4, 0),
+    ] {
+        validate_generate_chunk(&registries, &state, seed, coord, BLOCK_STATE_STONE)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    }
+    assert_eq!(
+        crate::world::first_embodied_structure_collision_in_world(&registries, &state),
+        None,
+    );
+
+    let remote_oldest = VoxelCoord::new(33, WORLD_MIN_Y, 1);
+    let local_older = VoxelCoord::new(3, WORLD_MIN_Y, 1);
+    let local_younger = VoxelCoord::new(2, WORLD_MIN_Y, 1);
+    for position in [remote_oldest, local_older, local_younger] {
+        set_generated_block_for_test(registries.world(), &mut state, position, BlockStateId::AIR);
+        materialize_full_panel_at(&registries, &mut state, position);
+    }
+    assert_eq!(
+        crate::world::first_embodied_structure_collision_in_world(&registries, &state),
+        None,
+    );
+    for position in [remote_oldest, local_older, local_younger] {
+        set_generated_block_for_test(registries.world(), &mut state, position, BLOCK_STATE_STONE);
+    }
+    assert_eq!(
+        crate::world::first_embodied_structure_collision_in_world(&registries, &state),
+        Some(local_older),
+        "the first generated chunk outranks an older member in a remote chunk",
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Err(StateValidationError::StructureEmbeddedInSolidTerrain { voxel: local_older }),
+    );
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        local_older,
+        BlockStateId::AIR,
+    );
+    assert_eq!(
+        crate::world::first_embodied_structure_collision_in_world(&registries, &state),
+        Some(local_younger),
+        "a cleared collision exposes the next member of the same chunk",
+    );
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        local_younger,
+        BlockStateId::AIR,
+    );
+    assert_eq!(
+        crate::world::first_embodied_structure_collision_in_world(&registries, &state),
+        Some(remote_oldest),
+    );
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        remote_oldest,
+        BlockStateId::AIR,
+    );
+    assert_eq!(
+        crate::world::first_embodied_structure_collision_in_world(&registries, &state),
+        None,
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
 fn empty_structural_blueprint_inside_generated_stone_is_not_physical_matter() {
     let registries = build_registries();
     let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);

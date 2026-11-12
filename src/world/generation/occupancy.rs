@@ -358,15 +358,33 @@ pub(crate) fn first_solid_block_in_structural_bounds(
         .find_map(|chunk| first_solid_block_intersecting_bounds(registries.world(), chunk, bounds))
 }
 
-/// Trusted-load counterpart of prospective terrain admission. Both paths
-/// test the same physical bounds against exactly the existing block truth.
+/// Trusted-load counterpart of prospective terrain admission. A large explored
+/// world may have thousands of chunks but only a handful of embodied members;
+/// start from those members and query only their intersecting generated chunks.
+/// Preserve the original chunk-first, then member-ID-first error ordering.
 pub(crate) fn first_embodied_structure_collision_in_world(
     registries: &Registries,
     state: &AppState,
 ) -> Option<VoxelCoord> {
-    state.world().chunks().find_map(|chunk| {
-        first_structure_collision_in_generated_chunk(registries.world(), state, chunk)
-    })
+    state
+        .structures()
+        .elements()
+        .filter(|element| !element.embodied_material().is_empty())
+        .filter_map(|element| {
+            state
+                .world()
+                .chunks_intersecting_horizontal_bounds(element.bounds())
+                .find_map(|chunk| {
+                    first_solid_block_intersecting_bounds(
+                        registries.world(),
+                        chunk,
+                        element.bounds(),
+                    )
+                    .map(|voxel| (chunk.coord(), element.id(), voxel))
+                })
+        })
+        .min_by_key(|(chunk, member, _)| (*chunk, *member))
+        .map(|(_, _, voxel)| voxel)
 }
 
 /// Trusted-load counterpart of prospective enclosure terrain admission.
