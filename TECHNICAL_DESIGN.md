@@ -1012,7 +1012,11 @@ real air at body and head, full-cube support underfoot and clearance from the
 actual continuous player body footprint, stationary equipment and stores, and
 embodied structural member bounds. A stationary enclosure or built timber
 member can obstruct an otherwise clear lane; a displaced guardian cannot
-retreat through a newly occupied ancestral post.
+retreat through a newly occupied ancestral post. Both temple castes resolve
+body obstruction and full-cell floor support through the world collision
+predicate, not raw terrain labels: a living trunk remains solid inside an
+`AIR` block and may support a resident that otherwise has sufficient room.
+Unknown world cells cannot be treated as clear.
 Loss of contact causes one-cell-at-a-time withdrawal, including an
 interrupted engine inspection; nobody teleports from a side passage home.
 Local sightings distinguish wary sentries from wardens actively challenging

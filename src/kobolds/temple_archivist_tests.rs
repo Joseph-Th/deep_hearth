@@ -18,6 +18,69 @@ use crate::structural::{
 };
 use crate::world::{WorldGenerationSeed, set_generated_block_for_test, validate_generate_chunk};
 
+#[test]
+fn archivist_entire_body_excludes_living_trunk_even_when_terrain_is_air() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(7),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let root = state.world().trees().next().unwrap().root();
+    let anchor = VoxelCoord::new(root.x() - 1, root.y(), root.z() + 1);
+    // The trunk lies at the far corner of the massive resident's footprint.
+    // Clear unrelated stone so the tree is the only solid obstacle.
+    for cell in resident_body_cells(anchor) {
+        set_generated_block_for_test(registries.world(), &mut state, cell, BlockStateId::AIR);
+    }
+    assert!(
+        resident_body_cells(anchor)
+            .all(|cell| state.world().block_at(cell) == Some(BlockStateId::AIR))
+    );
+    assert!(resident_body_cells(anchor).any(|cell| state.world().tree_trunk_at(cell).is_some()));
+    assert!(
+        !clear_body_cells(&registries, &state, anchor),
+        "air-valued terrain cells cannot erase embodied living timber"
+    );
+
+    // A tree trunk is also an actual supporting floor. All four floor
+    // corners must be supported, but one may rest on living timber.
+    let perched = VoxelCoord::new(root.x() - 1, root.y() + 2, root.z() + 1);
+    let trunk_floor = VoxelCoord::new(root.x(), root.y() + 1, root.z());
+    for dx in 0..=1 {
+        for dz in 0..=1 {
+            let floor = VoxelCoord::new(perched.x() + dx, perched.y() - 1, perched.z() - dz);
+            if floor != trunk_floor {
+                set_generated_block_for_test(
+                    registries.world(),
+                    &mut state,
+                    floor,
+                    BLOCK_STATE_STONE,
+                );
+            }
+        }
+    }
+    for cell in resident_body_cells(perched) {
+        set_generated_block_for_test(registries.world(), &mut state, cell, BlockStateId::AIR);
+    }
+    assert_eq!(
+        state
+            .world()
+            .full_cell_collision_at(registries.world(), trunk_floor),
+        Some(true)
+    );
+    assert!(clear_body_cells(&registries, &state, perched));
+    assert!(has_supporting_floor(&registries, &state, perched));
+    assert!(supported_and_clear(&registries, &state, perched));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
 fn occupied_archive() -> (Registries, AppState, VoxelCoord) {
     occupied_archive_with_light(false)
 }

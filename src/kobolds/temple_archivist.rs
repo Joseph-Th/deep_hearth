@@ -12,9 +12,7 @@ use crate::core::time::SimulationTick;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::survival::Vitality;
-use crate::world::{
-    BlockCollisionShape, BlockStateId, ChunkCoord, WORLD_MIN_Y, temple_residents_at,
-};
+use crate::world::{BlockStateId, ChunkCoord, WORLD_MIN_Y, temple_residents_at};
 
 use super::{
     SCOUT_STEP_TICKS,
@@ -77,9 +75,15 @@ pub(super) fn archivist_visible_to_player(
     )
 }
 
-fn clear_body_cells(state: &AppState, anchor: VoxelCoord) -> bool {
-    resident_body_cells(anchor)
-        .all(|voxel| state.world().block_at(voxel) == Some(BlockStateId::AIR))
+fn clear_body_cells(registries: &Registries, state: &AppState, anchor: VoxelCoord) -> bool {
+    // Terrain block identity alone cannot reveal living tree occupancy.
+    // All twelve body cells use the same physical world truth as other actors.
+    resident_body_cells(anchor).all(|voxel| {
+        state
+            .world()
+            .full_cell_collision_at(registries.world(), voxel)
+            == Some(false)
+    })
 }
 
 fn has_supporting_floor(registries: &Registries, state: &AppState, anchor: VoxelCoord) -> bool {
@@ -89,9 +93,8 @@ fn has_supporting_floor(registries: &Registries, state: &AppState, anchor: Voxel
                 let floor = VoxelCoord::new(anchor.x() + dx, anchor.y() - 1, anchor.z() - dz);
                 state
                     .world()
-                    .block_at(floor)
-                    .and_then(|block| registries.world().block_for_state(block))
-                    .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+                    .full_cell_collision_at(registries.world(), floor)
+                    == Some(true)
             })
         })
 }
@@ -113,7 +116,7 @@ fn supported_and_clear(registries: &Registries, state: &AppState, anchor: VoxelC
     )
     .expect("positive archivist footprint");
     has_supporting_floor(registries, state, anchor)
-        && clear_body_cells(state, anchor)
+        && clear_body_cells(registries, state, anchor)
         && !state
             .structures()
             .has_embodied_member_intersecting(body_bounds)
@@ -316,7 +319,7 @@ pub(super) fn apply_temple_archivist_tick(
 /// Do not remove the resident from the physical world simply because support
 /// was lost later, but prohibit additional movement until it is restored.
 fn resident_can_depart(registries: &Registries, state: &AppState, anchor: VoxelCoord) -> bool {
-    clear_body_cells(state, anchor) && has_supporting_floor(registries, state, anchor)
+    clear_body_cells(registries, state, anchor) && has_supporting_floor(registries, state, anchor)
 }
 
 /// A loaded cursor must name a real locally generated sanctuary, valid
@@ -349,7 +352,9 @@ pub(super) fn validate_archivists(
         else {
             return Err("temple archivist lacks a generated ancestral chamber");
         };
-        if !archivist_position(home, step).is_some_and(|anchor| clear_body_cells(state, anchor)) {
+        if !archivist_position(home, step)
+            .is_some_and(|anchor| clear_body_cells(registries, state, anchor))
+        {
             return Err("temple archivist is embedded in missing or solid world");
         }
     }

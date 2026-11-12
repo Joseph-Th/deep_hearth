@@ -12,9 +12,7 @@ use crate::core::time::SimulationTick;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::survival::Vitality;
-use crate::world::{
-    BlockCollisionShape, BlockStateId, ChunkCoord, WORLD_MIN_Y, temple_warden_route_at,
-};
+use crate::world::{BlockStateId, ChunkCoord, WORLD_MIN_Y, temple_warden_route_at};
 
 use super::{
     SCOUT_STEP_TICKS,
@@ -81,13 +79,23 @@ pub(super) struct TempleWardenRecord {
     pub(super) step: u8,
 }
 
-fn clear_body_cell(state: &AppState, position: VoxelCoord) -> bool {
-    state.world().block_at(position) == Some(BlockStateId::AIR)
-        && state.world().block_at(VoxelCoord::new(
-            position.x(),
-            position.y() + 1,
-            position.z(),
-        )) == Some(BlockStateId::AIR)
+fn clear_body_cell(registries: &Registries, state: &AppState, position: VoxelCoord) -> bool {
+    let Some(head_y) = position.y().checked_add(1) else {
+        return false;
+    };
+    // An air-valued terrain block can contain embodied living timber.
+    // Reuse the world's complete physical collision truth for both body cells.
+    [
+        position,
+        VoxelCoord::new(position.x(), head_y, position.z()),
+    ]
+    .into_iter()
+    .all(|cell| {
+        state
+            .world()
+            .full_cell_collision_at(registries.world(), cell)
+            == Some(false)
+    })
 }
 
 fn clear_standing_cell(registries: &Registries, state: &AppState, position: VoxelCoord) -> bool {
@@ -104,7 +112,7 @@ fn clear_standing_cell(registries: &Registries, state: &AppState, position: Voxe
         crate::spatial::VoxelBounds::new(position, VoxelCoord::new(max_x, top_y, max_z))
             .expect("positive one-cell warden footprint");
     position.y() > WORLD_MIN_Y
-        && clear_body_cell(state, position)
+        && clear_body_cell(registries, state, position)
         && !state.structures().has_embodied_member_intersecting(body_bounds)
         // World air alone does not mean free space: built infrastructure has
         // separate durable custody and blocks both occupied warden cells.
@@ -113,13 +121,11 @@ fn clear_standing_cell(registries: &Registries, state: &AppState, position: Voxe
             .all(|cell| !state.logistics().has_stationary_occupant_at(cell))
         && state
             .world()
-            .block_at(VoxelCoord::new(
-                position.x(),
-                position.y() - 1,
-                position.z(),
-            ))
-            .and_then(|block| registries.world().block_for_state(block))
-            .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+            .full_cell_collision_at(
+                registries.world(),
+                VoxelCoord::new(position.x(), position.y() - 1, position.z()),
+            )
+            == Some(true)
 }
 
 /// Player sight resolves either visible cell of the actual two-high warden,
@@ -415,7 +421,9 @@ pub(super) fn validate_temple_wardens(
         // A player may mine away the supporting floor *after* the warden
         // occupies this cell. Preserve that stranded location across saves;
         // movement stays suspended until a real supported step is available.
-        if !warden_position(route, step).is_some_and(|position| clear_body_cell(state, position)) {
+        if !warden_position(route, step)
+            .is_some_and(|position| clear_body_cell(registries, state, position))
+        {
             return Err("kobold temple warden occupies obstructed or absent world geometry");
         }
     }

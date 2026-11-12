@@ -188,3 +188,42 @@ scenario, `python ci.py gate --lint` passed, and
 survival, fieldwork, production/progression, and controlled capability
 scopes. Reported proxies and capability-only episodes remain distinct
 from ordinary generated-world play.
+
+## Further same-day continuation: temple collision and support coherence
+
+This pass compared the canonical player and scout collision predicates
+against temple-resident movement, support and trusted-load admission. It also
+followed control/slow tick and direct-action boundaries, water and food
+ownership, generated weather and skylight, illumination, conservation,
+material-backed structures and resident activity. The existing wilderness
+report was rerun to observe real generated-world provisioning, exposure,
+autonomous scavenging and deterministic continuation.
+
+A cross-system physical inconsistency remained in the two temple castes:
+their body-clearance checks read raw terrain `AIR` while living tree roots
+and upper trunks physically occupy such cells. Their supporting-floor
+checks also read only terrain block definitions, excluding real solid tree
+trunks. Player movement and opening scouts instead rely on the world's
+full-cell collision truth. Both temple castes now use that same world
+authority over their entire respective body footprints and floor cells,
+while preserving separate structural, stationary-occupant and player
+checks. The change does not add state, special-case tree behavior, an
+alternate geometry system or compatibility scaffolding.
+
+New warden and archivist regressions cover tree obstruction in otherwise
+air-valued terrain, both body footprints, physical floor support and
+trusted-state validity. The warden test initially failed at its tree
+support assertion; the direct owner repair corrected it. The 12-cell
+archivist test establishes that all four corners are supported even
+when one floor cell is living wood.
+
+Verification on the resulting user worktree: `python ci.py quick` passed
+four checks, `cargo test --locked -j 4 living_` passed 23 relevant
+owner/cross-owner tests, and `python ci.py report --scope wilderness`
+passed its generated-world and exact-local gameplay episodes. A scoped
+diff review checked the behavior against `REVIEW.md`. No active legacy
+implementation was independently confirmed by source searches, so no
+runtime code was deleted merely for having old names or strict-load
+rejection tests. This remains a bounded audit of investigated owners,
+not all-source or all-seed proof; the project has no renderer adapter
+for a visual playtest.

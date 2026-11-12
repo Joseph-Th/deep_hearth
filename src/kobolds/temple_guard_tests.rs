@@ -43,6 +43,41 @@ use crate::world::{
     set_generated_block_for_test, validate_generate_chunk, validate_generate_player_neighborhood,
 };
 
+#[test]
+fn heavy_warden_clearance_uses_living_tree_collision_not_just_air_block_identity() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(7),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let root = state.world().trees().next().unwrap().root();
+    let trunk_top = VoxelCoord::new(root.x(), root.y() + 1, root.z());
+    let above = VoxelCoord::new(root.x(), root.y() + 2, root.z());
+    assert_eq!(state.world().block_at(root), Some(BlockStateId::AIR));
+    assert_eq!(state.world().block_at(trunk_top), Some(BlockStateId::AIR));
+    assert_eq!(
+        state
+            .world()
+            .full_cell_collision_at(registries.world(), root),
+        Some(true)
+    );
+    assert!(!clear_body_cell(&registries, &state, root));
+    assert!(!clear_body_cell(&registries, &state, trunk_top));
+    assert!(!clear_standing_cell(&registries, &state, root));
+    assert!(
+        clear_standing_cell(&registries, &state, above),
+        "the upper trunk remains a real standing floor"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
 fn occupied_temple() -> (Registries, AppState, [VoxelCoord; 3]) {
     occupied_temple_with_light(false)
 }
