@@ -53,10 +53,11 @@ pub(super) fn attempt_direct_actions_after_quick_access(
     pending_secondary: Option<SecondaryActionOutcome>,
 ) -> DirectActionOutcomes {
     let combat_intent = input.primary().is_some_and(PrimaryControlIntent::is_combat);
-    // Only one primary/secondary gesture may be admitted per control frame.
-    // A new input on either button also supersedes an older buffered gesture;
-    // an explicit primary command takes precedence over a concurrent secondary
-    // request, even if the primary subsequently rejects.
+    // A new command supersedes older buffered gestures. Primary can reserve
+    // the active tool for work before a concurrent drop; in that case the drop
+    // must report the owner's busy rejection rather than steal the tool.
+    // Combat presses occupy the hand for the frame even on rejection, while
+    // dropping takes precedence over concurrent secondary use or placement.
     if combat_intent
         || input.drop_active_selection()
         || (input.primary().is_none() && input.secondary().is_some())
@@ -72,6 +73,9 @@ pub(super) fn attempt_direct_actions_after_quick_access(
     {
         let _ = take_player_pending_secondary_use(state);
     }
+    // Missing/dead players still receive each requested action's own typed
+    // rejection rather than silently losing error feedback to arbitration.
+    let live_drop_request = input.drop_active_selection() && validate_player_action(state).is_ok();
     let primary = if pending_primary.is_some() {
         pending_primary
     } else if state.player_work().active().is_none() || combat_intent {
@@ -82,25 +86,14 @@ pub(super) fn attempt_direct_actions_after_quick_access(
     } else {
         None
     };
-    let secondary = if input.primary().is_some()
+    let secondary = if live_drop_request {
+        pending_secondary
+    } else if input.primary().is_some()
         && input.secondary().is_some()
         && validate_player_action(state).is_ok()
     {
         // Melee, held breaking and contextual work share one active hand. A
         // missing or dead player still receives both independent typed errors.
-        pending_secondary
-    } else if input.drop_active_selection()
-        && matches!(
-            input.secondary(),
-            Some(
-                SecondaryControlIntent::UseActive { .. }
-                    | SecondaryControlIntent::GatherSurface { .. }
-            )
-        )
-        && validate_player_action(state).is_ok()
-    {
-        // A held use or explicit gather sampled alongside a drop must not
-        // requeue work after the older buffered request was cancelled above.
         pending_secondary
     } else if state.player_work().active().is_some() {
         pending_secondary.or_else(|| match input.secondary() {
@@ -120,7 +113,16 @@ pub(super) fn attempt_direct_actions_after_quick_access(
     } else {
         attempt_secondary_action(registries, state, input.secondary()).or(pending_secondary)
     };
-    let drop = attempt_active_selection_drop(registries, state, input.drop_active_selection());
+    // Newly buffered breaking cannot survive the concurrent drop. Work which
+    // already reserved a tool retains custody and rejects the attempted drop.
+    if live_drop_request && input.primary().is_some() {
+        let _ = take_player_pending_primary_break(state);
+    }
+    let drop = if live_drop_request && combat_intent {
+        None
+    } else {
+        attempt_active_selection_drop(registries, state, input.drop_active_selection())
+    };
     DirectActionOutcomes::new(quick_access, primary, secondary, drop)
 }
 
@@ -211,3 +213,7 @@ fn attempt_active_selection_drop(
 #[cfg(test)]
 #[path = "direct_actions_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "direct_actions_drop_tests.rs"]
+mod drop_tests;

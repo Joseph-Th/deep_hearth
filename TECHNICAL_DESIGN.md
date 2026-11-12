@@ -97,6 +97,15 @@ old request before that boundary. Current-schema saves require the selection
 field even when the original hand was empty, just as buffered contextual use
 already does. Neither delayed action may execute under a different hand context.
 
+Direct-control hand gestures are arbitrated within each 20 Hz sample. A primary
+combat command suppresses a concurrent selection drop even if combat rejects;
+weapon preparation and its cancellation each require a distinct frame from
+dropping the weapon. Primary excavation may first reserve its selected tool,
+so a concurrent drop then receives the owner's busy rejection. A drop
+preempts concurrent secondary use, gathering, or storage placement and clears
+obsolete buffered gestures; missing or dead actors still receive the individual
+typed rejections for their submitted actions.
+
 ### Cross-owner edge contract
 
 Each implemented cross-owner handoff has these contract elements where applicable:
