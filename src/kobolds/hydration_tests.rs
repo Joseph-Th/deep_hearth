@@ -1178,13 +1178,11 @@ fn generated_outdoor_source() -> (Registries, AppState, FluidStoreId, VoxelCoord
                             && state
                                 .world()
                                 .has_standing_clearance(registries.world(), position)
-                            && crate::world::exposed_air_at(
+                            && crate::world::assess_generated_skylight(
                                 &registries,
                                 &state,
                                 position,
-                                SimulationTick::new(1_000),
-                            )
-                            .is_some()
+                            ) > 0
                     }) {
                         continue;
                     }
@@ -1220,7 +1218,7 @@ fn generated_outdoor_source() -> (Registries, AppState, FluidStoreId, VoxelCoord
 }
 
 #[test]
-fn local_weather_modulates_thirst_and_a_roof_removes_outdoor_exposure() {
+fn local_weather_modulates_thirst_while_a_roof_shelters_wind_not_temperature() {
     use crate::content::BLOCK_STATE_STONE;
     let (registries, mut state, _, water) = generated_outdoor_source();
     let calendar = registries.core().calendar();
@@ -1233,7 +1231,7 @@ fn local_weather_modulates_thirst_and_a_roof_removes_outdoor_exposure() {
     for window in 0..30 {
         let summer = SimulationTick::new(season + calendar.ticks_per_day() / 4 + window * 200);
         let winter = SimulationTick::new(season * 3 + window * 200);
-        let heat = crate::world::exposed_air_at(&registries, &state, water, summer).unwrap();
+        let heat = crate::world::generated_air_at(&registries, &state, water, summer).unwrap();
         if heat.ambient_temperature().millikelvin() >= 298_150 {
             hot = Some(summer);
         } else if heat.ambient_temperature().millikelvin() >= 293_150
@@ -1241,13 +1239,17 @@ fn local_weather_modulates_thirst_and_a_roof_removes_outdoor_exposure() {
         {
             windy = Some(summer);
         }
-        let cold_air = crate::world::exposed_air_at(&registries, &state, water, winter).unwrap();
+        let cold_air = crate::world::generated_air_at(&registries, &state, water, winter).unwrap();
         if cold_air.ambient_temperature().millikelvin() < 278_150 {
             cold = Some(winter);
         }
     }
     let hot = hot.expect("summer should have a hot weather front");
     let cold = cold.expect("winter should have a cold weather front");
+    assert!(
+        windy.is_some(),
+        "summer should also have a moderate-temperature gust"
+    );
     assert_eq!(
         drink_interval_at(&registries, &state, water, hot),
         SCOUT_DRINK_INTERVAL_TICKS / 2,
@@ -1271,12 +1273,46 @@ fn local_weather_modulates_thirst_and_a_roof_removes_outdoor_exposure() {
     );
     assert_eq!(
         drink_interval_at(&registries, &state, water, hot),
-        SCOUT_DRINK_INTERVAL_TICKS,
+        SCOUT_DRINK_INTERVAL_TICKS / 2,
     );
     assert_eq!(
         drink_interval_at(&registries, &state, water, cold),
-        SCOUT_DRINK_INTERVAL_TICKS,
+        SCOUT_DRINK_INTERVAL_TICKS * 3 / 2,
     );
+    if let Some(windy) = windy {
+        let direction = crate::world::generated_air_at(&registries, &state, water, windy)
+            .unwrap()
+            .wind_direction()
+            .unwrap();
+        let (dx, dz) = direction.delta();
+        let upwind = VoxelCoord::new(water.x() - dx, water.y(), water.z() - dz);
+        let upwind_roof = VoxelCoord::new(upwind.x(), upwind.y() + 3, upwind.z());
+        assert_eq!(
+            crate::world::wind_at_generated_position(&registries, &state, water, windy),
+            Some(crate::world::WindCondition::Gusting),
+            "a single-cell roof still admits real regional gusts through its open inlet"
+        );
+        assert_eq!(
+            drink_interval_at(&registries, &state, water, windy),
+            SCOUT_DRINK_INTERVAL_TICKS * 3 / 4
+        );
+        crate::world::set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            upwind_roof,
+            BLOCK_STATE_STONE,
+        );
+        assert_eq!(
+            crate::world::wind_at_generated_position(&registries, &state, water, windy),
+            None,
+            "the extended roof must close the local wind inlet"
+        );
+        assert_eq!(
+            drink_interval_at(&registries, &state, water, windy),
+            SCOUT_DRINK_INTERVAL_TICKS,
+            "shelter removes gust-driven thirst without resetting the local air temperature"
+        );
+    }
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 

@@ -11,6 +11,7 @@ use crate::spatial::VoxelCoord;
 
 use super::generation::terrain::mix64;
 use super::generation::{HabitatKind, WorldGenerationSeed, habitat_at};
+use super::{WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y};
 
 /// Physical time between changes in a regional wind/temperature front: twelve minutes.
 pub(crate) const WEATHER_FRONT_TICKS: u64 = 200;
@@ -98,6 +99,25 @@ pub(crate) fn exposed_air_at(
 ) -> Option<PlayerWeather> {
     let seed = state.world().generation_profile()?.seed().value();
     super::sky::has_open_sky(registries, state, position)
+        .then(|| weather_at(registries, seed, position, at))
+}
+
+/// Actual ambient air in an existing generated column. A roof or cave can
+/// shelter wind without changing the regional temperature; unknown terrain
+/// must not manufacture climate for an ungenerated resident position.
+pub(crate) fn generated_air_at(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    at: SimulationTick,
+) -> Option<PlayerWeather> {
+    if !(WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&position.y()) {
+        return None;
+    }
+    let seed = state.world().generation_profile()?.seed().value();
+    state
+        .world()
+        .has_generated_terrain_at(position)
         .then(|| weather_at(registries, seed, position, at))
 }
 
@@ -231,11 +251,7 @@ pub(crate) fn assess_player_weather_at(
     at: SimulationTick,
 ) -> Option<PlayerWeather> {
     let position = state.logistics().player()?.position();
-    let profile = state.world().generation_profile()?;
-    state
-        .world()
-        .has_generated_terrain_at(position)
-        .then(|| weather_at(registries, profile.seed().value(), position, at))
+    generated_air_at(registries, state, position, at)
 }
 
 pub(super) fn weather_at(

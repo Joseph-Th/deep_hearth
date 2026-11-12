@@ -3,7 +3,7 @@
 use crate::core::state::AppState;
 use crate::registry::Registries;
 use crate::spatial::{NANOMETERS_PER_VOXEL, VoxelCoord};
-use crate::world::WORLD_MAX_Y_EXCLUSIVE;
+use crate::world::{ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y};
 
 use super::{body_height, horizontal_voxel_bounds, length_nanometers};
 
@@ -52,37 +52,26 @@ pub fn assess_player_overhead_cover(
         };
         cover_y = next;
     }
-    if cover_y >= WORLD_MAX_Y_EXCLUSIVE {
+    if !(WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&cover_y) {
         return Some(PlayerOverheadCoverAssessment::WorldUnavailable);
     }
     let mut unavailable = false;
     for z in min_z..=max_z {
         for x in min_x..=max_x {
             let voxel = VoxelCoord::new(x, cover_y, z);
-            if state.world().block_at(voxel).is_none() {
+            // A generated chunk owns its entire vertical column. Reuse the
+            // world's section-aware sky query rather than fetching and
+            // decoding each of the hundreds of cells above the player's head.
+            let Some(chunk) = state.world().get_chunk(ChunkCoord::containing(voxel)) else {
                 unavailable = true;
                 continue;
-            }
+            };
             let structural_cover =
                 state
                     .structures()
                     .has_active_overhead_cover(x, z, cover_y, WORLD_MAX_Y_EXCLUSIVE);
-            let terrain_cover = !structural_cover
-                && (cover_y..WORLD_MAX_Y_EXCLUSIVE).any(|y| {
-                    let block_state = state
-                        .world()
-                        .block_at(VoxelCoord::new(x, y, z))
-                        .unwrap_or_else(|| {
-                            unreachable!("generated chunk owns every in-range vertical cell")
-                        });
-                    registries
-                        .world()
-                        .block_for_state(block_state)
-                        .unwrap_or_else(|| {
-                            panic!("runtime invariant broken: world block state disappeared")
-                        })
-                        .is_opaque()
-                });
+            let terrain_cover =
+                !structural_cover && chunk.has_opaque_block_at_or_above(registries.world(), voxel);
             if !structural_cover && !terrain_cover {
                 return Some(PlayerOverheadCoverAssessment::Open);
             }

@@ -11,6 +11,36 @@ use crate::structural::{
 };
 
 #[test]
+fn natural_overhead_cover_tracks_high_generated_roofs_and_excavation() {
+    use crate::world::set_generated_block_for_test;
+
+    let (registries, mut state, _) = generated_grounded_player_at(0, 0);
+    let position = state.logistics().player().unwrap().position();
+    let high_roof = VoxelCoord::new(position.x(), WORLD_MAX_Y_EXCLUSIVE - 1, position.z());
+    assert_eq!(state.world().block_at(high_roof), Some(BlockStateId::AIR));
+    assert_eq!(
+        assess_player_overhead_cover(&registries, &state),
+        Some(PlayerOverheadCoverAssessment::Open)
+    );
+
+    set_generated_block_for_test(registries.world(), &mut state, high_roof, BLOCK_STATE_STONE);
+    assert_eq!(
+        assess_player_overhead_cover(&registries, &state),
+        Some(PlayerOverheadCoverAssessment::Covered),
+        "an opaque high-altitude roof still physically covers the player"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    set_generated_block_for_test(registries.world(), &mut state, high_roof, BlockStateId::AIR);
+    assert_eq!(
+        assess_player_overhead_cover(&registries, &state),
+        Some(PlayerOverheadCoverAssessment::Open),
+        "clearing the only high roof must restore exposed cover status"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn a_structure_beyond_generated_sky_cannot_provide_overhead_cover() {
     let (registries, mut state, _) = generated_grounded_player_at(0, 0);
     let player_cell = state.logistics().player().unwrap().position();

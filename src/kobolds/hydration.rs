@@ -8,7 +8,7 @@ use crate::core::time::{SimulationTick, TickSpan};
 use crate::fluid::{FluidStoreId, ValidatedFluidEgress, validate_fluid_egress};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
-use crate::world::{WindCondition, exposed_air_at};
+use crate::world::{WindCondition, generated_air_at, wind_at_generated_position};
 
 use super::patrol::{opening_resident_can_depart, scout_can_enter, scout_sees_guarded_cell};
 use super::visibility::scout_visible_from;
@@ -16,21 +16,26 @@ use super::{
     KoboldColony, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_DRINK_INTERVAL_TICKS, SCOUT_DRINK_VOLUME,
 };
 
-/// The scout's next physical water requirement responds to actual outdoor
-/// conditions at its last drink. Missing terrain authority and shelter
-/// retain the ordinary rate; heat and exposed gusts accelerate demand.
+/// The scout's next water requirement responds to the ambient temperature at
+/// its last real drink, even under a roof. Wind changes need only when an
+/// actual sky or upwind inlet lets the regional gust reach the source.
+/// Ungenerated terrain has no inferred climate and retains the baseline.
 pub(super) fn drink_interval_at(
     registries: &Registries,
     state: &AppState,
     position: VoxelCoord,
     at: SimulationTick,
 ) -> u64 {
-    let Some(outdoor) = exposed_air_at(registries, state, position, at) else {
+    let Some(air) = generated_air_at(registries, state, position, at) else {
         return SCOUT_DRINK_INTERVAL_TICKS;
     };
-    match outdoor.ambient_temperature().millikelvin() {
+    match air.ambient_temperature().millikelvin() {
         298_150.. => SCOUT_DRINK_INTERVAL_TICKS / 2,
-        293_150..=298_149 if outdoor.wind() == WindCondition::Gusting => {
+        293_150..=298_149
+            if air.wind() == WindCondition::Gusting
+                && wind_at_generated_position(registries, state, position, at)
+                    == Some(WindCondition::Gusting) =>
+        {
             SCOUT_DRINK_INTERVAL_TICKS * 3 / 4
         }
         0..=278_149 => SCOUT_DRINK_INTERVAL_TICKS * 3 / 2,

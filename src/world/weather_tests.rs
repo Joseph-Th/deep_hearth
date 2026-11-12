@@ -39,6 +39,43 @@ fn generated_player() -> (Registries, AppState, WorldGenerationSeed) {
 }
 
 #[test]
+fn generated_air_requires_real_vertical_world_truth_without_mutation() {
+    let (registries, state, _) = generated_player();
+    let position = state.logistics().player().unwrap().position();
+    let before = state.clone();
+    assert_eq!(
+        generated_air_at(&registries, &state, position, state.tick()),
+        assess_player_weather(&registries, &state)
+    );
+    for y in [
+        super::super::WORLD_MIN_Y - 1,
+        super::super::WORLD_MAX_Y_EXCLUSIVE,
+    ] {
+        assert_eq!(
+            generated_air_at(
+                &registries,
+                &state,
+                VoxelCoord::new(position.x(), y, position.z()),
+                state.tick(),
+            ),
+            None,
+            "a generated horizontal chunk does not authorize climate outside world height"
+        );
+    }
+    assert_eq!(
+        generated_air_at(
+            &registries,
+            &state,
+            VoxelCoord::new(256, position.y(), 256),
+            state.tick(),
+        ),
+        None,
+        "a remote ungenerated chunk cannot inherit local temperature"
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn dead_player_cannot_inspect_local_weather_habitat_or_cover_until_respawn() {
     use crate::player::validate_respawn_player;
     use crate::survival::{Vitality, player_record_with_thermal_comfort};

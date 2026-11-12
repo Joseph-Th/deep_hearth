@@ -377,10 +377,12 @@ No persistent ventilation network or general acoustic simulation is claimed.
 The opening scout has an independently scheduled drinking need. Its first
 60 mL serving becomes due at slow tick 980, after the first meal deadline.
 Each real drink schedules a new need from the locally experienced air: normally
-800 slow ticks (48 minutes); exposed air at/above 25 C reduces this to 400
-(24 minutes), gusting 20-25 C reduces it to 600 (36 minutes), and air
-below 5 C lengthens it to 1,200 (72 minutes). A missing generated column,
-roof, or cave retains the baseline, not an inferred remote weather forecast.
+800 slow ticks (48 minutes); generated ambient air at/above 25 C reduces this
+to 400 (24 minutes), locally reaching gusts at 20-25 C reduce it to 600
+(36 minutes), and air below 5 C lengthens it to 1,200 (72 minutes). A roof
+or cave shelters gusts only when it blocks the real wind inlet, not the
+regional ambient temperature. An ungenerated column retains the baseline,
+without inventing a remote weather forecast.
 A missed serving stays overdue without awarding virtual hydration. If another
 800 slow ticks pass without a real drink, the scout stops starting nonfood
 cargo raids, exposed-stockpile theft, remote metal salvage and new tool fitting;
