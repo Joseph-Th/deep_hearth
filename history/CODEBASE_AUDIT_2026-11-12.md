@@ -87,3 +87,50 @@ maintained progression evidence still explicitly separates spatial proxies,
 controlled infrastructure and modeled handoffs from a single ordinary-player
 journey. Those are existing integration limits, not grounds for inventing
 unowned game systems during a code audit.
+
+## Same-day follow-up: finite scout meal and detour decisions
+
+A separate owner-guided pass inspected the game clock, active body and work
+authority, generated terrain and forage, weather and natural-water custody,
+surface and inventory transfers, resident patrol/feeding/hydration, combat,
+mechanical energy selection, and save/load continuation. Existing explicit
+current-schema rejection was retained; searches for legacy, deprecated, and
+compatibility branches did not reveal a justified obsolete runtime to remove.
+The review was broad, not a formal line-by-line proof of every system.
+
+A concrete gameplay inconsistency was found at the hungry scout's loose-drop
+route ranking. It judged a nearby intact parcel or recoverable bulk split against
+the entire 20 g meal, even when the den feeding owner had already credited a
+partial meal. The wild-forage planner and return-edge cargo decision correctly
+used the remaining shortage. This disagreement could cause an unnecessary
+two-edge food raid and needless bulk handling for a scout missing only 2 g.
+
+The scout's outward food decision now supplies its actual outstanding ration
+to the shared local and distant loose-drop selectors. Their one-cell filter
+and rank calculation are unified, and the route planner distinguishes food
+shortage from non-food salvage with an explicit optional quantity instead of
+a boolean. Non-food scouting now returns before food-only source rescans.
+No new owner, state field, migration, or duplicate custody path was introduced.
+The current technical design records the resulting decision contract.
+
+Two new owner tests establish the change. A read-only route regression checks
+the 2 g versus 20 g decision, unchanged state, exact matter and valid persistence.
+A physical scheduled continuation lets the resident first eat 18 g at the den,
+then choose and carry a nearby 5 g parcel rather than a distant 100 g parcel or
+a neighboring 2 kg bulk pile. The resident consumes the remaining 2 g and
+retains 3 g in the den; both other sources remain untouched. Save/load replay,
+strict loaded-state validation, and total represented matter remain identical.
+
+Verified after the final source edit:
+
+- `python ci.py quick`: **passed** all four checks.
+- `python ci.py audit --all`: **passed** 2,658 core tests and 198 gameplay tests.
+- `python ci.py gate --lint`: **passed** the repository's authoritative Clippy lane.
+- `python ci.py report --scope all`: **passed**, including real opening scout
+  and finite-cache situations and separately labeled proxy/capability evidence.
+
+A direct all-targets Clippy invocation that bypassed the repository lane produced
+existing repository-wide `expect_used` and `unwrap_used` diagnostics. The
+authoritative local lint gate passes without suppressions or unrelated changes.
+Gameplay reports demonstrate deterministic modeled execution, not rendered
+appearance or universal coverage of generated worlds.

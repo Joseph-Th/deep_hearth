@@ -287,18 +287,18 @@ pub(super) fn choose_outbound_detour(
     }
     let junction = colony.route[1];
     let route = ScavengeRoute::new(colony.route, player_position);
+    let meal_shortage = SCOUT_MEAL_MASS
+        .checked_sub(colony.partial_meal)
+        .expect("trusted resident's partial meal is below a full ration");
     let loose_cache =
-        |food_only| reachable_detour_drop(registries, state, route, den_space, at, food_only);
+        |shortage| reachable_detour_drop(registries, state, route, den_space, at, shortage);
     let wild_food = || {
         let maximum_mass = colony.forage_batch().min(den_space);
         let local_food_remains =
             best_local_forage(registries, state, junction, at, maximum_mass).is_some();
         (forage_ready && !den_space.is_zero() && !local_food_remains)
             .then(|| {
-                let shortage = SCOUT_MEAL_MASS
-                    .checked_sub(colony.partial_meal)
-                    .expect("trusted resident's partial meal is below a full ration");
-                reachable_detour_food(registries, state, route, at, maximum_mass, shortage)
+                reachable_detour_food(registries, state, route, at, maximum_mass, meal_shortage)
             })
             .flatten()
     };
@@ -308,7 +308,11 @@ pub(super) fn choose_outbound_detour(
         // but stops making optional ore and equipment salvage expeditions.
         return colony
             .hungry
-            .then(|| loose_cache(true).or(preferred_forage).or_else(wild_food))
+            .then(|| {
+                loose_cache(Some(meal_shortage))
+                    .or(preferred_forage)
+                    .or_else(wild_food)
+            })
             .flatten();
     }
     if colony.hungry {
@@ -316,7 +320,7 @@ pub(super) fn choose_outbound_detour(
         // adequate portable ration is simpler to recover and avoids the
         // foraging cooldown. Compare actual transfer yields, not mere presence.
         let food_choice = || {
-            let loose = loose_cache(true);
+            let loose = loose_cache(Some(meal_shortage));
             let (Some(drop_route), Some(forage_route)) = (loose, preferred_forage) else {
                 return loose.or(preferred_forage);
             };
@@ -354,11 +358,8 @@ pub(super) fn choose_outbound_detour(
                 colony.forage_batch().min(den_space),
             )
             .map(|(mass, _)| mass);
-            let shortage = SCOUT_MEAL_MASS
-                .checked_sub(colony.partial_meal)
-                .expect("trusted resident's partial meal is below a full ration");
             match (drop_yield, forage_yield) {
-                (Some(drop), Some(forage)) if drop >= shortage || drop >= forage => {
+                (Some(drop), Some(forage)) if drop >= meal_shortage || drop >= forage => {
                     Some(drop_route)
                 }
                 (Some(_), Some(_)) | (None, Some(_)) => Some(forage_route),
@@ -372,11 +373,11 @@ pub(super) fn choose_outbound_detour(
         if priority_route.is_some() || needed_tip_salvage {
             priority_route
         } else {
-            loose_cache(false)
+            loose_cache(None)
         }
     } else {
         inherited_salvage()
-            .or_else(|| loose_cache(false))
+            .or_else(|| loose_cache(None))
             .or_else(|| {
                 (colony.mobilized_at.is_some() && !den_space.is_zero())
                     .then(|| {

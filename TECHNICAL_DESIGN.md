@@ -301,6 +301,13 @@ deployment the feeding owner reserves every surface revision and checked
 per-material terminal-consumption ledger update. Insufficient fragments,
 spoilage, or exhausted revision capacity leave all den food untouched; the
 scout's outstanding meal keeps its earlier claim on the same finite custody.
+The scout's short-range loose-food detours compare physically recoverable
+one-parcel servings with the **remaining** credited meal shortage, not an
+unconditional full 20 g ration. A sufficient nearby intact parcel avoids an
+unnecessary second traversal edge; if only an inadequate portion is nearby,
+a farther intact serving or full recoverable split can justify the journey.
+Side and far candidates use the same indexed-cell freshness, capacity, and
+ration ranking. Non-food salvage retains its separate distance-first policy.
 
 | Surface | Definitions / immutable input | Authoritative read / observation | Plan / resolve | Mutate / continue |
 | --- | --- | --- | --- | --- |

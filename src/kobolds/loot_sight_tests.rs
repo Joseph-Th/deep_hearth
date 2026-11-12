@@ -90,7 +90,7 @@ fn opaque_terrain_hides_a_far_cache_until_the_route_is_exposed() {
             super::ScavengeRoute::new([den, junction, tip], None),
             Mass::from_milligrams(500_000),
             state.tick(),
-            false,
+            None,
         )
     };
     assert_eq!(choose(&visible), Some((first, goal)));

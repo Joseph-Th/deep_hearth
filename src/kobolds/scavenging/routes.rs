@@ -14,8 +14,8 @@ use super::super::patrol::{scout_can_enter, scout_sees_guarded_cell};
 use super::super::visibility::scout_visible_from;
 use super::super::{SCOUT_BULK_SPLIT_BATCH, SCOUT_DETERRENT_LIGHT_LEVEL};
 use super::{
-    SCOUT_MEAL_MASS, best_local_forage, food_serving_priority, is_contestable_drop,
-    is_portable_drop, local_unenclosed_stockpile_target, scout_wants_loose_drop,
+    best_local_forage, food_serving_priority, is_contestable_drop, is_portable_drop,
+    local_unenclosed_stockpile_target, scout_wants_loose_drop,
 };
 
 /// One real three-stop patrol graph with the currently observed player position.
@@ -110,26 +110,42 @@ pub(in crate::kobolds) fn reachable_far_stockpile(
 }
 
 /// Intact cargo is cheapest to move. A hungry scout must first compare what
-/// one actual pickup can yield: a complete meal from a split is preferable to
-/// a tiny intact fragment. Mixed salvage retains whole-before-split handling.
+/// one actual pickup can yield against the outstanding meal, not the original
+/// serving size. Mixed salvage retains whole-before-split handling.
+type DropLootPriority = (bool, bool, bool, u64, SurfaceResourceId);
+
 fn detour_loot_priority(
     resource: &crate::surface::SurfaceResourceRecord,
     capacity: Mass,
-    food_only: bool,
-) -> (bool, bool, bool, u64, SurfaceResourceId) {
-    let (inadequate_food, partial_size) = food_serving_priority(resource);
+    food_shortage: Option<Mass>,
+) -> DropLootPriority {
     let needs_split = !is_portable_drop(resource) || resource.remaining_mass() > capacity;
     let split_yield = resource
         .remaining_mass()
         .min(capacity)
         .min(SCOUT_BULK_SPLIT_BATCH);
-    if food_only {
-        (
-            if needs_split {
-                split_yield < SCOUT_MEAL_MASS
+    let (inadequate_food, partial_size) = match food_shortage {
+        Some(shortage) => {
+            let recoverable = if needs_split {
+                split_yield
             } else {
-                inadequate_food
-            },
+                resource.remaining_mass()
+            };
+            let inadequate = recoverable < shortage;
+            (
+                inadequate,
+                if inadequate {
+                    u64::MAX - recoverable.milligrams()
+                } else {
+                    0
+                },
+            )
+        }
+        None => food_serving_priority(resource),
+    };
+    if food_shortage.is_some() {
+        (
+            inadequate_food,
             needs_split,
             false,
             partial_size,
@@ -144,6 +160,30 @@ fn detour_loot_priority(
             resource.id(),
         )
     }
+}
+
+/// Select the priority from one indexed physical cell once. Neighboring and
+/// two-edge routes share identical freshness, capacity, and hunger filtering;
+/// only observation and path safety differ.
+fn best_local_drop_priority(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    capacity: Mass,
+    at: SimulationTick,
+    food_shortage: Option<Mass>,
+) -> Option<DropLootPriority> {
+    state
+        .surface()
+        .available_resources_at(Some(position))
+        .filter(|resource| {
+            is_contestable_drop(resource, capacity)
+                && scout_wants_loose_drop(registries, state, resource, at)
+                && (food_shortage.is_none()
+                    || resource.commodity().form() == crate::content::FORM_FOOD)
+        })
+        .map(|resource| detour_loot_priority(resource, capacity, food_shortage))
+        .min()
 }
 
 pub(super) fn unguarded_unlit_cell(
@@ -196,7 +236,7 @@ pub(in crate::kobolds) fn reachable_side_drop(
     route: ScavengeRoute,
     capacity: Mass,
     at: SimulationTick,
-    food_only: bool,
+    food_shortage: Option<Mass>,
 ) -> Option<VoxelCoord> {
     let ScavengeRoute {
         junction,
@@ -209,16 +249,8 @@ pub(in crate::kobolds) fn reachable_side_drop(
         .traversable_destinations(junction)
         .filter(|destination| *destination != den && *destination != authored_tip)
         .filter_map(|destination| {
-            state
-                .surface()
-                .available_resources_at(Some(destination))
-                .filter(|resource| {
-                    is_contestable_drop(resource, capacity)
-                        && scout_wants_loose_drop(registries, state, resource, at)
-                        && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
-                })
-                .min_by_key(|resource| detour_loot_priority(resource, capacity, food_only))
-                .map(|resource| (detour_loot_priority(resource, capacity, food_only), destination))
+            best_local_drop_priority(registries, state, destination, capacity, at, food_shortage)
+                .map(|priority| (priority, destination))
         })
         // Lighting propagation is more expensive than an indexed local parcel lookup.
         .filter(|(_, destination)| {
@@ -236,7 +268,7 @@ pub(in crate::kobolds) fn reachable_far_drop(
     route: ScavengeRoute,
     capacity: Mass,
     at: SimulationTick,
-    food_only: bool,
+    food_shortage: Option<Mass>,
 ) -> Option<(VoxelCoord, VoxelCoord)> {
     let ScavengeRoute {
         junction,
@@ -256,23 +288,8 @@ pub(in crate::kobolds) fn reachable_far_drop(
                     *goal != first && *goal != den && *goal != junction && *goal != authored_tip
                 })
                 .filter_map(move |goal| {
-                    state
-                        .surface()
-                        .available_resources_at(Some(goal))
-                        .filter(|resource| {
-                            is_contestable_drop(resource, capacity)
-                                && scout_wants_loose_drop(registries, state, resource, at)
-                                && (!food_only
-                                    || resource.commodity().form() == crate::content::FORM_FOOD)
-                        })
-                        .min_by_key(|resource| detour_loot_priority(resource, capacity, food_only))
-                        .map(|resource| {
-                            (
-                                detour_loot_priority(resource, capacity, food_only),
-                                first,
-                                goal,
-                            )
-                        })
+                    best_local_drop_priority(registries, state, goal, capacity, at, food_shortage)
+                        .map(|priority| (priority, first, goal))
                 })
         })
         .filter(|(_, first, goal)| {
@@ -286,6 +303,7 @@ pub(in crate::kobolds) fn reachable_far_drop(
 /// splitting a nearer bulky food pile, even one graph edge farther out.
 /// Ordinary mixed scrap retains its distance-first patrol behavior until an
 /// actual industrial report activates the separate precision salvage priority.
+/// Some(shortage) seeks food sufficient for the *remaining* meal; None seeks scrap.
 /// All routes use current light, terrain and player protection.
 pub(in crate::kobolds) fn reachable_detour_drop(
     registries: &Registries,
@@ -293,14 +311,17 @@ pub(in crate::kobolds) fn reachable_detour_drop(
     route: ScavengeRoute,
     capacity: Mass,
     at: SimulationTick,
-    food_only: bool,
+    food_shortage: Option<Mass>,
 ) -> Option<(VoxelCoord, Option<VoxelCoord>)> {
-    let side = reachable_side_drop(registries, state, route, capacity, at, food_only);
-    // Generic scrap must not gain knowledge of distant manufactured copper
-    // just because that parcel is easier to lift than a nearer stone pile.
-    if !food_only && let Some(first) = side {
-        return Some((first, None));
-    }
+    let side = reachable_side_drop(registries, state, route, capacity, at, food_shortage);
+    // Generic scrap remains distance-first, even if a farther manufactured
+    // part is easier to lift. Avoid food-specific rescans entirely.
+    let Some(shortage) = food_shortage else {
+        return side.map(|first| (first, None)).or_else(|| {
+            reachable_far_drop(registries, state, route, capacity, at, None)
+                .map(|(first, goal)| (first, Some(goal)))
+        });
+    };
     let whole_at = |position, minimum_mass| {
         state
             .surface()
@@ -310,19 +331,17 @@ pub(in crate::kobolds) fn reachable_detour_drop(
                     && resource.remaining_mass() <= capacity
                     && resource.remaining_mass() >= minimum_mass
                     && scout_wants_loose_drop(registries, state, resource, at)
-                    && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
+                    && resource.commodity().form() == crate::content::FORM_FOOD
             })
     };
     // A genuinely complete distant intact ration justifies one extra edge.
     // Otherwise a complete nearby split must beat a distant tiny fragment;
     // the return edge can actually recover that meal in one operation.
-    if food_only && let Some(first) = side.filter(|first| whole_at(*first, SCOUT_MEAL_MASS)) {
+    if let Some(first) = side.filter(|first| whole_at(*first, shortage)) {
         return Some((first, None));
     }
-    let far = reachable_far_drop(registries, state, route, capacity, at, food_only);
-    if food_only
-        && let Some((first, goal)) = far.filter(|(_, goal)| whole_at(*goal, SCOUT_MEAL_MASS))
-    {
+    let far = reachable_far_drop(registries, state, route, capacity, at, Some(shortage));
+    if let Some((first, goal)) = far.filter(|(_, goal)| whole_at(*goal, shortage)) {
         return Some((first, Some(goal)));
     }
     let complete_split_at = |position| {
@@ -338,13 +357,13 @@ pub(in crate::kobolds) fn reachable_detour_drop(
                         .remaining_mass()
                         .min(capacity)
                         .min(SCOUT_BULK_SPLIT_BATCH)
-                        >= SCOUT_MEAL_MASS
+                        >= shortage
             })
     };
-    if food_only && let Some(first) = side.filter(|first| complete_split_at(*first)) {
+    if let Some(first) = side.filter(|first| complete_split_at(*first)) {
         return Some((first, None));
     }
-    if food_only && let Some((first, goal)) = far.filter(|(_, goal)| complete_split_at(*goal)) {
+    if let Some((first, goal)) = far.filter(|(_, goal)| complete_split_at(*goal)) {
         return Some((first, Some(goal)));
     }
     // Only partial portions remain. Prefer intact cargo and the nearer edge,

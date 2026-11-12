@@ -405,7 +405,7 @@ fn hot_loose_stone_is_not_stealable_but_cool_stone_is_recovered_normally() {
             ScavengeRoute::new([path.den, path.junction, path.tip], None),
             capacity,
             state.tick(),
-            false
+            None
         ),
         Some(path.side_stone)
     );
@@ -918,7 +918,7 @@ fn hungry_loose_food_raids_prefer_a_complete_meal_over_old_fragments() {
             super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
             capacity,
             state.tick(),
-            true,
+            Some(super::super::SCOUT_MEAL_MASS),
         )
     };
     assert_eq!(
@@ -952,6 +952,166 @@ fn hungry_loose_food_raids_prefer_a_complete_meal_over_old_fragments() {
         ),
         Some(full_local),
         "the actual local transfer must not choose the older inadequate fragment"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn remaining_meal_changes_real_drop_route_without_preferring_a_distant_surplus() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let path = route(&mut state);
+    validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            drop(path.side_food, true, 5_000),
+            drop(path.side_stone, true, 2_000_000),
+            drop(path.far_food, true, 100_000),
+        ],
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let before = state.clone();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let route = super::ScavengeRoute::new([path.den, path.junction, path.tip], None);
+    let capacity = Mass::from_milligrams(500_000);
+    let remaining = Mass::from_milligrams(2_000);
+    assert_eq!(
+        super::reachable_side_drop(
+            &registries,
+            &state,
+            route,
+            capacity,
+            state.tick(),
+            Some(remaining),
+        ),
+        Some(path.side_food),
+        "a whole nearby portion sufficient for the remaining meal outranks a bulky split"
+    );
+    assert_eq!(
+        super::reachable_detour_drop(
+            &registries,
+            &state,
+            route,
+            capacity,
+            state.tick(),
+            Some(remaining),
+        ),
+        Some((path.side_food, None)),
+        "the scout should not walk the extra edge for an unnecessary full serving"
+    );
+    assert_eq!(
+        super::reachable_detour_drop(
+            &registries,
+            &state,
+            route,
+            capacity,
+            state.tick(),
+            Some(super::super::SCOUT_MEAL_MASS),
+        ),
+        Some((path.side_food, Some(path.far_food))),
+        "a genuinely missing full meal still justifies the distant intact parcel"
+    );
+    assert_eq!(state, before, "planning is read-only");
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(restored, state);
+}
+
+#[test]
+fn partial_den_meal_redirects_the_live_scout_to_sufficient_nearby_food() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let path = route(&mut state);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([path.den, path.junction, path.tip]);
+    while state.tick().value() < 580 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert!(state.kobold_state().colony.as_ref().unwrap().hungry);
+    validate_create_surface_resources(&registries, &state, [drop(path.den, true, 18_000)])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    let mut consumed_partial = false;
+    for _ in 0..100 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+        let colony = state.kobold_state().colony.as_ref().unwrap();
+        if colony.partial_meal == Mass::from_milligrams(18_000) {
+            consumed_partial = true;
+            break;
+        }
+    }
+    assert!(consumed_partial, "the den meal must be physically consumed");
+    assert!(state.kobold_state().colony.as_ref().unwrap().hungry);
+    let creation = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            drop(path.side_food, true, 5_000),
+            drop(path.side_stone, true, 2_000_000),
+            drop(path.far_food, true, 100_000),
+        ],
+    )
+    .unwrap();
+    let sources = creation.resource_ids().collect::<Vec<_>>();
+    creation.commit(&mut state).unwrap();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    let mut saw_near_route = false;
+    for _ in 0..40 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+        assert_eq!(state, replay);
+        let colony = state.kobold_state().colony.as_ref().unwrap();
+        saw_near_route |= colony.scout_position() == path.side_food;
+        if !colony.hungry {
+            break;
+        }
+    }
+    assert!(saw_near_route, "the scout must walk the nearer real edge");
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    assert!(!colony.hungry, "the remaining 2 g completes the meal");
+    assert_eq!(colony.partial_meal, Mass::ZERO);
+    assert_eq!(
+        state.surface().get(sources[0]).unwrap().position(),
+        path.den
+    );
+    assert_eq!(
+        state.surface().get(sources[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(3_000),
+        "the unused 3 g remains in physical den custody"
+    );
+    assert_eq!(
+        state.surface().get(sources[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(2_000_000),
+        "the bulky side alternative stays intact"
+    );
+    assert_eq!(
+        state.surface().get(sources[2]).unwrap().remaining_mass(),
+        Mass::from_milligrams(100_000),
+        "the farther meal is not silently or unnecessarily collected"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
@@ -1223,7 +1383,7 @@ fn hungry_scout_hauls_whole_distant_food_instead_of_splitting_a_nearer_cache() {
             super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
             Mass::from_milligrams(500_000),
             far.tick(),
-            true,
+            Some(super::super::SCOUT_MEAL_MASS),
         ),
         Some((path.side_food, Some(path.far_food))),
         "a complete distant food parcel is less handling than splitting a nearby bulk pile"
@@ -1235,7 +1395,7 @@ fn hungry_scout_hauls_whole_distant_food_instead_of_splitting_a_nearer_cache() {
             super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
             Mass::from_milligrams(500_000),
             only_near.tick(),
-            true,
+            Some(super::super::SCOUT_MEAL_MASS),
         ),
         Some((path.side_food, None)),
     );
@@ -1322,7 +1482,7 @@ fn hungry_scout_prefers_nearby_full_split_to_distant_crumb() {
             super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
             Mass::from_milligrams(500_000),
             state.tick(),
-            true,
+            Some(super::super::SCOUT_MEAL_MASS),
         ),
         Some((path.side_food, None)),
         "a nearby splittable full ration must beat a distant 1 g fragment"
@@ -1391,7 +1551,7 @@ fn hungry_scout_passes_nearby_crumb_for_distant_full_split() {
             super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
             Mass::from_milligrams(500_000),
             state.tick(),
-            true,
+            Some(super::super::SCOUT_MEAL_MASS),
         ),
         Some((path.side_food, Some(path.far_food))),
         "one farther split can feed the scout; a nearer fragment cannot"
@@ -1643,7 +1803,7 @@ fn nearby_whole_food_still_beats_a_whole_distant_parcel() {
             super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
             Mass::from_milligrams(500_000),
             state.tick(),
-            true,
+            Some(super::super::SCOUT_MEAL_MASS),
         ),
         Some((path.side_food, None))
     );
@@ -1686,7 +1846,7 @@ fn side_cache_prefers_whole_cargo_over_older_bulk_food_but_splits_when_pack_spac
             super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
             capacity,
             state.tick(),
-            false,
+            None,
         )
     };
     assert_eq!(
@@ -1722,7 +1882,7 @@ fn far_cache_search_uses_two_real_edges_and_prefers_whole_cargo() {
             super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
             capacity,
             state.tick(),
-            false,
+            None,
         )
     };
     assert_eq!(
@@ -1843,7 +2003,7 @@ fn visible_player_guarding_food_redirects_scout_to_safe_scrap_until_player_withd
             ),
             space,
             guarded.tick(),
-            false,
+            None,
         ),
         Some(path.side_stone),
         "visible food protection redirects the actual local candidate search"
@@ -1858,7 +2018,7 @@ fn visible_player_guarding_food_redirects_scout_to_safe_scrap_until_player_withd
             ),
             space,
             unguarded.tick(),
-            false,
+            None,
         ),
         Some(path.side_food),
         "without a threat the preferred fresh food is the first target"
