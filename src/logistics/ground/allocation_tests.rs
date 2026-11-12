@@ -166,6 +166,90 @@ fn validated_ground_cache_rejects_removed_footing_before_commit() {
 }
 
 #[test]
+fn ground_cache_cannot_be_filled_after_its_empty_site_loses_footing() {
+    use crate::world::{BlockStateId, set_generated_block_for_test};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0xCACE_47A2),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let floor_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| state.world().block_at(VoxelCoord::new(5, y, 5)) == Some(BLOCK_STATE_STONE))
+        .unwrap();
+    let position = VoxelCoord::new(5, floor_y + 1, 5);
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let mass = Mass::from_milligrams(100_000);
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let ground = validate_allocate_player_ground_stockpile(&registries, &state, mass)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let selection = [MaterialLotSelection::new(lot, mass)];
+    let pending = validate_drop_to_ground(&registries, &state, ground, &selection).unwrap();
+    let original_world_revision = state.world().revision();
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(5, floor_y, 5),
+        BlockStateId::AIR,
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let before = state.clone();
+    assert_eq!(
+        pending.commit(&mut state),
+        Err(
+            crate::logistics::GroundMaterialTransferCommitError::StaleWorldRevision {
+                expected: original_world_revision,
+                actual: state.world().revision()
+            }
+        )
+    );
+    assert_eq!(
+        validate_drop_to_ground(&registries, &state, ground, &selection).err(),
+        Some(
+            crate::logistics::GroundMaterialTransferError::DestinationRequiresFixedFloor {
+                stockpile: ground
+            }
+        )
+    );
+    assert_eq!(state, before);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(ground)
+            .unwrap()
+            .stored_mass(),
+        Mass::ZERO
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn ground_cache_cannot_rely_on_a_moving_resident_as_footing() {
     use crate::logistics::player_body_has_fixed_floor;
     use crate::world::{BlockStateId, set_generated_block_for_test, temple_warden_route_at};

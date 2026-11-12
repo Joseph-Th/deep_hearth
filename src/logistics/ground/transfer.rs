@@ -16,7 +16,9 @@ use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
-use super::super::PlayerLogisticsRecord;
+use super::super::{
+    PlayerLogisticsRecord, player_body_uses_generated_world, player_placement_has_fixed_floor,
+};
 
 /// Failure while authorizing material movement between carried custody and a ground stockpile.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -37,6 +39,9 @@ pub enum GroundMaterialTransferError {
         stockpile: StockpileId,
         ground: VoxelCoord,
         player: VoxelCoord,
+    },
+    DestinationRequiresFixedFloor {
+        stockpile: StockpileId,
     },
     Stack(MaterialStackProjectionError),
     Selection(ExplicitConsumptionSelectionError),
@@ -88,6 +93,11 @@ impl Display for GroundMaterialTransferError {
                 player.y(),
                 player.z()
             ),
+            Self::DestinationRequiresFixedFloor { stockpile } => write!(
+                formatter,
+                "cannot deposit into loose ground cache {} without fixed footing beneath it",
+                stockpile.value()
+            ),
             Self::Stack(error) => write!(formatter, "ground stack projection failed: {error}"),
             Self::Selection(error) => {
                 write!(formatter, "ground transfer selection failed: {error}")
@@ -111,7 +121,8 @@ impl Error for GroundMaterialTransferError {
             | Self::PreparedStrikeActive
             | Self::MaterialTooHot { .. }
             | Self::GroundStockpileNotLocated { .. }
-            | Self::GroundStockpileNotAtPlayer { .. } => None,
+            | Self::GroundStockpileNotAtPlayer { .. }
+            | Self::DestinationRequiresFixedFloor { .. } => None,
         }
     }
 }
@@ -123,6 +134,8 @@ pub enum GroundMaterialTransferCommitError {
     StaleCombatRevision { expected: u64, actual: u64 },
     StaleSurvivalRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
+    StaleWorldRevision { expected: u64, actual: u64 },
+    StaleStructureRevision { expected: u64, actual: u64 },
     Inventory(MaterialRelocationCommitError),
 }
 
@@ -144,6 +157,14 @@ impl Display for GroundMaterialTransferCommitError {
                 formatter,
                 "ground transfer expected logistics revision {expected} but current revision is {actual}"
             ),
+            Self::StaleWorldRevision { expected, actual } => write!(
+                formatter,
+                "ground transfer expected terrain revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleStructureRevision { expected, actual } => write!(
+                formatter,
+                "ground transfer expected structure revision {expected} but current revision is {actual}"
+            ),
             Self::Inventory(error) => write!(formatter, "ground transfer commit failed: {error}"),
         }
     }
@@ -156,7 +177,9 @@ impl Error for GroundMaterialTransferCommitError {
             Self::PlayerBecameBusy
             | Self::StaleCombatRevision { .. }
             | Self::StaleSurvivalRevision { .. }
-            | Self::StaleLogisticsRevision { .. } => None,
+            | Self::StaleLogisticsRevision { .. }
+            | Self::StaleWorldRevision { .. }
+            | Self::StaleStructureRevision { .. } => None,
         }
     }
 }
@@ -168,6 +191,7 @@ pub struct ValidatedGroundMaterialTransfer {
     player_action: PlayerActionGuard,
     expected_logistics_revision: u64,
     expected_combat_revision: u64,
+    expected_footing_revisions: Option<(u64, u64)>,
     relocation: ValidatedMaterialRelocation,
 }
 
@@ -195,6 +219,22 @@ impl ValidatedGroundMaterialTransfer {
                 expected: self.expected_combat_revision,
                 actual: actual_combat_revision,
             });
+        }
+        if let Some((world, structures)) = self.expected_footing_revisions {
+            let actual = state.world().revision();
+            if actual != world {
+                return Err(GroundMaterialTransferCommitError::StaleWorldRevision {
+                    expected: world,
+                    actual,
+                });
+            }
+            let actual = state.structures().revision();
+            if actual != structures {
+                return Err(GroundMaterialTransferCommitError::StaleStructureRevision {
+                    expected: structures,
+                    actual,
+                });
+            }
         }
         self.relocation
             .commit(state)
@@ -282,6 +322,7 @@ fn validate_pickup_selection(
         player_action,
         expected_logistics_revision: state.logistics().revision(),
         expected_combat_revision: state.combat().revision(),
+        expected_footing_revisions: None,
         relocation,
     })
 }
@@ -342,6 +383,27 @@ fn validate_drop_selection(
         selections,
     )
     .map_err(GroundMaterialTransferError::Selection)?;
+    // Empty site markers can survive removal of their terrain, but filling
+    // one must not suspend physical matter. Use the fixed-floor collision
+    // query shared by player placement, not nearby ledge or actor support.
+    let loose_ground = state
+        .inventory()
+        .get_stockpile(destination)
+        .is_some_and(|stockpile| {
+            stockpile.enclosure().is_none() && stockpile.supported_by().is_none()
+        });
+    let footing = if loose_ground
+        && player_body_uses_generated_world(state, registries.survival().physiology().locomotion())
+    {
+        if !player_placement_has_fixed_floor(registries, state) {
+            return Err(GroundMaterialTransferError::DestinationRequiresFixedFloor {
+                stockpile: destination,
+            });
+        }
+        Some((state.world().revision(), state.structures().revision()))
+    } else {
+        None
+    };
     let relocation =
         validate_material_relocation_from_selection(registries, state, destination, selection)
             .map_err(GroundMaterialTransferError::Inventory)?;
@@ -349,6 +411,7 @@ fn validate_drop_selection(
         player_action,
         expected_logistics_revision: state.logistics().revision(),
         expected_combat_revision: state.combat().revision(),
+        expected_footing_revisions: footing,
         relocation,
     })
 }

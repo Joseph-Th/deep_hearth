@@ -48,6 +48,8 @@ mod excavation_selection;
 mod foundation_excavation;
 #[path = "world_tests/graded_ore.rs"]
 mod graded_ore;
+#[path = "world_tests/loose_custody_footing.rs"]
+mod loose_custody_footing;
 
 #[path = "world_tests/graded_hematite.rs"]
 mod graded_hematite;

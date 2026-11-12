@@ -14,6 +14,7 @@ use crate::material::CommodityKey;
 use crate::mining::{MiningMethodId, MiningPhysicsError};
 use crate::spatial::VoxelCoord;
 use crate::structural::StructuralElementId;
+use crate::surface::SurfaceResourceId;
 
 use super::super::PlayerBlockTargetError;
 
@@ -39,6 +40,17 @@ pub enum BlockExcavationError {
     StorageEnclosureRequiresFloor {
         target: VoxelCoord,
         stockpile: StockpileId,
+    },
+    OccupiedGroundStockpileRequiresFloor {
+        target: VoxelCoord,
+        stockpile: StockpileId,
+    },
+    LooseSurfaceDropRequiresFloor {
+        target: VoxelCoord,
+        resource: SurfaceResourceId,
+    },
+    RootedForageRequiresFloor {
+        target: VoxelCoord,
     },
     StandingTreeRequiresFloor {
         target: VoxelCoord,
@@ -126,6 +138,21 @@ impl Display for BlockExcavationError {
                 target.y(),
                 target.z(),
                 stockpile.value()
+            ),
+            Self::OccupiedGroundStockpileRequiresFloor { target, stockpile } => write!(
+                formatter,
+                "cannot remove block at ({},{},{}): populated ground cache {} still rests above it",
+                target.x(), target.y(), target.z(), stockpile.value()
+            ),
+            Self::LooseSurfaceDropRequiresFloor { target, resource } => write!(
+                formatter,
+                "cannot remove block at ({},{},{}): loose parcel {} still rests above it",
+                target.x(), target.y(), target.z(), resource.value()
+            ),
+            Self::RootedForageRequiresFloor { target } => write!(
+                formatter,
+                "cannot remove block at ({},{},{}): rooted forage still depends on this ground",
+                target.x(), target.y(), target.z()
             ),
             Self::StandingTreeRequiresFloor { target } => write!(
                 formatter,
@@ -226,6 +253,9 @@ impl Error for BlockExcavationError {
             | Self::ZeroMass
             | Self::MassExceedsCell { .. }
             | Self::StorageEnclosureRequiresFloor { .. }
+            | Self::OccupiedGroundStockpileRequiresFloor { .. }
+            | Self::LooseSurfaceDropRequiresFloor { .. }
+            | Self::RootedForageRequiresFloor { .. }
             | Self::StandingTreeRequiresFloor { .. }
             | Self::EnergyStoreRequiresFloor { .. }
             | Self::StationaryEquipmentRequiresFloor { .. }
@@ -279,6 +309,17 @@ pub enum BlockExcavationCommitError {
     StorageEnclosureRequiresFloor {
         target: VoxelCoord,
         stockpile: StockpileId,
+    },
+    OccupiedGroundStockpileRequiresFloor {
+        target: VoxelCoord,
+        stockpile: StockpileId,
+    },
+    LooseSurfaceDropRequiresFloor {
+        target: VoxelCoord,
+        resource: SurfaceResourceId,
+    },
+    RootedForageRequiresFloor {
+        target: VoxelCoord,
     },
     EnergyStoreRequiresFloor {
         target: VoxelCoord,
@@ -345,6 +386,29 @@ impl Display for BlockExcavationCommitError {
                 target.z(),
                 stockpile.value()
             ),
+            Self::OccupiedGroundStockpileRequiresFloor { target, stockpile } => write!(
+                formatter,
+                "block excavation cannot remove floor ({},{},{}): cache {} holds material above it",
+                target.x(),
+                target.y(),
+                target.z(),
+                stockpile.value()
+            ),
+            Self::LooseSurfaceDropRequiresFloor { target, resource } => write!(
+                formatter,
+                "block excavation cannot remove floor ({},{},{}): parcel {} was left above it",
+                target.x(),
+                target.y(),
+                target.z(),
+                resource.value()
+            ),
+            Self::RootedForageRequiresFloor { target } => write!(
+                formatter,
+                "block excavation cannot remove floor ({},{},{}): living forage roots remain above it",
+                target.x(),
+                target.y(),
+                target.z()
+            ),
             Self::EnergyStoreRequiresFloor { target, store } => write!(
                 formatter,
                 "block excavation cannot remove floor ({},{},{}): stationary energy store {} was placed above it",
@@ -410,6 +474,9 @@ impl Error for BlockExcavationCommitError {
             | Self::StaleSurfaceIdentity { .. }
             | Self::TargetChanged
             | Self::StorageEnclosureRequiresFloor { .. }
+            | Self::OccupiedGroundStockpileRequiresFloor { .. }
+            | Self::LooseSurfaceDropRequiresFloor { .. }
+            | Self::RootedForageRequiresFloor { .. }
             | Self::EnergyStoreRequiresFloor { .. }
             | Self::StationaryEquipmentRequiresFloor { .. }
             | Self::NaturalSpringRequiresFloor { .. }

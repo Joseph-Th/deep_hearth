@@ -301,6 +301,8 @@ fn enclosure_construction_requires_ground_support_and_exclusive_player_attention
     )
     .unwrap();
     let down = ViewDirection::new(0, -1_000_000, 0).unwrap();
+    // The stockpile contains matter, so removing its last supporting stone is
+    // invalid. A partial cut still begins real timed work and holds attention.
     let _started = validate_start_player_block_excavation(
         &registries,
         &state,
@@ -308,7 +310,7 @@ fn enclosure_construction_requires_ground_support_and_exclusive_player_attention
             down,
             MINING_METHOD_HAND_PICK,
             pick,
-            Mass::from_milligrams(200_000),
+            Mass::from_milligrams(199_999),
         ),
     )
     .unwrap()

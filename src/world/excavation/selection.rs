@@ -47,8 +47,12 @@ fn batch_size_can_resolve(error: &BlockExcavationError) -> bool {
             // footing. A smaller authorized cut keeps the load-bearing cell,
             // so the held-tool resolver must try it before giving up.
             | BlockExcavationError::StorageEnclosureRequiresFloor { .. }
+            | BlockExcavationError::OccupiedGroundStockpileRequiresFloor { .. }
+            | BlockExcavationError::LooseSurfaceDropRequiresFloor { .. }
+            | BlockExcavationError::RootedForageRequiresFloor { .. }
             | BlockExcavationError::EnergyStoreRequiresFloor { .. }
             | BlockExcavationError::StationaryEquipmentRequiresFloor { .. }
+            | BlockExcavationError::NaturalSpringRequiresFloor { .. }
             | BlockExcavationError::StandingTreeRequiresFloor { .. }
             | BlockExcavationError::OpeningResidentRequiresFloor { .. }
             | BlockExcavationError::GroundedStructureRequiresFloor { .. }

@@ -171,6 +171,16 @@ capacity while standing on an adjacent ledge. A surface-bound excavation
 checks that the selected fixed floor exists at admission and on trusted load;
 its pending start also binds the structural revision so changes to built
 footing cannot silently invalidate the output destination before commit.
+Complete block excavation shares a local floor-owner assessment at admission and
+commit: live loose drops, physical perennial roots (including depleted crops),
+and unenclosed ground stockpiles holding material or
+reserved inbound mass protect their actual custody voxel, just as enclosures,
+machines, springs, residents, and ground anchors do. An empty ground allocation
+does not protect the floor because it has no physical contents. Player-to-ground
+material transfers into loose sites require fixed footing and bind terrain and
+structure revisions, so an empty marker cannot accept matter after excavation. Held-tool mining
+may remove a smaller physical amount while preserving that last collidable
+support; the floor cannot be fully removed until its dependent custody moves.
 
 ## Abstraction and dependency direction
 

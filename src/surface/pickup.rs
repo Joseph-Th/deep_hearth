@@ -170,7 +170,18 @@ fn work_may_release_at_next_boundary(state: &AppState, next: SimulationTick) -> 
             .get_job(job)
             .is_some_and(|record| record.completes_at() <= next || record.is_awaiting_settlement()),
         PlayerWork::BlockExcavation { .. } => false,
-        _ => unreachable!("all other exclusive work has an inline completion schedule"),
+        PlayerWork::TreeFelling { .. }
+        | PlayerWork::SurfaceGathering { .. }
+        | PlayerWork::ManualPower { .. }
+        | PlayerWork::Prospecting { .. }
+        | PlayerWork::Eating { .. }
+        | PlayerWork::Drinking { .. }
+        | PlayerWork::EquipmentMaintenance { .. }
+        | PlayerWork::StorageEnclosureDismantling { .. }
+        | PlayerWork::StructuralConstruction { .. }
+        | PlayerWork::StructuralDismantling { .. } => {
+            unreachable!("all other exclusive work has an inline completion schedule")
+        }
     }
 }
 

@@ -5,6 +5,7 @@ use crate::equipment::EquipmentId;
 use crate::inventory::StockpileId;
 use crate::spatial::VoxelCoord;
 use crate::structural::StructuralElementId;
+use crate::surface::{SurfaceResourceId, SurfaceResourceKind};
 
 use super::{BlockExcavationCommitError, BlockExcavationError};
 
@@ -12,6 +13,9 @@ use super::{BlockExcavationCommitError, BlockExcavationError};
 /// admission and stale-commit checks cannot disagree about who holds a cell.
 pub(super) enum TerrainFootingOwner {
     StorageEnclosure(StockpileId),
+    OccupiedGroundStockpile(StockpileId),
+    LooseSurfaceDrop(SurfaceResourceId),
+    RootedForage,
     EnergyStore(crate::energy::EnergyStoreId),
     StationaryEquipment(EquipmentId),
     NaturalSpring(crate::fluid::FluidStoreId),
@@ -23,6 +27,12 @@ impl TerrainFootingOwner {
     pub(super) fn at(state: &AppState, floor: VoxelCoord) -> Option<Self> {
         storage_enclosure_resting_on(state, floor)
             .map(Self::StorageEnclosure)
+            .or_else(|| {
+                occupied_ground_stockpile_resting_on(state, floor)
+                    .map(Self::OccupiedGroundStockpile)
+            })
+            .or_else(|| loose_surface_drop_resting_on(state, floor).map(Self::LooseSurfaceDrop))
+            .or_else(|| rooted_forage_resting_on(state, floor).then_some(Self::RootedForage))
             .or_else(|| stationary_energy_store_resting_on(state, floor).map(Self::EnergyStore))
             .or_else(|| {
                 stationary_equipment_resting_on(state, floor).map(Self::StationaryEquipment)
@@ -40,6 +50,13 @@ impl TerrainFootingOwner {
             Self::StorageEnclosure(stockpile) => {
                 BlockExcavationError::StorageEnclosureRequiresFloor { target, stockpile }
             }
+            Self::OccupiedGroundStockpile(stockpile) => {
+                BlockExcavationError::OccupiedGroundStockpileRequiresFloor { target, stockpile }
+            }
+            Self::LooseSurfaceDrop(resource) => {
+                BlockExcavationError::LooseSurfaceDropRequiresFloor { target, resource }
+            }
+            Self::RootedForage => BlockExcavationError::RootedForageRequiresFloor { target },
             Self::EnergyStore(store) => {
                 BlockExcavationError::EnergyStoreRequiresFloor { target, store }
             }
@@ -61,6 +78,16 @@ impl TerrainFootingOwner {
             Self::StorageEnclosure(stockpile) => {
                 BlockExcavationCommitError::StorageEnclosureRequiresFloor { target, stockpile }
             }
+            Self::OccupiedGroundStockpile(stockpile) => {
+                BlockExcavationCommitError::OccupiedGroundStockpileRequiresFloor {
+                    target,
+                    stockpile,
+                }
+            }
+            Self::LooseSurfaceDrop(resource) => {
+                BlockExcavationCommitError::LooseSurfaceDropRequiresFloor { target, resource }
+            }
+            Self::RootedForage => BlockExcavationCommitError::RootedForageRequiresFloor { target },
             Self::EnergyStore(store) => {
                 BlockExcavationCommitError::EnergyStoreRequiresFloor { target, store }
             }
@@ -94,8 +121,7 @@ fn natural_spring_resting_on(
         .find(|&store| state.fluid().is_natural_spring(store))
 }
 
-/// The stationary index is authoritative for exact-cell enclosure custody. Loose material and
-/// empty ground stockpiles do not require a full-cube terrain floor.
+/// A built enclosure still needs terrain when its contents are empty.
 fn storage_enclosure_resting_on(state: &AppState, floor: VoxelCoord) -> Option<StockpileId> {
     let above = VoxelCoord::new(floor.x(), floor.y().checked_add(1)?, floor.z());
     state.logistics().stockpiles_at(above).find(|&id| {
@@ -103,6 +129,49 @@ fn storage_enclosure_resting_on(state: &AppState, floor: VoxelCoord) -> Option<S
             .inventory()
             .get_stockpile(id)
             .is_some_and(|stockpile| stockpile.enclosure().is_some())
+    })
+}
+
+/// Unenclosed storage contains physical matter or an inbound material promise.
+/// Empty site markers do not obstruct removal; structurally supported caches
+/// depend on their member rather than the underlying terrain cell.
+fn occupied_ground_stockpile_resting_on(
+    state: &AppState,
+    floor: VoxelCoord,
+) -> Option<StockpileId> {
+    let above = VoxelCoord::new(floor.x(), floor.y().checked_add(1)?, floor.z());
+    state.logistics().stockpiles_at(above).find(|&id| {
+        state
+            .inventory()
+            .get_stockpile(id)
+            .is_some_and(|stockpile| {
+                stockpile.supported_by().is_none()
+                    && (!stockpile.stored_mass().is_zero()
+                        || !stockpile.reserved_inbound().is_zero())
+            })
+    })
+}
+
+/// Available loose parcels have no falling simulation after the block under
+/// their actual position disappears. Depleted historical matter does not block
+/// mining; the live surface position index is the sole lookup.
+fn loose_surface_drop_resting_on(state: &AppState, floor: VoxelCoord) -> Option<SurfaceResourceId> {
+    let above = VoxelCoord::new(floor.x(), floor.y().checked_add(1)?, floor.z());
+    state
+        .surface()
+        .available_resources_at(Some(above))
+        .find(|resource| resource.kind() == SurfaceResourceKind::Drop)
+        .map(|resource| resource.id())
+}
+
+/// A harvested perennial may retain its entire physical root reserve even
+/// with no gatherable crop; unlike a depleted non-perennial drop, it still
+/// claims the terrain beneath its indexed site.
+fn rooted_forage_resting_on(state: &AppState, floor: VoxelCoord) -> bool {
+    floor.y().checked_add(1).is_some_and(|y| {
+        state
+            .surface()
+            .rooted_biomass_occupies_voxel(VoxelCoord::new(floor.x(), y, floor.z()))
     })
 }
 
