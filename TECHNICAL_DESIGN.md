@@ -368,6 +368,8 @@ stance-dependent eye voxels, including when airborne, against the same
 physical-air rule used by footfalls and scent. That rule carries distant
 windborne berry and nut scent, while nearby food remains smellable through
 bounded face-connected air diffusion without revealing source coordinates.
+Sheltered food emits only two air steps of local scent; calm but exposed air
+can carry it one step farther without a directional plume.
 No persistent ventilation network or general acoustic simulation is claimed.
 
 ### Opening-resident water need

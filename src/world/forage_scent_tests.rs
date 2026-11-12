@@ -776,6 +776,25 @@ fn a_roofed_open_air_patch_still_carries_wind_until_an_upwind_wall_shields_it() 
         assess_player_forage_scents(&registries, &roofed).is_empty(),
         "a real upstream barrier shields the covered source from its outdoor wind"
     );
+    let near = VoxelCoord::new(source.x() + 2 * dx, source.y(), source.z() + 2 * dz);
+    let beyond = VoxelCoord::new(source.x() + 3 * dx, source.y(), source.z() + 3 * dz);
+    assert_eq!(
+        live_food_scent(&registries, &roofed, source, LOCAL_DIFFUSION_STEPS, near).count(),
+        1,
+        "a sheltered food source still emits its short-range scent"
+    );
+    assert_eq!(
+        live_food_scent(
+            &registries,
+            &roofed,
+            source,
+            LOCAL_DIFFUSION_STEPS + 1,
+            beyond,
+        )
+        .count(),
+        0,
+        "a wind-sheltered source must not inherit the wider calm-outdoor plume"
+    );
 
     crate::logistics::relocate_player_for_test(&mut roofed, source);
     assert_eq!(

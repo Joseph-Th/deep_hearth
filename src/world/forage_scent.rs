@@ -174,15 +174,13 @@ fn live_food_scent(
                 return None;
             }
             // Real sky exposure or an unobstructed upwind inlet can carry
-            // the regional plume. A sealed source retains only local diffusion;
-            // a one-cell awning alone does not make horizontal wind disappear.
-            let (wind, direction) = local_airflow_at(registries, state, position, state.tick())
-                .map_or((WindCondition::Calm, None), |weather| {
-                    (weather.wind(), weather.wind_direction())
+            // the regional plume. A sheltered source retains only the shorter
+            // local diffusion envelope; calm outdoor air has a wider reach.
+            let (reach, direction) = local_airflow_at(registries, state, position, state.tick())
+                .map_or((LOCAL_DIFFUSION_STEPS, None), |weather| {
+                    (scent_reach(weather.wind()), weather.wind_direction())
                 });
-            if distance > scent_reach(wind)
-                || !scent_reaches_player(position, observer, direction, distance)
-            {
+            if distance > reach || !scent_reaches_player(position, observer, direction, distance) {
                 return None;
             }
             Some(ForageScent {
