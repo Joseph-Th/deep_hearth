@@ -6,15 +6,13 @@ use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, TickSpan};
 use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
-use crate::survival::{SurvivalExertion, Vitality, project_survival_resource_budget};
+use crate::survival::{SurvivalExertion, project_survival_resource_budget};
 
 use super::super::exertion::walking_exertion;
 use super::super::{
     CONTROL_INPUT_PARTS_PER_MILLION, HorizontalControlInput, LocomotionExertionAccumulator,
-    PlayerBodyMotionError, PlayerBodyState, PlayerControlAvailability, PlayerControlInput,
-    PlayerLogisticsRecord, PlayerStance, horizontal_chunks_generated, horizontal_voxel_bounds,
-    player_body_is_grounded, resolve_horizontal_control, resolve_vertical_control,
-    supporting_floor_y,
+    PlayerBodyMotionError, PlayerBodyState, PlayerControlInput, PlayerLogisticsRecord,
+    PlayerStance, player_body_is_grounded, resolve_player_body_tick,
 };
 use super::{PlayerWalkProjection, PlayerWalkProjectionError};
 
@@ -287,39 +285,8 @@ fn project_player_walk_body_tick(
     carried: Mass,
     capacity: Mass,
 ) -> Result<PlayerBodyState, PlayerBodyMotionError> {
-    let locomotion = registries.survival().physiology().locomotion();
-    let bounds = horizontal_voxel_bounds(before, locomotion)
-        .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
-    if !horizontal_chunks_generated(state.world(), bounds) {
-        return Ok(before);
-    }
-    let availability = PlayerControlAvailability {
-        alive: state
-            .survival()
-            .player()
-            .is_some_and(|survival| survival.vitality() != Vitality::ZERO),
-        busy: false,
-        grounded: supporting_floor_y(registries, state, before, bounds)
-            == Some(before.foot_position().y_nanometers()),
-    };
-    let horizontal_body = resolve_horizontal_control(
-        registries,
-        state,
-        before,
-        locomotion,
-        availability,
-        input,
-        Some((carried, capacity)),
-    )?;
-    let (after, _, _) = resolve_vertical_control(
-        registries,
-        state,
-        horizontal_body,
-        locomotion,
-        availability,
-        input,
-    )?;
-    Ok(after)
+    resolve_player_body_tick(registries, state, before, input, Some((carried, capacity)))
+        .map(|decision| decision.map_or(before, |resolved| resolved.after))
 }
 
 fn ensure_walk_tick_available(
