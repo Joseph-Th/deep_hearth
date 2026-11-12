@@ -134,6 +134,9 @@ impl Display for PlayerWorkValidationError {
                 player.y(),
                 player.z()
             ),
+            Self::BlockExcavationSurfaceRequiresFixedFloor => formatter.write_str(
+                "persisted block excavation surface output lacks fixed footing beneath its destination voxel",
+            ),
             Self::BlockExcavationPhysicsInvalid => formatter.write_str(
                 "block excavation persisted work no longer resolves against authored mining physics",
             ),

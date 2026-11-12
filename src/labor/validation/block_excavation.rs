@@ -6,11 +6,14 @@ use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, TickSpan};
 use crate::equipment::{EquipmentOccupancy, equipment_occupancy};
 use crate::inventory::validate_stockpile_storage;
 use crate::labor::{BlockExcavationOutputCustody, BlockExcavationWork};
-use crate::logistics::{validate_player_equipment_access, validate_player_stockpile_access};
-use crate::material::MaterialLotSpec;
+use crate::logistics::{
+    player_body_uses_generated_world, player_placement_has_fixed_floor,
+    validate_player_equipment_access, validate_player_stockpile_access,
+};
 use crate::mining::resolve_mining_physics;
 use crate::registry::Registries;
 use crate::survival::{SurvivalExertion, control_exertion_between};
+use crate::world::BlockExcavationDefinition;
 
 use super::{
     ActivePlayerJobs, PlayerWorkValidationError, calculate_player_work_resource_budget,
@@ -85,55 +88,7 @@ pub(super) fn validate_block_excavation_work(
         .get_equipment(record.definition())
         .ok_or(PlayerWorkValidationError::BlockExcavationEquipmentDefinitionMismatch)?;
 
-    let player = state
-        .logistics()
-        .player()
-        .copied()
-        .ok_or(PlayerWorkValidationError::BlockExcavationPlayerNotLocated)?;
-    match work.output() {
-        BlockExcavationOutputCustody::Carried { stockpile } => {
-            if player.carried_stockpile() != stockpile {
-                return Err(PlayerWorkValidationError::BlockExcavationDestinationNotCarried);
-            }
-            validate_player_stockpile_access(state, stockpile)
-                .map_err(PlayerWorkValidationError::BlockExcavationDestinationAccess)?;
-            let destination = state
-                .inventory()
-                .get_stockpile(stockpile)
-                .ok_or(PlayerWorkValidationError::BlockExcavationDestinationMissing)?;
-            if destination.supported_by().is_some() {
-                return Err(PlayerWorkValidationError::BlockExcavationDestinationMounted);
-            }
-            let output = MaterialLotSpec::new(
-                excavation.fragmented_commodity(),
-                work.excavated_mass(),
-                excavation.temperature(),
-            );
-            validate_stockpile_storage(
-                registries,
-                destination,
-                stockpile,
-                output.commodity(),
-                output.composition(),
-                output.temperature(),
-                output.particle_size_distribution(),
-            )
-            .map_err(PlayerWorkValidationError::BlockExcavationDestinationStorage)?;
-            if destination.reserved_inbound() < work.excavated_mass() {
-                return Err(PlayerWorkValidationError::BlockExcavationReservationMissing);
-            }
-        }
-        BlockExcavationOutputCustody::Surface { position } => {
-            if position != player.position() {
-                return Err(
-                    PlayerWorkValidationError::BlockExcavationSurfacePositionMismatch {
-                        stored: position,
-                        player: player.position(),
-                    },
-                );
-            }
-        }
-    }
+    validate_excavation_output_custody(registries, state, work, excavation)?;
 
     let physics = resolve_mining_physics(
         registries.core().physical_tick_duration(),
@@ -213,6 +168,69 @@ pub(super) fn validate_block_excavation_work(
         .can_advance_revision_by(survival_revision_demand)
     {
         return Err(PlayerWorkValidationError::SurvivalRevisionExhausted);
+    }
+    Ok(())
+}
+
+/// Check the active output's exact owner and physical destination independently
+/// from the tool trace, time budget and remaining player exertion.
+fn validate_excavation_output_custody(
+    registries: &Registries,
+    state: &AppState,
+    work: BlockExcavationWork,
+    excavation: BlockExcavationDefinition,
+) -> Result<(), PlayerWorkValidationError> {
+    let player = state
+        .logistics()
+        .player()
+        .copied()
+        .ok_or(PlayerWorkValidationError::BlockExcavationPlayerNotLocated)?;
+    match work.output() {
+        BlockExcavationOutputCustody::Carried { stockpile } => {
+            if player.carried_stockpile() != stockpile {
+                return Err(PlayerWorkValidationError::BlockExcavationDestinationNotCarried);
+            }
+            validate_player_stockpile_access(state, stockpile)
+                .map_err(PlayerWorkValidationError::BlockExcavationDestinationAccess)?;
+            let destination = state
+                .inventory()
+                .get_stockpile(stockpile)
+                .ok_or(PlayerWorkValidationError::BlockExcavationDestinationMissing)?;
+            if destination.supported_by().is_some() {
+                return Err(PlayerWorkValidationError::BlockExcavationDestinationMounted);
+            }
+            let output = excavation.fragmented_lot(work.excavated_mass());
+            validate_stockpile_storage(
+                registries,
+                destination,
+                stockpile,
+                output.commodity(),
+                output.composition(),
+                output.temperature(),
+                output.particle_size_distribution(),
+            )
+            .map_err(PlayerWorkValidationError::BlockExcavationDestinationStorage)?;
+            if destination.reserved_inbound() < work.excavated_mass() {
+                return Err(PlayerWorkValidationError::BlockExcavationReservationMissing);
+            }
+        }
+        BlockExcavationOutputCustody::Surface { position } => {
+            if position != player.position() {
+                return Err(
+                    PlayerWorkValidationError::BlockExcavationSurfacePositionMismatch {
+                        stored: position,
+                        player: player.position(),
+                    },
+                );
+            }
+            if player_body_uses_generated_world(
+                state,
+                registries.survival().physiology().locomotion(),
+            ) && !player_placement_has_fixed_floor(registries, state)
+            {
+                return Err(PlayerWorkValidationError::BlockExcavationSurfaceRequiresFixedFloor);
+            }
+        }
     }
     Ok(())
 }

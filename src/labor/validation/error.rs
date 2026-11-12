@@ -69,6 +69,7 @@ pub enum PlayerWorkValidationError {
         stored: VoxelCoord,
         player: VoxelCoord,
     },
+    BlockExcavationSurfaceRequiresFixedFloor,
     BlockExcavationPhysicsInvalid,
     BlockExcavationScheduleInvalid,
     BlockExcavationDurationMismatch,

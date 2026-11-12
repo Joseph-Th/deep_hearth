@@ -64,6 +64,7 @@ impl Error for PlayerWorkValidationError {
             | Self::BlockExcavationDestinationMounted
             | Self::BlockExcavationReservationMissing
             | Self::BlockExcavationSurfacePositionMismatch { .. }
+            | Self::BlockExcavationSurfaceRequiresFixedFloor
             | Self::BlockExcavationPhysicsInvalid
             | Self::BlockExcavationScheduleInvalid
             | Self::BlockExcavationDurationMismatch

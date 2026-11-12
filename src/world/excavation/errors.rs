@@ -74,6 +74,7 @@ pub enum BlockExcavationError {
     PlayerWork(PlayerWorkStartError),
     EquipmentRevisionExhausted,
     WorldRevisionExhausted,
+    OverflowOutputRequiresFixedFloor,
     SurfaceRevisionExhausted,
     SurfaceResourceIdExhausted,
     CarriedStockpileMissing,
@@ -190,6 +191,9 @@ impl Display for BlockExcavationError {
                 .write_str("equipment cannot reserve excavation wear within revision capacity"),
             Self::WorldRevisionExhausted => formatter
                 .write_str("world cannot reserve excavation completion within revision capacity"),
+            Self::OverflowOutputRequiresFixedFloor => formatter.write_str(
+                "excavated overflow cannot become a ground drop without fixed footing beneath the player",
+            ),
             Self::SurfaceRevisionExhausted => formatter.write_str(
                 "surface state cannot reserve overflow excavation output within revision capacity",
             ),
@@ -232,6 +236,7 @@ impl Error for BlockExcavationError {
             | Self::EquipmentMounted { .. }
             | Self::EquipmentRevisionExhausted
             | Self::WorldRevisionExhausted
+            | Self::OverflowOutputRequiresFixedFloor
             | Self::SurfaceRevisionExhausted
             | Self::SurfaceResourceIdExhausted
             | Self::CarriedStockpileMissing
@@ -243,6 +248,10 @@ impl Error for BlockExcavationError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BlockExcavationCommitError {
     StaleWorldRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleStructureRevision {
         expected: u64,
         actual: u64,
     },
@@ -300,6 +309,10 @@ impl Display for BlockExcavationCommitError {
             Self::StaleWorldRevision { expected, actual } => write!(
                 formatter,
                 "world revision changed from {expected} to {actual} before block excavation start"
+            ),
+            Self::StaleStructureRevision { expected, actual } => write!(
+                formatter,
+                "structure revision changed from {expected} to {actual} before overflow excavation start"
             ),
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
@@ -389,6 +402,7 @@ impl Error for BlockExcavationCommitError {
         match self {
             Self::PlayerWork(error) => Some(error),
             Self::StaleWorldRevision { .. }
+            | Self::StaleStructureRevision { .. }
             | Self::StaleLogisticsRevision { .. }
             | Self::StaleEquipmentRevision { .. }
             | Self::StaleInventoryRevision { .. }

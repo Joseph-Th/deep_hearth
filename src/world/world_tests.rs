@@ -40,6 +40,8 @@ mod chunk_coordinates;
 mod energy_footing;
 #[path = "world_tests/equipment_footing.rs"]
 mod equipment_footing;
+#[path = "world_tests/excavation_overflow_footing.rs"]
+mod excavation_overflow_footing;
 #[path = "world_tests/excavation_selection.rs"]
 mod excavation_selection;
 #[path = "world_tests/foundation_excavation.rs"]

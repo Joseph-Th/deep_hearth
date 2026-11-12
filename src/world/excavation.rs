@@ -25,7 +25,10 @@ use crate::labor::{
     BlockExcavationOutputCustody, BlockExcavationWork, PlayerWork, ValidatedPlayerWorkStart,
     validate_player_work_start_control_rate,
 };
-use crate::logistics::validate_player_equipment_access;
+use crate::logistics::{
+    player_body_uses_generated_world, player_placement_has_fixed_floor,
+    validate_player_equipment_access,
+};
 use crate::mining::{MiningMethodId, resolve_mining_physics};
 use crate::registry::Registries;
 use crate::spatial::{ViewDirection, VoxelCoord};
@@ -104,6 +107,7 @@ impl BlockExcavationStartOutcome {
 #[must_use]
 pub struct ValidatedPlayerBlockExcavationStart {
     expected_world_revision: u64,
+    expected_structure_revision: Option<u64>,
     expected_logistics_revision: u64,
     expected_equipment_revision: u64,
     expected_state: BlockStateId,
@@ -125,6 +129,15 @@ impl ValidatedPlayerBlockExcavationStart {
                 expected: self.expected_world_revision,
                 actual: actual_world,
             });
+        }
+        if let Some(expected) = self.expected_structure_revision {
+            let actual = state.structures().revision();
+            if actual != expected {
+                return Err(BlockExcavationCommitError::StaleStructureRevision {
+                    expected,
+                    actual,
+                });
+            }
         }
         let actual_logistics = state.logistics().revision();
         if actual_logistics != self.expected_logistics_revision {
@@ -329,6 +342,13 @@ fn validate_start_player_block_excavation_targeted(
             None,
         )
     } else {
+        // Overflow creates stationary matter at the player's discrete voxel.
+        // Support under a neighboring lip does not support the resulting drop.
+        if player_body_uses_generated_world(state, registries.survival().physiology().locomotion())
+            && !player_placement_has_fixed_floor(registries, state)
+        {
+            return Err(BlockExcavationError::OverflowOutputRequiresFixedFloor);
+        }
         if !state.can_spend_surface_revisions(1) {
             return Err(BlockExcavationError::SurfaceRevisionExhausted);
         }
@@ -365,6 +385,8 @@ fn validate_start_player_block_excavation_targeted(
     .map_err(BlockExcavationError::PlayerWork)?;
     Ok(ValidatedPlayerBlockExcavationStart {
         expected_world_revision: state.world().revision(),
+        expected_structure_revision: matches!(output, BlockExcavationOutputCustody::Surface { .. })
+            .then(|| state.structures().revision()),
         expected_logistics_revision: state.logistics().revision(),
         expected_equipment_revision: state.equipment().revision(),
         expected_state: target.state(),
