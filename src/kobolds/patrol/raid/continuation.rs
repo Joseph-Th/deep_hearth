@@ -2,7 +2,6 @@
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::energy::assess_local_illumination;
 use crate::registry::Registries;
 use crate::surface::SurfaceResourceId;
 
@@ -12,10 +11,9 @@ use super::super::super::scavenging::{
     best_local_forage, has_local_scout_interest, is_portable_drop, local_portable_source,
     local_split_source, matches_salvage_goal,
 };
-use super::super::super::visibility::scout_visible_from;
-use super::super::super::{KoboldColony, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_MEAL_MASS};
+use super::super::super::{KoboldColony, SCOUT_MEAL_MASS};
 use super::super::cargo::full_bulk_ration_over_portable;
-use super::super::{ScoutPatrolContext, scout_can_enter, scout_sees_guarded_cell};
+use super::super::{ScoutPatrolContext, scout_can_approach_visible_unlit_cell};
 
 /// Do not abandon a viable distant ration for an insufficient local crumb, or
 /// an already-chosen whole-cargo raid for a bulky intermediate pile. Re-evaluate
@@ -35,11 +33,13 @@ pub(super) fn continue_to_planned_far_raid(
     if context.at >= colony.next_drink_at
         && hydration::usable_water_at(registries, state, goal).is_some()
     {
-        return scout_visible_from(registries, state, context.from, goal)
-            && scout_can_enter(registries, state, goal, context.player_position)
-            && !scout_sees_guarded_cell(registries, state, context.from, goal)
-            && assess_local_illumination(registries, state, goal).level()
-                < SCOUT_DETERRENT_LIGHT_LEVEL;
+        return scout_can_approach_visible_unlit_cell(
+            registries,
+            state,
+            context.from,
+            goal,
+            context.player_position,
+        );
     }
     let water_deprived = hydration::prolonged_water_deprivation(colony, context.at);
     if water_deprived && !colony.hungry {
@@ -169,10 +169,7 @@ pub(super) fn continue_to_planned_far_raid(
         local_whole.is_some()
     };
     !better_here
-        && scout_visible_from(registries, state, from, goal)
-        && scout_can_enter(registries, state, goal, player_position)
-        && !scout_sees_guarded_cell(registries, state, from, goal)
-        && assess_local_illumination(registries, state, goal).level() < SCOUT_DETERRENT_LIGHT_LEVEL
+        && scout_can_approach_visible_unlit_cell(registries, state, from, goal, player_position)
 }
 
 /// Compare only the ration the next return edge would actually transfer.

@@ -6,7 +6,6 @@ use continuation::{continue_to_planned_far_raid, recoverable_local_food_serving}
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::energy::assess_local_illumination;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
@@ -20,9 +19,8 @@ use super::super::scavenging::{
     reachable_inherited_salvage, reachable_side_stockpile, scout_wants_loose_drop,
 };
 use super::super::scrap_tools::{is_needed_outer_tool_part, junction_awaits_better_head};
-use super::super::visibility::scout_visible_from;
-use super::super::{KoboldColony, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_MEAL_MASS};
-use super::{ScoutPatrolContext, scout_can_enter, scout_sees_guarded_cell};
+use super::super::{KoboldColony, SCOUT_MEAL_MASS};
+use super::{ScoutPatrolContext, scout_can_approach_visible_unlit_cell};
 
 /// One scout observation shared between turn-home and detour decisions.
 /// Preserve the chosen visible forage route rather than independently searching
@@ -195,10 +193,7 @@ pub(super) fn scout_raid_interest(
     // body-clearance, guard, and light test. Resolve this once per decision.
     let tip = colony.route[2];
     let needed_tip_salvage = (needed_junk_at_tip || missing_tool_at_tip)
-        && scout_visible_from(registries, state, from, tip)
-        && scout_can_enter(registries, state, tip, player_position)
-        && !scout_sees_guarded_cell(registries, state, from, tip)
-        && assess_local_illumination(registries, state, tip).level() < SCOUT_DETERRENT_LIGHT_LEVEL;
+        && scout_can_approach_visible_unlit_cell(registries, state, from, tip, player_position);
     let exposed = !pursuing_water
         && (has_local_scout_interest(
             registries,

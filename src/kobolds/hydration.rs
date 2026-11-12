@@ -10,11 +10,8 @@ use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::world::{WindCondition, generated_air_at, wind_at_generated_position};
 
-use super::patrol::{opening_resident_can_depart, scout_can_enter, scout_sees_guarded_cell};
-use super::visibility::scout_visible_from;
-use super::{
-    KoboldColony, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_DRINK_INTERVAL_TICKS, SCOUT_DRINK_VOLUME,
-};
+use super::patrol::{opening_resident_can_depart, scout_can_approach_visible_unlit_cell};
+use super::{KoboldColony, SCOUT_DRINK_INTERVAL_TICKS, SCOUT_DRINK_VOLUME};
 
 /// The scout's next water requirement responds to the ambient temperature at
 /// its last real drink, even under a roof. Wind changes need only when an
@@ -123,10 +120,7 @@ pub(super) fn reachable_water_from_junction(
     // that observation to the scout before it walks the intervening edge.
     // Patrol movement rechecks the newly visible threat on each real step.
     let safe = |to| {
-        scout_can_enter(registries, state, to, player_position)
-            && !scout_sees_guarded_cell(registries, state, junction, to)
-            && crate::energy::assess_local_illumination(registries, state, to).level()
-                < SCOUT_DETERRENT_LIGHT_LEVEL
+        scout_can_approach_visible_unlit_cell(registries, state, junction, to, player_position)
     };
     let remaining = SCOUT_DRINK_VOLUME.checked_sub(colony.partial_drink)?;
     // Compare the serving that the fluid owner can *actually withdraw*, not
@@ -137,7 +131,7 @@ pub(super) fn reachable_water_from_junction(
     // patrol tip, then one-edge branches, then two-edge branches. Stable
     // coordinates break ties; no remote water records or extra state are used.
     let tip = colony.route[2];
-    let tip_volume = (safe(tip) && scout_visible_from(registries, state, junction, tip))
+    let tip_volume = safe(tip)
         .then(|| usable_water_at(registries, state, tip).map(|(_, volume)| volume))
         .flatten();
     if tip_volume == Some(remaining) {
@@ -154,11 +148,7 @@ pub(super) fn reachable_water_from_junction(
     // The indexed water lookup is cheap; expensive sight and terrain
     // decisions stay bounded to genuinely traversable, locally seen cells.
     for first in state.logistics().traversable_destinations(junction) {
-        if first == colony.route[0]
-            || first == tip
-            || !safe(first)
-            || !scout_visible_from(registries, state, junction, first)
-        {
+        if first == colony.route[0] || first == tip || !safe(first) {
             continue;
         }
         if let Some((_, volume)) = usable_water_at(registries, state, first) {
@@ -171,12 +161,7 @@ pub(super) fn reachable_water_from_junction(
             best_route = Some(best_route.map_or(route, |best| route.max(best)));
         }
         for goal in state.logistics().traversable_destinations(first) {
-            if goal == junction
-                || goal == colony.route[0]
-                || goal == tip
-                || !safe(goal)
-                || !scout_visible_from(registries, state, junction, goal)
-            {
+            if goal == junction || goal == colony.route[0] || goal == tip || !safe(goal) {
                 continue;
             }
             if let Some((_, volume)) = usable_water_at(registries, state, goal) {

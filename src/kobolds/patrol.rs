@@ -149,6 +149,24 @@ pub(super) fn scout_sees_guarded_cell(
             .is_some_and(|player| scout_visible_from(registries, state, from, player.position()))
 }
 
+/// One authoritative observable route admission for water, salvage and a
+/// previously selected far goal. Sight must originate at the scout's current
+/// cell, not a future waypoint. Check physical clearance before costly sight
+/// and illumination queries, and leave resource value to the individual planner.
+pub(super) fn scout_can_approach_visible_unlit_cell(
+    registries: &Registries,
+    state: &AppState,
+    from: VoxelCoord,
+    destination: VoxelCoord,
+    player_position: Option<VoxelCoord>,
+) -> bool {
+    scout_can_enter(registries, state, destination, player_position)
+        && scout_visible_from(registries, state, from, destination)
+        && !scout_sees_guarded_cell(registries, state, from, destination)
+        && assess_local_illumination(registries, state, destination).level()
+            < SCOUT_DETERRENT_LIGHT_LEVEL
+}
+
 #[derive(Clone, Copy)]
 struct ScoutMovePlan {
     step: u8,
