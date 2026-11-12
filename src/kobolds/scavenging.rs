@@ -88,12 +88,15 @@ pub(super) fn scout_wants_loose_drop(
         && !is_staged_scrap_tool_part(state, resource)
 }
 
-/// Short food parcels cannot satisfy one meal. Prefer a complete local ration;
-/// among inadequate fragments, take the largest available serving first.
-/// All adequate servings remain tied so stable identity controls equal-value food.
-fn food_serving_priority(resource: &crate::surface::SurfaceResourceRecord) -> (bool, u64) {
+/// Prefer food that finishes the scout's outstanding ration; among fragments
+/// that cannot finish it, take the largest available serving first. All
+/// adequate servings remain tied so stable identity controls equal-value food.
+fn food_serving_priority(
+    resource: &crate::surface::SurfaceResourceRecord,
+    meal_shortage: Mass,
+) -> (bool, u64) {
     let inadequate = resource.commodity().form() == crate::content::FORM_FOOD
-        && resource.remaining_mass() < SCOUT_MEAL_MASS;
+        && resource.remaining_mass() < meal_shortage;
     (
         inadequate,
         if inadequate {
@@ -102,6 +105,23 @@ fn food_serving_priority(resource: &crate::surface::SurfaceResourceRecord) -> (b
             0
         },
     )
+}
+
+/// Derive the same remaining ration used by route planning and den feeding.
+/// Outside an actual hungry colony, retain the full-ration default for
+/// stand-alone cargo planning and ordinary non-food salvage.
+fn outstanding_scout_meal(state: &AppState) -> Mass {
+    state
+        .kobold_state()
+        .colony
+        .as_ref()
+        .filter(|colony| colony.hungry)
+        .map(|colony| {
+            SCOUT_MEAL_MASS
+                .checked_sub(colony.partial_meal)
+                .expect("trusted scout partial meal cannot exceed a full ration")
+        })
+        .unwrap_or(SCOUT_MEAL_MASS)
 }
 
 /// Survival food always precedes inert cargo, but mobilized scavengers use
@@ -113,9 +133,10 @@ fn scout_loot_priority(
     needs_striker: bool,
     needed_tool_part: bool,
     wants_iron: bool,
+    meal_shortage: Mass,
 ) -> (bool, bool, bool, bool, bool, u64, SurfaceResourceId) {
     let not_food = resource.commodity().form() != crate::content::FORM_FOOD;
-    let (inadequate_food, partial_size) = food_serving_priority(resource);
+    let (inadequate_food, partial_size) = food_serving_priority(resource, meal_shortage);
     (
         not_food,
         inadequate_food,
@@ -267,6 +288,7 @@ pub(super) fn local_portable_source(
     mobilized: bool,
 ) -> Option<SurfaceResourceId> {
     let (needs_striker, wants_iron) = scout_striker_interest(state, mobilized);
+    let meal_shortage = outstanding_scout_meal(state);
     state
         .surface()
         .available_resources_at(Some(position))
@@ -283,6 +305,7 @@ pub(super) fn local_portable_source(
                 needs_striker,
                 is_needed_outer_tool_part(state, position, resource),
                 wants_iron,
+                meal_shortage,
             )
         })
         .map(|resource| resource.id())
@@ -300,6 +323,7 @@ pub(super) fn local_split_source(
     mobilized: bool,
 ) -> Option<SurfaceResourceId> {
     let (needs_striker, wants_iron) = scout_striker_interest(state, mobilized);
+    let meal_shortage = outstanding_scout_meal(state);
     state
         .surface()
         .available_resources_at(Some(position))
@@ -316,6 +340,7 @@ pub(super) fn local_split_source(
                 needs_striker,
                 is_needed_outer_tool_part(state, position, resource),
                 wants_iron,
+                meal_shortage,
             )
         })
         .map(|resource| resource.id())

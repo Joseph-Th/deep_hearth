@@ -118,9 +118,13 @@ pub(super) fn reachable_water_from_junction(
     player_position: Option<VoxelCoord>,
 ) -> Option<(VoxelCoord, Option<VoxelCoord>)> {
     let junction = colony.route[1];
-    let safe = |from, to| {
+    // Route admission uses only the scout's actual junction sightline. A
+    // possible future waypoint may expose a player later, but cannot lend
+    // that observation to the scout before it walks the intervening edge.
+    // Patrol movement rechecks the newly visible threat on each real step.
+    let safe = |to| {
         scout_can_enter(registries, state, to, player_position)
-            && !scout_sees_guarded_cell(registries, state, from, to)
+            && !scout_sees_guarded_cell(registries, state, junction, to)
             && crate::energy::assess_local_illumination(registries, state, to).level()
                 < SCOUT_DETERRENT_LIGHT_LEVEL
     };
@@ -133,7 +137,7 @@ pub(super) fn reachable_water_from_junction(
     // patrol tip, then one-edge branches, then two-edge branches. Stable
     // coordinates break ties; no remote water records or extra state are used.
     let tip = colony.route[2];
-    let tip_volume = (safe(junction, tip) && scout_visible_from(registries, state, junction, tip))
+    let tip_volume = (safe(tip) && scout_visible_from(registries, state, junction, tip))
         .then(|| usable_water_at(registries, state, tip).map(|(_, volume)| volume))
         .flatten();
     if tip_volume == Some(remaining) {
@@ -152,7 +156,7 @@ pub(super) fn reachable_water_from_junction(
     for first in state.logistics().traversable_destinations(junction) {
         if first == colony.route[0]
             || first == tip
-            || !safe(junction, first)
+            || !safe(first)
             || !scout_visible_from(registries, state, junction, first)
         {
             continue;
@@ -170,7 +174,7 @@ pub(super) fn reachable_water_from_junction(
             if goal == junction
                 || goal == colony.route[0]
                 || goal == tip
-                || !safe(first, goal)
+                || !safe(goal)
                 || !scout_visible_from(registries, state, junction, goal)
             {
                 continue;

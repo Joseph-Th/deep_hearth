@@ -12,7 +12,7 @@ use crate::surface::SurfaceResourceId;
 
 use super::super::patrol::{scout_can_enter, scout_sees_guarded_cell};
 use super::super::visibility::scout_visible_from;
-use super::super::{SCOUT_BULK_SPLIT_BATCH, SCOUT_DETERRENT_LIGHT_LEVEL};
+use super::super::{SCOUT_BULK_SPLIT_BATCH, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_MEAL_MASS};
 use super::{
     best_local_forage, food_serving_priority, is_contestable_drop, is_portable_drop,
     local_unenclosed_stockpile_target, scout_wants_loose_drop,
@@ -141,7 +141,7 @@ fn detour_loot_priority(
                 },
             )
         }
-        None => food_serving_priority(resource),
+        None => food_serving_priority(resource, SCOUT_MEAL_MASS),
     };
     if food_shortage.is_some() {
         (

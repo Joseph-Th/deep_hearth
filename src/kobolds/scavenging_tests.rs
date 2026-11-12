@@ -1058,6 +1058,7 @@ fn partial_den_meal_redirects_the_live_scout_to_sufficient_nearby_food() {
         &state,
         [
             drop(path.side_food, true, 5_000),
+            drop(path.side_food, true, 30_000),
             drop(path.side_stone, true, 2_000_000),
             drop(path.far_food, true, 100_000),
         ],
@@ -1100,12 +1101,17 @@ fn partial_den_meal_redirects_the_live_scout_to_sufficient_nearby_food() {
         "the unused 3 g remains in physical den custody"
     );
     assert_eq!(
-        state.surface().get(sources[1]).unwrap().remaining_mass(),
+        state.surface().get(sources[1]).unwrap().position(),
+        path.side_food,
+        "a younger 30 g ration should not displace the older sufficient 5 g parcel"
+    );
+    assert_eq!(
+        state.surface().get(sources[2]).unwrap().remaining_mass(),
         Mass::from_milligrams(2_000_000),
         "the bulky side alternative stays intact"
     );
     assert_eq!(
-        state.surface().get(sources[2]).unwrap().remaining_mass(),
+        state.surface().get(sources[3]).unwrap().remaining_mass(),
         Mass::from_milligrams(100_000),
         "the farther meal is not silently or unnecessarily collected"
     );

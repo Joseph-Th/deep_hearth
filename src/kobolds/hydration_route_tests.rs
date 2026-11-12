@@ -11,6 +11,7 @@ use crate::logistics::{add_traversable_edge_for_test, validate_place_fluid_store
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+use crate::player::validate_admit_player;
 use crate::simulation::advance_tick;
 use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources};
 
@@ -66,6 +67,122 @@ fn observed_route(
         state.kobold_state().colony.as_ref().unwrap(),
         None,
     )
+}
+
+#[test]
+fn water_route_uses_current_sight_then_rechecks_the_guard_at_the_next_real_step() {
+    let (registries, mut state, [_, junction, _, side]) = water_route();
+    let far = VoxelCoord::new(0, 0, 2);
+    let player_position = VoxelCoord::new(1, 0, 2);
+    add_traversable_edge_for_test(&mut state, side, far);
+    let water = place_water(&registries, &mut state, far, SCOUT_DRINK_VOLUME);
+
+    while state.tick().value() < 979 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    validate_admit_player(&registries, &state, player_position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(
+        !crate::kobolds::patrol::scout_sees_guarded_cell(&registries, &state, junction, far),
+        "the distant player is not observable from the scout's current junction"
+    );
+    assert!(
+        crate::kobolds::patrol::scout_sees_guarded_cell(&registries, &state, side, far),
+        "the player becomes observable only after the actual first traversal edge"
+    );
+    // The reverse case must still stop a raid when the threat is visible
+    // from the current junction, not merely from a hypothetical future step.
+    let mut visibly_guarded = state.clone();
+    crate::logistics::relocate_player_for_test(&mut visibly_guarded, VoxelCoord::new(1, 0, 1));
+    assert!(crate::kobolds::patrol::scout_sees_guarded_cell(
+        &registries,
+        &visibly_guarded,
+        junction,
+        side,
+    ));
+    assert_eq!(
+        reachable_water_from_junction(
+            &registries,
+            &visibly_guarded,
+            visibly_guarded.kobold_state().colony.as_ref().unwrap(),
+            visibly_guarded
+                .logistics()
+                .player()
+                .map(|player| player.position()),
+        ),
+        None,
+        "a genuinely observed guard must still block the water approach"
+    );
+    let before = state.clone();
+    assert_eq!(
+        reachable_water_from_junction(
+            &registries,
+            &state,
+            state.kobold_state().colony.as_ref().unwrap(),
+            Some(player_position),
+        ),
+        Some((side, Some(far))),
+        "water planning must not use a future intermediate viewpoint to reject a route"
+    );
+    assert_eq!(state, before);
+    let fluid_before = calculate_fluid_volume_accounting(&state).unwrap();
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    for _ in 0..6 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        side,
+        "the scout actually travels to its first water waypoint"
+    );
+    for _ in 0..5 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        junction,
+        "the scout detects the player from its new physical position and retreats"
+    );
+    assert_eq!(
+        state.fluid().get_store(water).unwrap().stored_volume(),
+        SCOUT_DRINK_VOLUME
+    );
+    assert_eq!(
+        calculate_fluid_volume_accounting(&state).unwrap(),
+        fluid_before
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

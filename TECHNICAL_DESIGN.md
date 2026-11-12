@@ -307,7 +307,17 @@ unconditional full 20 g ration. A sufficient nearby intact parcel avoids an
 unnecessary second traversal edge; if only an inadequate portion is nearby,
 a farther intact serving or full recoverable split can justify the journey.
 Side and far candidates use the same indexed-cell freshness, capacity, and
-ration ranking. Non-food salvage retains its separate distance-first policy.
+ration ranking. The actual returning scout's portable pickup and bulk-source
+ranking use that same remaining meal requirement, rather than selecting a newer
+oversized parcel over an earlier sufficient one at the chosen cell. Non-food
+salvage retains its separate distance-first policy.
+The scout's finite-water route planner uses the **current junction's** local
+sightline to judge player deterrence at both one-edge and two-edge destinations.
+A hypothetical intermediate step cannot reveal a player before the scout actually
+arrives there. Each completed walking edge independently rechecks the current
+player threat, terrain, illumination and fluid availability before further movement
+or drinking. Thus newly visible danger causes a real retreat without speculative
+omniscience or an unsafe water withdrawal.
 
 | Surface | Definitions / immutable input | Authoritative read / observation | Plan / resolve | Mutate / continue |
 | --- | --- | --- | --- | --- |
