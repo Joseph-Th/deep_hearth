@@ -2,17 +2,20 @@
 
 use std::fmt::Write as _;
 
+use super::activity;
 use deep_hearth::kobolds::{
     available_nearby_kobold_footfalls, available_nearby_kobold_scouts,
     available_nearby_kobold_tracks,
 };
-use deep_hearth::logistics::project_player_inventory;
+use deep_hearth::logistics::{PlayerActiveSelection, project_player_inventory};
 use deep_hearth::spatial::ViewDirection;
+use deep_hearth::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord};
 use deep_hearth::surface::{
     AdjacentSurfaceResource, PlayerSurfaceGatheringOption, player_surface_gathering_options,
 };
 use deep_hearth::survival::{
-    Vitality, assess_player_resting_provision_runway, assess_player_unheated_comfort_runway,
+    HungerState, HydrationState, ThermalComfortState, Vitality,
+    assess_player_resting_provision_runway, assess_player_unheated_comfort_runway, assess_survival,
 };
 use deep_hearth::world::{
     assess_player_forage_scents, assess_player_weather, available_visible_generated_water,
@@ -27,8 +30,48 @@ fn name<'a>(registries: &'a Registries, commodity: deep_hearth::material::Commod
         .unwrap_or("unidentified material")
 }
 
-fn pos(position: deep_hearth::spatial::VoxelCoord) -> String {
+fn pos(position: VoxelCoord) -> String {
     format!("({},{},{})", position.x(), position.y(), position.z())
+}
+
+pub fn hand_label(registries: &Registries, selected: Option<PlayerActiveSelection>) -> String {
+    match selected {
+        None => "empty".to_owned(),
+        Some(PlayerActiveSelection::Material(material)) => name(registries, material).to_owned(),
+        Some(PlayerActiveSelection::Equipment(equipment)) => {
+            format!("equipment #{}", equipment.value())
+        }
+    }
+}
+
+/// Relative displacement of a genuinely visible thing, not a reachable path.
+fn bearing(from: VoxelCoord, toward: VoxelCoord) -> String {
+    let axes = [
+        (
+            i128::from(toward.x()) - i128::from(from.x()),
+            "east",
+            "west",
+        ),
+        (
+            i128::from(toward.z()) - i128::from(from.z()),
+            "south",
+            "north",
+        ),
+        (i128::from(toward.y()) - i128::from(from.y()), "up", "down"),
+    ];
+    let mut steps = Vec::new();
+    for (offset, positive, negative) in axes {
+        if offset > 0 {
+            steps.push(format!("{offset} {positive}"));
+        } else if offset < 0 {
+            steps.push(format!("{} {negative}", -offset));
+        }
+    }
+    if steps.is_empty() {
+        "here".to_owned()
+    } else {
+        steps.join(", ")
+    }
 }
 
 /// One player-visible environment signature, sampled only at consequential slow boundaries.
@@ -53,15 +96,14 @@ pub fn local_cues(registries: &Registries, state: &AppState) -> String {
 
 /// Threshold transitions, not tiny per-tick resource changes, interrupt long waits.
 pub fn urgency(registries: &Registries, state: &AppState) -> (bool, bool, bool, bool) {
-    let Some(player) = state.survival().player() else {
+    let Some(assessment) = assess_survival(registries, state) else {
         return (true, true, true, true);
     };
-    let physiology = registries.survival().physiology();
     (
-        player.metabolic_energy() < physiology.hungry_below(),
-        player.hydration() < physiology.thirsty_below(),
-        player.vitality() < Vitality::MAXIMUM,
-        player.thermal_comfort_ppm() < 500_000,
+        assessment.hunger() != HungerState::Fed,
+        assessment.hydration_state() != HydrationState::Hydrated,
+        assessment.vitality() < Vitality::MAXIMUM,
+        assessment.thermal_comfort_state() != ThermalComfortState::Comfortable,
     )
 }
 
@@ -92,7 +134,9 @@ pub fn status(registries: &Registries, state: &AppState) -> String {
             survival.thermal_comfort_ppm() / 10_000,
         );
         if survival.vitality() == Vitality::ZERO {
-            output.push_str("You are dead. Direct actions require respawn, which is not wired to this client.\n");
+            output.push_str(
+                "You are dead. Use respawn to return; your old pack remains at the death cache.\n",
+            );
         } else {
             let (hungry, thirsty, injured, cold) = urgency(registries, state);
             if hungry || thirsty || injured || cold {
@@ -103,25 +147,50 @@ pub fn status(registries: &Registries, state: &AppState) -> String {
             }
         }
     }
+    let active = state.logistics().active_selection();
+    let _ = writeln!(
+        output,
+        "Hand: {} (slot {})",
+        hand_label(registries, active),
+        state.logistics().active_quick_access_slot().index() + 1,
+    );
+    if let Some(PlayerActiveSelection::Material(commodity)) = active
+        && registries.survival().get_food(commodity).is_some()
+    {
+        output.push_str(
+            "Selected food: use eats it; empty clears the hand for local drinking or foraging.\n",
+        );
+    }
+    if player.body().horizontal_velocity() != HorizontalVelocity::ZERO
+        || player.body().vertical_velocity() != VerticalVelocity::ZERO
+    {
+        output.push_str("Still moving: wait 10 to let momentum settle before hand work.\n");
+    }
     if let Some(weather) = assess_player_weather(registries, state) {
+        let celsius = (i64::from(weather.ambient_temperature().millikelvin()) - 273_150) / 1_000;
         let _ = writeln!(
             output,
-            "Weather: {:?} {:?}, {} mK, {:?} wind (toward {:?})",
+            "Weather: {:?} {:?}, {} C, {:?} wind (toward {:?})",
             weather.season(),
             weather.phase(),
-            weather.ambient_temperature().millikelvin(),
+            celsius,
             weather.wind(),
             weather.wind_direction(),
         );
     }
     if let Some(work) = state.player_work().active() {
-        let _ = writeln!(output, "Ongoing work: {work:?}");
+        let _ = writeln!(
+            output,
+            "Work: {}",
+            activity::remaining_duration(registries, state, work),
+        );
     }
     output
 }
 
 pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection>) -> String {
     let mut output = status(registries, state);
+    let from = state.logistics().player().map(|player| player.position());
     let nearby =
         AdjacentSurfaceResource::visible_in_generated_world(registries, state).collect::<Vec<_>>();
     if nearby.is_empty() {
@@ -131,20 +200,36 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
         for source in nearby {
             let _ = writeln!(
                 output,
-                "  {} at {}",
+                "  {} {} at {}",
                 name(registries, source.commodity()),
+                from.map_or_else(
+                    || "unlocated".to_owned(),
+                    |from| bearing(from, source.position())
+                ),
                 pos(source.position()),
             );
         }
     }
     for water in available_visible_generated_water(registries, state) {
-        let _ = writeln!(output, "Visible spring water at {}", pos(water.position()));
+        let _ = writeln!(
+            output,
+            "Visible spring water {} at {}",
+            from.map_or_else(
+                || "unlocated".to_owned(),
+                |from| bearing(from, water.position())
+            ),
+            pos(water.position())
+        );
     }
     for sighting in available_nearby_kobold_scouts(registries, state) {
         let _ = writeln!(
             output,
-            "Visible {:?} at {}, stature {:?}, wary {}, defending {}",
+            "Visible {:?} {} at {}, stature {:?}, wary {}, defending {}",
             sighting.role(),
+            from.map_or_else(
+                || "unlocated".to_owned(),
+                |from| bearing(from, sighting.position())
+            ),
             pos(sighting.position()),
             sighting.stature(),
             sighting.is_wary(),
@@ -229,10 +314,13 @@ pub fn gather_options(
             .source_mass()
             .min(option.maximum_batch_mass())
             .min(option.direct_batch_mass());
-        let duration = option.duration_for_mass(mass).map(|span| span.value());
+        let duration = option
+            .duration_for_mass(mass)
+            .map(|span| activity::gathering_duration(span.value()))
+            .unwrap_or_else(|| "unavailable".to_owned());
         let _ = writeln!(
             output,
-            "  {}. {} | available {} g | default {} g | work {:?} slow ticks{}",
+            "  {}. {} | available {} g | default {} g | work {}{}",
             index + 1,
             name(registries, option.commodity()),
             option.source_mass().milligrams() / 1_000,
@@ -294,7 +382,12 @@ pub fn inventory(registries: &Registries, state: &AppState) -> Result<String, St
         projection.active_quick_access_slot().index() + 1,
     );
     for (index, selection) in projection.quick_access_slots().iter().enumerate() {
-        let _ = writeln!(output, "  slot {}: {selection:?}", index + 1);
+        let _ = writeln!(
+            output,
+            "  slot {}: {}",
+            index + 1,
+            hand_label(registries, *selection)
+        );
     }
     for local in projection.local_containers() {
         let _ = writeln!(

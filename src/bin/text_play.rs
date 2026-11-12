@@ -20,7 +20,7 @@ fn usage() -> &'static str {
      Commands: help, look [direction], status, inventory, gather, gather N [grams],\n\
      n|s|e|w [ticks], wait [ticks], use [direction], break [direction],\n\
      shove|strike|prepare|release [direction], cancel, slot N, select N,\n\
-     empty, drop, save SLOT, quit.\n\
+     empty, drop, respawn, save SLOT, quit.\n\
      Directions for pointing: n, s, e, w, up, down.\n\
      Text play uses real 20 Hz control steps, never simulated turns."
 }

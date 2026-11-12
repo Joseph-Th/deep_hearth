@@ -18,14 +18,15 @@ The default seed is 24318. Other seeds produce reproducible openings. The seeded
 
 ## Commands
 
-- **look [n|s|e|w|up|down]**: current condition, visible natural resources, water, nearby kobolds, smells and sounds; an optional direction uses the real bounded player-eye block ray.
-- **status**, **inventory** (**inv**), **gather**: inspect current health, local weather/work, carried and local inventory, and local gathering choices without spending time.
+- **look [n|s|e|w|up|down]**: current condition, visible resources, water, kobolds, smells and sounds. Sightings include relative compass offsets, not pathfinding. An optional aim uses the real bounded player-eye block ray.
+- **status**, **inventory** (**inv**), **gather**: inspect health, Celsius weather, current hand, body motion, scheduled work duration, inventory and local gathering choices without spending time. Warmth warnings use the authored survival thresholds.
 - **n**, **s**, **e**, **w** optionally followed by a count of control ticks: move using the real continuous body controller, up to 240 ticks. Movement stops after the first voxel crossing or an event. One control tick is 50 milliseconds.
 - **wait [ticks]**: neutral input for up to 7200 control ticks, stopping for significant player-visible changes, important outcomes, or survival warnings. Defaults to 72 ticks (3.6 seconds). **wait 10** releases movement and allows the body to brake before gathering.
 - **gather 1** or **gather 1 100**: attempt a listed exact-local resource, using its numbered row and optionally a whole-gram amount. Physical availability, ongoing work, collision, and storage admission are still validated by production.
-- **use [direction]**: contextual secondary action. An empty hand may gather or drink when the local context allows it. Selected food can be eaten and selected materials can be used for supported placement/combustion.
+- **use [direction]**: contextual secondary action. An empty hand may gather or drink when the local context allows it. Selected food is eaten even while standing at water; use **empty** first to drink. Selected materials support authored placement/combustion.
 - **break**, **shove**, **strike**, **prepare**, **release** with optional direction; **cancel**: canonical pointed primary actions.
 - **slot 1** through **slot 9**, **select 1**, **empty**, **drop**: quick bar, numbered carried stack binding, clear selection, and ordinary active drop.
+- **respawn**: after death, use the real validated respawn path. The new carried pack is empty; the old pack and dropped tools remain recoverable in a death cache at the reported location. Attempting this while alive is rejected without changing state.
 - **save campaign_01**, **quit**: save the current validated world to a *new* slot or end play. A save is not automatically created when quitting.
 
 An input file passed to --script has one command per line. Blank and # comment lines are ignored; the transcript echoes each command and its actual result. A rejected action reports a typed production outcome, not a fabricated success. Work can remain active after a command, and may require further wait calls to complete.

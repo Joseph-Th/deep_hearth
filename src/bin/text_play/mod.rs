@@ -1,5 +1,6 @@
 //! Text-play intent routing. All consequences come from public production operations.
 
+mod activity;
 mod view;
 
 #[cfg(test)]
@@ -16,7 +17,7 @@ use deep_hearth::logistics::{
     project_player_inventory, validate_set_active_selection,
 };
 use deep_hearth::persistence::{LoadedSaveEnvelope, SaveEnvelope, validate_persistable_state};
-use deep_hearth::player::validate_admit_player;
+use deep_hearth::player::{validate_admit_player, validate_respawn_player};
 use deep_hearth::simulation::{
     PlayerDirectControlInput, PrimaryControlIntent, SecondaryControlIntent,
     advance_control_tick_with_direct_input,
@@ -299,6 +300,7 @@ impl Session {
             }
             "select" if args.len() == 1 => self.select(args[0])?,
             "empty" if args.is_empty() => self.set_selection(None)?,
+            "respawn" if args.is_empty() => self.respawn()?,
             "save" if args.len() == 1 => {
                 self.save(args[0])?;
                 format!("Saved current validated campaign as {}.\n", args[0])
@@ -309,6 +311,38 @@ impl Session {
         Ok((output, true))
     }
 
+    fn respawn(&mut self) -> Result<String, String> {
+        let outcome = validate_respawn_player(&self.registries, &self.state)
+            .map_err(|error| error.to_string())?
+            .commit(&mut self.state)
+            .map_err(|error| error.to_string())?;
+        let spawn = outcome.position();
+        let cache = outcome.death_cache_position();
+        let mut output = format!(
+            "Respawned at ({},{},{}){}; previous possessions remain in a death cache at ({},{},{}).\n",
+            spawn.x(),
+            spawn.y(),
+            spawn.z(),
+            if outcome.used_spawn_anchor() {
+                " (original spawn)"
+            } else {
+                " (safe fallback)"
+            },
+            cache.x(),
+            cache.y(),
+            cache.z(),
+        );
+        if !outcome.dropped_equipment().is_empty() {
+            let _ = writeln!(
+                output,
+                "{} carried tools were dropped with the pack.",
+                outcome.dropped_equipment().len()
+            );
+        }
+        output.push_str(&view::look(&self.registries, &self.state, None));
+        Ok(output)
+    }
+
     fn set_selection(
         &mut self,
         selection: Option<PlayerActiveSelection>,
@@ -317,7 +351,10 @@ impl Session {
             .map_err(|error| error.to_string())?
             .commit(&mut self.state)
             .map_err(|error| error.to_string())?;
-        Ok(format!("Active hand bound to {selection:?}.\n"))
+        Ok(format!(
+            "Active hand: {}.\n",
+            view::hand_label(&self.registries, selection)
+        ))
     }
 
     fn select(&mut self, text: &str) -> Result<String, String> {
@@ -433,6 +470,7 @@ impl Session {
         output: &mut String,
     ) -> Result<bool, String> {
         let before = self.player_position()?;
+        let previous_work = self.state.player_work().active();
         let outcome =
             advance_control_tick_with_direct_input(&self.registries, &mut self.state, input)
                 .map_err(|error| format!("simulation tick failed: {error}"))?;
@@ -482,6 +520,17 @@ impl Session {
             for pulse in simulation.kobold_alarm_pulses() {
                 interrupt |= note(output, "Heard alarm", Some(pulse));
             }
+        }
+        if !interrupt
+            && let Some(work) = previous_work
+            && self.state.player_work().active().is_none()
+        {
+            let _ = writeln!(
+                output,
+                "Work ended: {}",
+                activity::label(&self.registries, &self.state, work)
+            );
+            interrupt = true;
         }
         if self.player_position()? != before {
             Self::expand_neighborhood(&self.registries, &mut self.state)?;
