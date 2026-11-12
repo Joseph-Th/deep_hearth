@@ -120,8 +120,27 @@ pub(super) fn scout_raid_interest(
         player_position,
         pressured,
     } = context;
+    // Water is the first outbound choice. Once a real water route is visible,
+    // speculative food and salvage searches cannot change this patrol beat.
+    // Do not traverse those unrelated resource indexes just to discard them.
+    let preferred_water = (at >= colony.next_drink_at
+        && colony.scout_step == 1
+        && !colony.returning
+        && !pressured
+        && colony.scavenged_drop.is_none())
+    .then(|| {
+        super::super::hydration::reachable_water_from_junction(
+            registries,
+            state,
+            colony,
+            player_position,
+        )
+    })
+    .flatten();
+    let pursuing_water = preferred_water.is_some();
     let water_deprived = super::super::hydration::prolonged_water_deprivation(colony, at);
-    let inherited_target = (colony.mobilized_at.is_some()
+    let inherited_target = (!pursuing_water
+        && colony.mobilized_at.is_some()
         && !water_deprived
         && !pressured
         && colony.scout_step == 1
@@ -137,28 +156,18 @@ pub(super) fn scout_raid_interest(
             )
         })
         .flatten();
-    let local_food = colony.hungry
+    let local_food = !pursuing_water
+        && colony.hungry
         && has_local_scout_interest(registries, state, from, capacity, forage_ready, at, true);
-    let preferred_forage = preferred_hungry_forage(registries, state, colony, context);
-    let preferred_water = (at >= colony.next_drink_at
-        && colony.scout_step == 1
-        && !colony.returning
-        && !pressured
-        && colony.scavenged_drop.is_none())
-    .then(|| {
-        super::super::hydration::reachable_water_from_junction(
-            registries,
-            state,
-            colony,
-            player_position,
-        )
-    })
-    .flatten();
+    let preferred_forage = (!pursuing_water)
+        .then(|| preferred_hungry_forage(registries, state, colony, context))
+        .flatten();
     // A real part at the main patrol tip is worth reaching before optional
     // side scrap. Check capacity, handling, sight and danger once for both
     // a missing striker and a higher-quality replacement; neither is a
     // valid goal simply because the item's shape matches the rig.
-    let can_seek_tip_part = colony.mobilized_at.is_some()
+    let can_seek_tip_part = !pursuing_water
+        && colony.mobilized_at.is_some()
         && !water_deprived
         && colony.scout_step == 1
         && !colony.returning
@@ -175,31 +184,34 @@ pub(super) fn scout_raid_interest(
                     && scout_wants_loose_drop(registries, state, resource, at)
                     && ((needs_striker && is_junk_striker(resource))
                         || (wants_iron && is_iron_chime_striker(resource)))
-            })
-        && scout_visible_from(registries, state, from, colony.route[2])
-        && scout_can_enter(registries, state, colony.route[2], player_position)
-        && !scout_sees_guarded_cell(registries, state, from, colony.route[2])
-        && assess_local_illumination(registries, state, colony.route[2]).level()
-            < SCOUT_DETERRENT_LIGHT_LEVEL;
-    let missing_tool_at_tip = !pressured
+            });
+    let missing_tool_at_tip = !pursuing_water
+        && !pressured
         && !water_deprived
         && colony.scout_step == 1
         && !colony.returning
-        && reachable_needed_tool_at_tip(registries, state, colony, context);
-    let needed_tip_salvage = needed_junk_at_tip || missing_tool_at_tip;
-    let exposed = (has_local_scout_interest(
-        registries,
-        state,
-        from,
-        capacity,
-        forage_ready,
-        at,
-        colony.seeks_food_at_junction(),
-    ) || (colony.scout_step == 2 && local_food))
+        && needed_tool_present_at_tip(registries, state, colony, context);
+    // Both tool and machinery salvage must pass the exact same sight,
+    // body-clearance, guard, and light test. Resolve this once per decision.
+    let tip = colony.route[2];
+    let needed_tip_salvage = (needed_junk_at_tip || missing_tool_at_tip)
+        && scout_visible_from(registries, state, from, tip)
+        && scout_can_enter(registries, state, tip, player_position)
+        && !scout_sees_guarded_cell(registries, state, from, tip)
+        && assess_local_illumination(registries, state, tip).level() < SCOUT_DETERRENT_LIGHT_LEVEL;
+    let exposed = !pursuing_water
+        && (has_local_scout_interest(
+            registries,
+            state,
+            from,
+            capacity,
+            forage_ready,
+            at,
+            colony.seeks_food_at_junction(),
+        ) || (colony.scout_step == 2 && local_food))
         && ((inherited_target.is_none() && !needed_tip_salvage) || local_food)
         && !continue_to_planned_far_raid(registries, state, colony, context)
-        && preferred_forage.is_none()
-        && preferred_water.is_none();
+        && preferred_forage.is_none();
     ScoutRaidInterest {
         exposed_at_current: exposed,
         inherited_target,
@@ -209,8 +221,9 @@ pub(super) fn scout_raid_interest(
     }
 }
 
-/// Repair priority requires a visible, reachable physical part on the patrol.
-fn reachable_needed_tool_at_tip(
+/// Repair priority requires a portable part at the patrol tip.
+/// Shared sight, safety, and clearance are checked alongside other tip salvage.
+fn needed_tool_present_at_tip(
     registries: &Registries,
     state: &AppState,
     colony: &KoboldColony,
@@ -220,10 +233,8 @@ fn reachable_needed_tool_at_tip(
         return false;
     }
     let ScoutPatrolContext {
-        from,
         den_space: capacity,
         at,
-        player_position,
         ..
     } = context;
     let tip = colony.route[2];
@@ -236,10 +247,6 @@ fn reachable_needed_tool_at_tip(
                 && scout_wants_loose_drop(registries, state, resource, at)
                 && is_needed_outer_tool_part(state, tip, resource)
         })
-        && scout_visible_from(registries, state, from, tip)
-        && scout_can_enter(registries, state, tip, player_position)
-        && !scout_sees_guarded_cell(registries, state, from, tip)
-        && assess_local_illumination(registries, state, tip).level() < SCOUT_DETERRENT_LIGHT_LEVEL
 }
 
 pub(super) fn choose_outbound_detour(
