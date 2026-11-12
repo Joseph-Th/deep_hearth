@@ -1632,7 +1632,7 @@ fn trusted_load_rejects_active_hand_gathering_from_a_hot_surface_source() {
 }
 
 #[test]
-fn control_pickup_skips_the_drop_reserved_by_an_active_hand_gathering_job() {
+fn automatic_pickup_waits_for_hand_gathering_then_collects_both_drops() {
     let registries = build_registries();
     let mut state = AppState::new();
     let position = VoxelCoord::new(0, 0, 0);
@@ -1675,9 +1675,9 @@ fn control_pickup_skips_the_drop_reserved_by_an_active_hand_gathering_job() {
 
     let pickup = advance_control_tick(&registries, &mut state).unwrap();
     assert_eq!(
-        pickup.surface_drop_pickup().map(|item| item.resource()),
-        Some(drops[1]),
-        "automatic pickup may collect an unrelated parcel but cannot steal active work's source",
+        pickup.surface_drop_pickup(),
+        None,
+        "an actor gathering by hand cannot simultaneously collect an unrelated drop",
     );
     assert_eq!(
         state.surface().get(drops[0]).unwrap().remaining_mass(),
@@ -1685,7 +1685,7 @@ fn control_pickup_skips_the_drop_reserved_by_an_active_hand_gathering_job() {
     );
     assert_eq!(
         state.surface().get(drops[1]).unwrap().remaining_mass(),
-        Mass::ZERO
+        other_mass
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
@@ -1723,6 +1723,25 @@ fn control_pickup_skips_the_drop_reserved_by_an_active_hand_gathering_job() {
         Mass::ZERO,
     );
     assert_eq!(
+        state.surface().get(drops[1]).unwrap().remaining_mass(),
+        other_mass,
+        "only one physical drop can be collected on the release control frame",
+    );
+    let other_pickup = advance_control_tick(&registries, &mut state).unwrap();
+    let other_replay = advance_control_tick(&registries, &mut replay).unwrap();
+    assert_eq!(other_pickup, other_replay);
+    assert_eq!(
+        other_pickup
+            .surface_drop_pickup()
+            .map(|pickup| pickup.resource()),
+        Some(drops[1]),
+    );
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(drops[1]).unwrap().remaining_mass(),
+        Mass::ZERO,
+    );
+    assert_eq!(
         state
             .inventory()
             .get_stockpile(carried)
@@ -1734,6 +1753,122 @@ fn control_pickup_skips_the_drop_reserved_by_an_active_hand_gathering_job() {
         calculate_matter_accounting(&state).unwrap().total(),
         conserved
     );
+}
+
+#[test]
+fn slow_step_cannot_skip_natural_gathering_release_and_unrelated_drop_pickup() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let source_mass = Mass::from_milligrams(1_000_000);
+    let gathered_mass = Mass::from_milligrams(500_000);
+    let drop_mass = Mass::from_milligrams(20_000);
+    let source = insert_surface_resource_for_test(
+        &registries,
+        &mut state,
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Opportunity,
+            position,
+            commodity,
+            source_mass,
+            TEMPERATURE,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let drop = insert_surface_resource_for_test(
+        &registries,
+        &mut state,
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            commodity,
+            drop_mass,
+            TEMPERATURE,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let carried = admit_player(&registries, &mut state, position);
+    validate_start_player_surface_gathering(
+        &registries,
+        &state,
+        SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
+        source,
+        gathered_mass,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+
+    // Two slow ticks of hand work may be stepped in bulk until the last
+    // boundary. No automatic pickup can occur during the first busy tick.
+    assert_eq!(
+        advance_tick(&registries, &mut state)
+            .unwrap()
+            .tick()
+            .value(),
+        1
+    );
+    assert!(state.player_work().active().is_some());
+    assert_eq!(
+        state.surface().get(drop).unwrap().remaining_mass(),
+        drop_mass
+    );
+    let before_due = state.clone();
+    let current = state.control_tick();
+    assert_eq!(
+        advance_tick(&registries, &mut state),
+        Err(crate::simulation::TickError::ControlSteppingRequired { current }),
+    );
+    assert_eq!(state, before_due);
+
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let steps = CONTROL_TICKS_PER_SIMULATION_TICK;
+    for index in 0..steps {
+        let actual = advance_control_tick(&registries, &mut state).unwrap();
+        let restored = advance_control_tick(&registries, &mut replay).unwrap();
+        assert_eq!(actual, restored);
+        assert_eq!(state, replay);
+        if index + 1 == steps {
+            assert_eq!(
+                actual.surface_drop_pickup().map(|pickup| pickup.resource()),
+                Some(drop)
+            );
+        } else {
+            assert_eq!(actual.surface_drop_pickup(), None);
+        }
+    }
+    assert!(state.player_work().active().is_none());
+    assert_eq!(
+        state.surface().get(source).unwrap().remaining_mass(),
+        source_mass.checked_sub(gathered_mass).unwrap(),
+    );
+    assert_eq!(
+        state.surface().get(drop).unwrap().remaining_mass(),
+        Mass::ZERO
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .stored_mass(),
+        gathered_mass.checked_add(drop_mass).unwrap(),
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

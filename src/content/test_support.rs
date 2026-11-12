@@ -7,7 +7,7 @@ use crate::energy::{EnergyRegistry, EnergyStoreDefinition};
 use crate::equipment::{EquipmentDefinition, EquipmentRegistry};
 use crate::fluid::{FluidDefinition, FluidRegistry};
 use crate::inventory::StorageRegistry;
-use crate::labor::LaborRegistry;
+use crate::labor::{LaborRegistry, SurfaceGatheringDefinition};
 use crate::mining::MiningRegistry;
 use crate::ore_processing::{
     ComminutionProcessDefinition, OreProcessingRegistry, ScreeningProcessDefinition,
@@ -123,6 +123,15 @@ impl TestRegistryDomains {
             },
         )
     }
+}
+
+/// Assemble real alternative hand-gathering methods without changing built-in content.
+pub(crate) fn make_test_registries_with_surface_gathering(
+    definitions: impl IntoIterator<Item = SurfaceGatheringDefinition>,
+) -> Registries {
+    let mut domains = TestRegistryDomains::empty();
+    domains.labor = LaborRegistry::new(definitions, [], [], []);
+    domains.build()
 }
 
 pub(super) fn empty_energy_registry() -> EnergyRegistry {

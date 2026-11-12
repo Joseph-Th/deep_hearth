@@ -62,20 +62,23 @@ impl SurfaceDropPickupOutcome {
 
 /// Shares the authoritative pickup eligibility gate with neutral slow stepping.
 fn available_pickup_destination(state: &AppState) -> Option<(StockpileId, VoxelCoord, Mass)> {
-    if state
-        .player_work()
-        .active()
-        .is_some_and(PlayerWork::is_direct_consumption)
-    {
-        // Consuming food or water occupies the same unprotected hands used to
-        // collect loose matter. No automatic transfer during the attention hold.
+    if matches!(
+        state.player_work().active(),
+        Some(
+            PlayerWork::Eating { .. }
+                | PlayerWork::Drinking { .. }
+                | PlayerWork::SurfaceGathering { .. }
+        )
+    ) {
+        // Eating, drinking and hand gathering each occupy the unprotected
+        // hands that collect loose drops. Even unrelated parcels must wait.
         return None;
     }
     available_pickup_destination_when_hands_free(state)
 }
 
 /// Shared physical and revision eligibility, also used to check the frame
-/// immediately after a due eating/drinking interval releases its hands.
+/// immediately after a due hand-work interval releases its hands.
 fn available_pickup_destination_when_hands_free(
     state: &AppState,
 ) -> Option<(StockpileId, VoxelCoord, Mass)> {
@@ -105,10 +108,8 @@ fn available_pickup_destination_when_hands_free(
 fn pickup_eligible_at(state: &AppState, resource: &SurfaceResourceRecord, at: ControlTick) -> bool {
     // Automatic pickup is bare-handed. A hot parcel must remain on the ground
     // rather than entering a pack just because the actor walks through it.
-    // An active hand-gathering job also owns its exact source mass until it
-    // completes. Do not preempt that future withdrawal with automatic pickup;
-    // unrelated local drops may still be collected.
-    // Both exclusions control neutral fast-forward and actual pickup.
+    // An active hand-gathering job owns its exact source mass until it
+    // completes. Both exclusions govern slow stepping and actual pickup.
     !resource_reserved_for_player_gathering(state, resource.id())
         && resource.temperature() <= MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE
         && resource
@@ -159,15 +160,16 @@ pub(crate) fn automatic_surface_pickup_requires_control_stepping(
     registries: &Registries,
     state: &AppState,
 ) -> bool {
-    let consumption_releases_next_boundary = state
+    let hand_work_releases_next_boundary = state
         .tick()
         .checked_add_executable_span(TickSpan::new(1))
         .is_some_and(|next| match state.player_work().active() {
             Some(PlayerWork::Eating { work }) => work.completes_at() == next,
             Some(PlayerWork::Drinking { work }) => work.completes_at() == next,
+            Some(PlayerWork::SurfaceGathering { work }) => work.completes_at() == next,
             _ => false,
         });
-    let destination = if consumption_releases_next_boundary {
+    let destination = if hand_work_releases_next_boundary {
         available_pickup_destination_when_hands_free(state)
     } else {
         available_pickup_destination(state)

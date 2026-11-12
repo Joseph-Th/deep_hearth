@@ -242,46 +242,65 @@ pub(in crate::simulation::direct_actions) fn attempt_explicit_surface_gathering(
         panic!("runtime invariant broken: explicit gathering catalog failed: {error}")
     });
     let mut matching = options
-        .into_iter()
+        .iter()
+        .copied()
         .filter(|option| option.resource() == resource);
-    let Some(option) = matching.next() else {
+    let Some(first_option) = matching.next() else {
         return SecondaryActionOutcome::SurfaceGatheringRejected(
             SurfaceGatheringError::ResourceUnavailableAtPlayer { resource },
         );
     };
-    let additional = matching.count();
-    if additional > 0 {
-        return SecondaryActionOutcome::AmbiguousSurfaceGatheringMethods {
-            count: additional + 1,
-        };
-    }
-    // These are already actor-visible immutable facts. Refuse impossible
-    // amounts on the input frame instead of queueing a three-second wait for
-    // an error the player could have predicted from the catalog.
-    if mass > option.maximum_batch_mass() {
+    // Reject impossible physical requests on the input frame, using the
+    // largest authored method rather than whichever method sorts first.
+    let widest_option = matching.fold(first_option, |widest, option| {
+        if option.maximum_batch_mass() > widest.maximum_batch_mass() {
+            option
+        } else {
+            widest
+        }
+    });
+    let maximum_batch_mass = widest_option.maximum_batch_mass();
+    if mass > maximum_batch_mass {
         return SecondaryActionOutcome::SurfaceGatheringRejected(
             SurfaceGatheringError::BatchTooLarge {
                 requested: mass,
-                maximum: option.maximum_batch_mass(),
+                maximum: maximum_batch_mass,
             },
         );
     }
-    if mass > option.source_mass() {
+    if mass > first_option.source_mass() {
         return SecondaryActionOutcome::SurfaceGatheringRejected(
             SurfaceGatheringError::InsufficientResource {
                 requested: mass,
-                remaining: option.source_mass(),
+                remaining: first_option.source_mass(),
             },
         );
     }
-    // A source's thermal blocker is visible now. Do not persist a doomed
-    // one-shot request solely to reject it at the next slow boundary.
-    if let Some(blocker) = option.hand_handling_blocker() {
+    if let Some(blocker) = first_option.hand_handling_blocker() {
         return SecondaryActionOutcome::SurfaceGatheringRejected(blocker);
     }
     if let Err(error) = assess_player_surface_gathering_reservation(state, mass) {
         return SecondaryActionOutcome::SurfaceGatheringRejected(error);
     }
+    // Only feasible methods are choices. The ordinary contextual gathering
+    // gesture already uses owner admission to avoid false ambiguity; explicit
+    // resource-and-mass gestures must obey the same rule.
+    let mut admissible = options.into_iter().filter(|option| {
+        option.resource() == resource
+            && mass <= option.maximum_batch_mass()
+            && assess_player_surface_gathering_option_admission(registries, state, *option, mass)
+                .is_ok()
+    });
+    let sole_admissible = admissible.next();
+    let additional = admissible.count();
+    if additional > 0 {
+        return SecondaryActionOutcome::AmbiguousSurfaceGatheringMethods {
+            count: additional + 1,
+        };
+    }
+    // All methods rejected: preserve a canonical typed owner error from a
+    // method capable of handling the amount rather than claim ambiguity.
+    let option = sole_admissible.unwrap_or(widest_option);
     match validate_start_player_surface_gathering_option_control_rate(
         registries, state, option, mass,
     ) {
