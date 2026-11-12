@@ -53,6 +53,101 @@ fn drop_at(
 }
 
 #[test]
+fn scout_head_selection_and_outer_salvage_use_the_same_upgrade_order() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    for (a, b) in [(DEN, JUNCTION), (JUNCTION, TIP)] {
+        add_traversable_edge_for_test(&mut state, a, b);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([DEN, JUNCTION, TIP]);
+    let handle = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_WOOD,
+        FORM_HANDLE,
+        Mass::from_milligrams(50_000),
+    );
+    let kinds = [
+        (MATERIAL_STONE, FORM_CHIP, KoboldPryHeadKind::StoneWedge),
+        (
+            MATERIAL_COPPER,
+            FORM_INGOT,
+            KoboldPryHeadKind::CopperFulcrum,
+        ),
+        (MATERIAL_IRON, FORM_SCRAP, KoboldPryHeadKind::IronScrapTooth),
+        (MATERIAL_IRON, FORM_INGOT, KoboldPryHeadKind::IronShoe),
+    ];
+    let outer = kinds.map(|(material, form, _)| {
+        drop_at(
+            &registries,
+            &mut state,
+            TIP,
+            material,
+            form,
+            Mass::from_milligrams(50_000),
+        )
+    });
+
+    for current_rank in 0..=kinds.len() {
+        let colony = state.kobold_state().colony.as_ref().unwrap();
+        let selected = selected_head(&state, colony);
+        assert_eq!(
+            selected.map(|(_, kind)| kind.upgrade_rank()),
+            (current_rank != 0).then_some(current_rank as u8)
+        );
+        for (index, id) in outer.iter().enumerate() {
+            let record = state.surface().get(*id).unwrap();
+            assert_eq!(
+                is_needed_outer_tool_part(&state, TIP, record),
+                index + 1 > current_rank,
+                "candidate {index} must improve on current rank {current_rank}"
+            );
+        }
+        if current_rank == kinds.len() {
+            break;
+        }
+        let (material, form, kind) = kinds[current_rank];
+        let head = drop_at(
+            &registries,
+            &mut state,
+            JUNCTION,
+            material,
+            form,
+            Mass::from_milligrams(50_000),
+        );
+        let colony = state.kobold_state().colony.as_ref().unwrap();
+        assert_eq!(selected_head(&state, colony), Some((head, kind)));
+    }
+    // A later equally strong part does not steal the already selected
+    // physical fitting identity. Id ties remain stable across replay.
+    let earlier =
+        selected_metal_head(&state, state.kobold_state().colony.as_ref().unwrap()).unwrap();
+    drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_IRON,
+        FORM_INGOT,
+        Mass::from_milligrams(50_000),
+    );
+    assert_eq!(
+        selected_metal_head(&state, state.kobold_state().colony.as_ref().unwrap()),
+        Some(earlier)
+    );
+    assert!(state.surface().get(handle).is_some());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+}
+
+#[test]
 fn hot_parts_cannot_form_a_worksite_tool_even_when_already_staged() {
     let registries = build_registries();
     for hot_handle in [false, true] {

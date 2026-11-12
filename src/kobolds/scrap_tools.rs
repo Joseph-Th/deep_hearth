@@ -64,6 +64,18 @@ pub enum KoboldPryHeadKind {
 }
 
 impl KoboldPryHeadKind {
+    /// Higher ranks are strictly preferable for the same fitted lever.
+    /// Scouting and local selection share this order instead of independently
+    /// encoding potentially contradictory upgrade gates.
+    const fn upgrade_rank(self) -> u8 {
+        match self {
+            Self::StoneWedge => 1,
+            Self::CopperFulcrum => 2,
+            Self::IronScrapTooth => 3,
+            Self::IronShoe => 4,
+        }
+    }
+
     #[must_use]
     pub const fn abrasion_per_split(self) -> Mass {
         match self {
@@ -179,40 +191,34 @@ fn selected_stone_fallback(state: &AppState, colony: &KoboldColony) -> Option<Su
         .map(|resource| resource.id())
 }
 
-fn selected_copper(state: &AppState, colony: &KoboldColony) -> Option<SurfaceResourceId> {
-    state
-        .surface()
-        .available_resources_at(Some(colony.route[1]))
-        .find(|resource| is_copper_fulcrum(resource))
-        .map(|resource| resource.id())
-}
-
-fn selected_iron(state: &AppState, colony: &KoboldColony) -> Option<SurfaceResourceId> {
-    state
-        .surface()
-        .available_resources_at(Some(colony.route[1]))
-        .find(|resource| is_iron_shoe(resource))
-        .map(|resource| resource.id())
-}
-
-fn selected_iron_scrap(state: &AppState, colony: &KoboldColony) -> Option<SurfaceResourceId> {
-    state
-        .surface()
-        .available_resources_at(Some(colony.route[1]))
-        .find(|resource| is_iron_scrap_tooth(resource))
-        .map(|resource| resource.id())
+fn head_kind(resource: &SurfaceResourceRecord) -> Option<KoboldPryHeadKind> {
+    if is_iron_shoe(resource) {
+        Some(KoboldPryHeadKind::IronShoe)
+    } else if is_iron_scrap_tooth(resource) {
+        Some(KoboldPryHeadKind::IronScrapTooth)
+    } else if is_copper_fulcrum(resource) {
+        Some(KoboldPryHeadKind::CopperFulcrum)
+    } else if is_wedge(resource) {
+        Some(KoboldPryHeadKind::StoneWedge)
+    } else {
+        None
+    }
 }
 
 fn selected_metal_head(
     state: &AppState,
     colony: &KoboldColony,
 ) -> Option<(SurfaceResourceId, KoboldPryHeadKind)> {
-    selected_iron(state, colony)
-        .map(|id| (id, KoboldPryHeadKind::IronShoe))
-        .or_else(|| {
-            selected_iron_scrap(state, colony).map(|id| (id, KoboldPryHeadKind::IronScrapTooth))
+    // One indexed pass, with quality first and stable parcel identity as the
+    // tie-breaker. The old chain searched the same worksite three times.
+    state
+        .surface()
+        .available_resources_at(Some(colony.route[1]))
+        .filter_map(|resource| {
+            let kind = head_kind(resource)?;
+            (kind != KoboldPryHeadKind::StoneWedge).then_some((resource.id(), kind))
         })
-        .or_else(|| selected_copper(state, colony).map(|id| (id, KoboldPryHeadKind::CopperFulcrum)))
+        .min_by_key(|(id, kind)| (std::cmp::Reverse(kind.upgrade_rank()), *id))
 }
 
 fn selected_head(
@@ -503,19 +509,10 @@ pub(super) fn is_needed_outer_tool_part(
         return false;
     }
     if selected_handle(state, colony).is_none() {
-        is_handle(resource)
-    } else {
-        (selected_head(state, colony).is_none() && is_wedge(resource))
-            || (selected_head(state, colony)
-                .is_none_or(|(_, kind)| kind == KoboldPryHeadKind::StoneWedge)
-                && is_copper_fulcrum(resource))
-            || (selected_head(state, colony).is_none_or(|(_, kind)| {
-                kind == KoboldPryHeadKind::StoneWedge || kind == KoboldPryHeadKind::CopperFulcrum
-            }) && is_iron_scrap_tooth(resource))
-            || (selected_head(state, colony)
-                .is_none_or(|(_, kind)| kind != KoboldPryHeadKind::IronShoe)
-                && is_iron_shoe(resource))
+        return is_handle(resource);
     }
+    let current_rank = selected_head(state, colony).map_or(0, |(_, kind)| kind.upgrade_rank());
+    head_kind(resource).is_some_and(|kind| kind.upgrade_rank() > current_rank)
 }
 
 /// No remote disclosure: an observer must see the actual junction.
