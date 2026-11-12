@@ -363,12 +363,12 @@ the actual event time. Even under open sky, a windward wall or trunk blocks
 wind at the sheltered source cell; it still needs a clear upwind air inlet.
 Beneath a roof that inlet must also see the sky. An actual windbreak or
 extended roof prevents that inlet, so sheltered caverns retain their
-unmuffled sound path. Player wind cooling, footfalls and scent share this
-same physical-air rule, which drives
-distant windborne berry and nut scent, while nearby food remains smellable
-through bounded face-connected air diffusion without revealing source
-coordinates. No persistent ventilation network or general acoustic
-simulation is claimed.
+unmuffled sound path. Player wind cooling samples the actual foot and
+stance-dependent eye voxels, including when airborne, against the same
+physical-air rule used by footfalls and scent. That rule carries distant
+windborne berry and nut scent, while nearby food remains smellable through
+bounded face-connected air diffusion without revealing source coordinates.
+No persistent ventilation network or general acoustic simulation is claimed.
 
 ### Opening-resident water need
 

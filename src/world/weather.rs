@@ -170,34 +170,28 @@ impl PlayerWeather {
         self.cooling_multiplier_ppm
     }
 
-    /// Number of player-height cells not reached by the regional wind (zero, one or two).
-    /// A wall or trunk blocks its level even outdoors. Beneath a roof, wind
-    /// additionally needs the same directly sky-exposed inlet as local sound
-    /// and scent; a sealed cave does not inherit an outdoor wind surcharge.
-    /// Missing terrain alone is never treated as a protective outdoor wall.
+    /// Number of player body samples not reached by regional wind (zero, one or two).
+    /// Sample the actual foot and stance-dependent eye cells, not the voxel
+    /// above the feet: an airborne eye can be two cells above its foot voxel.
+    /// A wall or trunk blocks its sample even outdoors. Beneath a roof, wind
+    /// also needs the directly sky-exposed inlet used by sound and scent.
+    /// Missing terrain alone never counts as a protective outdoor wall.
     pub(crate) fn sheltered_body_levels(self, registries: &Registries, state: &AppState) -> u8 {
-        let (Some(_), Some(player)) = (self.wind_direction, state.logistics().player()) else {
+        let (Some(_), Some(player), Some(eye)) = (
+            self.wind_direction,
+            state.logistics().player(),
+            super::player_eye_voxel(registries, state),
+        ) else {
             return 0;
         };
-        let position = player.position();
-        let Some(head_y) = position.y().checked_add(1) else {
-            return 0;
-        };
-        [position.y(), head_y]
+        [player.position(), eye]
             .into_iter()
-            .filter(|&y| {
-                !wind_reaches_cell(
-                    registries,
-                    state,
-                    VoxelCoord::new(position.x(), y, position.z()),
-                    self,
-                )
-            })
+            .filter(|&cell| !wind_reaches_cell(registries, state, cell, self))
             .count() as u8
     }
 
     /// Ambient temperature remains unchanged by local shelter. Only the
-    /// convective wind surcharge is reduced, by half per sheltered body level;
+    /// convective wind surcharge is reduced, by half per sheltered body sample;
     /// both the survival tick and the player's forecast use this same rule.
     pub(crate) fn felt_cooling_multiplier_ppm(
         self,

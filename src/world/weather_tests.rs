@@ -519,6 +519,117 @@ fn covered_player_needs_a_real_wind_inlet_at_each_exposed_body_level() {
 }
 
 #[test]
+fn airborne_eye_above_one_cell_windbreak_uses_actual_body_height() {
+    use crate::core::state::apply_clock_advance;
+    use crate::logistics::PlayerControlInput;
+    use crate::simulation::advance_control_tick_with_input;
+    use crate::survival::PlayerWindShelter;
+    use crate::world::{BlockStateId, set_generated_block_for_test};
+
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5745_4154_4845_5253);
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let standing = VoxelCoord::new(
+        8,
+        super::super::generation::terrain_height(seed, 8, 8) + 1,
+        8,
+    );
+    validate_admit_player(&registries, &state, standing)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let front = (0..30)
+        .map(|index| SimulationTick::new(index * WEATHER_FRONT_TICKS))
+        .find(|&at| {
+            let weather = weather_at(&registries, seed.value(), standing, at);
+            weather.wind_direction().is_some()
+                && weather.ambient_temperature().millikelvin() < 293_150
+        })
+        .expect("a cool windy front exists");
+    apply_clock_advance(&mut state, front);
+    let weather = assess_player_weather(&registries, &state).unwrap();
+    let (dx, dz) = weather.wind_direction().unwrap().delta();
+    let upwind = VoxelCoord::new(standing.x() - dx, standing.y(), standing.z() - dz);
+    // A one-cell upwind barrier covers standing eyes, but an airborne eye
+    // clears it while the feet remain within their original ground voxel.
+    for y in standing.y()..=standing.y() + 2 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(upwind.x(), y, upwind.z()),
+            if y == standing.y() + 1 {
+                BLOCK_STATE_STONE
+            } else {
+                BlockStateId::AIR
+            },
+        );
+    }
+    assert_eq!(
+        super::super::player_eye_voxel(&registries, &state)
+            .unwrap()
+            .y(),
+        standing.y() + 1
+    );
+    assert_eq!(weather.sheltered_body_levels(&registries, &state), 1);
+    assert_eq!(
+        assess_player_unheated_comfort_runway(&registries, &state)
+            .unwrap()
+            .wind_shelter(),
+        Some(PlayerWindShelter::Partial)
+    );
+
+    let _ = advance_control_tick_with_input(
+        &registries,
+        &mut state,
+        PlayerControlInput::NEUTRAL.with_jump(true),
+    )
+    .unwrap();
+    for _ in 0..6 {
+        if super::super::player_eye_voxel(&registries, &state)
+            .is_some_and(|eye| eye.y() == standing.y() + 2)
+        {
+            break;
+        }
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(state.logistics().player().unwrap().position(), standing);
+    assert_eq!(
+        super::super::player_eye_voxel(&registries, &state)
+            .unwrap()
+            .y(),
+        standing.y() + 2
+    );
+    assert_eq!(weather.sheltered_body_levels(&registries, &state), 0);
+    assert_eq!(
+        weather.felt_cooling_multiplier_ppm(&registries, &state),
+        weather.cooling_multiplier_ppm()
+    );
+    assert_eq!(
+        assess_player_unheated_comfort_runway(&registries, &state)
+            .unwrap()
+            .wind_shelter(),
+        Some(PlayerWindShelter::Exposed)
+    );
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, restored);
+    assert_eq!(validate_loaded_state(&registries, &restored), Ok(()));
+}
+
+#[test]
 fn outdoor_cooling_tapers_monotonically_into_neutral_summer_air() {
     for wind in [
         WindCondition::Calm,
