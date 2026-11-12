@@ -18,7 +18,7 @@ Progression:
 | Crafting and equipment | Flint/copper tools, kiln, cooling bed, fired ceramic casting mold, maintenance and upgrades; finite waste storage. |
 | Power | Hand crank, treadle, flywheels and buffers. Straight built timber shafts couple opposed mechanical stores at up to 50 W, losing 20% per roller. No gearboxes or electric networks. |
 | Processing | Ore dressing, local crusher batch choices and unattended work; casting, PbS+Fe smelting, kiln firing and finite cooling. No general reduction or passive cooling. |
-| Opening wilderness acquisition | Scouts forage, drink finite water, steal and warn; partial rations persist until a full drink, and thirst limits raids. Light and boxes deter theft; rooted patches bar storage after harvest. Loot is recoverable. Footsteps, splashes and alarms are audible; clubs stagger, fitted tools allow injury (scenario only). |
+| Opening wilderness acquisition | Scouts forage, drink finite water, steal and warn; partial rations persist until a full drink. Thirst limits raids. Light/boxes deter theft; rooted patches bar storage. Loot is recoverable. Footsteps/alarms sound; clubs stagger; tool injuries are scenario-only. |
 | Structures | Timed carried-stack posts, framing and a 6.5 kg cover panel; activation on completion. |
 
 ## Current integration frontier
@@ -54,7 +54,7 @@ These canonical owners may lack ordinary acquisition.
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; timed posts, framing, cover and grounded timber roller; timed primary-break recovery. |
 | Block world | Seeded ore, habitats, forage, trees, springs, temples and excavation. Crops expire before discovery; shade/moisture enable regrowth. Water remains finite. No renderer or full ecology. |
-| Spatial and presentation | Checked voxel coordinates, canonical cube faces, fixed-point view directions, and deterministic renderer-neutral texture/shader assembly. |
+| Spatial and presentation | Checked coordinates, views, textures/shaders; text play offers 20 Hz controls, local observations, scripts and saves. |
 
 ## Capability-only evaluation
 
@@ -73,7 +73,7 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 | Wilderness opening | Maintained open-ended journey, precipitation, pathfinding, flowing hydrology, propagated lighting, general enclosures, and complete first-day loop. Generated terrain already has travel, weather and springs. |
 | Engine/platform | Graphics backend, window/input/audio integration, ECS, networking, and general engine shell. |
 | World representation | Residency, general terrain placement, partial shapes, regional geology/biomes and discovery beyond local clues. |
-| Logistics | General access generation, routing/haulage/transport, remote acquisition, adapter inventory UI, fluid transport, and mounted-production geometry. |
+| Logistics | General access generation, routing/haulage/transport, remote acquisition, graphical inventory UI, fluid transport, and mounted-production geometry. |
 | Advanced geology/mining | Mixed-grade world ore, regional generation, voxel ore topology, laboratory/geophysical surveys, mechanized mining, drainage, ground control and tailings transport. |
 | Thermal/chemical industry | Environmental heat, vaporization, general combustion/emissions, alloy phases, reduction/smelting, alloying, forging, machining and recycling. Campfire is not an atmospheric model. |
 | Maintenance/structures | Maintenance tools, broader panels/shapes, cascade salvage, bending/shear/torsion/buckling, and terrain support. |
@@ -81,7 +81,7 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 | Hydrology | General fluid transport, surface/ground water, channels, pumps, irrigation, wastewater, sanitation, chemical blending/contamination, and pressure-dependent behavior. |
 | Ecology and society | Tree planting, agriculture, lethal combat, mobile armed pursuit, temple physiology, relics, recruitment, settlements, trade, migration, breached enclosures and extended raids. |
 | Industrial acquisition | Ordinary acquisition for industrial machinery, industrial energy systems, and supporting infrastructure. |
-| Save storage adapters | Save-file encoding/storage, filesystem atomicity, compression, and cloud storage. |
+| General save storage adapters | Beyond text-play JSON save/load: platform save browser, atomic durability, compression and cloud storage. |
 
 Implemented means an authoritative owner, canonical path, persistence semantics, invariants, and executable proof.
 Ordinary reachability additionally requires a normal-play acquisition path.

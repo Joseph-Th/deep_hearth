@@ -19,6 +19,12 @@ capability-only state; setup never establishes ordinary reachability.
 | What does each maintained gameplay scope cover? | [Focused scopes](#focused-scopes) |
 | How are matched branches, seeds, replay, and exploration constrained? | [Counterfactual and replay discipline](#counterfactual-and-replay-discipline) |
 
+## Interactive text play and automated evidence
+
+`src/bin/text_play.rs` provides a production-backed, line-driven wilderness session. Use its explicit commands and local observation to explore discoverability, legibility, pacing, missed affordances, and the ability to recover from mistaken choices. Replay the same seed and commands to verify a reported friction point, but do not code a new policy that makes all player decisions in advance. The text client does not supply secret resource positions, private reserves, or privileged runtime mutation after normal admission. It exposes current reachable control actions only, not complete game progression or visual quality.
+
+Maintain focused owner/contract tests for physics, matter conservation, strict persistence, schedule boundaries, and regressions. Automated harnesses provide bounded regression and comparison experiments; they do not certify what an unbriefed player would discover or enjoy. A text-play session demonstrates only what its player genuinely saw and chose, and should record unexpected blockers and abandonments, not just successful predefined goals.
+
 ## Actor contract
 
 After controlled setup, automated actors use the same production resolvers, validators, commits, and simulation

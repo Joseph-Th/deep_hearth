@@ -2,8 +2,8 @@
 
 **Role:** Project entry point and task router.
 
-Deep Hearth is a deterministic Rust simulation core for a first-person survival, settlement, and industrialization
-game. It owns headless state, authored definitions, and simulation rules; adapters own platform and renderer IO.
+Deep Hearth simulates first-person survival, settlement and industry in Rust.
+It owns simulation; adapters own platform and renderer IO.
 
 ## Orientation
 
@@ -62,7 +62,7 @@ Code and tests own concrete behavior and typed edge cases. Design, direction, an
 | World generation, targeting, opening sources, gathering | `src/world/`, `src/world_generation.rs`, `src/spatial/`, `src/surface/`, `src/fluid/`, `src/labor/`, `src/logistics/`; compact chunks, persisted terrain identity, player-neighborhood demand, full-cube collision/targeting, opening opportunities, gathering, and bounded opening-access observation | [Runtime owners](TECHNICAL_DESIGN.md#runtime-owners), [cross-owner edge atlas](TECHNICAL_DESIGN.md#cross-owner-edge-atlas) |
 | Player locality and carrying | `src/logistics/kinematics.rs`, `src/logistics/kinematics/horizontal.rs`, `src/logistics/kinematics/walk_projection.rs`, `src/logistics/`, `src/simulation/`, `src/labor/`, `src/survival/`; 20 Hz walk/sprint/crouch/jump -> `advance_control_tick_with_input`, neutral control -> `advance_control_tick`, adjacent opening topology -> `AppState::available_adjacent_traversal_destinations` | [cross-owner edge atlas](TECHNICAL_DESIGN.md#cross-owner-edge-atlas) |
 | Textures and shaders | `src/texture/`, `src/shader/`, `src/content/textures.rs`, `src/content/shaders.rs`, `assets/shaders/` | [Spatial and presentation boundaries](TECHNICAL_DESIGN.md#spatial-and-presentation-boundaries), [shader contract](assets/shaders/README.md) |
-| Gameplay evaluation | `tests/gameplay_harness/`; production APIs after controlled setup | [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) |
+| Gameplay evaluation and text play | `tests/gameplay_harness/`, `src/bin/text_play/` | [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md), [`TEXT_PLAY.md`](TEXT_PLAY.md) |
 | Verification tooling | `ci.py`, `.cargo/config.toml`, `tools/` | [`TESTING.md`](TESTING.md) |
 
 For transfers, reservations, support, delayed custody, or owner interaction, start at the

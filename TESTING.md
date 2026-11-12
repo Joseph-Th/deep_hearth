@@ -23,6 +23,7 @@ Diagnostics do not extend CI lanes, and mutation counts are not quality metrics.
 | Build/link one selected test target without running it | `python tools/run_test.py --build <qualified-name-or-unique-substring>` |
 | One exact test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
 | One owner/subsystem group | `python tools/run_test.py --suite <qualified-prefix-or-substring>` |
+| Text play | `cargo test --locked -j 4 --bin text-play` |
 | Shared gameplay contracts | `python ci.py gate --gameplay contracts` |
 | Focused gameplay | `python ci.py gate --gameplay <scope>` |
 | Production-library type-check when no executable test fits | `python ci.py gate --production` |
@@ -91,6 +92,8 @@ Assertions establish durable semantics:
 Avoid assertions on error prose, wall-clock timing, incidental order/count, or copied tuning values. Generated tests prove only their declared bounded variation. Soaks stay explicit and ignored until requested.
 
 ## Gameplay evaluation
+
+Text-play instructions: [`TEXT_PLAY.md`](TEXT_PLAY.md).
 
 Each gameplay scope owns a focused probe; generator/policy/owner tests live in `<scope>_contracts` targets. `run_test.py` resolves exact/suite selectors build-free through `tools/gameplay_targets.py`. Reports stay out of gates. `gate --gameplay contracts` is cross-scope; `audit --gameplay` already includes it and owner contracts, so do not stack them.
 

@@ -4950,7 +4950,7 @@ class AuthorityContractTests(unittest.TestCase):
             },
         )
         binaries = {definition["name"] for definition in manifest.get("bin", [])}
-        self.assertEqual(binaries, {"validate-shaders"})
+        self.assertEqual(binaries, {"validate-shaders", "text-play"})
         examples = {definition["name"] for definition in manifest.get("example", [])}
         self.assertEqual(
             examples,
