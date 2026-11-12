@@ -74,10 +74,7 @@ pub(super) fn scout_can_enter(
                 VoxelCoord::new(position.x(), floor_y, position.z()),
             )
         });
-    (!generated_here
-        || state
-            .world()
-            .has_standing_clearance(registries.world(), position))
+    (!generated_here || scout_has_fixed_standing_clearance(registries, state, position))
         && !floor_under_excavation
         && [
             position,
@@ -96,20 +93,43 @@ pub(super) fn scout_can_enter(
         })
 }
 
+/// Generated-world residents can stand on either physical terrain or an
+/// embodied full-cell structural floor, like the continuous player body.
+/// Empty blueprints are not support. The resident's complete two-cell column
+/// must stay clear in known world truth and cannot be buried in built matter.
+fn scout_has_fixed_standing_clearance(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+) -> bool {
+    let (Some(floor_y), Some(head_y)) = (position.y().checked_sub(1), position.y().checked_add(1))
+    else {
+        return false;
+    };
+    let floor = VoxelCoord::new(position.x(), floor_y, position.z());
+    let head = VoxelCoord::new(position.x(), head_y, position.z());
+    let world = state.world();
+    let terrain_floor = world.full_cell_collision_at(registries.world(), floor);
+    terrain_floor.is_some()
+        && (terrain_floor == Some(true) || state.structures().blocks_full_cell(floor))
+        && [position, head].into_iter().all(|cell| {
+            world.full_cell_collision_at(registries.world(), cell) == Some(false)
+                && !state.structures().blocks_full_cell(cell)
+        })
+}
+
 /// A resident already occupying generated air cannot begin another grounded
-/// walking edge if excavation removed the floor beneath it. Keep the resident
-/// and its cargo at the last real position until terrain support returns, as
-/// with the temple castes. Ungenerated opening routes retain their authored
-/// graph-only movement, including a retreat from a colocated player.
+/// walking edge if its supporting terrain and built floor are both absent.
+/// Keep the resident and its cargo at the last real position until support
+/// returns. Ungenerated opening routes retain authored graph-only movement,
+/// including a retreat from a colocated player.
 pub(super) fn opening_resident_can_depart(
     registries: &Registries,
     state: &AppState,
     position: VoxelCoord,
 ) -> bool {
     !state.world().has_generated_terrain_at(position)
-        || state
-            .world()
-            .has_standing_clearance(registries.world(), position)
+        || scout_has_fixed_standing_clearance(registries, state, position)
 }
 
 pub(super) fn living_player_deters_scout(

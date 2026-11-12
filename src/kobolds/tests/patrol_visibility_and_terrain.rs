@@ -480,6 +480,100 @@ fn opening_scout_cannot_walk_from_an_excavated_unsupported_floor() {
 }
 
 #[test]
+fn embodied_structural_floor_restores_grounded_scout_movement_but_blueprints_do_not() {
+    use crate::content::{
+        BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS, FORM_BOARD,
+        MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    };
+    use crate::core::state::validate_loaded_state;
+    use crate::spatial::VoxelBounds;
+    use crate::structural::{
+        StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
+        validate_activate_structural_element,
+    };
+    use crate::world::{BlockStateId, set_generated_block_for_test};
+
+    let (registries, mut state, _) = generated_terrain_scout_opening();
+    advance_to_tick(&registries, &mut state, 180);
+    assert_eq!(colony(&state).scout_step, 1);
+    let [_, junction, tip] = colony(&state).route;
+    let mut members = Vec::new();
+    for standing in [junction, tip] {
+        let floor = VoxelCoord::new(standing.x(), standing.y() - 1, standing.z());
+        set_generated_block_for_test(registries.world(), &mut state, floor, BlockStateId::AIR);
+        assert!(
+            !state
+                .world()
+                .has_standing_clearance(registries.world(), standing)
+        );
+        let geometry = StructuralElementGeometry::new(
+            VoxelBounds::new(
+                floor,
+                VoxelCoord::new(floor.x() + 1, floor.y() + 1, floor.z() + 1),
+            )
+            .unwrap(),
+            BASIC_TIMBER_COVER_PANEL_THICKNESS,
+            BASIC_TIMBER_COVER_PANEL_AREA,
+        )
+        .unwrap();
+        let member = add_structural_element(
+            &registries,
+            &mut state,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            geometry,
+            true,
+        )
+        .unwrap();
+        members.push(member);
+    }
+    assert!(!crate::kobolds::patrol::opening_resident_can_depart(
+        &registries,
+        &state,
+        junction,
+    ));
+    assert!(!crate::kobolds::patrol::scout_can_enter(
+        &registries,
+        &state,
+        tip,
+        None,
+    ));
+
+    for member in members {
+        materialize_structural_element_for_test(&registries, &mut state, member, FORM_BOARD);
+        let _ = validate_activate_structural_element(&registries, &state, member)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    }
+    assert!(crate::kobolds::patrol::opening_resident_can_depart(
+        &registries,
+        &state,
+        junction,
+    ));
+    assert!(crate::kobolds::patrol::scout_can_enter(
+        &registries,
+        &state,
+        tip,
+        None,
+    ));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for actor in [&mut state, &mut replay] {
+        advance_to_tick(&registries, actor, 185);
+        assert_ne!(colony(actor).scout_position(), junction);
+        assert_eq!(validate_loaded_state(&registries, actor), Ok(()));
+        assert_eq!(calculate_matter_accounting(actor).unwrap().total(), matter);
+    }
+    assert_eq!(state, replay);
+}
+
+#[test]
 fn unsupported_scout_retains_exact_stolen_cargo_until_its_real_return_edge_is_restored() {
     use crate::content::BLOCK_STATE_STONE;
     use crate::core::state::validate_loaded_state;
