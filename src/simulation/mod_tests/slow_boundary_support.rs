@@ -416,6 +416,105 @@ fn due_supported_output_on_player_floor_chain_requires_boundary_control() {
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
+#[test]
+fn manual_craft_holds_loose_pickup_until_the_production_release_frame() {
+    use crate::content::{FORM_CHIP, MATERIAL_STONE};
+    use crate::core::quantity::{Mass, Temperature};
+    use crate::labor::PlayerWork;
+    use crate::material::{CommodityKey, MaterialComposition};
+    use crate::surface::{
+        SurfaceResourceKind, SurfaceResourceSpec, available_player_world_drops,
+        validate_create_surface_resources,
+    };
+
+    let (registries, mut state, due) = due_supported_craft_fixture_with_lead(false, 3);
+    assert!(matches!(
+        state.player_work().active(),
+        Some(PlayerWork::ManualProduction { .. })
+    ));
+    let player = state.logistics().player().unwrap();
+    let position = player.position();
+    let carried = player.carried_stockpile();
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let mass = Mass::from_milligrams(60_000);
+    let creation = validate_create_surface_resources(
+        &registries,
+        &state,
+        [SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap()],
+    )
+    .unwrap();
+    let drop = creation.first_resource_id();
+    creation.commit(&mut state).unwrap();
+    let baseline = calculate_matter_accounting(&state).unwrap().total();
+    assert!(
+        available_player_world_drops(&registries, &state)
+            .any(|parcel| parcel.resource() == drop && !parcel.automatic_pickup_preflight_ready())
+    );
+
+    while state.tick().value() + 1 < due.value() {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+        assert_eq!(state.surface().get(drop).unwrap().remaining_mass(), mass);
+    }
+    let before = state.clone();
+    assert_eq!(
+        advance_tick(&registries, &mut state),
+        Err(TickError::ControlSteppingRequired {
+            current: before.control_tick(),
+        })
+    );
+    assert_eq!(state, before);
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let mut last = None;
+    for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let outcome = advance_control_tick(&registries, &mut state).unwrap();
+        assert_eq!(
+            outcome,
+            advance_control_tick(&registries, &mut replay).unwrap()
+        );
+        last = Some(outcome);
+    }
+    let last = last.unwrap();
+    assert_eq!(state.tick(), due);
+    assert!(
+        !last
+            .simulation()
+            .unwrap()
+            .production_completions()
+            .is_empty()
+    );
+    assert_eq!(last.surface_drop_pickup().unwrap().resource(), drop);
+    assert_eq!(
+        state.surface().get(drop).unwrap().remaining_mass(),
+        Mass::ZERO
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(commodity),
+        mass
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        baseline
+    );
+    assert_eq!(state, replay);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
 fn one_tick_paused_supported_craft(
     shared_support: bool,
 ) -> (

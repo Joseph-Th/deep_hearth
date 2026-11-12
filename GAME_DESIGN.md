@@ -94,8 +94,9 @@ Containers can still alter preservation and tools can still
 wear. The player should encounter those consequences as readable limits, tooltips, overlays, and feedback on
 familiar interactions rather than as new manipulation verbs.
 
-Ordinary harvested/mined drops should transfer into carried inventory automatically when slot and physical
-capacity permit; otherwise they remain as world matter the player can pick up later. This lets an internal output
+Ordinary harvested/mined drops should transfer into carried inventory automatically when the player's
+hands are free and slot and physical capacity permit; otherwise they remain as world matter the player
+can pick up later. Exclusive work and a prepared strike occupy the hands until release. This lets an internal output
 claim remain a transaction boundary without turning it into a second player command after every successful
 break/harvest action.
 
@@ -116,7 +117,7 @@ The foundational block-survival shell therefore requires ordinary play to suppor
   gravity, jumping, crouching, sprinting, falling, and terrain contact;
 - visible generated terrain made from runtime block states rather than an abstract opportunity graph;
 - crosshair/raycast targeting, hold-to-break work, contextual placement/use, and direct entity interaction;
-- world drops, automatic pickup when capacity permits, active hotbar context, familiar stack manipulation,
+- world drops, automatic pickup when hands and capacity permit, active hotbar context, familiar stack manipulation,
   carried inventory, container transfer, and personal crafting;
 - block geometry and collision shapes sufficient for full and common partial blocks, plus world lighting and
   enough environmental feedback to make darkness, shelter, fire, and exposure readable;

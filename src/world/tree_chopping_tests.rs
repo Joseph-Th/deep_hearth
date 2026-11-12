@@ -346,6 +346,114 @@ fn control_rate_chopping_persists_and_completes_with_exact_mass() {
 }
 
 #[test]
+fn chopping_blocks_loose_pickup_until_its_actual_completion_frame() {
+    use crate::simulation::{TickError, advance_tick};
+    use crate::surface::{
+        SurfaceResourceKind, SurfaceResourceSpec, available_player_world_drops,
+        validate_create_surface_resources,
+    };
+
+    let (registries, mut state, root) = equipped_young_tree();
+    let position = state.logistics().player().unwrap().position();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_TOOL);
+    let mass = Mass::from_milligrams(75_000);
+    let creation = validate_create_surface_resources(
+        &registries,
+        &state,
+        [SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+            crate::material::MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap()],
+    )
+    .unwrap();
+    let drop = creation.first_resource_id();
+    creation.commit(&mut state).unwrap();
+    assert!(
+        available_player_world_drops(&registries, &state)
+            .any(|parcel| parcel.resource() == drop && parcel.automatic_pickup_preflight_ready())
+    );
+
+    let work = validate_start_player_tree_felling(&registries, &state, root)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(work.completes_at().value() > state.tick().value() + 1);
+    let baseline = calculate_matter_accounting(&state).unwrap().total();
+    assert!(
+        available_player_world_drops(&registries, &state)
+            .any(|parcel| parcel.resource() == drop && !parcel.automatic_pickup_preflight_ready())
+    );
+
+    // Neutral skips remain legal while both hands are chopping. The nearby
+    // parcel must stay on the ground rather than teleport into the pack.
+    while state.tick().value() + 1 < work.completes_at().value() {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+        assert_eq!(state.surface().get(drop).unwrap().remaining_mass(), mass);
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(carried)
+                .unwrap()
+                .get_mass(commodity),
+            Mass::ZERO
+        );
+    }
+    let before = state.clone();
+    assert_eq!(
+        advance_tick(&registries, &mut state),
+        Err(TickError::ControlSteppingRequired {
+            current: before.control_tick(),
+        })
+    );
+    assert_eq!(state, before);
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut restored = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let mut final_frame = None;
+    for _ in 0..crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK {
+        let control = advance_control_tick(&registries, &mut state).unwrap();
+        assert_eq!(
+            control,
+            advance_control_tick(&registries, &mut restored).unwrap()
+        );
+        final_frame = Some(control);
+    }
+    let final_frame = final_frame.unwrap();
+    assert!(final_frame.simulation().unwrap().tree_felling().is_some());
+    let pickup = final_frame
+        .surface_drop_pickup()
+        .expect("the newly freed hands must collect the local parcel on the release frame");
+    assert_eq!(pickup.resource(), drop);
+    assert_eq!(pickup.picked_mass(), mass);
+    assert_eq!(
+        state.surface().get(drop).unwrap().remaining_mass(),
+        Mass::ZERO
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(commodity),
+        mass
+    );
+    assert_eq!(state, restored);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        baseline
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn chopping_requires_a_selected_tool_and_prechecked_admission_cannot_outlive_tool_change() {
     use crate::equipment::degrade_equipment_condition_for_test;
     let (registries, mut state, root) = equipped_young_tree();

@@ -62,23 +62,17 @@ impl SurfaceDropPickupOutcome {
 
 /// Shares the authoritative pickup eligibility gate with neutral slow stepping.
 fn available_pickup_destination(state: &AppState) -> Option<(StockpileId, VoxelCoord, Mass)> {
-    if matches!(
-        state.player_work().active(),
-        Some(
-            PlayerWork::Eating { .. }
-                | PlayerWork::Drinking { .. }
-                | PlayerWork::SurfaceGathering { .. }
-        )
-    ) {
-        // Eating, drinking and hand gathering each occupy the unprotected
-        // hands that collect loose drops. Even unrelated parcels must wait.
+    if state.player_work().active().is_some() {
+        // All exclusive labor occupies the actor's hands and attention.
+        // Automatic pickup cannot move matter into a pack while the player
+        // is chopping, crafting, building, servicing tools, or consuming.
         return None;
     }
     available_pickup_destination_when_hands_free(state)
 }
 
 /// Shared physical and revision eligibility, also used to check the frame
-/// immediately after a due hand-work interval releases its hands.
+/// immediately after any due exclusive work releases the player's hands.
 fn available_pickup_destination_when_hands_free(
     state: &AppState,
 ) -> Option<(StockpileId, VoxelCoord, Mass)> {
@@ -152,6 +146,34 @@ pub(super) fn automatic_surface_drop_pickup_preflight_ready(
         .is_some()
 }
 
+/// Work can release the player's hands on the next slow boundary, before
+/// that boundary's final control-frame pickup. Inline work has its own
+/// schedule; production and mining keep theirs with the owning job.
+///
+/// A suspended production job or unsettled mining job can resume or settle
+/// on that boundary. Conservatively retain the control sample rather than
+/// claim no pickup is possible from an incomplete future schedule.
+fn work_may_release_at_next_boundary(state: &AppState, next: SimulationTick) -> bool {
+    let Some(work) = state.player_work().active() else {
+        return false;
+    };
+    if let Some((_, completes_at)) = work.inline_schedule() {
+        return completes_at == next;
+    }
+    match work {
+        PlayerWork::ManualProduction { job } => state
+            .production()
+            .get_job(job)
+            .is_some_and(|record| record.completes_at() <= next || record.is_suspended()),
+        PlayerWork::Mining { job } => state
+            .mining()
+            .get_job(job)
+            .is_some_and(|record| record.completes_at() <= next || record.is_awaiting_settlement()),
+        PlayerWork::BlockExcavation { .. } => false,
+        _ => unreachable!("all other exclusive work has an inline completion schedule"),
+    }
+}
+
 /// A full pack, dead player, unallocatable parcel, or drop whose pickup delay
 /// extends beyond the next slow boundary cannot produce a control-rate pickup
 /// during a skipped interval. A merge into an existing lot remains possible
@@ -160,27 +182,25 @@ pub(crate) fn automatic_surface_pickup_requires_control_stepping(
     registries: &Registries,
     state: &AppState,
 ) -> bool {
-    let hand_work_releases_next_boundary = state
-        .tick()
-        .checked_add_executable_span(TickSpan::new(1))
-        .is_some_and(|next| match state.player_work().active() {
-            Some(PlayerWork::Eating { work }) => work.completes_at() == next,
-            Some(PlayerWork::Drinking { work }) => work.completes_at() == next,
-            Some(PlayerWork::SurfaceGathering { work }) => work.completes_at() == next,
-            _ => false,
-        });
-    let destination = if hand_work_releases_next_boundary {
-        available_pickup_destination_when_hands_free(state)
-    } else {
-        available_pickup_destination(state)
+    let destination = match state.player_work().active() {
+        None => available_pickup_destination(state),
+        Some(_) => {
+            let releases = state
+                .tick()
+                .checked_add_executable_span(TickSpan::new(1))
+                .is_some_and(|next| work_may_release_at_next_boundary(state, next));
+            if !releases {
+                return false;
+            }
+            available_pickup_destination_when_hands_free(state)
+        }
     };
     let Some((destination, position, available_capacity)) = destination else {
         return false;
     };
     // A reserved loose parcel cannot be picked up during hand gathering.
-    // Intermediate slow ticks may skip neutral control samples; on the due
-    // boundary, the final control sample releases the work reservation and
-    // must be retained to collect any unclaimed remainder immediately.
+    // On the due boundary the final control sample releases its reservation
+    // and must be retained to collect any unclaimed remainder immediately.
     if let Some(PlayerWork::SurfaceGathering { work }) = state.player_work().active()
         && let Some(resource) = state.surface().get(work.resource())
         && resource.kind() == SurfaceResourceKind::Drop
