@@ -53,11 +53,10 @@ pub(super) fn attempt_direct_actions_after_quick_access(
     pending_secondary: Option<SecondaryActionOutcome>,
 ) -> DirectActionOutcomes {
     let combat_intent = input.primary().is_some_and(PrimaryControlIntent::is_combat);
-    // Only one delayed direct action may own the next slow boundary. A new
-    // input on the other button supersedes that reservation as surely as a
-    // changed input on the same button. When both buttons are held together,
-    // primary retains first admission; neither button steals the other's
-    // freshly queued request during this frame.
+    // Only one primary/secondary gesture may be admitted per control frame.
+    // A new input on either button also supersedes an older buffered gesture;
+    // an explicit primary command takes precedence over a concurrent secondary
+    // request, even if the primary subsequently rejects.
     if combat_intent
         || input.drop_active_selection()
         || (input.primary().is_none() && input.secondary().is_some())
@@ -83,7 +82,14 @@ pub(super) fn attempt_direct_actions_after_quick_access(
     } else {
         None
     };
-    let secondary = if input.drop_active_selection()
+    let secondary = if input.primary().is_some()
+        && input.secondary().is_some()
+        && validate_player_action(state).is_ok()
+    {
+        // Melee, held breaking and contextual work share one active hand. A
+        // missing or dead player still receives both independent typed errors.
+        pending_secondary
+    } else if input.drop_active_selection()
         && matches!(
             input.secondary(),
             Some(

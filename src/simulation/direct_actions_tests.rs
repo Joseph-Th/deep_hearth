@@ -323,3 +323,140 @@ fn new_secondary_input_cancels_queued_primary_before_or_on_its_due_boundary() {
         assert_eq!(state, replay);
     }
 }
+
+#[test]
+fn one_control_frame_cannot_both_shove_and_start_gathering() {
+    use crate::combat::PrimitiveAttackOutcome;
+    use crate::simulation::advance_control_tick;
+    use crate::world::{
+        BlockStateId, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
+        validate_generate_chunk,
+    };
+
+    for on_due_boundary in [false, true] {
+        let registries = build_registries();
+        let mut state = AppState::new();
+        validate_generate_chunk(
+            &registries,
+            &state,
+            WorldGenerationSeed::new(0xB0D1_0001),
+            ChunkCoord::new(0, 0),
+            crate::content::BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+        let surface_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+            .rev()
+            .find(|&y| {
+                state
+                    .world()
+                    .block_at(VoxelCoord::new(0, y, 0))
+                    .is_some_and(|block| block != BlockStateId::AIR)
+            })
+            .unwrap();
+        let here = VoxelCoord::new(0, surface_y + 1, 0);
+        validate_admit_player(&registries, &state, here)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        let created = validate_create_surface_resources(
+            &registries,
+            &state,
+            [SurfaceResourceSpec::new(
+                SurfaceResourceKind::Opportunity,
+                here,
+                CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+                Mass::from_milligrams(50_000),
+                Temperature::from_millikelvin(293_150),
+                MaterialComposition::pure(MATERIAL_STONE),
+            )
+            .unwrap()],
+        )
+        .unwrap();
+        let resource = created.first_resource_id();
+        created.commit(&mut state).unwrap();
+        if on_due_boundary {
+            for _ in 0..71 {
+                let _ = advance_control_tick(&registries, &mut state).unwrap();
+            }
+        }
+
+        let conserved = calculate_matter_accounting(&state).unwrap().total();
+        let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        let direction = ViewDirection::new(1_000_000, 0, 0).unwrap();
+        let both = PlayerDirectControlInput::NEUTRAL
+            .with_primary(PrimaryControlIntent::shove(direction))
+            .with_secondary(SecondaryControlIntent::gather_surface(
+                resource,
+                Mass::from_milligrams(50_000),
+                direction,
+            ));
+        let outcome =
+            advance_control_tick_with_direct_input(&registries, &mut state, both).unwrap();
+        assert_eq!(
+            outcome,
+            advance_control_tick_with_direct_input(&registries, &mut replay, both).unwrap()
+        );
+        assert_eq!(
+            outcome.primary_action(),
+            Some(&PrimaryActionOutcome::Shove(PrimitiveAttackOutcome::Miss))
+        );
+        assert_eq!(outcome.secondary_action(), None);
+        assert!(state.player_work().active().is_none());
+        assert!(!state.logistics().has_pending_direct_action());
+        assert_eq!(
+            state.surface().get(resource).unwrap().remaining_mass(),
+            Mass::from_milligrams(50_000)
+        );
+        assert_eq!(
+            calculate_matter_accounting(&state).unwrap().total(),
+            conserved
+        );
+        assert_eq!(state, replay);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+        // Priority is attached to the sampled command, not whether combat
+        // succeeds. A recovery rejection cannot accidentally start gathering.
+        let recovering =
+            advance_control_tick_with_direct_input(&registries, &mut state, both).unwrap();
+        assert!(matches!(
+            recovering.primary_action(),
+            Some(PrimaryActionOutcome::ShoveRejected(
+                PrimitiveAttackError::Recovering { .. }
+            ))
+        ));
+        assert_eq!(recovering.secondary_action(), None);
+        assert_eq!(
+            recovering,
+            advance_control_tick_with_direct_input(&registries, &mut replay, both).unwrap()
+        );
+        assert!(state.player_work().active().is_none());
+        assert_eq!(state, replay);
+
+        // A separate later press still starts the canonical gathering work.
+        let gather = PlayerDirectControlInput::NEUTRAL.with_secondary(
+            SecondaryControlIntent::gather_surface(
+                resource,
+                Mass::from_milligrams(50_000),
+                direction,
+            ),
+        );
+        let separate =
+            advance_control_tick_with_direct_input(&registries, &mut state, gather).unwrap();
+        assert!(matches!(
+            separate.secondary_action(),
+            Some(SecondaryActionOutcome::SurfaceGatheringStarted(_))
+        ));
+        assert_eq!(
+            separate,
+            advance_control_tick_with_direct_input(&registries, &mut replay, gather).unwrap()
+        );
+        assert_eq!(state, replay);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+}

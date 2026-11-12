@@ -248,7 +248,10 @@ Buffered direct-control interactions share one exclusive pending slot across pri
 contextual use. A later explicit command on either button, or dropping the active selection, supersedes
 an older pending gesture before it can execute on the next slow boundary. This cancellation is an
 intentional command effect even if the replacement action subsequently rejects; the cancelled gesture
-must not resurface on the due boundary or after save/load replay.
+must not resurface on the due boundary or after save/load replay. When both primary and secondary
+commands arrive in the same 50 ms control sample, primary owns the manual action and secondary is
+not admitted, even if primary rejects. Missing or dead players still receive independent typed
+rejections for both commands. A secondary command on a later sample remains independent; changing quick-access selection and dropping a selection retain their own control rules.
 
 ## Determinism
 
