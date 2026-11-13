@@ -132,7 +132,7 @@ fn gathering_suggestion_respects_unreserved_capacity_and_matches_action() {
 }
 
 #[test]
-fn inventory_hotbar_uses_the_same_carried_projection_and_reports_stack_temperature() {
+fn inventory_hotbar_uses_one_carried_projection_and_reports_temperature_and_freshness() {
     use deep_hearth::logistics::{PlayerActiveSelection, project_player_inventory};
 
     let mut session = super::super::Session::new(24318).unwrap();
@@ -159,6 +159,42 @@ fn inventory_hotbar_uses_the_same_carried_projection_and_reports_stack_temperatu
             super::celsius(stack.temperature())
         )),
         "{inventory}"
+    );
+    let freshness = deep_hearth::survival::assess_food_stack_freshness(
+        &session.registries,
+        &session.state,
+        stack,
+    )
+    .unwrap();
+    let deep_hearth::survival::FoodFreshness::Fresh { remaining, .. } = freshness else {
+        panic!("newly gathered wild berries must be fresh");
+    };
+    assert!(
+        inventory.contains(&format!(
+            " | fresh; estimated spoilage in {}",
+            super::runway_label(Some(remaining.value()))
+        )),
+        "{inventory}"
+    );
+}
+
+#[test]
+fn loose_and_stored_food_share_the_same_spoilage_labels() {
+    use deep_hearth::core::time::TickSpan;
+    use deep_hearth::survival::FoodFreshness;
+
+    assert_eq!(
+        super::freshness_label(FoodFreshness::Fresh {
+            age: TickSpan::ZERO,
+            remaining: TickSpan::new(162),
+        }),
+        "fresh; estimated spoilage in 9m 44s"
+    );
+    assert_eq!(
+        super::freshness_label(FoodFreshness::Spoiled {
+            age: TickSpan::new(163),
+        }),
+        "spoiled"
     );
 }
 

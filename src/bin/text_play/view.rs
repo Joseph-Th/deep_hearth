@@ -503,6 +503,18 @@ fn runway_label(slow_ticks: Option<u64>) -> String {
     }
 }
 
+/// Render one survival-owned freshness assessment consistently for loose
+/// gathering opportunities and stored food cohorts.
+fn freshness_label(freshness: FoodFreshness) -> String {
+    match freshness {
+        FoodFreshness::Fresh { remaining, .. } => format!(
+            "fresh; estimated spoilage in {}",
+            runway_label(Some(remaining.value()))
+        ),
+        FoodFreshness::Spoiled { .. } => "spoiled".to_owned(),
+    }
+}
+
 pub fn gather_options(
     registries: &Registries,
     state: &AppState,
@@ -536,13 +548,7 @@ pub fn gather_options(
             }
         );
         if let Ok(Some(food)) = option.food_value(registries, state) {
-            let freshness = match food.current_freshness() {
-                FoodFreshness::Fresh { remaining, .. } => format!(
-                    "fresh; estimated spoilage in {}",
-                    runway_label(Some(remaining.value()))
-                ),
-                FoodFreshness::Spoiled { .. } => "spoiled".to_owned(),
-            };
+            let freshness = freshness_label(food.current_freshness());
             let _ = writeln!(output, "     Food: {:?}, {freshness}", food.category(),);
         }
     }

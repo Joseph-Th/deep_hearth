@@ -6,9 +6,10 @@ use deep_hearth::inventory::MaterialStackProjection;
 use deep_hearth::logistics::{
     PlayerActiveSelection, PlayerStockpileProjection, project_player_inventory,
 };
+use deep_hearth::survival::assess_food_stack_freshness;
 use deep_hearth::{AppState, Registries};
 
-use super::{celsius, grams, name};
+use super::{celsius, freshness_label, grams, name};
 
 /// Reveal a mixed-cohort distinction without pretending the player knows an exact assay.
 fn composition_hint(stack: &MaterialStackProjection) -> &'static str {
@@ -17,6 +18,21 @@ fn composition_hint(stack: &MaterialStackProjection) -> &'static str {
     } else {
         " | mixed material"
     }
+}
+
+/// Every displayed food cohort has its own persisted storage age. Use the
+/// survival owner's current projection, not a commodity-wide shelf-life guess.
+fn food_freshness_hint(
+    registries: &Registries,
+    state: &AppState,
+    stack: &MaterialStackProjection,
+) -> Result<String, String> {
+    if registries.survival().get_food(stack.commodity()).is_none() {
+        return Ok(String::new());
+    }
+    let freshness = assess_food_stack_freshness(registries, state, stack)
+        .map_err(|error| format!("cannot assess food stack freshness: {error:?}"))?;
+    Ok(format!(" | {}", freshness_label(freshness)))
 }
 
 /// Resolve both the hand label and whether its selected material is carried.
@@ -100,12 +116,13 @@ pub fn inventory(registries: &Registries, state: &AppState) -> Result<String, St
     for (index, stack) in carried.stacks().iter().enumerate() {
         let _ = writeln!(
             output,
-            "  {}. {} | {} g | {} C{}",
+            "  {}. {} | {} g | {} C{}{}",
             index + 1,
             name(registries, stack.commodity()),
             grams(stack.mass()),
             celsius(stack.temperature()),
             composition_hint(stack),
+            food_freshness_hint(registries, state, stack)?,
         );
     }
     for (index, equipment) in projection.equipment().iter().enumerate() {
@@ -150,12 +167,13 @@ pub fn inventory(registries: &Registries, state: &AppState) -> Result<String, St
         for (stack_index, stack) in local.stacks().iter().enumerate() {
             let _ = writeln!(
                 output,
-                "    {}. {} | {} g | {} C{}",
+                "    {}. {} | {} g | {} C{}{}",
                 stack_index + 1,
                 name(registries, stack.commodity()),
                 grams(stack.mass()),
                 celsius(stack.temperature()),
                 composition_hint(stack),
+                food_freshness_hint(registries, state, stack)?,
             );
         }
     }
