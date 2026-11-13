@@ -68,6 +68,86 @@ fn walking_to_berries_and_gathering_reaches_real_carried_inventory() {
 }
 
 #[test]
+fn gathered_flint_can_be_crafted_through_ordinary_carried_recipe() {
+    let mut session = Session::new(24318).unwrap();
+    let before = snapshot(&session);
+    let (empty, _) = session.command("recipes").unwrap();
+    assert!(empty.contains("No recipes have enough carried input"));
+    let (all, _) = session.command("recipes all").unwrap();
+    assert!(all.contains("99. knap flint cutting head"));
+    for invalid in [
+        "craft 0",
+        "craft 99",
+        "craft 99 0",
+        "craft 99 1 with 1",
+        "craft 99 1 from 1",
+    ] {
+        assert!(session.command(invalid).is_err(), "{invalid}");
+    }
+    assert_eq!(snapshot(&session), before);
+
+    for command in ["e 20", "wait 10", "s 20", "wait 10", "s 20", "wait 10"] {
+        session.command(command).unwrap();
+    }
+    let (available, _) = session.command("gather").unwrap();
+    assert!(available.contains("3. flint nodule"));
+    let (started, _) = session.command("gather 3 300").unwrap();
+    assert!(started.contains("SurfaceGatheringStarted"));
+    let (gathered, _) = session.command("wait work").unwrap();
+    assert!(gathered.contains("Gathered:"));
+    let (recipes, _) = session.command("recipes").unwrap();
+    assert!(recipes.contains("99. knap flint cutting head"));
+    assert!(recipes.contains("1 batch available | by hand"));
+    let before_rejection = snapshot(&session);
+    assert!(session.command("craft 99 2").is_err());
+    assert!(session.command("craft 99 from 1").is_err());
+    assert_eq!(snapshot(&session), before_rejection);
+    let (started, _) = session.command("craft 99").unwrap();
+    assert!(started.contains("Started knap flint cutting head"));
+    assert!(started.contains("scheduled completion in 1m 48s"));
+    let (finished, _) = session.command("wait work").unwrap();
+    assert!(finished.contains("Craft completed: knap flint cutting head"));
+    assert!(finished.contains("Received 220 g knapped flint cutting head (carried)"));
+    assert!(finished.contains("Received 80 g flint flakes (carried)"));
+    let (inventory, _) = session.command("inventory").unwrap();
+    assert!(inventory.contains("Carried matter: 300 g / 25000 g"));
+    assert!(inventory.contains("knapped flint cutting head | 220 g"));
+    assert!(inventory.contains("flint flakes | 80 g | 20 C"));
+}
+
+#[test]
+fn manual_crafting_continues_deterministically_after_trusted_save_load() {
+    let mut session = Session::new(24318).unwrap();
+    for command in [
+        "e 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "gather 3 300",
+        "wait work",
+        "craft 99",
+    ] {
+        session.command(command).unwrap();
+    }
+    let saved = snapshot(&session);
+    let envelope: LoadedSaveEnvelope = serde_json::from_slice(&saved).unwrap();
+    let restored_state = envelope.into_state(&session.registries).unwrap();
+    let mut restored = Session {
+        registries: build_registries(),
+        state: restored_state,
+        seed: None,
+    };
+    assert_eq!(snapshot(&session), snapshot(&restored));
+    let (original_finished, _) = session.command("wait work").unwrap();
+    let (restored_finished, _) = restored.command("wait work").unwrap();
+    assert_eq!(original_finished, restored_finished);
+    assert!(original_finished.contains("Received 220 g knapped flint cutting head"));
+    assert_eq!(snapshot(&session), snapshot(&restored));
+}
+
+#[test]
 fn food_selection_and_contextual_drinking_are_explained_and_authoritative() {
     let mut session = Session::new(24318).unwrap();
     session.command("e 20").unwrap();
@@ -130,6 +210,7 @@ fn invalid_commands_and_readouts_do_not_change_the_world() {
     assert!(session.command("gather 99").is_err());
     assert!(session.command("slot 0").is_err());
     assert!(session.command("select 1").is_err());
+    assert!(session.command("wait work").is_err());
     assert!(session.command("respawn").is_err());
     let (inventory, _) = session.command("inventory").unwrap();
     assert!(inventory.contains("Carried matter"));

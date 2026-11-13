@@ -360,17 +360,18 @@ pub fn inventory(registries: &Registries, state: &AppState) -> Result<String, St
     for (index, stack) in carried.stacks().iter().enumerate() {
         let _ = writeln!(
             output,
-            "  {}. {} | {} g | {} mK",
+            "  {}. {} | {} g | {} C",
             index + 1,
             name(registries, stack.commodity()),
             stack.mass().milligrams() / 1_000,
-            stack.temperature().millikelvin(),
+            (i64::from(stack.temperature().millikelvin()) - 273_150) / 1_000,
         );
     }
-    for equipment in projection.equipment() {
+    for (index, equipment) in projection.equipment().iter().enumerate() {
         let _ = writeln!(
             output,
-            "Carried equipment: definition {} | equipment {} | {} g",
+            "Carried equipment {}: definition {} | equipment {} | {} g",
+            index + 1,
             equipment.definition().value(),
             equipment.equipment().value(),
             equipment.mass().milligrams() / 1_000,

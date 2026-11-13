@@ -1,6 +1,7 @@
 //! Text-play intent routing. All consequences come from public production operations.
 
 mod activity;
+mod crafting;
 mod view;
 
 #[cfg(test)]
@@ -254,6 +255,13 @@ impl Session {
                 view::inventory(&self.registries, &self.state)?
             }
             "gather" if args.len() <= 2 => self.gather(args)?,
+            "recipes" if args.is_empty() || args == ["all"] => {
+                crafting::catalog(&self.registries, &self.state, args == ["all"])?
+            }
+            "craft" => {
+                let started = crafting::start(&self.registries, &mut self.state, args)?;
+                started + &view::status(&self.registries, &self.state)
+            }
             "n" | "s" | "e" | "w" if args.len() <= 1 => {
                 let direction = Direction::parse(verb)?;
                 let count = parse_count(args.first().copied(), 20, MAX_MOVEMENT_TICKS)?;
@@ -262,6 +270,12 @@ impl Session {
                     count,
                     true,
                 )?
+            }
+            "wait" if args == ["work"] => {
+                let count = activity::remaining_work_control_ticks(&self.state)
+                    .ok_or("no active work with a scheduled completion; use wait [ticks]")?
+                    .min(MAX_WAIT_TICKS);
+                self.advance_many(PlayerDirectControlInput::NEUTRAL, count, false)?
             }
             "wait" if args.len() <= 1 => {
                 let count = parse_count(args.first().copied(), 72, MAX_WAIT_TICKS)?;
@@ -517,6 +531,20 @@ impl Session {
             );
             interrupt |= note(output, "Manual power produced", simulation.manual_power());
             interrupt |= note(output, "Mining produced", simulation.mining_output());
+            if let Some(deep_hearth::labor::PlayerWork::ManualProduction { job }) = previous_work {
+                for completion in simulation
+                    .production_completions()
+                    .iter()
+                    .filter(|receipt| receipt.job() == job)
+                {
+                    output.push_str(&crafting::completion(
+                        &self.registries,
+                        &self.state,
+                        completion,
+                    ));
+                    interrupt = true;
+                }
+            }
             for pulse in simulation.kobold_alarm_pulses() {
                 interrupt |= note(output, "Heard alarm", Some(pulse));
             }

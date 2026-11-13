@@ -18,7 +18,8 @@ fn usage() -> &'static str {
     "Deep Hearth text play\n\
      cargo run --locked --bin text-play -- [--seed NUMBER | --load SLOT] [--script FILE]\n\
      Commands: help, look [direction], status, inventory, gather, gather N [grams],\n\
-     n|s|e|w [ticks], wait [ticks], use [direction], break [direction],\n\
+     recipes [all], craft PROCESS_ID [batches] [from STACK] [with TOOL],\n\
+     n|s|e|w [ticks], wait [ticks|work], use [direction], break [direction],\n\
      shove|strike|prepare|release [direction], cancel, slot N, select N,\n\
      empty, drop, respawn, save SLOT, quit.\n\
      Directions for pointing: n, s, e, w, up, down.\n\

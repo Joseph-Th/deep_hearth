@@ -26,7 +26,14 @@ pub fn label(registries: &Registries, state: &AppState, work: PlayerWork) -> Str
             )
         }
         PlayerWork::BlockExcavation { .. } => "Excavating a block".to_owned(),
-        PlayerWork::ManualProduction { .. } => "Manual production".to_owned(),
+        PlayerWork::ManualProduction { job } => state
+            .production()
+            .get_job(job)
+            .and_then(|record| registries.production().get_process(record.process()))
+            .map_or_else(
+                || "Manual production".to_owned(),
+                |process| process.name().to_owned(),
+            ),
         PlayerWork::Mining { .. } => "Mining".to_owned(),
         PlayerWork::ManualPower { .. } => "Generating manual power".to_owned(),
         PlayerWork::Prospecting { .. } => "Prospecting".to_owned(),
@@ -44,7 +51,7 @@ pub fn label(registries: &Registries, state: &AppState, work: PlayerWork) -> Str
 }
 
 /// 20 Hz deadlines for player work; manual jobs and mining are scheduled in their own owners.
-fn due_at_control_ticks(work: PlayerWork) -> Option<u128> {
+fn due_at_control_ticks(state: &AppState, work: PlayerWork) -> Option<u128> {
     let slow_tick = match work {
         PlayerWork::TreeFelling { work } => work.completes_at().value(),
         PlayerWork::SurfaceGathering { work } => work.completes_at().value(),
@@ -59,7 +66,13 @@ fn due_at_control_ticks(work: PlayerWork) -> Option<u128> {
         PlayerWork::BlockExcavation { work } => {
             return Some(u128::from(work.completes_at().value()));
         }
-        PlayerWork::ManualProduction { .. } | PlayerWork::Mining { .. } => return None,
+        PlayerWork::ManualProduction { job } => state
+            .production()
+            .get_job(job)
+            .filter(|job| !job.is_suspended())?
+            .completes_at()
+            .value(),
+        PlayerWork::Mining { .. } => return None,
     };
     Some(u128::from(slow_tick) * u128::from(CONTROL_TICKS_PER_SIMULATION_TICK))
 }
@@ -76,13 +89,29 @@ fn time_label(control_ticks: u128) -> String {
 
 pub fn remaining_duration(registries: &Registries, state: &AppState, work: PlayerWork) -> String {
     let label = label(registries, state, work);
-    match due_at_control_ticks(work) {
+    if let PlayerWork::ManualProduction { job } = work
+        && state
+            .production()
+            .get_job(job)
+            .is_some_and(|job| job.is_suspended())
+    {
+        return format!("{label}; suspended pending physical recovery");
+    }
+    match due_at_control_ticks(state, work) {
         Some(due) => {
             let remaining = due.saturating_sub(u128::from(state.control_tick().value()));
             format!("{label}; scheduled completion in {}", time_label(remaining))
         }
         None => label,
     }
+}
+
+/// Bounded clients still step every control frame and interrupt on visible events.
+pub fn remaining_work_control_ticks(state: &AppState) -> Option<u64> {
+    let work = state.player_work().active()?;
+    let due = due_at_control_ticks(state, work)?;
+    let remaining = due.saturating_sub(u128::from(state.control_tick().value()));
+    Some(u64::try_from(remaining).unwrap_or(u64::MAX).max(1))
 }
 
 pub fn gathering_duration(slow_ticks: u64) -> String {
