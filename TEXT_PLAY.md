@@ -4,7 +4,7 @@
 
 Deep Hearth has a terminal play client over the **production** world, player control, simulation, observation, and persistence paths. It is for playing, discovering friction, and tracing consequences. It does not replace mechanical contracts or invent alternate gameplay rules.
 
-The client separates session setup and save/load (`src/bin/text_play/mod.rs`), command and direction parsing (`command.rs`), canonical control stepping and event reporting (`stepping.rs`), and read-only presentation (`view.rs` and `activity.rs`). Active gathering labels obtain the player's reserved material through the surface owner's read-only projection, rather than using the available-action catalog as a second source of truth.
+The client separates session setup and save/load (`src/bin/text_play/mod.rs`), command and direction parsing (`command.rs`), canonical control stepping and event reporting (`stepping.rs` and `stepping/feedback.rs`), and read-only presentation (`view.rs`, `view/sensory.rs`, and `activity.rs`). Direct action receipts, weather, sounds, and scents use player-facing descriptions instead of raw debug records; local change detection compares typed observations rather than formatted strings. Storage and fire construction blockers report named materials and exact shortages. Active gathering labels obtain the player's reserved material through the surface owner's read-only projection, rather than using the available-action catalog as a second source of truth.
 
 ## Launch
 

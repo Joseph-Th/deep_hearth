@@ -132,7 +132,7 @@ pub fn catalog(
             "  {}. {} | {} g | condition {}%",
             index + 1,
             tool_name(registries, record.definition()),
-            record.embodied_mass().milligrams() / 1_000,
+            view::grams(record.embodied_mass()),
             record.condition().parts_per_million() / 10_000,
         );
     }

@@ -3,7 +3,10 @@
 use std::fmt::Write as _;
 
 use super::view;
-use deep_hearth::inventory::{StorageDefinitionId, validate_place_player_storage};
+use deep_hearth::inventory::{
+    PlayerStoragePlacementError, StorageDefinitionId, StorageEnclosureConstructionError,
+    validate_place_player_storage,
+};
 use deep_hearth::logistics::{project_player_inventory, validate_quick_move_player_stack};
 use deep_hearth::{AppState, Registries};
 
@@ -14,6 +17,36 @@ fn local_storage_name<'a>(
     definition
         .and_then(|definition| registries.storage().get(definition))
         .map_or("open ground stockpile", |definition| definition.name())
+}
+
+pub(super) fn placement_blocker(
+    registries: &Registries,
+    error: PlayerStoragePlacementError,
+) -> String {
+    match error {
+        PlayerStoragePlacementError::Construction(
+            StorageEnclosureConstructionError::InsufficientMaterial {
+                commodity,
+                available,
+                required,
+                ..
+            },
+        ) => view::missing_construction_material(registries, commodity, available, required),
+        PlayerStoragePlacementError::Construction(
+            StorageEnclosureConstructionError::ConstructionMaterialTooHot {
+                commodity,
+                temperature,
+                maximum,
+            },
+        ) => view::unsafe_construction_material(
+            registries,
+            commodity,
+            temperature,
+            maximum,
+            "hand construction",
+        ),
+        other => other.to_string(),
+    }
 }
 
 /// A catalogue read never creates a stockpile or consumes construction material.
@@ -36,7 +69,7 @@ pub fn catalog(registries: &Registries, state: &AppState, all: bool) -> Result<S
             view::grams(definition.maximum_stockpile_capacity()),
             match readiness {
                 Ok(_) => "ready".to_owned(),
-                Err(error) => format!("blocked: {error}"),
+                Err(error) => format!("blocked: {}", placement_blocker(registries, error)),
             },
         );
         if all {
@@ -84,7 +117,7 @@ pub fn place(registries: &Registries, state: &mut AppState, number: u32) -> Resu
         .ok_or("unknown storage definition")?
         .name();
     let stockpile = validate_place_player_storage(registries, state, definition)
-        .map_err(|error| error.to_string())?
+        .map_err(|error| placement_blocker(registries, error))?
         .commit(state)
         .map_err(|error| error.to_string())?;
     Ok(format!(

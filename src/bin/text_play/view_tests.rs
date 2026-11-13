@@ -9,6 +9,49 @@ fn signed_foot_elevation_is_correct_below_zero() {
 }
 
 #[test]
+fn storage_catalog_names_missing_construction_material_instead_of_private_identifiers() {
+    let session = super::super::Session::new(24318).unwrap();
+    let text = super::super::storage::catalog(&session.registries, &session.state, true).unwrap();
+    assert!(
+        text.contains("rough timber field box | 10000 g capacity | blocked: need 1600 g rough timber field box body (0 g carried)"),
+        "{text}"
+    );
+    assert!(!text.contains("commodity 65558"), "{text}");
+    assert!(!text.contains("stockpile 1 has 0 mg"), "{text}");
+}
+
+#[test]
+fn generated_opening_describes_real_weather_and_scent_without_debug_types() {
+    let session = super::super::Session::new(24318).unwrap();
+    let text = super::look(&session.registries, &session.state, None);
+    assert!(
+        text.contains("Weather: Spring Morning, 13 C, breeze toward east"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Scent: distinct sweet fruit (no exact location)"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Scent: distinct wild nuts (no exact location)"),
+        "{text}"
+    );
+    assert!(!text.contains("Some("), "{text}");
+    assert!(!text.contains("SweetFruit"), "{text}");
+}
+
+#[test]
+fn campfire_without_stone_reports_a_real_material_shortfall() {
+    let session = super::super::Session::new(24318).unwrap();
+    let text = super::super::fire::catalog(&session.registries, &session.state).unwrap();
+    assert!(
+        text.contains("blocked: need 1000 g stone (0 g carried)"),
+        "{text}"
+    );
+    assert!(!text.contains("commodity 589826"), "{text}");
+}
+
+#[test]
 fn exact_gram_labels_retain_milligrams_without_trailing_zeros() {
     use deep_hearth::core::quantity::Mass;
 
@@ -26,30 +69,25 @@ fn exact_gram_labels_retain_milligrams_without_trailing_zeros() {
 
 #[test]
 fn observable_changes_are_named_and_weather_is_not_a_work_interruption() {
-    let initial = super::LocalCues {
-        resources: "stone".into(),
-        water: "spring".into(),
-        kobolds: "watchman".into(),
-        footfalls: String::new(),
-        tracks: String::new(),
-        scents: String::new(),
-        weather: "breeze".into(),
-    };
+    let session = super::super::Session::new(24318).unwrap();
+    let initial = super::local_cues(&session.registries, &session.state);
+    assert!(initial.weather.is_some());
+    assert!(!initial.scents.is_empty());
     let weather_shift = super::LocalCues {
-        weather: "calm".into(),
+        weather: None,
         ..initial.clone()
     };
     assert_eq!(
         initial.changed(&weather_shift),
         Some(("The wind or weather has shifted.", false)),
     );
-    let creature_moved = super::LocalCues {
-        kobolds: "watchman moved".into(),
+    let scent_shift = super::LocalCues {
+        scents: Vec::new(),
         ..initial.clone()
     };
     assert_eq!(
-        initial.changed(&creature_moved),
-        Some(("A nearby kobold moved or changed behavior.", true)),
+        initial.changed(&scent_shift),
+        Some(("Scents in the area have shifted.", true)),
     );
     assert_eq!(initial.changed(&initial), None);
 }

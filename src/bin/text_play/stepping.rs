@@ -3,6 +3,7 @@
 use std::fmt::Write as _;
 
 use super::{Session, activity, crafting, view};
+mod feedback;
 use deep_hearth::simulation::{
     PlayerDirectControlInput, SecondaryActionOutcome, advance_control_tick_with_direct_input,
 };
@@ -101,10 +102,26 @@ impl Session {
         let outcome =
             advance_control_tick_with_direct_input(&self.registries, &mut self.state, input)
                 .map_err(|error| format!("simulation tick failed: {error}"))?;
-        let mut interrupt = note(output, "Primary", outcome.primary_action());
-        interrupt |= note_secondary(output, outcome.secondary_action());
-        interrupt |= note(output, "Slot", outcome.quick_access_selection());
-        interrupt |= note(output, "Drop", outcome.active_selection_drop());
+        let mut interrupt = note_text(
+            output,
+            "Primary",
+            outcome.primary_action().map(feedback::primary),
+        );
+        interrupt |= note_secondary(output, &self.registries, outcome.secondary_action());
+        interrupt |= note_text(
+            output,
+            "Slot",
+            outcome
+                .quick_access_selection()
+                .map(|event| feedback::slot(&self.registries, &self.state, event)),
+        );
+        interrupt |= note_text(
+            output,
+            "Drop",
+            outcome
+                .active_selection_drop()
+                .map(|event| feedback::drop(&self.registries, event)),
+        );
         interrupt |= note(output, "Excavated", outcome.block_excavation());
         interrupt |= note(output, "Picked up", outcome.surface_drop_pickup());
         interrupt |= note(
@@ -212,7 +229,11 @@ impl Session {
 /// Project only visible intake and gathering facts into the player transcript.
 /// Debug formatting the canonical eating receipt would expose private lot IDs,
 /// internal energy units and hidden consumption accounting.
-fn note_secondary(output: &mut String, event: Option<&SecondaryActionOutcome>) -> bool {
+fn note_secondary(
+    output: &mut String,
+    registries: &deep_hearth::Registries,
+    event: Option<&SecondaryActionOutcome>,
+) -> bool {
     match event {
         Some(SecondaryActionOutcome::EatingStarted(meal)) => {
             let _ = writeln!(
@@ -241,8 +262,17 @@ fn note_secondary(output: &mut String, event: Option<&SecondaryActionOutcome>) -
             );
             true
         }
-        Some(other) => note(output, "Use", Some(other)),
+        Some(other) => note_text(output, "Use", Some(feedback::secondary(registries, other))),
         None => false,
+    }
+}
+
+fn note_text(output: &mut String, label: &str, event: Option<String>) -> bool {
+    if let Some(value) = event {
+        let _ = writeln!(output, "{label}: {value}");
+        true
+    } else {
+        false
     }
 }
 

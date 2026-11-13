@@ -3,16 +3,19 @@
 use std::fmt::Write as _;
 
 use super::activity;
+mod sensory;
 use deep_hearth::core::quantity::{Mass, Volume};
+use deep_hearth::core::time::Season;
 use deep_hearth::kobolds::{
-    available_nearby_kobold_footfalls, available_nearby_kobold_scouts,
-    available_nearby_kobold_tracks,
+    KoboldFootfall, KoboldSighting, KoboldTrack, available_nearby_kobold_footfalls,
+    available_nearby_kobold_scouts, available_nearby_kobold_tracks,
 };
 use deep_hearth::logistics::{PlayerActiveSelection, project_player_inventory};
 use deep_hearth::spatial::ViewDirection;
 use deep_hearth::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord};
 use deep_hearth::surface::{
-    AdjacentSurfaceResource, PlayerSurfaceGatheringOption, player_surface_gathering_options,
+    AdjacentSurfaceResource, PlayerSurfaceGatheringOption, SurfaceResourceKind,
+    player_surface_gathering_options,
 };
 use deep_hearth::survival::{
     FoodFreshness, HungerState, HydrationState, ThermalComfortState, Vitality,
@@ -20,6 +23,7 @@ use deep_hearth::survival::{
     available_local_drink_sources,
 };
 use deep_hearth::world::{
+    DayPhase, ForageScent, VisibleWaterSource, WindCondition, WindDirection,
     assess_player_forage_scents, assess_player_weather, available_visible_generated_water,
     raycast_player_block,
 };
@@ -30,6 +34,37 @@ fn name<'a>(registries: &'a Registries, commodity: deep_hearth::material::Commod
         .materials()
         .commodity_name(commodity)
         .unwrap_or("unidentified material")
+}
+
+/// Translate owner-reported construction constraints without exposing commodity IDs
+/// or losing the exact represented material mass.
+pub fn missing_construction_material(
+    registries: &Registries,
+    commodity: deep_hearth::material::CommodityKey,
+    available: Mass,
+    required: Mass,
+) -> String {
+    format!(
+        "need {} g {} ({} g carried)",
+        grams(required),
+        name(registries, commodity),
+        grams(available),
+    )
+}
+
+pub fn unsafe_construction_material(
+    registries: &Registries,
+    commodity: deep_hearth::material::CommodityKey,
+    temperature: deep_hearth::core::quantity::Temperature,
+    maximum: deep_hearth::core::quantity::Temperature,
+    activity: &str,
+) -> String {
+    format!(
+        "{} is too hot for {activity} ({} C; maximum {} C)",
+        name(registries, commodity),
+        (i64::from(temperature.millikelvin()) - 273_150) / 1_000,
+        (i64::from(maximum.millikelvin()) - 273_150) / 1_000,
+    )
 }
 
 fn pos(position: VoxelCoord) -> String {
@@ -164,13 +199,13 @@ fn bearing(from: VoxelCoord, toward: VoxelCoord) -> String {
 /// approaching creatures, tracks, and changing local supplies still demand attention.
 #[derive(Clone, PartialEq, Eq)]
 pub struct LocalCues {
-    resources: String,
-    water: String,
-    kobolds: String,
-    footfalls: String,
-    tracks: String,
-    scents: String,
-    weather: String,
+    resources: Vec<AdjacentSurfaceResource>,
+    water: Vec<VisibleWaterSource>,
+    kobolds: Vec<KoboldSighting>,
+    footfalls: Vec<KoboldFootfall>,
+    tracks: Vec<KoboldTrack>,
+    scents: Vec<ForageScent>,
+    weather: Option<(Season, DayPhase, WindCondition, Option<WindDirection>)>,
 }
 
 impl LocalCues {
@@ -199,31 +234,20 @@ impl LocalCues {
 /// Do not inspect private geology, colony schedules, or all generated blocks to stop a wait.
 pub fn local_cues(registries: &Registries, state: &AppState) -> LocalCues {
     LocalCues {
-        resources: format!(
-            "{:?}",
-            AdjacentSurfaceResource::visible_in_generated_world(registries, state)
-                .collect::<Vec<_>>()
-        ),
-        water: format!("{:?}", available_visible_generated_water(registries, state)),
-        kobolds: format!(
-            "{:?}",
-            available_nearby_kobold_scouts(registries, state).collect::<Vec<_>>()
-        ),
-        footfalls: format!("{:?}", available_nearby_kobold_footfalls(registries, state)),
-        tracks: format!(
-            "{:?}",
-            available_nearby_kobold_tracks(registries, state).collect::<Vec<_>>()
-        ),
-        scents: format!("{:?}", assess_player_forage_scents(registries, state)),
-        weather: format!(
-            "{:?}",
-            assess_player_weather(registries, state).map(|weather| (
+        resources: AdjacentSurfaceResource::visible_in_generated_world(registries, state).collect(),
+        water: available_visible_generated_water(registries, state),
+        kobolds: available_nearby_kobold_scouts(registries, state).collect(),
+        footfalls: available_nearby_kobold_footfalls(registries, state),
+        tracks: available_nearby_kobold_tracks(registries, state).collect(),
+        scents: assess_player_forage_scents(registries, state),
+        weather: assess_player_weather(registries, state).map(|weather| {
+            (
                 weather.season(),
                 weather.phase(),
                 weather.wind(),
                 weather.wind_direction(),
-            ))
-        ),
+            )
+        }),
     }
 }
 
@@ -331,16 +355,7 @@ pub fn status(registries: &Registries, state: &AppState) -> String {
         output.push_str("Still moving: wait 10 to let momentum settle before hand work.\n");
     }
     if let Some(weather) = assess_player_weather(registries, state) {
-        let celsius = (i64::from(weather.ambient_temperature().millikelvin()) - 273_150) / 1_000;
-        let _ = writeln!(
-            output,
-            "Weather: {:?} {:?}, {} C, {:?} wind (toward {:?})",
-            weather.season(),
-            weather.phase(),
-            celsius,
-            weather.wind(),
-            weather.wind_direction(),
-        );
+        let _ = writeln!(output, "Weather: {}", sensory::weather(weather));
     }
     for source in state.available_local_energy_stores() {
         if let Some(definition) = registries.energy().get_store(source.definition())
@@ -371,13 +386,17 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
     let nearby =
         AdjacentSurfaceResource::visible_in_generated_world(registries, state).collect::<Vec<_>>();
     if nearby.is_empty() {
-        output.push_str("No loose resources in immediate sight.\n");
+        output.push_str("No surface resources in immediate sight.\n");
     } else {
-        output.push_str("Visible loose resources (exact quantities require standing at them):\n");
+        output.push_str("Visible surface resources (exact quantities require standing at them):\n");
         for source in nearby {
+            let kind = match source.kind() {
+                SurfaceResourceKind::Opportunity => "",
+                SurfaceResourceKind::Drop => " (loose drop)",
+            };
             let _ = writeln!(
                 output,
-                "  {} {} at {}",
+                "  {}{kind} {} at {}",
                 name(registries, source.commodity()),
                 from.map_or_else(
                     || "unlocated".to_owned(),
@@ -401,16 +420,14 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
     for sighting in available_nearby_kobold_scouts(registries, state) {
         let _ = writeln!(
             output,
-            "Visible {:?} {} at {}, stature {:?}, wary {}, defending {}",
-            sighting.role(),
+            "Visible {} {} at {}{}",
+            sensory::role(sighting.role()),
             from.map_or_else(
                 || "unlocated".to_owned(),
                 |from| bearing(from, sighting.position())
             ),
             pos(sighting.position()),
-            sighting.stature(),
-            sighting.is_wary(),
-            sighting.is_defending(),
+            sensory::sighting_condition(sighting),
         );
     }
     for member in state.available_nearby_structural_members() {
@@ -434,21 +451,15 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
     for scent in assess_player_forage_scents(registries, state) {
         let _ = writeln!(
             output,
-            "Scent: {:?} {:?} (no exact location)",
-            scent.intensity(),
-            scent.kind(),
+            "Scent: {} (no exact location)",
+            sensory::scent(scent),
         );
     }
     for footfall in available_nearby_kobold_footfalls(registries, state) {
-        let _ = writeln!(
-            output,
-            "Heard: {:?} {:?}",
-            footfall.kind(),
-            footfall.bearing()
-        );
+        let _ = writeln!(output, "Heard: {}", sensory::footfall(footfall));
     }
     for track in available_nearby_kobold_tracks(registries, state) {
-        let _ = writeln!(output, "Track: {track:?}");
+        let _ = writeln!(output, "Track: {}", sensory::track(track));
     }
     if let Some(aim) = aim {
         match raycast_player_block(registries, state, aim) {

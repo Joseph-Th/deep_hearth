@@ -1,20 +1,21 @@
-//! Actor-safe immediate-neighbor observation for finite loose surface matter.
+//! Actor-safe immediate-neighbor observation for finite surface material.
 
 use crate::core::state::AppState;
 use crate::material::CommodityKey;
 use crate::spatial::VoxelCoord;
 use crate::survival::Vitality;
 
-use super::SurfaceResourceId;
+use super::{SurfaceResourceId, SurfaceResourceKind};
 
-/// Actor-visible loose surface matter on one authorized adjacent traversal voxel.
+/// Actor-visible surface material on one authorized adjacent traversal voxel.
 ///
-/// Immediate observation reveals only identity, commodity, and destination. Exact finite mass,
+/// Immediate observation reveals identity, source kind, commodity, and destination. Exact finite mass,
 /// temperature, composition, and age remain exact-local observations after movement.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AdjacentSurfaceResource {
     resource: SurfaceResourceId,
+    kind: SurfaceResourceKind,
     commodity: CommodityKey,
     position: VoxelCoord,
 }
@@ -23,6 +24,11 @@ impl AdjacentSurfaceResource {
     #[must_use]
     pub const fn resource(self) -> SurfaceResourceId {
         self.resource
+    }
+
+    #[must_use]
+    pub const fn kind(self) -> SurfaceResourceKind {
+        self.kind
     }
 
     #[must_use]
@@ -67,6 +73,7 @@ impl AdjacentSurfaceResource {
                     }
                     nearby.extend(resources.map(|resource| AdjacentSurfaceResource {
                         resource: resource.id(),
+                        kind: resource.kind(),
                         commodity: resource.commodity(),
                         position: resource.position(),
                     }));
@@ -97,6 +104,7 @@ pub fn available_adjacent_surface_resources(
         .flat_map(|position| state.surface().available_resources_at(Some(position)))
         .map(|resource| AdjacentSurfaceResource {
             resource: resource.id(),
+            kind: resource.kind(),
             commodity: resource.commodity(),
             position: resource.position(),
         })

@@ -10,6 +10,61 @@ fn snapshot(session: &Session) -> Vec<u8> {
 }
 
 #[test]
+fn dropped_material_is_visibly_distinct_from_natural_supply_and_conserves_matter() {
+    use deep_hearth::matter::calculate_matter_accounting;
+
+    let mut session = Session::new(24318).unwrap();
+    for command in ["e 20", "wait 10", "gather 1 0.125", "wait work", "select 1"] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    let before = calculate_matter_accounting(&session.state).unwrap().total();
+    let (drop, _) = session.command("drop").unwrap();
+    assert!(
+        drop.contains("Drop: Dropped 0.125 g berries at (9,2,8)."),
+        "{drop}"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&session.state).unwrap().total(),
+        before
+    );
+    let (look, _) = session.command("look").unwrap();
+    assert!(look.contains("  berries here at (9,2,8)"), "{look}");
+    assert!(
+        look.contains("  berries (loose drop) here at (9,2,8)"),
+        "{look}"
+    );
+}
+
+#[test]
+fn direct_action_rejections_and_hotbar_changes_are_plain_language() {
+    let mut session = Session::new(24318).unwrap();
+    for (command, expected, forbidden) in [
+        ("slot 2", "Slot: 2 (empty)", "PlayerQuickAccessSlot"),
+        (
+            "use",
+            "Use: Nothing usable is selected here.",
+            "NoActiveSelection",
+        ),
+        (
+            "break",
+            "Primary: Block breaking requires a carried tool selected in the hotbar.",
+            "BlockExcavationRejected",
+        ),
+        (
+            "drop",
+            "Drop: Nothing is selected to drop.",
+            "NoActiveSelection",
+        ),
+    ] {
+        let (response, _) = session.command(command).unwrap();
+        assert!(response.contains(expected), "{command}: {response}");
+        assert!(!response.contains(forbidden), "{command}: {response}");
+    }
+}
+
+#[test]
 fn decimal_gather_amounts_are_exact_and_reject_unrepresentable_inputs() {
     use deep_hearth::core::quantity::Mass;
 
@@ -423,9 +478,9 @@ fn angled_pointing_constructs_real_timber_post_with_local_visibility_and_replay(
         .unwrap()
         .total();
     let (queued, _) = session.command("use e-down").unwrap();
-    assert!(queued.contains("QueuedUntilSimulationBoundary"));
+    assert!(queued.contains("Action queued for the next simulation boundary."));
     let (admitted, _) = session.command("wait 72").unwrap();
-    assert!(admitted.contains("StructuralConstructionStarted"));
+    assert!(admitted.contains("Structural construction started."));
     let checkpoint = snapshot(&session);
     let mut restored = Session {
         registries: build_registries(),

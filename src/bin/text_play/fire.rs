@@ -5,7 +5,8 @@ use std::fmt::Write as _;
 use super::view;
 use deep_hearth::content::ENERGY_STONE_RING_CAMPFIRE;
 use deep_hearth::energy::{
-    EnergyStoreId, validate_assemble_energy_store, validate_combust_selected_fuel,
+    EnergyStoreAssemblyError, EnergyStoreId, validate_assemble_energy_store,
+    validate_combust_selected_fuel,
 };
 use deep_hearth::logistics::project_player_inventory;
 use deep_hearth::{AppState, Registries};
@@ -42,6 +43,29 @@ fn carried(state: &AppState) -> Result<deep_hearth::inventory::StockpileId, Stri
         .ok_or("no admitted player".to_owned())
 }
 
+pub(super) fn assembly_blocker(registries: &Registries, error: EnergyStoreAssemblyError) -> String {
+    match error {
+        EnergyStoreAssemblyError::InsufficientMaterial {
+            commodity,
+            available,
+            required,
+            ..
+        } => view::missing_construction_material(registries, commodity, available, required),
+        EnergyStoreAssemblyError::AssemblyMaterialTooHot {
+            commodity,
+            temperature,
+            maximum,
+        } => view::unsafe_construction_material(
+            registries,
+            commodity,
+            temperature,
+            maximum,
+            "hand assembly",
+        ),
+        other => other.to_string(),
+    }
+}
+
 pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, String> {
     let source = carried(state)?;
     let inventory =
@@ -58,7 +82,7 @@ pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, Stri
         "Campfire construction (build-fire): {}",
         match placement {
             Ok(_) => "ready".to_owned(),
-            Err(error) => format!("blocked: {error}"),
+            Err(error) => format!("blocked: {}", assembly_blocker(registries, error)),
         },
     );
     for input in definition
@@ -128,7 +152,7 @@ pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, Stri
 pub fn build(registries: &Registries, state: &mut AppState) -> Result<String, String> {
     let source = carried(state)?;
     let id = validate_assemble_energy_store(registries, state, ENERGY_STONE_RING_CAMPFIRE, source)
-        .map_err(|error| error.to_string())?
+        .map_err(|error| assembly_blocker(registries, error))?
         .commit(state)
         .map_err(|error| error.to_string())?;
     Ok(format!(
