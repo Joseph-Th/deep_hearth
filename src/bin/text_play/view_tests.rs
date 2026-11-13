@@ -9,6 +9,42 @@ fn signed_foot_elevation_is_correct_below_zero() {
 }
 
 #[test]
+fn celsius_safety_labels_retain_sign_and_millidegrees_at_the_limit() {
+    use deep_hearth::content::{FORM_LOG, MATERIAL_WOOD};
+    use deep_hearth::core::quantity::Temperature;
+    use deep_hearth::material::CommodityKey;
+
+    for (millikelvin, expected) in [
+        (0, "-273.15"),
+        (272_151, "-0.999"),
+        (273_149, "-0.001"),
+        (273_150, "0"),
+        (273_151, "0.001"),
+        (293_150, "20"),
+        (333_150, "60"),
+        (333_151, "60.001"),
+    ] {
+        assert_eq!(
+            super::celsius(Temperature::from_millikelvin(millikelvin)),
+            expected
+        );
+    }
+
+    let session = super::super::Session::new(24318).unwrap();
+    let unsafe_message = super::unsafe_construction_material(
+        &session.registries,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Temperature::from_millikelvin(333_151),
+        Temperature::from_millikelvin(333_150),
+        "construction",
+    );
+    assert_eq!(
+        unsafe_message,
+        "timber log is too hot for construction (60.001 C; maximum 60 C)"
+    );
+}
+
+#[test]
 fn storage_catalog_names_missing_construction_material_instead_of_private_identifiers() {
     let session = super::super::Session::new(24318).unwrap();
     let text = super::super::storage::catalog(&session.registries, &session.state, true).unwrap();

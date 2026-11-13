@@ -10,7 +10,7 @@ use deep_hearth::world::{
 };
 
 pub(super) fn weather(weather: PlayerWeather) -> String {
-    let celsius = (i64::from(weather.ambient_temperature().millikelvin()) - 273_150) / 1_000;
+    let celsius = super::celsius(weather.ambient_temperature());
     let wind = match weather.wind() {
         WindCondition::Calm => "calm".to_owned(),
         WindCondition::Breeze => wind_heading("breeze", weather.wind_direction()),

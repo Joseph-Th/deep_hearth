@@ -318,3 +318,8 @@ pub(super) fn drop(registries: &Registries, outcome: &ActiveSelectionDropOutcome
         ActiveSelectionDropOutcome::MaterialRejected(error) => error.to_string(),
     }
 }
+
+mod events;
+pub(super) use events::{
+    alarm, excavation, landing, maintenance, pickup, power, scout, tree_felled,
+};

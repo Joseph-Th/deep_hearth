@@ -94,8 +94,8 @@ pub fn catalog(
                     output,
                     "{} too hot: {} C, maximum {} C",
                     name,
-                    (i64::from(temperature.millikelvin()) - 273_150) / 1_000,
-                    (i64::from(maximum.millikelvin()) - 273_150) / 1_000
+                    view::celsius(temperature),
+                    view::celsius(maximum)
                 );
             }
         }

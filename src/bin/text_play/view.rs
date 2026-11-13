@@ -62,13 +62,30 @@ pub fn unsafe_construction_material(
     format!(
         "{} is too hot for {activity} ({} C; maximum {} C)",
         name(registries, commodity),
-        (i64::from(temperature.millikelvin()) - 273_150) / 1_000,
-        (i64::from(maximum.millikelvin()) - 273_150) / 1_000,
+        celsius(temperature),
+        celsius(maximum),
     )
 }
 
 fn pos(position: VoxelCoord) -> String {
     format!("({},{},{})", position.x(), position.y(), position.z())
+}
+
+/// Preserve signed millidegrees at safety boundaries. Truncating toward zero
+/// can report both a prohibited 60.001 C item and its 60 C limit as "60 C".
+pub fn celsius(temperature: deep_hearth::core::quantity::Temperature) -> String {
+    let millidegrees = i64::from(temperature.millikelvin()) - 273_150;
+    let magnitude = millidegrees.unsigned_abs();
+    let sign = if millidegrees < 0 { "-" } else { "" };
+    let whole = magnitude / 1_000;
+    let fractional = magnitude % 1_000;
+    if fractional == 0 {
+        format!("{sign}{whole}")
+    } else {
+        format!("{sign}{whole}.{fractional:03}")
+            .trim_end_matches('0')
+            .to_owned()
+    }
 }
 
 /// Inventory and receipts must not silently discard sub-gram material.
@@ -108,7 +125,7 @@ pub fn drink_options(registries: &Registries, state: &AppState) -> String {
     }
     output.push_str("Drink here (drink N):\n");
     for (index, source) in sources.iter().enumerate() {
-        let celsius = (i64::from(source.temperature().millikelvin()) - 273_150) / 1_000;
+        let celsius = celsius(source.temperature());
         let _ = writeln!(
             output,
             "  {}. {} mL available | {} C",

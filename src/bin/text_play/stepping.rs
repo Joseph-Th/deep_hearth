@@ -102,7 +102,29 @@ impl Session {
         let outcome =
             advance_control_tick_with_direct_input(&self.registries, &mut self.state, input)
                 .map_err(|error| format!("simulation tick failed: {error}"))?;
+        // Physical motion and automatic custody transfer precede direct actions
+        // in the control owner. Preserve that order when both occur in one frame.
         let mut interrupt = note_text(
+            output,
+            "Excavated",
+            outcome.block_excavation().map(feedback::excavation),
+        );
+        interrupt |= note_text(
+            output,
+            "Fall impact",
+            outcome
+                .body_motion()
+                .and_then(|motion| motion.fall_impact())
+                .map(feedback::landing),
+        );
+        interrupt |= note_text(
+            output,
+            "Picked up",
+            outcome
+                .surface_drop_pickup()
+                .map(|event| feedback::pickup(&self.registries, event)),
+        );
+        interrupt |= note_text(
             output,
             "Primary",
             outcome.primary_action().map(feedback::primary),
@@ -122,15 +144,6 @@ impl Session {
                 .active_selection_drop()
                 .map(|event| feedback::drop(&self.registries, event)),
         );
-        interrupt |= note(output, "Excavated", outcome.block_excavation());
-        interrupt |= note(output, "Picked up", outcome.surface_drop_pickup());
-        interrupt |= note(
-            output,
-            "Fall impact",
-            outcome
-                .body_motion()
-                .and_then(|motion| motion.fall_impact()),
-        );
         if let Some(simulation) = outcome.simulation() {
             if let Some(gathered) = simulation.surface_gathering() {
                 let _ = writeln!(
@@ -141,21 +154,31 @@ impl Session {
                 );
                 interrupt = true;
             }
-            interrupt |= note(output, "Tree felled", simulation.tree_felling());
-            interrupt |= note(
+            interrupt |= note_text(
+                output,
+                "Tree felled",
+                simulation.tree_felling().map(feedback::tree_felled),
+            );
+            interrupt |= note_text(
                 output,
                 "Construction finished",
-                simulation.structural_construction(),
+                simulation
+                    .structural_construction()
+                    .map(|_| "The built member is now load-bearing.".to_owned()),
             );
-            interrupt |= note(
+            interrupt |= note_text(
                 output,
                 "Dismantling finished",
-                simulation.structural_dismantling(),
+                simulation
+                    .structural_dismantling()
+                    .map(|_| "Structural materials recovered into storage.".to_owned()),
             );
-            interrupt |= note(
+            interrupt |= note_text(
                 output,
                 "Storage recovered",
-                simulation.storage_enclosure_dismantling(),
+                simulation
+                    .storage_enclosure_dismantling()
+                    .map(|_| "Enclosure materials recovered into storage.".to_owned()),
             );
             if let Some(survey) = simulation.field_prospecting() {
                 let material = self
@@ -171,12 +194,18 @@ impl Session {
                 );
                 interrupt = true;
             }
-            interrupt |= note(
+            interrupt |= note_text(
                 output,
                 "Maintenance finished",
-                simulation.equipment_maintenance(),
+                simulation
+                    .equipment_maintenance()
+                    .map(|event| feedback::maintenance(&self.registries, &self.state, event)),
             );
-            interrupt |= note(output, "Manual power produced", simulation.manual_power());
+            interrupt |= note_text(
+                output,
+                "Manual power produced",
+                simulation.manual_power().map(feedback::power),
+            );
             if let Some(mining) = simulation.mining_output() {
                 let material = self
                     .registries
@@ -204,8 +233,11 @@ impl Session {
                     interrupt = true;
                 }
             }
+            if let Some(scout) = simulation.kobold_scout() {
+                interrupt |= note_text(output, "Scout", feedback::scout(scout));
+            }
             for pulse in simulation.kobold_alarm_pulses() {
-                interrupt |= note(output, "Heard alarm", Some(pulse));
+                interrupt |= note_text(output, "Heard alarm", Some(feedback::alarm(*pulse)));
             }
         }
         if !interrupt
@@ -270,15 +302,6 @@ fn note_secondary(
 fn note_text(output: &mut String, label: &str, event: Option<String>) -> bool {
     if let Some(value) = event {
         let _ = writeln!(output, "{label}: {value}");
-        true
-    } else {
-        false
-    }
-}
-
-fn note<T: std::fmt::Debug>(output: &mut String, label: &str, event: Option<T>) -> bool {
-    if let Some(value) = event {
-        let _ = writeln!(output, "{label}: {value:?}");
         true
     } else {
         false

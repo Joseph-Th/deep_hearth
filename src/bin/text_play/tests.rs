@@ -35,6 +35,71 @@ fn dropped_material_is_visibly_distinct_from_natural_supply_and_conserves_matter
         look.contains("  berries (loose drop) here at (9,2,8)"),
         "{look}"
     );
+
+    // This is the genuine delayed control-rate pickup, not a synthesized
+    // transcript. It must stop the wait at the first eligible frame and say
+    // what arrived, not expose surface or inventory lot identities.
+    let (picked, _) = session.command("wait 60").unwrap();
+    assert!(
+        picked.contains("Picked up: 0.125 g berries entered your pack."),
+        "{picked}"
+    );
+    assert!(picked.contains("Advanced 40 control ticks"), "{picked}");
+    for private_type in [
+        "SurfaceDropPickupOutcome",
+        "MaterialLotId",
+        "SurfaceResourceId",
+    ] {
+        assert!(!picked.contains(private_type), "{picked}");
+    }
+    assert_eq!(
+        calculate_matter_accounting(&session.state).unwrap().total(),
+        before
+    );
+    let (inventory, _) = session.command("inventory").unwrap();
+    assert!(inventory.contains("berries | 0.125 g"), "{inventory}");
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
+        Ok(())
+    );
+}
+
+#[test]
+fn pickup_receipt_preserves_commodity_when_same_frame_drop_removes_its_lot() {
+    use deep_hearth::matter::calculate_matter_accounting;
+
+    let mut session = Session::new(24318).unwrap();
+    for command in ["e 20", "wait 10", "gather 1 0.125", "wait work", "select 1"] {
+        session.command(command).unwrap();
+    }
+    let before = calculate_matter_accounting(&session.state).unwrap().total();
+    session.command("drop").unwrap();
+    let (almost, _) = session.command("wait 39").unwrap();
+    assert!(!almost.contains("Picked up:"), "{almost}");
+
+    // The pickup precedes direct actions in the same canonical control frame.
+    // Its material name must survive the immediate re-drop of the new lot.
+    let (both, _) = session.command("drop").unwrap();
+    assert!(
+        both.contains("Picked up: 0.125 g berries entered your pack."),
+        "{both}"
+    );
+    assert!(both.contains("Drop: Dropped 0.125 g berries"), "{both}");
+    assert!(
+        both.find("Picked up:").unwrap() < both.find("Drop:").unwrap(),
+        "same-frame feedback must follow physical event order: {both}"
+    );
+    assert!(!both.contains("0.125 g material"), "{both}");
+    let (inventory, _) = session.command("inventory").unwrap();
+    assert!(inventory.contains("Carried matter: 0 g"), "{inventory}");
+    assert_eq!(
+        calculate_matter_accounting(&session.state).unwrap().total(),
+        before
+    );
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
+        Ok(())
+    );
 }
 
 #[test]

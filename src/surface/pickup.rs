@@ -8,7 +8,7 @@ use crate::inventory::{
     ValidatedMaterialIngress, apply_material_ingress, validate_material_ingress,
 };
 use crate::labor::PlayerWork;
-use crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::survival::Vitality;
@@ -24,6 +24,7 @@ pub(crate) struct SurfaceDropPickupPlan {
     expected_surface_revision: u64,
     next_surface_revision: u64,
     resource: SurfaceResourceId,
+    commodity: CommodityKey,
     picked_mass: Mass,
     picked_at: SimulationTick,
     ingress: ValidatedMaterialIngress,
@@ -33,6 +34,7 @@ pub(crate) struct SurfaceDropPickupPlan {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SurfaceDropPickupOutcome {
     resource: SurfaceResourceId,
+    commodity: CommodityKey,
     destination: StockpileId,
     lot: MaterialLotId,
     picked_mass: Mass,
@@ -42,6 +44,13 @@ impl SurfaceDropPickupOutcome {
     #[must_use]
     pub const fn resource(self) -> SurfaceResourceId {
         self.resource
+    }
+
+    /// The commodity transferred at admission, even if a later same-frame action
+    /// consumes or drops the resulting inventory lot.
+    #[must_use]
+    pub const fn commodity(self) -> CommodityKey {
+        self.commodity
     }
 
     #[must_use]
@@ -323,6 +332,7 @@ pub(crate) fn decide_automatic_surface_drop_pickup(
             expected_surface_revision: state.surface().revision(),
             next_surface_revision,
             resource: resource.id(),
+            commodity: resource.commodity(),
             picked_mass,
             picked_at,
             ingress,
@@ -350,6 +360,7 @@ pub(crate) fn apply_automatic_surface_drop_pickup(
     );
     SurfaceDropPickupOutcome {
         resource: plan.resource,
+        commodity: plan.commodity,
         destination,
         lot,
         picked_mass: plan.picked_mass,
