@@ -66,39 +66,39 @@ fn parse_arguments() -> Result<Arguments, String> {
     Ok(parsed)
 }
 
-fn play_input(session: &mut Session, line: &str, echo_command: bool) -> bool {
+fn play_input(session: &mut Session, line: &str, echo_command: bool) -> Result<bool, String> {
     if line.trim().is_empty() || line.trim_start().starts_with('#') {
-        return true;
+        return Ok(true);
     }
     if echo_command {
         println!("> {line}");
     }
-    match session.command(line) {
-        Ok((output, keep_playing)) => {
-            print!("{output}");
-            keep_playing
-        }
-        Err(error) => {
-            println!("Rejected: {error}");
-            true
-        }
-    }
+    let (output, keep_playing) = session.command(line)?;
+    print!("{output}");
+    Ok(keep_playing)
 }
 
 fn play_script(session: &mut Session, path: &PathBuf) -> Result<(), String> {
     let file = std::fs::File::open(path)
         .map_err(|error| format!("cannot open script {}: {error}", path.display()))?;
-    for line in io::BufReader::new(file).lines() {
-        let line = line.map_err(|error| format!("cannot read script: {error}"))?;
-        if !play_input(session, &line, true) {
+    for (index, line) in io::BufReader::new(file).lines().enumerate() {
+        let line_number = index + 1;
+        let line = line.map_err(|error| {
+            format!(
+                "cannot read script {}:{line_number}: {error}",
+                path.display()
+            )
+        })?;
+        if !play_input(session, &line, true)
+            .map_err(|error| format!("script {}:{line_number}: {error}", path.display()))?
+        {
             break;
         }
     }
     Ok(())
 }
 
-fn run() -> Result<(), String> {
-    let args = parse_arguments()?;
+fn run(args: Arguments) -> Result<(), String> {
     let mut session = if let Some(slot) = args.load {
         Session::load(&slot)?
     } else {
@@ -124,16 +124,26 @@ fn run() -> Result<(), String> {
         {
             break;
         }
-        if !play_input(&mut session, line.trim_end(), false) {
-            break;
+        match play_input(&mut session, line.trim_end(), false) {
+            Ok(true) => {}
+            Ok(false) => break,
+            Err(error) => println!("Rejected: {error}"),
         }
     }
     Ok(())
 }
 
 fn main() {
-    if let Err(error) = run() {
+    let args = parse_arguments().unwrap_or_else(|error| {
         eprintln!("text-play: {error}\n{}", usage());
+        std::process::exit(2);
+    });
+    if let Err(error) = run(args) {
+        eprintln!("text-play: {error}");
         std::process::exit(2);
     }
 }
+
+#[cfg(test)]
+#[path = "text_play/script_tests.rs"]
+mod tests;

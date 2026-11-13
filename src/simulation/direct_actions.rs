@@ -106,7 +106,8 @@ pub(super) fn attempt_direct_actions_after_quick_access(
             // A held contextual use is one-shot and stays quiet while work is active.
             Some(
                 SecondaryControlIntent::UseActive { .. }
-                | SecondaryControlIntent::GatherSurface { .. },
+                | SecondaryControlIntent::GatherSurface { .. }
+                | SecondaryControlIntent::GatherSurfaceOption { .. },
             )
             | None => None,
         })

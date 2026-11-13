@@ -118,12 +118,6 @@ fn validate_pending_secondary_use(
     if pending.direction().is_none() {
         return Err(LogisticsValidationError::PendingSecondaryUseDirectionInvalid);
     }
-    if pending
-        .surface_request()
-        .is_some_and(|(resource, mass)| resource.value() == 0 || mass.is_zero())
-    {
-        return Err(LogisticsValidationError::PendingSecondaryUseSurfaceRequestInvalid);
-    }
     Ok(())
 }
 

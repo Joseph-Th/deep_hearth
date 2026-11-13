@@ -193,11 +193,35 @@ fn attempt_direct_surface_gathering(
     if let Err(error) = assess_player_surface_gathering_reservation(state, request_mass) {
         return SecondaryActionOutcome::SurfaceGatheringRejected(error);
     }
+    start_surface_gathering(registries, state, option, request_mass)
+}
+
+/// An option is an opaque production-projected choice, including the method and
+/// resource revision. Retain that choice on the control frame rather than
+/// reducing it to a source and inventing a technique during execution.
+pub(in crate::simulation::direct_actions) fn attempt_selected_surface_gathering(
+    registries: &Registries,
+    state: &mut AppState,
+    option: PlayerSurfaceGatheringOption,
+    mass: Mass,
+) -> SecondaryActionOutcome {
+    match validate_player_action(state) {
+        Ok(_) => start_surface_gathering(registries, state, option, mass),
+        Err(PlayerActionValidationError::PlayerNotAdmitted) => {
+            SecondaryActionOutcome::PlayerNotAdmitted
+        }
+        Err(PlayerActionValidationError::PlayerDead) => SecondaryActionOutcome::PlayerDead,
+    }
+}
+
+fn start_surface_gathering(
+    registries: &Registries,
+    state: &mut AppState,
+    option: PlayerSurfaceGatheringOption,
+    mass: Mass,
+) -> SecondaryActionOutcome {
     match validate_start_player_surface_gathering_option_control_rate(
-        registries,
-        state,
-        option,
-        request_mass,
+        registries, state, option, mass,
     ) {
         Ok(validated) => {
             validated.commit(state).unwrap_or_else(|error| {
@@ -205,13 +229,12 @@ fn attempt_direct_surface_gathering(
                     "runtime invariant broken: synchronous surface gathering became stale: {error}"
                 )
             });
-            let work = match state.player_work().active() {
-                Some(crate::labor::PlayerWork::SurfaceGathering { work }) => work,
-                other => {
-                    panic!("runtime invariant broken: direct surface gathering started {other:?}")
+            match state.player_work().active() {
+                Some(crate::labor::PlayerWork::SurfaceGathering { work }) => {
+                    SecondaryActionOutcome::SurfaceGatheringStarted(work)
                 }
-            };
-            SecondaryActionOutcome::SurfaceGatheringStarted(work)
+                other => panic!("surface gathering started unexpected work: {other:?}"),
+            }
         }
         Err(error) => SecondaryActionOutcome::SurfaceGatheringRejected(error),
     }
@@ -301,22 +324,7 @@ pub(in crate::simulation::direct_actions) fn attempt_explicit_surface_gathering(
     // All methods rejected: preserve a canonical typed owner error from a
     // method capable of handling the amount rather than claim ambiguity.
     let option = sole_admissible.unwrap_or(widest_option);
-    match validate_start_player_surface_gathering_option_control_rate(
-        registries, state, option, mass,
-    ) {
-        Ok(validated) => {
-            validated.commit(state).unwrap_or_else(|error| {
-                panic!("runtime invariant broken: explicit surface gathering became stale: {error}")
-            });
-            match state.player_work().active() {
-                Some(crate::labor::PlayerWork::SurfaceGathering { work }) => {
-                    SecondaryActionOutcome::SurfaceGatheringStarted(work)
-                }
-                other => panic!("explicit surface gathering started unexpected work: {other:?}"),
-            }
-        }
-        Err(error) => SecondaryActionOutcome::SurfaceGatheringRejected(error),
-    }
+    start_surface_gathering(registries, state, option, mass)
 }
 
 fn attempt_direct_drinking(

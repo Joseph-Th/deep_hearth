@@ -19,9 +19,10 @@ use super::{
 
 /// Actor-facing option for gathering one currently visible loose natural opportunity.
 ///
-/// The authored method identity remains private. Callers can compare the physical commitment and
-/// choose a resource/amount without depending on internal method IDs; canonical gathering
-/// validation still owns admission, capacity, survival, reservations, and completion.
+/// The authored method identity remains private. Callers can compare the physical commitment
+/// and submit this opaque option with the desired mass to direct control, preserving their
+/// technique choice without depending on internal method IDs. Canonical gathering validation
+/// still owns admission, capacity, survival, reservations, and completion.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PlayerSurfaceGatheringOption {

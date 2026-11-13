@@ -22,6 +22,7 @@ mod material_choice;
 use combustion::{attempt_selected_combustion, has_selected_combustion_target};
 pub(super) use gathering::{
     attempt_empty_hand_secondary_action, attempt_explicit_surface_gathering,
+    attempt_selected_surface_gathering,
 };
 pub(super) use material_choice::resolve_unique_carried_stack;
 

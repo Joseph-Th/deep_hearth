@@ -72,16 +72,15 @@ pub(super) fn exercise_native_copper_preservation(
     );
     // With clay and copper co-located, the player selects the visible copper
     // identity and amount. Admission occurs immediately; harvesting is timed.
-    let direction = ViewDirection::new(0, VIEW_DIRECTION_PARTS_PER_MILLION, 0).unwrap();
-    let chosen =
-        advance_control_tick_with_direct_input(
-            registries,
-            &mut built,
-            PlayerDirectControlInput::NEUTRAL.with_secondary(
-                SecondaryControlIntent::gather_surface(copper_source, copper_collected, direction),
-            ),
-        )
-        .unwrap();
+    let chosen = advance_control_tick_with_direct_input(
+        registries,
+        &mut built,
+        PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::gather_surface(
+            copper_source,
+            copper_collected,
+        )),
+    )
+    .unwrap();
     let work = match chosen.secondary_action() {
         Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => *work,
         other => panic!("direct copper choice did not begin immediately: {other:?}"),

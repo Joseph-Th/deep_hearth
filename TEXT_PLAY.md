@@ -37,7 +37,7 @@ The default seed is 24318. Other seeds produce reproducible openings. The seeded
 - **respawn**: after death, use the real validated respawn path. The new carried pack is empty; the old pack and dropped tools remain recoverable in a death cache at the reported location. Attempting this while alive is rejected without changing state.
 - **save campaign_01**, **quit**: save the current validated world to a *new* slot or end play. A save is not automatically created when quitting.
 
-An input file passed to --script has one command per line. Blank and # comment lines are ignored; the transcript echoes each command and its actual result. A rejected action reports its production error, not a fabricated success. Work may require further waits, and unrelated visible events can interrupt waiting early.
+An input file passed to --script has one command per line. Blank and # comment lines are ignored, and the transcript echoes each executed command. An invalid command or failed command admission stops the script at its numbered line with a nonzero exit status; later commands do not execute. Canonical in-world action rejections returned as typed outcomes remain visible events rather than script errors. Work may require further waits, and unrelated visible events can interrupt waiting early.
 
 An ordinary flint-crafting example, on seed 24318, is: **e 20**, **wait 10**, **s 20**, **wait 10**, **s 20**, **wait 10**, **gather 3 300**, **wait work**, **recipes**, **craft 99**, **wait work**, **inventory**. It consumes 300 g of flint nodule and produces 220 g of knapped flint cutting head and 80 g of flakes.
 

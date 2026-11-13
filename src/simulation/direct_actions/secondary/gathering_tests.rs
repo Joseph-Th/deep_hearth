@@ -151,6 +151,84 @@ fn explicit_gathering_selects_only_method_feasible_for_requested_mass() {
     );
     assert_eq!(state, before);
 
+    let options = player_surface_gathering_options(&registries, &state).unwrap();
+    assert_eq!(
+        options[0].maximum_batch_mass(),
+        Mass::from_milligrams(100_000)
+    );
+    let chosen_option = options[0];
+    let chosen_amount = Mass::from_milligrams(50_000);
+    let mut selected = state.clone();
+    let selected_result = crate::simulation::advance_control_tick_with_direct_input(
+        &registries,
+        &mut selected,
+        crate::simulation::PlayerDirectControlInput::NEUTRAL.with_secondary(
+            crate::simulation::SecondaryControlIntent::gather_surface_option(
+                chosen_option,
+                chosen_amount,
+            ),
+        ),
+    )
+    .unwrap();
+    assert!(matches!(
+        selected_result.secondary_action(),
+        Some(SecondaryActionOutcome::SurfaceGatheringStarted(work))
+            if work.method() == narrow_method && work.gathered_mass() == chosen_amount
+    ));
+    assert!(selected.logistics().pending_secondary_use().is_none());
+    assert_eq!(
+        selected
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .reserved_inbound(),
+        chosen_amount,
+    );
+    let selected_save = serde_json::to_vec(&SaveEnvelope::new(&registries, &selected)).unwrap();
+    let mut selected_replay = serde_json::from_slice::<LoadedSaveEnvelope>(&selected_save)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let completes_at = match selected.player_work().active() {
+        Some(crate::labor::PlayerWork::SurfaceGathering { work }) => work.completes_at(),
+        other => panic!("selected gathering did not schedule work: {other:?}"),
+    };
+    while selected.tick() < completes_at {
+        let first = crate::simulation::advance_control_tick(&registries, &mut selected).unwrap();
+        let replayed =
+            crate::simulation::advance_control_tick(&registries, &mut selected_replay).unwrap();
+        assert_eq!(first, replayed);
+        assert_eq!(selected, selected_replay);
+    }
+    assert_eq!(selected.player_work().active(), None);
+    assert_eq!(
+        selected.surface().get(resource).unwrap().remaining_mass(),
+        Mass::from_milligrams(950_000),
+    );
+    assert_eq!(
+        calculate_matter_accounting(&selected).unwrap().total(),
+        calculate_matter_accounting(&before).unwrap().total(),
+    );
+    assert_eq!(validate_loaded_state(&registries, &selected), Ok(()));
+    let stale = crate::simulation::advance_control_tick_with_direct_input(
+        &registries,
+        &mut selected,
+        crate::simulation::PlayerDirectControlInput::NEUTRAL.with_secondary(
+            crate::simulation::SecondaryControlIntent::gather_surface_option(
+                chosen_option,
+                chosen_amount,
+            ),
+        ),
+    )
+    .unwrap();
+    assert!(matches!(
+        stale.secondary_action(),
+        Some(SecondaryActionOutcome::SurfaceGatheringRejected(
+            SurfaceGatheringError::StalePlayerOption { .. }
+        ))
+    ));
+    assert_eq!(selected.player_work().active(), None);
+
     let conserved = calculate_matter_accounting(&state).unwrap().total();
     let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
     let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)

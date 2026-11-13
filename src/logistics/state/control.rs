@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::quantity::{Energy, Mass, Volume};
+use crate::core::quantity::{Energy, Volume};
 use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, ControlTick};
 use crate::spatial::{ViewDirection, WorldPoint};
 use crate::structural::StructuralElementId;
@@ -101,8 +101,6 @@ pub(crate) struct PlayerPendingSecondaryUse {
     direction_x_ppm: i32,
     direction_y_ppm: i32,
     direction_z_ppm: i32,
-    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
-    surface_request: Option<(crate::surface::SurfaceResourceId, Mass)>,
 }
 
 impl PlayerPendingSecondaryUse {
@@ -119,21 +117,7 @@ impl PlayerPendingSecondaryUse {
             direction_x_ppm: direction.x_parts_per_million(),
             direction_y_ppm: direction.y_parts_per_million(),
             direction_z_ppm: direction.z_parts_per_million(),
-            surface_request: None,
         }
-    }
-
-    pub(crate) const fn with_surface_request(
-        mut self,
-        request: Option<(crate::surface::SurfaceResourceId, Mass)>,
-    ) -> Self {
-        self.surface_request = request;
-        self
-    }
-
-    #[must_use]
-    pub(crate) const fn surface_request(self) -> Option<(crate::surface::SurfaceResourceId, Mass)> {
-        self.surface_request
     }
 
     #[must_use]

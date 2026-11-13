@@ -546,17 +546,15 @@ fn exercise_generated_clay_casting_bed_for_seed(seed: WorldGenerationSeed, repor
     // Select a physical wild-nut serving directly on the input frame;
     // source mass settles only when the scheduled gathering completes.
     let selected_nuts = Mass::from_milligrams(150_000);
-    let upward = ViewDirection::new(0, VIEW_DIRECTION_PARTS_PER_MILLION, 0)
-        .unwrap_or_else(|error| panic!("clay worksite direct gather view invalid: {error}"));
-    let selected =
-        advance_control_tick_with_direct_input(
-            &registries,
-            &mut state,
-            PlayerDirectControlInput::NEUTRAL.with_secondary(
-                SecondaryControlIntent::gather_surface(nuts_source, selected_nuts, upward),
-            ),
-        )
-        .unwrap_or_else(|error| panic!("worksite deliberate protein choice failed: {error}"));
+    let selected = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::gather_surface(
+            nuts_source,
+            selected_nuts,
+        )),
+    )
+    .unwrap_or_else(|error| panic!("worksite deliberate protein choice failed: {error}"));
     let selected_work = match selected.secondary_action() {
         Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => *work,
         other => panic!("worksite targeted gathering did not start immediately: {other:?}"),

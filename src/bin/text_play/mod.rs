@@ -6,6 +6,7 @@ mod equipment;
 mod fire;
 mod geology;
 mod ore;
+mod save_file;
 mod storage;
 mod view;
 
@@ -15,8 +16,6 @@ mod geology_tests;
 mod tests;
 
 use std::fmt::Write as _;
-use std::io::Write as _;
-use std::path::PathBuf;
 
 use deep_hearth::content::BLOCK_STATE_STONE;
 use deep_hearth::core::quantity::Mass;
@@ -39,6 +38,8 @@ use deep_hearth::world::{
 };
 use deep_hearth::world_generation::validate_generate_initial_wilderness;
 use deep_hearth::{AppState, Registries, build_registries};
+
+use save_file::{publish_new_save, slot_path};
 
 const MAX_MOVEMENT_TICKS: u64 = 240;
 const MAX_WAIT_TICKS: u64 = 7_200;
@@ -221,35 +222,7 @@ impl Session {
             .map_err(|error| format!("cannot save invalid state: {error}"))?;
         let bytes = serde_json::to_vec(&SaveEnvelope::new(&self.registries, &self.state))
             .map_err(|error| format!("save encoding failed: {error}"))?;
-        let directory = destination
-            .parent()
-            .ok_or("save destination has no parent")?;
-        std::fs::create_dir_all(directory)
-            .map_err(|error| format!("cannot create save directory: {error}"))?;
-        if destination.exists() {
-            return Err(format!(
-                "save slot already exists: {slot}; choose another slot"
-            ));
-        }
-        let temporary = directory.join(format!(".{slot}.pending"));
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)
-            .map_err(|error| format!("cannot create staging save: {error}"))?;
-        let written = file.write_all(&bytes).and_then(|()| file.sync_all());
-        drop(file);
-        if let Err(error) = written {
-            let _ = std::fs::remove_file(&temporary);
-            return Err(format!("save write failed: {error}"));
-        }
-        if destination.exists() {
-            let _ = std::fs::remove_file(&temporary);
-            return Err(format!("save slot already exists: {slot}"));
-        }
-        std::fs::rename(&temporary, &destination)
-            .map_err(|error| format!("save publication failed: {error}"))?;
-        Ok(())
+        publish_new_save(&destination, &bytes)
     }
 
     pub fn opening(&self) -> String {
@@ -555,9 +528,10 @@ impl Session {
                     .to_owned(),
             );
         }
-        self.advance_one(PlayerDirectControlInput::NEUTRAL.with_secondary(
-            SecondaryControlIntent::gather_surface(option.resource(), mass, Direction::Down.aim()),
-        ))
+        self.advance_one(
+            PlayerDirectControlInput::NEUTRAL
+                .with_secondary(SecondaryControlIntent::gather_surface_option(option, mass)),
+        )
     }
 
     fn advance_one(&mut self, input: PlayerDirectControlInput) -> Result<String, String> {
@@ -717,20 +691,6 @@ fn note<T: std::fmt::Debug>(output: &mut String, label: &str, event: Option<T>) 
     } else {
         false
     }
-}
-
-fn slot_path(slot: &str) -> Result<PathBuf, String> {
-    if slot.is_empty()
-        || slot.len() > 48
-        || !slot
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
-    {
-        return Err(
-            "save slots must be 1-48 ASCII letters, digits, hyphens, or underscores".to_owned(),
-        );
-    }
-    Ok(PathBuf::from("saves").join(format!("{slot}.sav")))
 }
 
 fn aim_or_default(args: &[&str]) -> Result<ViewDirection, String> {

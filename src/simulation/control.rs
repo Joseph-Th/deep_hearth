@@ -4,7 +4,7 @@ use crate::core::quantity::Mass;
 use crate::inventory::StorageDefinitionId;
 use crate::logistics::{PlayerControlInput, PlayerQuickAccessSlot};
 use crate::spatial::ViewDirection;
-use crate::surface::SurfaceResourceId;
+use crate::surface::{PlayerSurfaceGatheringOption, SurfaceResourceId};
 
 /// Held primary-control intent sampled alongside one 20 Hz locomotion input.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,11 +38,17 @@ pub enum SecondaryControlIntent {
     UseActive {
         direction: ViewDirection,
     },
-    /// Choose one observed local source and amount when empty-hand use is ambiguous.
+    /// Choose an observed local source and amount when empty-hand use is ambiguous.
+    /// Without a chosen method, multiple feasible techniques remain ambiguous.
     GatherSurface {
         resource: SurfaceResourceId,
         mass: Mass,
-        direction: ViewDirection,
+    },
+    /// Choose one production-projected source and gathering technique.
+    /// Retains the option's private method identity and source revision.
+    GatherSurfaceOption {
+        option: PlayerSurfaceGatheringOption,
+        mass: Mass,
     },
     /// Explicitly selected multi-material storage plan; material-stack selection alone cannot
     /// distinguish enclosures sharing the same timber or clay input.
@@ -59,16 +65,15 @@ impl SecondaryControlIntent {
     }
 
     #[must_use]
-    pub const fn gather_surface(
-        resource: SurfaceResourceId,
-        mass: Mass,
-        direction: ViewDirection,
-    ) -> Self {
-        Self::GatherSurface {
-            resource,
-            mass,
-            direction,
-        }
+    pub const fn gather_surface(resource: SurfaceResourceId, mass: Mass) -> Self {
+        Self::GatherSurface { resource, mass }
+    }
+
+    /// Preserve the actual production-projected option selected by the player.
+    /// Execution verifies the option is current and admits its exact method.
+    #[must_use]
+    pub const fn gather_surface_option(option: PlayerSurfaceGatheringOption, mass: Mass) -> Self {
+        Self::GatherSurfaceOption { option, mass }
     }
 
     #[must_use]

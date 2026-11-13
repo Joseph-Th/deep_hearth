@@ -348,7 +348,7 @@ fn stockpile_enclosure_and_support_are_required_even_when_absent() {
 }
 
 #[test]
-fn buffered_secondary_use_requires_selection_and_surface_request_on_load() {
+fn buffered_secondary_use_requires_selection_on_load() {
     use crate::logistics::validate_buffer_player_secondary_use;
     use crate::spatial::ViewDirection;
 
@@ -372,20 +372,28 @@ fn buffered_secondary_use_requires_selection_and_surface_request_on_load() {
             .unwrap(),
         state
     );
-    for field in ["selection", "surface_request"] {
-        let mut incomplete = saved.clone();
-        assert!(
-            incomplete["state"]["systems"]["logistics"]["pending_secondary_use"]
-                .as_object_mut()
-                .unwrap()
-                .remove(field)
-                .is_some()
-        );
-        assert!(
-            serde_json::from_value::<LoadedSaveEnvelope>(incomplete).is_err(),
-            "omitted buffered-use {field} must not change the delayed action"
-        );
-    }
+    let mut obsolete = saved.clone();
+    obsolete["state"]["systems"]["logistics"]["pending_secondary_use"]
+        .as_object_mut()
+        .unwrap()
+        .insert("surface_request".to_owned(), serde_json::Value::Null);
+    assert!(
+        serde_json::from_value::<LoadedSaveEnvelope>(obsolete).is_err(),
+        "obsolete buffered gathering fields must not be admitted by the new schema"
+    );
+
+    let mut incomplete = saved;
+    assert!(
+        incomplete["state"]["systems"]["logistics"]["pending_secondary_use"]
+            .as_object_mut()
+            .unwrap()
+            .remove("selection")
+            .is_some()
+    );
+    assert!(
+        serde_json::from_value::<LoadedSaveEnvelope>(incomplete).is_err(),
+        "omitted buffered-use selection must not change the delayed action"
+    );
 }
 
 #[test]

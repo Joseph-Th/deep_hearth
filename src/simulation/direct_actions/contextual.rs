@@ -1,10 +1,7 @@
 //! Contextual use, gathering and storage placement admission at the direct-control boundary.
 
 use crate::core::state::AppState;
-use crate::logistics::{
-    take_player_pending_secondary_use, validate_buffer_player_secondary_surface_gathering,
-    validate_buffer_player_secondary_use,
-};
+use crate::logistics::{take_player_pending_secondary_use, validate_buffer_player_secondary_use};
 use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
 use crate::spatial::ViewDirection;
@@ -14,7 +11,7 @@ use super::super::outcome::SecondaryActionOutcome;
 use super::placement::attempt_storage_placement;
 use super::secondary::{
     attempt_empty_hand_secondary_action, attempt_explicit_surface_gathering,
-    attempt_selected_secondary_action,
+    attempt_selected_secondary_action, attempt_selected_surface_gathering,
 };
 
 pub(super) fn attempt_secondary_action(
@@ -23,19 +20,11 @@ pub(super) fn attempt_secondary_action(
     intent: Option<SecondaryControlIntent>,
 ) -> Option<SecondaryActionOutcome> {
     let intent = intent?;
-    let requested_surface = match intent {
-        SecondaryControlIntent::GatherSurface { resource, mass, .. } => Some((resource, mass)),
-        SecondaryControlIntent::UseActive { .. } | SecondaryControlIntent::PlaceStorage { .. } => {
-            None
-        }
-    };
     if let Some(pending) = state.logistics().pending_secondary_use() {
         if matches!(
             intent,
             SecondaryControlIntent::UseActive { direction }
-                | SecondaryControlIntent::GatherSurface { direction, .. }
                 if pending.direction() == Some(direction)
-                    && pending.surface_request() == requested_surface
                     && pending.selection() == state.logistics().active_selection()
                     && state.logistics().player().map(|player| player.body().foot_position())
                         == Some(pending.position())
@@ -47,8 +36,17 @@ pub(super) fn attempt_secondary_action(
         let _ = take_player_pending_secondary_use(state);
     }
     let direction = match intent {
-        SecondaryControlIntent::UseActive { direction }
-        | SecondaryControlIntent::GatherSurface { direction, .. } => direction,
+        SecondaryControlIntent::UseActive { direction } => direction,
+        SecondaryControlIntent::GatherSurface { resource, mass } => {
+            return Some(attempt_explicit_surface_gathering(
+                registries, state, resource, mass,
+            ));
+        }
+        SecondaryControlIntent::GatherSurfaceOption { option, mass } => {
+            return Some(attempt_selected_surface_gathering(
+                registries, state, option, mass,
+            ));
+        }
         SecondaryControlIntent::PlaceStorage {
             definition,
             direction,
@@ -62,21 +60,11 @@ pub(super) fn attempt_secondary_action(
             });
         }
     };
-    let outcome = match requested_surface {
-        Some((resource, mass)) => {
-            attempt_explicit_surface_gathering(registries, state, resource, mass)
-        }
-        None => attempt_secondary_action_now(registries, state, direction),
-    };
+    let outcome = attempt_secondary_action_now(registries, state, direction);
     if outcome != SecondaryActionOutcome::DeferredUntilSimulationBoundary {
         return Some(outcome);
     }
-    let buffered = match requested_surface {
-        Some((resource, mass)) => {
-            validate_buffer_player_secondary_surface_gathering(state, direction, resource, mass)
-        }
-        None => validate_buffer_player_secondary_use(state, direction),
-    };
+    let buffered = validate_buffer_player_secondary_use(state, direction);
     Some(match buffered {
         Ok(validated) => {
             validated.commit(state).unwrap_or_else(|error| {
@@ -129,10 +117,5 @@ pub(in crate::simulation) fn attempt_pending_secondary_action(
     let direction = pending.direction().unwrap_or_else(|| {
         panic!("runtime invariant broken: trusted buffered contextual use has invalid direction")
     });
-    Some(match pending.surface_request() {
-        Some((resource, mass)) => {
-            attempt_explicit_surface_gathering(registries, state, resource, mass)
-        }
-        None => attempt_secondary_action_now(registries, state, direction),
-    })
+    Some(attempt_secondary_action_now(registries, state, direction))
 }

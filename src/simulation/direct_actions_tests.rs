@@ -394,7 +394,6 @@ fn one_control_frame_cannot_both_shove_and_start_gathering() {
             .with_secondary(SecondaryControlIntent::gather_surface(
                 resource,
                 Mass::from_milligrams(50_000),
-                direction,
             ));
         let outcome =
             advance_control_tick_with_direct_input(&registries, &mut state, both).unwrap();
@@ -440,11 +439,7 @@ fn one_control_frame_cannot_both_shove_and_start_gathering() {
 
         // A separate later press still starts the canonical gathering work.
         let gather = PlayerDirectControlInput::NEUTRAL.with_secondary(
-            SecondaryControlIntent::gather_surface(
-                resource,
-                Mass::from_milligrams(50_000),
-                direction,
-            ),
+            SecondaryControlIntent::gather_surface(resource, Mass::from_milligrams(50_000)),
         );
         let separate =
             advance_control_tick_with_direct_input(&registries, &mut state, gather).unwrap();

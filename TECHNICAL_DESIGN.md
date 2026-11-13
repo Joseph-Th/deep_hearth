@@ -153,6 +153,11 @@ validators. Valid actions immediately hold player attention and reserve or
 withdraw actual matter; subsequent eating, drinking, and gathering installments
 still settle on the slow simulation clock. Invalid or already-satisfied use
 reports its outcome immediately, without buffering an unnecessary request.
+A catalog-selected surface gathering option retains the source, the privately
+authored method and its surface revision through the direct-control frame.
+The gathering owner revalidates that exact choice before reserving work;
+source-and-amount gestures without an option remain ambiguous when several
+authored methods are feasible. No explicit gathering is buffered across ticks.
 Durable hotbar bindings to depleted food do not authorize a meal.
 When carried food has multiple physical freshness cohorts, a selected-use
 gesture chooses the sole cohort currently admitted by the eating validator;

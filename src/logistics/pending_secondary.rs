@@ -3,13 +3,11 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::player::{
     PlayerActionGuard, PlayerActionValidationError, StalePlayerSurvival, validate_player_action,
 };
 use crate::spatial::ViewDirection;
-use crate::surface::SurfaceResourceId;
 
 use super::PlayerPendingSecondaryUse;
 
@@ -106,23 +104,6 @@ pub(crate) fn validate_buffer_player_secondary_use(
     state: &AppState,
     direction: ViewDirection,
 ) -> Result<ValidatedPlayerPendingSecondaryUse, PlayerPendingSecondaryUseError> {
-    validate_buffer_player_secondary_request(state, direction, None)
-}
-
-pub(crate) fn validate_buffer_player_secondary_surface_gathering(
-    state: &AppState,
-    direction: ViewDirection,
-    resource: SurfaceResourceId,
-    mass: Mass,
-) -> Result<ValidatedPlayerPendingSecondaryUse, PlayerPendingSecondaryUseError> {
-    validate_buffer_player_secondary_request(state, direction, Some((resource, mass)))
-}
-
-fn validate_buffer_player_secondary_request(
-    state: &AppState,
-    direction: ViewDirection,
-    surface_request: Option<(SurfaceResourceId, Mass)>,
-) -> Result<ValidatedPlayerPendingSecondaryUse, PlayerPendingSecondaryUseError> {
     let player_action = validate_player_action(state).map_err(|error| match error {
         PlayerActionValidationError::PlayerNotAdmitted => {
             PlayerPendingSecondaryUseError::PlayerNotAdmitted
@@ -158,8 +139,7 @@ fn validate_buffer_player_secondary_request(
             player.body().foot_position(),
             state.logistics().active_selection(),
             direction,
-        )
-        .with_surface_request(surface_request),
+        ),
     })
 }
 

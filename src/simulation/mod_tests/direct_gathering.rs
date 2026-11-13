@@ -47,15 +47,13 @@ fn full_carrying_capacity_rejects_explicit_and_empty_hand_gathering_before_queue
     )
     .unwrap();
     let before = state.clone();
-    let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
     let requested = Mass::from_milligrams(100_000);
 
     let explicit = advance_control_tick_with_direct_input(
         &registries,
         &mut state,
-        PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::gather_surface(
-            resource, requested, direction,
-        )),
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::gather_surface(resource, requested)),
     )
     .unwrap();
     assert_eq!(
@@ -72,6 +70,7 @@ fn full_carrying_capacity_rejects_explicit_and_empty_hand_gathering_before_queue
     assert!(state.logistics().pending_secondary_use().is_none());
     assert_eq!(state.player_work().active(), None);
 
+    let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
     let contextual = advance_control_tick_with_direct_input(
         &registries,
         &mut state,
@@ -142,9 +141,8 @@ fn hot_natural_gathering_is_reported_on_the_input_frame_without_buffering() {
     let result = advance_control_tick_with_direct_input(
         &registries,
         &mut explicit,
-        PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::gather_surface(
-            resource, mass, direction,
-        )),
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::gather_surface(resource, mass)),
     )
     .unwrap();
     let expected =
@@ -225,15 +223,15 @@ fn explicit_direct_gathering_starts_named_food_source_and_replays_completion() {
         .unwrap()
         .id();
     let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
-    let zero =
-        advance_control_tick_with_direct_input(
-            &registries,
-            &mut state,
-            PlayerDirectControlInput::NEUTRAL.with_secondary(
-                SecondaryControlIntent::gather_surface(berry_source, Mass::ZERO, direction),
-            ),
-        )
-        .unwrap();
+    let zero = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::gather_surface(
+            berry_source,
+            Mass::ZERO,
+        )),
+    )
+    .unwrap();
     assert_eq!(
         zero.secondary_action(),
         Some(&SecondaryActionOutcome::SurfaceGatheringRejected(
@@ -248,7 +246,6 @@ fn explicit_direct_gathering_starts_named_food_source_and_replays_completion() {
         PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::gather_surface(
             missing,
             Mass::from_milligrams(100_000),
-            direction,
         )),
     )
     .unwrap();
@@ -262,15 +259,15 @@ fn explicit_direct_gathering_starts_named_food_source_and_replays_completion() {
     // Impossible requests are rejected on the input frame, without first
     // queueing a slow-boundary action and making the player wait for an error.
     let oversized = Mass::from_milligrams(1_000_001);
-    let oversized_result =
-        advance_control_tick_with_direct_input(
-            &registries,
-            &mut state,
-            PlayerDirectControlInput::NEUTRAL.with_secondary(
-                SecondaryControlIntent::gather_surface(berry_source, oversized, direction),
-            ),
-        )
-        .unwrap();
+    let oversized_result = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::gather_surface(
+            berry_source,
+            oversized,
+        )),
+    )
+    .unwrap();
     assert_eq!(
         oversized_result.secondary_action(),
         Some(&SecondaryActionOutcome::SurfaceGatheringRejected(
@@ -286,7 +283,7 @@ fn explicit_direct_gathering_starts_named_food_source_and_replays_completion() {
         &registries,
         &mut state,
         PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::gather_surface(
-            nut_source, shortfall, direction,
+            nut_source, shortfall,
         )),
     )
     .unwrap();
@@ -315,9 +312,8 @@ fn explicit_direct_gathering_starts_named_food_source_and_replays_completion() {
     let first = advance_control_tick_with_direct_input(
         &registries,
         &mut state,
-        PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::gather_surface(
-            nut_source, portion, direction,
-        )),
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::gather_surface(nut_source, portion)),
     )
     .unwrap();
     assert!(matches!(
@@ -332,15 +328,15 @@ fn explicit_direct_gathering_starts_named_food_source_and_replays_completion() {
         .unwrap()
         .reserved_inbound();
     assert_eq!(reserved, portion);
-    let held =
-        advance_control_tick_with_direct_input(
-            &registries,
-            &mut state,
-            PlayerDirectControlInput::NEUTRAL.with_secondary(
-                SecondaryControlIntent::gather_surface(berry_source, portion, direction),
-            ),
-        )
-        .unwrap();
+    let held = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::gather_surface(
+            berry_source,
+            portion,
+        )),
+    )
+    .unwrap();
     assert_eq!(
         held.secondary_action(),
         None,
@@ -398,14 +394,12 @@ fn explicit_gathering_rejects_unadmitted_player_without_mutating_resources() {
     let registries = build_registries();
     let mut state = AppState::new();
     let original = state.clone();
-    let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
     let outcome = advance_control_tick_with_direct_input(
         &registries,
         &mut state,
         PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::gather_surface(
             SurfaceResourceId::new(1),
             Mass::from_milligrams(100_000),
-            direction,
         )),
     )
     .unwrap();
@@ -445,8 +439,7 @@ fn simultaneous_drop_and_gather_does_not_start_work() {
         .carried_stockpile();
     let source = state.available_surface_resources().next().unwrap().id();
     let matter_before = calculate_matter_accounting(&state).unwrap().total();
-    let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
-    let action = SecondaryControlIntent::gather_surface(source, mass, direction);
+    let action = SecondaryControlIntent::gather_surface(source, mass);
     let control = advance_control_tick_with_direct_input(
         &registries,
         &mut state,
