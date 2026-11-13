@@ -4,10 +4,7 @@
 //! failures target canonical execution and stable required-input contracts.
 
 use super::configuration::MaintainedAnchor;
-use super::report::{
-    EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioReport,
-    StructuralPreference,
-};
+use super::report::ScenarioReport;
 use deep_hearth::maintenance::MaintenanceBand;
 
 pub(super) fn assert_scenario_contracts(reports: &[ScenarioReport]) {
@@ -65,53 +62,6 @@ pub(super) fn assert_anchor_diversity(reports: &[(MaintainedAnchor, ScenarioRepo
         "maintained gameplay anchors must include at least one workshop episode that reaches the hidden controlled world-change event"
     );
 
-    for (name, preference) in [
-        ("reserve-conserving", PowerPreference::PreserveReserve),
-        ("completion-time", PowerPreference::FinishSooner),
-    ] {
-        assert!(
-            reports
-                .iter()
-                .any(|(_, report)| report.policy.power_preference == preference),
-            "maintained gameplay anchors are missing the {name} player priority"
-        );
-    }
-    for preference in [
-        EnergyRecoveryPreference::ProtectSurvival,
-        EnergyRecoveryPreference::SpendSurvivalReserve,
-    ] {
-        assert!(
-            reports
-                .iter()
-                .any(|(_, report)| report.policy.energy_recovery_preference == preference),
-            "maintained gameplay anchors are missing the {} manual-energy recovery policy",
-            preference.label(),
-        );
-    }
-    for preference in [
-        MaintenancePreference::ServiceAtWarning,
-        MaintenancePreference::ServiceAtCritical,
-    ] {
-        assert!(
-            reports
-                .iter()
-                .any(|(_, report)| report.policy.maintenance_preference == preference),
-            "maintained gameplay anchors are missing the {} maintenance policy",
-            preference.label(),
-        );
-    }
-    for preference in [
-        StructuralPreference::PreserveMargin,
-        StructuralPreference::MoveOnlyForFailure,
-    ] {
-        assert!(
-            reports
-                .iter()
-                .any(|(_, report)| report.policy.structural_preference == preference),
-            "maintained gameplay anchors are missing the {} structural policy",
-            preference.label(),
-        );
-    }
     for band in [
         MaintenanceBand::Normal,
         MaintenanceBand::Warning,
@@ -143,11 +93,6 @@ pub(super) fn assert_anchor_diversity(reports: &[(MaintainedAnchor, ScenarioRepo
         condition_pressure.inputs.initial_maintenance_band,
         MaintenanceBand::Warning,
         "maintained condition-pressure anchor must start just above the authored Critical boundary"
-    );
-    assert_eq!(
-        condition_pressure.policy.maintenance_preference,
-        MaintenancePreference::ServiceAtCritical,
-        "condition-pressure anchor must allow condition-safe batch adaptation before preventive service"
     );
     assert!(
         condition_pressure

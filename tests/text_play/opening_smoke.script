@@ -1,0 +1,22 @@
+# Maintained text-play smoke script for seed 24318.
+#
+# This file is the shared script an automated probe and a human reviewer both run:
+#
+#   cargo run --locked --bin text-play -- --seed 24318 --script tests/text_play/opening_smoke.script
+#
+# It only issues ordinary player commands; the adapter fails with the offending line number if the
+# command surface or the opening world regresses. Keep it short and free of pre-coded opinions about
+# what a player "should" want, so it stays a boundary check rather than a scripted policy.
+
+look
+status
+inventory
+# Walk east to the visible berry bush, braking after the crossing as the real client requires.
+e 20
+wait 10
+look
+# Gather a bounded handful and finish the work interval.
+gather 1 250
+wait work
+inventory
+status

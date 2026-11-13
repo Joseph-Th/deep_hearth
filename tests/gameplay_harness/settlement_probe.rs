@@ -44,7 +44,6 @@ use super::settlement_demand::organic_lumber_batches;
 use super::settlement_generation::{
     SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES as SETTLEMENT_OPPORTUNITY_BATCHES,
     crossover_workloads, organic_followup_lumber_batches, organic_inherited_equipment_condition,
-    organic_investment_policy,
 };
 use super::settlement_power_planning::project_manual_power_workload;
 use super::workshop_craft_planning::manual_craft_plan_with_available_equipment;
@@ -160,15 +159,8 @@ fn discover_player_lumber_mechanization(
 #[path = "settlement_probe/lumber_followup.rs"]
 mod lumber_followup;
 
-fn investment_policy(case: FocusedProbeCase) -> CapitalInvestmentPolicy {
-    match case.role() {
-        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => {
-            CapitalInvestmentPolicy::baseline()
-        }
-        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
-            organic_investment_policy(case.required_behavior_seed("settlement investment policy"))
-        }
-    }
+fn investment_policy() -> CapitalInvestmentPolicy {
+    CapitalInvestmentPolicy::baseline()
 }
 
 impl LumberInvestmentChoice {
@@ -523,7 +515,7 @@ fn baseline_lumber_crossover_batches(
 
 pub(super) fn run_settlement_probe(registries: &Registries, case: FocusedProbeCase) {
     let authored_route = authored_lumber_mechanization(registries);
-    let investment_policy = investment_policy(case);
+    let investment_policy = investment_policy();
     let batch = authored_batch(
         registries,
         authored_route.powered_process,

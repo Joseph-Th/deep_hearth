@@ -81,8 +81,6 @@ to reshape a module without an identified ownership or maintenance cost.
   power and maintenance decisions.
 - `python ci.py report --scope liberation`: **PASS**, observed primitive
   assembly versus manual-work decisions.
-- `python ci.py report --scope agency`: **PASS**, power, survival,
-  maintenance and structure counterfactuals.
 - `python ci.py report --scope foundry`: **PASS**, bounded melting/casting
   and retained-feed recovery.
 - `python ci.py report --scope all`: **PASS**, the combined generated-world,

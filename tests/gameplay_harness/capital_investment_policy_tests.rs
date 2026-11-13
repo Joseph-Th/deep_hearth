@@ -1,42 +1,18 @@
-//! Cross-scope contracts for the shared capital-investment attention-return policy.
+//! Cross-scope contracts for the shared capital-investment attention-return criterion.
 
 use super::capital_investment_crossover::first_attention_return_crossover;
 use super::capital_investment_policy::{CapitalInvestmentPolicy, clears_attention_return};
 
 #[test]
-fn organic_policy_varies_investment_tolerance_without_changing_the_baseline() {
-    let baseline = CapitalInvestmentPolicy::baseline();
-    let eager = CapitalInvestmentPolicy::from_behavior_seed(0);
-    let cautious = CapitalInvestmentPolicy::from_behavior_seed(100_000);
+fn capital_return_floor_is_one_fixed_disclosed_criterion() {
+    let policy = CapitalInvestmentPolicy::baseline();
 
-    assert_eq!(CapitalInvestmentPolicy::organic_bounds(), [eager, cautious]);
-    assert!(eager.minimum_return_ppm() < baseline.minimum_return_ppm());
-    assert!(baseline.minimum_return_ppm() < cautious.minimum_return_ppm());
-    assert!(eager.minimum_attention_return(100, 300) < baseline.minimum_attention_return(100, 300));
-    assert!(
-        baseline.minimum_attention_return(100, 300) < cautious.minimum_attention_return(100, 300)
+    assert_eq!(policy.minimum_return_ppm(), 200_000);
+    assert_eq!(policy.minimum_attention_return(100, 300), 40);
+    assert_eq!(
+        policy.minimum_return_ppm(),
+        CapitalInvestmentPolicy::baseline().minimum_return_ppm()
     );
-}
-
-#[test]
-fn identical_economics_can_produce_different_actor_investment_choices() {
-    let incumbent_attention = 500;
-    let candidate_attention = 460;
-    let incumbent_setup = 100;
-    let candidate_setup = 300;
-    let eager = CapitalInvestmentPolicy::from_behavior_seed(0);
-    let cautious = CapitalInvestmentPolicy::from_behavior_seed(100_000);
-
-    assert!(clears_attention_return(
-        incumbent_attention,
-        candidate_attention,
-        eager.minimum_attention_return(incumbent_setup, candidate_setup),
-    ));
-    assert!(!clears_attention_return(
-        incumbent_attention,
-        candidate_attention,
-        cautious.minimum_attention_return(incumbent_setup, candidate_setup),
-    ));
 }
 
 #[test]

@@ -97,7 +97,7 @@ Text-play instructions: [`TEXT_PLAY.md`](TEXT_PLAY.md).
 
 Each gameplay scope owns a focused probe; generator/policy/owner tests live in `<scope>_contracts` targets. `run_test.py` resolves exact/suite selectors build-free through `tools/gameplay_targets.py`. Reports stay out of gates. `gate --gameplay contracts` is cross-scope; `audit --gameplay` already includes it and owner contracts, so do not stack them.
 
-Focused gates add one fresh organic case; broad audits rotate one through one scope. Reports own wider exploration and failures print replay roots. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns actor/evidence rules.
+Focused gates add one fresh organic case; broad audits rotate one through one scope. Failures print replay roots. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns evidence rules.
 
 ## Completion
 

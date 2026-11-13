@@ -72,13 +72,12 @@ fn explicit_gate_variation_changes_real_world_pressure_not_only_a_replay_label()
 }
 
 #[test]
-fn world_seed_never_changes_player_policy() {
+fn world_seed_never_changes_the_disclosed_player_policy() {
     let registries = build_registries();
     let first = ScenarioVariation::from_seeds(&registries, 0x1234, 0xCAFE, None);
     let second = ScenarioVariation::from_seeds(&registries, 0x5678, 0xCAFE, None);
 
     assert_eq!(first.behavior_seed, second.behavior_seed);
-    assert_eq!(first.policy, second.policy);
 }
 
 #[test]

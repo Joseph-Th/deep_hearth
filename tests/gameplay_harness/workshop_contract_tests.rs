@@ -44,7 +44,6 @@ fn maintained_variation(
 
 #[test]
 fn short_warning_order_defers_service_until_safe_completion() {
-    use super::report::MaintenancePreference;
     use deep_hearth::content::EQUIPMENT_JAW_CRUSHER;
     use deep_hearth::maintenance::MaintenanceBand;
 
@@ -53,8 +52,7 @@ fn short_warning_order_defers_service_until_safe_completion() {
         .equipment()
         .get_equipment(EQUIPMENT_JAW_CRUSHER)
         .unwrap_or_else(|| panic!("authored crusher disappeared"));
-    let mut variation = maintained_variation(&registries, MaintainedAnchor::WarningMaintenance);
-    variation.policy.maintenance_preference = MaintenancePreference::ServiceAtWarning;
+    let variation = maintained_variation(&registries, MaintainedAnchor::WarningMaintenance);
     let profile = definition
         .maintenance_profile()
         .unwrap_or_else(|| panic!("authored service disappeared"));
@@ -92,12 +90,12 @@ fn short_warning_order_defers_service_until_safe_completion() {
     assert_eq!(report.maintenance.critical_services, 0);
     assert_eq!(report.maintenance.replacement_spent, Mass::ZERO);
     assert_eq!(
-        report.maintenance.warning_deferrals, report.progress.operations_completed,
-        "warning policy must defer service at every completed safe batch"
+        report.maintenance.warning_deferrals, 0,
+        "the fixed policy never defers a warning-band service it never planned"
     );
     assert_eq!(
         report.maintenance.service_ticks, 0,
-        "deferral policy must not pay authored service time during the order"
+        "deferral must not pay authored service time during the order"
     );
     let thresholds = definition.maintenance_thresholds();
     let critical = thresholds.critical_below().parts_per_million();
@@ -109,52 +107,30 @@ fn short_warning_order_defers_service_until_safe_completion() {
 }
 
 #[test]
-fn warning_service_prevents_condition_limited_batching_when_order_outlasts_safe_horizon() {
-    use super::report::MaintenancePreference;
+fn warning_band_pressure_finishes_the_order_above_the_critical_floor() {
     use deep_hearth::maintenance::MaintenanceBand;
 
     let registries = build_registries();
-    let mut warning = maintained_variation(&registries, MaintainedAnchor::ConditionPressure);
-    warning.policy.maintenance_preference = MaintenancePreference::ServiceAtWarning;
-    let warning_report = workshop::runner::run_scenario(&registries, warning, None);
-
-    let mut critical_only = warning;
-    critical_only.policy.maintenance_preference = MaintenancePreference::ServiceAtCritical;
-    let critical_report = workshop::runner::run_scenario(&registries, critical_only, None);
+    let variation = maintained_variation(&registries, MaintainedAnchor::ConditionPressure);
+    let report = workshop::runner::run_scenario(&registries, variation, None);
 
     assert_eq!(
-        warning_report.inputs.initial_maintenance_band,
+        report.inputs.initial_maintenance_band,
         MaintenanceBand::Warning
     );
-    assert_eq!(
-        warning_report.progress.processed_mass,
-        warning.ore.order_mass
-    );
-    assert_eq!(
-        critical_report.progress.processed_mass,
-        warning.ore.order_mass
-    );
-    assert_eq!(warning_report.maintenance.services, 1);
-    assert_eq!(critical_report.maintenance.services, 1);
-    assert_eq!(
-        warning_report.progress.condition_adaptive_batch_operations, 0,
-        "preventive warning service must avoid condition-limited batch shrinking"
-    );
+    assert_eq!(report.progress.processed_mass, variation.ore.order_mass);
+    assert_eq!(report.maintenance.services, 1);
     assert!(
-        critical_report.progress.condition_adaptive_batch_operations > 0,
-        "critical-only policy must expose the near-critical condition pressure before service"
+        report.progress.condition_adaptive_batch_operations > 0,
+        "near-critical condition pressure must stay visible as condition-driven batch adaptation before service"
     );
-    assert!(warning_report.maintenance.replacement_spent > Mass::ZERO);
+    assert!(report.maintenance.replacement_spent > Mass::ZERO);
 }
 
 fn warning_workshop_with_one_stored_batch(
     registries: &deep_hearth::registry::Registries,
 ) -> scenario::ScenarioVariation {
-    use super::report::{EnergyRecoveryPreference, MaintenancePreference};
-
     let mut variation = maintained_variation(registries, MaintainedAnchor::WarningMaintenance);
-    variation.policy.maintenance_preference = MaintenancePreference::ServiceAtWarning;
-    variation.policy.energy_recovery_preference = EnergyRecoveryPreference::ProtectSurvival;
     variation.ore.order_mass = variation
         .ore
         .nominal_batch_mass
@@ -235,34 +211,14 @@ fn depleted_warning_workshop_preserves_stock_when_recharge_is_declined() {
 
 #[test]
 fn energy_shortfall_does_not_manufacture_warning_service_costs() {
-    use super::report::MaintenancePreference;
-
     let registries = build_registries();
-    let mut variation = warning_workshop_with_one_stored_batch(&registries);
-    let warning = workshop::runner::run_scenario(&registries, variation, None);
-    variation.policy.maintenance_preference = MaintenancePreference::ServiceAtCritical;
-    let critical_only = workshop::runner::run_scenario(&registries, variation, None);
+    let variation = warning_workshop_with_one_stored_batch(&registries);
+    let report = workshop::runner::run_scenario(&registries, variation, None);
 
-    assert_eq!(warning.progress.processed_mass, variation.ore.order_mass);
-    assert!(warning.choices.manual_recharges > 0);
-    assert_eq!(warning.maintenance.services, 0);
-    assert_eq!(warning.maintenance.replacement_spent, Mass::ZERO);
-    assert_eq!(
-        warning.progress.processed_mass,
-        critical_only.progress.processed_mass
-    );
-    assert_eq!(
-        warning.resources.episode_end_tick,
-        critical_only.resources.episode_end_tick
-    );
-    assert_eq!(
-        warning.resources.final_condition_ppm,
-        critical_only.resources.final_condition_ppm
-    );
-    assert_eq!(
-        warning.resources.maintenance_stock_remaining,
-        critical_only.resources.maintenance_stock_remaining
-    );
+    assert_eq!(report.progress.processed_mass, variation.ore.order_mass);
+    assert!(report.choices.manual_recharges > 0);
+    assert_eq!(report.maintenance.services, 0);
+    assert_eq!(report.maintenance.replacement_spent, Mass::ZERO);
 }
 
 #[test]

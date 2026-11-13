@@ -5,15 +5,6 @@
     reason = "contract-only crate reuses workshop modules whose lived-probe entrypoints belong to the focused target"
 )]
 
-macro_rules! include_agency_contract_tests {
-    () => {
-        #[path = "agency_contract_tests.rs"]
-        mod contract_tests;
-    };
-}
-
-#[path = "gameplay_harness/agency.rs"]
-mod agency;
 #[path = "gameplay_harness/capability_boundary.rs"]
 mod capability_boundary;
 #[path = "gameplay_harness/configuration.rs"]

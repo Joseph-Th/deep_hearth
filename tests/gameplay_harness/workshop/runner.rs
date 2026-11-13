@@ -175,7 +175,7 @@ fn prepare_episode(registries: &Registries, variation: ScenarioVariation) -> Wor
         "reinforced"
     };
     println!(
-        "\nSCENARIO world=0x{:016X} behavior=0x{:016X} ore=[copper:{}ppm gangue-clay-share:{}ppm] order={}mg nominal_batch={}mg crusher={}ppm controller_event=[tick:{} mass:{}mg target:{} actor_visibility:hidden] policy=[power:{} recovery:{} maintenance:{} structure:{}] stored_work=[small:{}+{}ppm nominal-batches, high-power:{}+{}ppm nominal-batches] maintenance=[units:{} replacement:{}mg target:{}ppm]",
+        "\nSCENARIO world=0x{:016X} behavior=0x{:016X} ore=[copper:{}ppm gangue-clay-share:{}ppm] order={}mg nominal_batch={}mg crusher={}ppm controller_event=[tick:{} mass:{}mg target:{} actor_visibility:hidden] stored_work=[small:{}+{}ppm nominal-batches, high-power:{}+{}ppm nominal-batches] maintenance=[units:{} replacement:{}mg target:{}ppm]",
         variation.world_seed,
         variation.behavior_seed,
         variation.ore.ore_copper_ppm,
@@ -189,10 +189,6 @@ fn prepare_episode(registries: &Registries, variation: ScenarioVariation) -> Wor
         variation.delivery.delivery_at_tick,
         variation.delivery.mass.milligrams(),
         delivery_target,
-        variation.policy.power_preference.label(),
-        variation.policy.energy_recovery_preference.label(),
-        variation.policy.maintenance_preference.label(),
-        variation.policy.structural_preference.label(),
         variation.crusher.small_drive_batch_budget,
         variation.crusher.small_drive_partial_batch_ppm,
         variation.crusher.large_drive_batch_budget,
@@ -245,7 +241,6 @@ enum BatchSelection {
 const PRE_BATCH_TRANSITION_LIMIT: u64 = 3;
 
 struct BatchSelectionContext<'a> {
-    policy: ScenarioPolicyVariation,
     nominal_batch_mass: Mass,
     state: &'a mut AppState,
     ids: WorkshopIds,
@@ -279,13 +274,7 @@ fn attempt_manual_recovery(
     controller: &mut ControlledDeliveryRuntime<'_>,
     planned_mass: Mass,
 ) -> PreBatchTransition {
-    match largest_manual_recovery(
-        registries,
-        &*context.state,
-        context.ids,
-        planned_mass,
-        context.policy.energy_recovery_preference,
-    ) {
+    match largest_manual_recovery(registries, &*context.state, context.ids, planned_mass) {
         ManualRecoverySearch::Available {
             mass,
             option,
@@ -300,7 +289,6 @@ fn attempt_manual_recovery(
                 );
             }
             let mut actor = ScenarioActorRuntime::new(
-                context.policy,
                 context.nominal_batch_mass,
                 &mut *context.current_support,
                 &mut *context.alternate_support,
@@ -404,7 +392,6 @@ fn choose_powered_batch(
         large,
         CrushChoiceContext {
             thresholds: context.thresholds,
-            preference: context.policy.power_preference,
         },
     );
     SelectedBatch {
@@ -433,17 +420,10 @@ fn select_next_batch(
         ) {
             return BatchSelection::MaintenanceActive;
         }
-        let warning_plan = warning_demand_plan(registries, &context);
-        let defer_warning = !matches!(warning_plan, WarningDemandPlan::EvaluateMaintenance);
-        match handle_pre_batch_maintenance(registries, &mut context, defer_warning) {
+        match handle_pre_batch_maintenance(registries, &mut context) {
             PreBatchTransition::Proceed => {}
             PreBatchTransition::Retry => continue,
             PreBatchTransition::Stop => return BatchSelection::Stop,
-        }
-
-        if let WarningDemandPlan::ExecuteBatch(plan) = warning_plan {
-            context.report.maintenance.warning_deferrals += 1;
-            return BatchSelection::Ready(plan);
         }
         let remaining = context
             .report
@@ -504,7 +484,6 @@ fn select_episode_batch(registries: &Registries, episode: &mut WorkshopEpisode) 
     select_next_batch(
         registries,
         BatchSelectionContext {
-            policy: episode.variation.policy,
             nominal_batch_mass: episode.variation.ore.nominal_batch_mass,
             state: &mut episode.state,
             ids: episode.ids,
@@ -537,7 +516,6 @@ fn apply_due_delivery(registries: &Registries, episode: &mut WorkshopEpisode) ->
         authorization: &mut episode.delivery_authorization,
     };
     let mut actor = ScenarioActorRuntime::new(
-        episode.variation.policy,
         episode.variation.ore.nominal_batch_mass,
         &mut episode.current_support,
         &mut episode.alternate_support,
@@ -592,7 +570,6 @@ fn advance_active_maintenance(registries: &Registries, episode: &mut WorkshopEpi
         assert_eq!(completion.equipment(), episode.ids.crusher);
         if episode.report.progress.delivery_applied {
             let mut actor = ScenarioActorRuntime::new(
-                episode.variation.policy,
                 episode.variation.ore.nominal_batch_mass,
                 &mut episode.current_support,
                 &mut episode.alternate_support,
@@ -696,7 +673,6 @@ fn execute_selected_batch(
             authorization: &mut episode.delivery_authorization,
         };
         let mut actor = ScenarioActorRuntime::new(
-            episode.variation.policy,
             episode.variation.ore.nominal_batch_mass,
             &mut episode.current_support,
             &mut episode.alternate_support,
@@ -775,7 +751,6 @@ fn observe_episode(
             authorization: &mut episode.delivery_authorization,
         };
         let mut actor = ScenarioActorRuntime::new(
-            episode.variation.policy,
             episode.variation.ore.nominal_batch_mass,
             &mut episode.current_support,
             &mut episode.alternate_support,

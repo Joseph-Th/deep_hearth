@@ -52,3 +52,21 @@ fn scripted_quit_is_a_successful_stop_not_a_command_error() {
             .contains("control 1 | simulation 0")
     );
 }
+
+/// Drives the maintained opening script through the same `play_script` path `--script` uses.
+///
+/// The file is checked in so a reviewer can run the identical commands by hand. Rejection of any
+/// line is a real regression in either the command surface or the opening world, not a script bug.
+#[test]
+fn maintained_opening_script_executes_end_to_end_on_its_seed() {
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/text_play/opening_smoke.script");
+    let mut session = Session::new(24318).unwrap();
+    play_script(&mut session, &path)
+        .unwrap_or_else(|error| panic!("maintained opening script failed: {error}"));
+    let (status, _) = session.command("status").unwrap();
+    assert!(
+        status.contains("control "),
+        "opening script left the session without a control clock: {status}"
+    );
+}

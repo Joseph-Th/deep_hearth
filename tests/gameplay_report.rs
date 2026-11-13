@@ -5,8 +5,6 @@
 #[path = "gameplay_harness/output.rs"]
 mod output;
 
-#[path = "gameplay_harness/agency.rs"]
-mod agency;
 #[path = "gameplay_harness/bulk_fieldwork_workload.rs"]
 mod bulk_fieldwork_workload;
 #[path = "gameplay_harness/capability_boundary.rs"]
@@ -322,10 +320,9 @@ fn main() {
     );
 
     std::println!(
-        "EVALUATION SCOPE kind=controlled-capability evidence=isolated-system-behavior probes=[industrial-workshop,agency,ore-preparation,foundry] ordinary-reachability=false reachability-authority=STATUS.md"
+        "EVALUATION SCOPE kind=controlled-capability evidence=isolated-system-behavior probes=[industrial-workshop,ore-preparation,foundry] ordinary-reachability=false reachability-authority=STATUS.md"
     );
     workshop::run_gameplay_harness(ScenarioPlanMode::Explore);
-    agency::run_exploratory_agency_counterfactuals();
     run_focused_probe_with_registries(
         &registries,
         "ore-preparation",

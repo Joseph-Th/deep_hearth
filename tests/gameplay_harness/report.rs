@@ -5,79 +5,10 @@ use deep_hearth::maintenance::MaintenanceBand;
 
 use super::scenario::ScenarioVariation;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum PowerPreference {
-    PreserveReserve,
-    FinishSooner,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum EnergyRecoveryPreference {
-    ProtectSurvival,
-    SpendSurvivalReserve,
-}
-
-impl EnergyRecoveryPreference {
-    pub(super) const fn label(self) -> &'static str {
-        match self {
-            Self::ProtectSurvival => "protect-survival",
-            Self::SpendSurvivalReserve => "spend-survival-reserve",
-        }
-    }
-}
-
-impl PowerPreference {
-    pub(super) const fn label(self) -> &'static str {
-        match self {
-            Self::PreserveReserve => "preserve-reserve",
-            Self::FinishSooner => "finish-sooner",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum MaintenancePreference {
-    ServiceAtWarning,
-    ServiceAtCritical,
-}
-
-impl MaintenancePreference {
-    pub(super) const fn label(self) -> &'static str {
-        match self {
-            Self::ServiceAtWarning => "service-warning-demand-aware",
-            Self::ServiceAtCritical => "service-critical",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum StructuralPreference {
-    PreserveMargin,
-    MoveOnlyForFailure,
-}
-
-impl StructuralPreference {
-    pub(super) const fn label(self) -> &'static str {
-        match self {
-            Self::PreserveMargin => "preserve-margin",
-            Self::MoveOnlyForFailure => "failure-only",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct ScenarioPolicyVariation {
-    pub(super) power_preference: PowerPreference,
-    pub(super) energy_recovery_preference: EnergyRecoveryPreference,
-    pub(super) maintenance_preference: MaintenancePreference,
-    pub(super) structural_preference: StructuralPreference,
-}
-
 #[derive(Clone, Copy, Debug)]
 pub(super) struct ScenarioReport {
     pub(super) world_seed: u64,
     pub(super) behavior_seed: u64,
-    pub(super) policy: ScenarioPolicyVariation,
     pub(super) inputs: ScenarioInputReport,
     pub(super) structure: ScenarioStructureReport,
     pub(super) choices: ScenarioChoiceReport,
@@ -95,7 +26,6 @@ impl ScenarioReport {
         Self {
             world_seed: variation.world_seed,
             behavior_seed: variation.behavior_seed,
-            policy: variation.policy,
             inputs: ScenarioInputReport {
                 ore_copper_ppm: variation.ore.ore_copper_ppm,
                 gangue_clay_share_ppm: variation.ore.gangue_clay_share_ppm,

@@ -230,13 +230,6 @@ pub(super) fn adapt_after_delivery(
     }
 
     if after.stage() == StructuralStage::Cracking || after.stage() == StructuralStage::Strained {
-        if actor.policy.structural_preference == StructuralPreference::MoveOnlyForFailure {
-            println!(
-                "  decision: remain on current support at {}; player policy moves equipment only when support actually fails",
-                structural_label(after)
-            );
-            return;
-        }
         let alternate = match validate_relocate_equipment(
             registries,
             state,

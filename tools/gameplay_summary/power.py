@@ -486,10 +486,9 @@ def _settlement_evidence(settlement: list[str], projects: list[str]) -> str:
         settlement, r"pristine-rate-break-even:(\d+)charges"
     )
     market_regimes = _market_regime_counts(settlement)
+    # The harness runs one fixed settlement copper rule; keep the label so the transcript says
+    # which rule produced these physical outcomes rather than implying a sampled preference.
     spend_copper = sum(" copper-policy:spend-available " in line for line in settlement)
-    preserve_copper = sum(
-        " copper-policy:preserve-for-other-uses " in line for line in settlement
-    )
     lifecycle = _lifecycle_values(settlement, "treadle", "walking-wheel")
     executed_cycles, projected_horizons, consumer_ticks, second_charge_pairs = (
         _productive_cycle_values(
@@ -524,7 +523,7 @@ def _settlement_evidence(settlement: list[str], projects: list[str]) -> str:
         f"share:{_span(lived['maintenance_active_share_percent'], '%')} "
         f"provisioning:{_span(lived['provisioning_stops'])} "
         f"drinks:{_span(lived['drink_actions'])} meals:{_span(lived['meal_actions'])}] "
-        f"settlement-copper-policy=[spend:{spend_copper} preserve:{preserve_copper}] "
+        f"settlement-copper-rule=[spend-available:{spend_copper}] "
         f"settlement-scale=[charges:{_span(charge_events)} "
         f"treadle:{_span(treadle_thresholds)} wheel:{_span(walking_thresholds)}] "
         f"settlement-regimes={_span(market_regimes)} "

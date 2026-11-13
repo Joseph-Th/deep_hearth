@@ -62,7 +62,7 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 
 | Surface | Evaluated capability |
 | --- | --- |
-| Workshop | Industrial machinery under finite stored work, survival pressure, wear, maintenance, support, suspension, recovery, and actor policy. |
+| Workshop | Industrial machinery under finite stored work, survival pressure, wear, maintenance, support, suspension, and recovery. |
 | Ore preparation | Finite crushing, grinding, concentration and cassiterite/galena tailings scavenging. Magnetite needs an electric separator; deep mining and transport remain player work. |
 | Foundry | Industrial copper heating, melting, casting, remelting, finite energy, phase boundaries, heat recovery, and sink loss. |
 

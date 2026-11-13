@@ -10,10 +10,6 @@ use deep_hearth::structural::{STRUCTURAL_PARTS_PER_MILLION, calculate_weight_for
 
 use super::configuration::MaintainedAnchor;
 use super::equipment_support::nominal_equipment_mass_capability;
-use super::report::{
-    EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioPolicyVariation,
-    StructuralPreference,
-};
 use super::seed::mix64;
 use super::structural_fixture::support_area_for_utilization;
 
@@ -33,7 +29,6 @@ pub(super) struct ScenarioVariation {
     pub(super) crusher: ScenarioCrusherVariation,
     pub(super) structure: ScenarioStructureVariation,
     pub(super) delivery: ScenarioDeliveryVariation,
-    pub(super) policy: ScenarioPolicyVariation,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -222,30 +217,9 @@ impl ScenarioVariation {
             reinforced_target_ppm,
         );
         let delivery_mass = scale_mass(crusher_definition.mass(), 500_000 + (g % 2_500_001) as u32);
-        let behavior_a = mix64(behavior_seed);
-        let behavior_b = mix64(behavior_a);
-        let behavior_c = mix64(behavior_b);
-        let behavior_d = mix64(behavior_c);
-        let power_preference = match behavior_a % 2 {
-            0 => PowerPreference::PreserveReserve,
-            1 => PowerPreference::FinishSooner,
-            _ => unreachable!("modulo two must be exhaustive"),
-        };
-        let maintenance_preference = if behavior_b.is_multiple_of(2) {
-            MaintenancePreference::ServiceAtWarning
-        } else {
-            MaintenancePreference::ServiceAtCritical
-        };
-        let structural_preference = if behavior_c.is_multiple_of(2) {
-            StructuralPreference::PreserveMargin
-        } else {
-            StructuralPreference::MoveOnlyForFailure
-        };
-        let energy_recovery_preference = if behavior_d.is_multiple_of(2) {
-            EnergyRecoveryPreference::ProtectSurvival
-        } else {
-            EnergyRecoveryPreference::SpendSurvivalReserve
-        };
+        // The harness runs one disclosed fixed policy. World entropy still varies the physical
+        // setup, but it no longer invents a player personality whose decisions would have to be
+        // pre-coded here.
         Self {
             world_seed,
             behavior_seed,
@@ -281,12 +255,6 @@ impl ScenarioVariation {
                 mass: delivery_mass,
                 destination_is_compact: i.is_multiple_of(2),
                 delivery_at_tick: 0,
-            },
-            policy: ScenarioPolicyVariation {
-                power_preference,
-                energy_recovery_preference,
-                maintenance_preference,
-                structural_preference,
             },
         }
     }

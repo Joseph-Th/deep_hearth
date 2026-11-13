@@ -12,14 +12,6 @@ from tools.gameplay_summary.fieldwork import fieldwork_summary
 from tools.gameplay_summary.foundry_bootstrap import foundry_bootstrap_summary
 from tools.gameplay_summary.liberation import liberation_summary
 from tools.gameplay_summary.loop import player_loop_evidence
-from tools.gameplay_summary.player_experience import (
-    fieldwork_exact_local_player_experience,
-    fieldwork_player_experience,
-    scavenger_den_player_experience,
-    settlement_portfolio_player_experience,
-    wilderness_player_experience,
-    wilderness_worksite_player_experience,
-)
 from tools.gameplay_summary.power import power_provider_summary
 from tools.gameplay_summary.progression import progression_summary
 from tools.gameplay_summary.settlement import settlement_summary
@@ -359,8 +351,6 @@ def _require_summary_coverage(
                 expected_controlled.update(_EXPECTED_CONTROLLED_BY_PROBE.get(name, ()))
         elif line.startswith("HARNESS INPUT "):
             expected_controlled.add("workshop")
-        elif line.startswith("AGENCY INPUT "):
-            expected_controlled.add("agency")
 
     actual_ordinary = {
         probe
@@ -617,18 +607,6 @@ def _digest_summary(summary: str, *, scoped: bool = False) -> str:
                 summary, ("scenarios", "sample-shape", "orders", "stops", "recovery")
             )
         ).rstrip()
-    if summary.startswith("CONTROLLED SUMMARY probe=agency "):
-        return (
-            "COUNTERFACTUAL probe=agency evidence=counterfactual "
-            + compact_fields(
-                summary,
-                (
-                    "worlds",
-                    "worlds-with-multiple-signatures",
-                    "observed-counterfactual-effects",
-                ),
-            )
-        ).rstrip()
     if summary.startswith("ORE CAPABILITY SUMMARY "):
         return "CAPABILITY probe=ore " + summary.removeprefix("ORE CAPABILITY SUMMARY ")
     if summary.startswith("FOUNDRY CAPABILITY SUMMARY "):
@@ -810,13 +788,6 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
     # Lead with witnessed choices and realized consequences. A long aggregate scorecard
     # should support the player story, not make the reader hunt for it after thousands of
     # characters of counters. Keep separate physical and proxy actors unmistakable.
-    if any(digest.startswith("GAMEPLAY fieldwork") for digest in ordinary_digests):
-        expedition = fieldwork_player_experience(lines)
-        if expedition is not None:
-            selected.append(expedition)
-        local_expedition = fieldwork_exact_local_player_experience(lines)
-        if local_expedition is not None:
-            selected.append(local_expedition)
     # Keep one lived, need-triggered adaptation alongside the opening digest. Aggregate choice
     # counts cannot show whether an initially sensible restraint can later become useful action.
     if any(digest.startswith("GAMEPLAY wilderness ") for digest in ordinary_digests):
@@ -824,27 +795,14 @@ def concise_gameplay_report(stdout: str, environ=None) -> str:
             selected.append(club_contact_witness)
         if scoped_ordinary and industrial_raid_witness is not None:
             selected.append(industrial_raid_witness)
-        opening = wilderness_player_experience(lines)
-        if opening is not None:
-            selected.append(opening)
-        scavenger_den = scavenger_den_player_experience(lines)
-        if scavenger_den is not None:
-            selected.append(scavenger_den)
         if scoped_ordinary and nutrition_witness is not None:
             selected.append(nutrition_witness)
-        worksite = wilderness_worksite_player_experience(lines)
-        if worksite is not None:
-            selected.append(worksite)
         elif scoped_ordinary and casting_bed_witness is not None:
             # The raw witness is still truthful on older isolated test inputs,
             # but it cannot be presented as an earned player tradeoff.
             selected.append(casting_bed_witness)
         # The continued need and matched early-preparation tradeoff are folded into the
         # single maintained player's experience above. Do not duplicate the verbose record.
-    if any(digest.startswith("GAMEPLAY settlement ") for digest in ordinary_digests):
-        portfolio = settlement_portfolio_player_experience(lines)
-        if portfolio is not None:
-            selected.append(portfolio)
     selected.extend(ordinary_digests)
     # The player-loop digest is cross-system evidence. A scoped report intentionally omits
     # unrelated probe families, so synthesizing the loop from partial evidence would fill it with

@@ -36,13 +36,6 @@ macro_rules! include_progression_probe_contract_tests {
     };
 }
 
-macro_rules! include_agency_contract_tests {
-    () => {
-        #[path = "agency_contract_tests.rs"]
-        mod contract_tests;
-    };
-}
-
 macro_rules! include_fieldwork_contract_tests {
     () => {
         #[path = "fieldwork_shortfall_policy_tests.rs"]
@@ -70,8 +63,6 @@ macro_rules! include_survival_probe_contract_tests {
     };
 }
 
-#[path = "gameplay_harness/agency.rs"]
-mod agency;
 #[path = "gameplay_harness/capability_boundary.rs"]
 mod capability_boundary;
 #[path = "gameplay_harness/capital_investment_crossover.rs"]
@@ -339,11 +330,6 @@ fn gameplay_survival_provisioning_probe() {
         "survival-provisioning",
         survival_probe::run_survival_provisioning_probe,
     );
-}
-
-#[test]
-fn gameplay_agency_counterfactuals() {
-    agency::run_gameplay_agency_counterfactuals();
 }
 
 #[test]

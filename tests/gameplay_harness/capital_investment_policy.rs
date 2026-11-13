@@ -1,53 +1,27 @@
-//! Shared actor policy for attention-return floors on physical capital investment.
+//! Fixed attention-return criterion for physical capital investment comparisons.
 
 // Capital should feel like a decisive reduction in future player attention, not a technically
 // positive spreadsheet result. Require the disclosed workload to beat break-even by one fifth of
 // the candidate's extra setup attention. This still permits project-scale specialization while
 // rejecting machinery that consumes substantial material and setup for only a few saved ticks.
-const CAPITAL_MINIMUM_RETURN_PPM: u64 = 200_000;
-const ORGANIC_MINIMUM_RETURN_PPM: u64 = 150_000;
-const ORGANIC_MAXIMUM_RETURN_PPM: u64 = 250_000;
+// One maintained criterion keeps comparison evidence reproducible; the reviewer's own play decides
+// whether a real opportunity is worth taking.
+pub(super) const MINIMUM_CAPITAL_RETURN_PPM: u64 = 200_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct CapitalInvestmentPolicy {
-    minimum_return_ppm: u64,
-}
+pub(super) struct CapitalInvestmentPolicy;
 
 impl CapitalInvestmentPolicy {
     pub(super) const fn baseline() -> Self {
-        Self {
-            minimum_return_ppm: CAPITAL_MINIMUM_RETURN_PPM,
-        }
+        Self
     }
 
     #[allow(
         dead_code,
-        reason = "focused targets may use the shared baseline policy without actor-policy variation"
+        reason = "focused targets use the shared return floor without reading the raw criterion"
     )]
-    pub(super) const fn from_behavior_seed(seed: u64) -> Self {
-        let span = ORGANIC_MAXIMUM_RETURN_PPM - ORGANIC_MINIMUM_RETURN_PPM;
-        Self {
-            minimum_return_ppm: ORGANIC_MINIMUM_RETURN_PPM + seed % (span + 1),
-        }
-    }
-
-    #[allow(
-        dead_code,
-        reason = "only generators that need behavior-independent regime coverage inspect organic policy bounds"
-    )]
-    pub(super) const fn organic_bounds() -> [Self; 2] {
-        [
-            Self {
-                minimum_return_ppm: ORGANIC_MINIMUM_RETURN_PPM,
-            },
-            Self {
-                minimum_return_ppm: ORGANIC_MAXIMUM_RETURN_PPM,
-            },
-        ]
-    }
-
     pub(super) const fn minimum_return_ppm(self) -> u64 {
-        self.minimum_return_ppm
+        MINIMUM_CAPITAL_RETURN_PPM
     }
 
     pub(super) fn minimum_attention_return(
@@ -58,7 +32,7 @@ impl CapitalInvestmentPolicy {
         minimum_attention_return_at(
             incumbent_setup_attention_ticks,
             candidate_setup_attention_ticks,
-            self.minimum_return_ppm,
+            MINIMUM_CAPITAL_RETURN_PPM,
         )
     }
 }

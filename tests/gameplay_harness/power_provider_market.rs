@@ -216,11 +216,6 @@ impl SettlementPowerChoice {
     }
 
     #[cfg(not(test))]
-    pub(super) fn uses_copper(self, registries: &Registries) -> bool {
-        self.provider().uses_copper(registries)
-    }
-
-    #[cfg(not(test))]
     pub(super) const fn label(self) -> &'static str {
         match self {
             Self::StoneCrank => "stone-crank",

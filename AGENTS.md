@@ -4,8 +4,6 @@
 **Profiles:** Universal, Stateful Application, Deterministic System, Automated Behavior Evaluation
 **BCA policy:** ratchet
 
-**Rust agent diagnostics:** advisory. Use bounded, uncertainty-driven commands from [`tools/README.md`](tools/README.md); they are not BCA or completion gates. [`TESTING.md`](TESTING.md) owns verification.
-
 Workspace [`../AGENTS.md`](../AGENTS.md) owns coordination; [`README.md`](README.md) owns project routing.
 
 <!-- workspace-contract:begin (generated from ../AGENTS.md by tools/sync_agent_context.py; edit the source, not this copy) -->
@@ -80,16 +78,20 @@ It returns bounded authority, verification, and likely-source evidence. Tool out
 
 ## Operating protocol
 
-Use the [`README.md`](README.md) task map to resolve `authority / owner / stage / flow / proof`. Search by
-canonical operation or durable identity and widen only for a crossed owner edge or failing proof. Extend the
-existing owner and operation path instead of creating parallel state, legality, or test-only surfaces.
+Use the [`README.md`](README.md) task map to resolve `authority / owner / stage / flow / proof`. Widen only for a crossed owner edge or failing proof. Extend the existing path, never a parallel legality or test surface.
 
 ## Guardrails
 
 - Change consequential behavior only through its authoritative subsystem and canonical operation. Tests, harnesses, and tools reuse production paths.
 - Preserve deterministic continuation, strict trusted-load validation, checked physical arithmetic, typed ownership, and exact represented matter, fluid, and energy accounting.
 - Core systems perform no implicit external IO; adapters own external effects.
-- Remove obsolete code and stale documentation. Do not add compatibility scaffolding, test-only public APIs, fake callers, or broad warning suppressions without an active contract.
+- Remove obsolete code and stale docs. No compatibility scaffolding, test-only public APIs, fake callers, or broad warning suppressions without an active contract.
+
+## Gameplay evaluation
+
+Text play (`src/bin/text_play`; [`TEXT_PLAY.md`](TEXT_PLAY.md)) is the gameplay reviewer. `tests/gameplay_harness/`
+keeps regression duty: probes run fixed disclosed command scripts through production operations, with no player
+personalities or experience evaluators. [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) owns the evidence contract.
 
 ## Completion
 

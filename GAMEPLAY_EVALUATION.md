@@ -28,9 +28,9 @@ Maintain focused owner/contract tests for physics, matter conservation, strict p
 ## Actor contract
 
 After controlled setup, automated actors use the same production resolvers, validators, commits, and simulation
-ticks as ordinary runtime behavior. They may read legitimate observable state, explicit actor policy, and
-canonical production projections. They may not inspect hidden geology, future controlled events, setup
-authorization, or comparison-branch outcomes.
+ticks as ordinary runtime behavior. They may read legitimate observable state and canonical production
+projections. They may not inspect hidden geology, future controlled events, setup authorization, or
+comparison-branch outcomes.
 
 `src/content/gameplay_fixture.rs` owns pre-admission fixture construction and opaque authorization for disclosed
 controlled events. Pre-admission ends when the survival or logistics player is initialized. After that boundary,
@@ -44,10 +44,13 @@ stores are reacquired through exact-local actor observation rather than fixture-
 admission checks require actor-visible local equipment, energy stores, fluid stores, and ground stockpiles to agree
 with the admitted exact-local runtime state; fixture identities may remain only as post-hoc continuity checks.
 
-Actor policy may choose among observable alternatives using attention, material demand, survival reserve,
-throughput, capacity, condition, and acquired evidence. Production owns legality and physics; actor code owns
-candidate generation, ranking, search order, stopping rules, and policy ties. Shared harness helpers may implement
-that evaluation policy but do not gain simulation authority.
+Probes execute a fixed, disclosed command script rather than a pre-coded player personality. Production owns
+legality and physics; the script owns only which legal commands run and in what order, exactly as the text-play
+`--script` mode does. There is no behavior-seed persona: the same world and script produce the same commands.
+Where a probe must compare alternatives, it executes one disclosed rule for both branches and reports the
+measured physical divergence. Choosing what a real player would do is the reviewer's job in text play, not the
+harness's.
+
 
 Controlled setup owns scenario pressure, not copied game facts. Auxiliary fixture capacities that are not the
 pressure under evaluation derive from the disclosed finite resource/workload envelope or authored definitions;
@@ -96,11 +99,13 @@ Material choices use one bounded decision frame:
 
 ```text
 observable state -> bounded candidates -> production resolution/blocker
-                 -> actor policy -> selected action or explicit no-action
+                 -> fixed script step -> selected action or explicit no-action
                  -> typed result -> later feedback
 ```
 
-Candidate sets must state what their absence means. An exhaustive search over a declared observable domain may
+The script step is a literal command (`gather 3 300`, `craft 99`, `wait work`, …), not a scoring
+function that impersonates a player. Candidate sets must state what their absence means. An exhaustive
+search over a declared observable domain may
 support “no candidate in that domain now.” Budgeted, sampled, heuristic, or truncated search supports only the
 bounded search result. Preserve the search bound or continuation in diagnostics.
 
@@ -180,7 +185,7 @@ urgent response, so routine preparation and emergency recovery remain distinct e
 | Ordinary/runtime, exact-local | focused `survival`, `primitive-liberation`, `woodworking`, `power-provider`, `settlement`, `foundry-bootstrap` | Automated-player outcomes after disclosed starting-state setup, using ordinary production/acquisition operations and the same logistics-locality admission used by the runtime. This does not establish a missing world-source generation/acquisition edge. |
 | Ordinary-system spatial proxy | focused `progression`; report `fieldwork` | The full scopes still contain campaigns whose movement is intentionally abstracted. Their spatial-proxy episodes omit a logistics player and support knowledge/tool/resource-loop conclusions only. Separate paired exact-local witnesses may validate bounded movement, custody, and locality slices against those proxy decisions; those witnesses do not promote the remaining abstract campaigns to exact-local. |
 | Controlled capability | `workshop`, `ore`, `foundry` | Canonical mechanics under disclosed prearranged infrastructure, not ordinary reachability. |
-| Counterfactual | matched branches | Action-attributable differences from one actor-visible starting state over one fixed comparison horizon. |
+| Counterfactual | matched branches | Action-attributable differences from one actor-visible starting state over one fixed comparison horizon, produced by running the same disclosed script step against each branch rather than by a per-branch persona. |
 | Exploratory | `python ci.py report`, explicit replays/sweeps | Bounded discovery and diagnostics; exploration does not create a routine pass/fail requirement. |
 
 Cross-episode continuity must say what actually persists. Reconstructing conserved carried assets, embodied matter,
@@ -585,8 +590,8 @@ contracts cannot establish whether an individual experienced an interesting trad
 seed-bound causal journeys and competing production outcomes before making gameplay claims.
 
 Keep hidden fixture truth in a separate diagnostic representation from actor-playable state. Player-facing
-decision and experience evidence contains only legitimately observable state, acquired evidence, and explicit
-policy. Exact hidden reserve, grade, hardness, generated role identity, or other fixture truth may be retained for
+decision and experience evidence contains only legitimately observable state and acquired evidence. Exact hidden
+reserve, grade, hardness, generated role identity, or other fixture truth may be retained for
 post-action evaluator checks, but belongs only in explicitly diagnostic output marked as non-policy input.
 
 Decision diagnostics preserve the control coordinate of the choice: owning authority/contract,
@@ -599,7 +604,7 @@ When nothing happens, classify it rather than collapsing all absence into failur
 | --- | --- |
 | Unobserved | Enabling state did not occur in the evaluated horizon. |
 | Generator gap | Actionable state existed but candidate generation missed it. |
-| Policy gate | A viable candidate existed but explicit actor policy rejected it. |
+| Policy gate | A viable candidate existed but the declared fixed rule rejected it. |
 | Validation gate | A concrete candidate reached production validation and was rejected. |
 | Information gap | Relevant authoritative truth existed but was not legitimately observable. |
 | Execution failure | Accepted operation failed to produce its contracted result. |
@@ -636,28 +641,28 @@ audits keep all maintained witnesses but spend the same organic budget on one re
 than multiplying variation across every probe. Exact focused-probe execution uses the same maintained witnesses plus
 one fresh replayable organic case, so repeated cold-agent repairs exercise slightly different playable pressure
 without widening the Cargo target or rebuilding unrelated code. Exact owner/unit/contract tests remain deterministic.
-Reports own the broader bounded organic sample and agency qualification searches. Maintained cases prove contracts, not prevalence; organic
+Reports own the broader bounded organic sample. Maintained cases prove contracts, not prevalence; organic
 samples are bounded evidence, not population estimates. A named qualitative regime that must never regress belongs
-in maintained coverage. Exploratory organic cases probe generator, policy, and integration drift between those
+in maintained coverage. Exploratory organic cases probe generator and integration drift between those
 anchors without turning qualitative coverage into a probabilistic requirement. Organic world generation must not
 read the live decision threshold, selected route, comparison winner, or market frontier merely to manufacture a
 balanced branch split. Generate plausible actor-visible demand and independent physical pressure first, then let
-current production economics and actor policy produce the decision. Production definitions may still size real
+current production economics and the disclosed fixed rule produce the decision. Production definitions may still size real
 physical envelopes such as equipment capacity, authored storage limits, or finite opportunity bounds; they are not
 permission to condition the sampled world on a desired decision result. Fixed numeric pressure is appropriate only
 when the number itself is the disclosed world condition or player goal, not when it is standing in for an authored
 requirement. Bounded organic reports may stratify a few low world-seed bits across independent physical pressure
 classes that are either visible initially or legitimately discoverable during the episode. Stratification controls
-the sampled world class, never the resulting route or actor knowledge: hidden values still reach policy only
-through their ordinary evidence path. The remaining seed entropy stays fresh, and actor-policy roots remain
-independent from those world strata. Supplying roots to an exact focused probe adds and reproduces that sampled
+the sampled world class, never the resulting route or actor knowledge: hidden values still reach the fixed rule only
+through their ordinary evidence path. The remaining seed entropy stays fresh, and replay roots remain usable.
+Supplying roots to an exact focused probe adds and reproduces that sampled
 case instead of drawing a new one.
 Generator contracts assert variation and independent pressure coverage over an appropriately broad direct sample;
 they do not require every tiny report sample to hit both sides of an investment frontier. Route/outcome guarantees
 belong to maintained witnesses. Likewise, later executed feedback is not projection calibration unless the
 pre-action model actually predicted that quantity; reports label policy thresholds and hindsight outcomes
 separately rather than calling their agreement "exact."
-An organic seed must materially affect actor-visible world pressure, actor policy, or both; changing only a replay
+An organic seed must materially affect actor-visible world pressure; changing only a replay
 label is not variation. For bounded generators whose purpose depends on spanning distinct pressures or decision
 regimes, keep a cheap direct generator contract that samples enough seeds to detect collapse without replacing the
 end-to-end focused episode.

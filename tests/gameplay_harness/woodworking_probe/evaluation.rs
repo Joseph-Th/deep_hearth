@@ -205,7 +205,6 @@ fn build_woodworking_world(registries: &Registries, seed: u64, organic: bool) ->
 
 #[derive(Clone, Copy)]
 struct WoodworkingDecisionPlan {
-    preference: WoodworkingInvestmentPreference,
     bare_attention: u64,
     bare_projected_boards: Mass,
     #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
@@ -350,11 +349,9 @@ fn project_woodworking_construction_budget(
 
 fn plan_woodworking_investment(
     registries: &Registries,
-    behavior_seed: u64,
     demand: WoodworkingDemandPlan,
     world: &WoodworkingWorld,
 ) -> WoodworkingDecisionPlan {
-    let preference = WoodworkingInvestmentPreference::from_behavior_seed(behavior_seed);
     let copper_available = visible_native_copper(world);
     let bare_pipeline_projection = resolve_manual_craft(
         registries,
@@ -436,21 +433,19 @@ fn plan_woodworking_investment(
     let nominal_timber_balance =
         woodworking_timber_balance(nominal_saw_timber, nominal_adze_timber);
     let (mut invest_in_saw, saw_reason) = woodworking_investment_decision(
-        preference,
         reserve_safe_now,
         setup_attention_budget_met,
         nominal_timber_balance,
     );
     let reinforced_pays_back = reinforced_projected_attention
         .is_some_and(|ticks| ticks < stone_projected_attention && ticks < bare_attention);
-    let invest_in_reinforced_adze = reinforced_pays_back
-        && match preference {
-            WoodworkingInvestmentPreference::ConserveScarceCopper => reinforced_reserve_safe_now,
-            WoodworkingInvestmentPreference::ConserveTimber => !invest_in_saw,
-        };
-    if preference == WoodworkingInvestmentPreference::ConserveScarceCopper
-        && invest_in_reinforced_adze
-    {
+    // One fixed rule: a reinforced adze that repays attention while leaving the protected copper
+    // reserve intact supersedes the saw. Displacing an already justified saw is itself the
+    // copper-preserving case; taking the adze outright repays attention.
+    let reinforced_preserves_copper =
+        reinforced_pays_back && reinforced_reserve_safe_now && invest_in_saw;
+    let invest_in_reinforced_adze = reinforced_pays_back && reinforced_reserve_safe_now;
+    if invest_in_reinforced_adze {
         invest_in_saw = false;
     }
     let use_bare_hands = !invest_in_saw
@@ -460,7 +455,6 @@ fn plan_woodworking_investment(
                 .checked_mul(2)
                 .unwrap_or_else(|| panic!("adze willingness budget fits"));
     WoodworkingDecisionPlan {
-        preference,
         bare_attention,
         bare_projected_boards: projected_board_mass(&bare_pipeline_projection),
         adze_budget,
@@ -477,15 +471,10 @@ fn plan_woodworking_investment(
         use_bare_hands,
         reason: if use_bare_hands {
             WoodworkingInvestmentReason::BareHandsAvoidsInvestmentCost
+        } else if reinforced_preserves_copper {
+            WoodworkingInvestmentReason::ReinforcedAdzePreservesCopper
         } else if invest_in_reinforced_adze {
-            match preference {
-                WoodworkingInvestmentPreference::ConserveScarceCopper => {
-                    WoodworkingInvestmentReason::ReinforcedAdzePreservesCopper
-                }
-                WoodworkingInvestmentPreference::ConserveTimber => {
-                    WoodworkingInvestmentReason::ReinforcedAdzeRepaysAttention
-                }
-            }
+            WoodworkingInvestmentReason::ReinforcedAdzeRepaysAttention
         } else {
             saw_reason
         },
@@ -585,10 +574,7 @@ fn execute_saw_counterfactual(
                 adze,
                 target_boards: demand.pipeline_boards,
                 blade_input: world.blade_input,
-                protected_reserve: if decision.preference
-                    == WoodworkingInvestmentPreference::ConserveScarceCopper
-                    && decision.reserve_safe_now
-                {
+                protected_reserve: if decision.reserve_safe_now {
                     world.protected_copper_reserve
                 } else {
                     Mass::ZERO
@@ -756,6 +742,7 @@ struct WoodworkingLifecycleMetrics {
     saw_actual_batches: u64,
     #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     saw_fallback_adze_batches: u64,
+    #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
     saw_fallback_due_to_copper: bool,
     saw_service_count: u64,
     #[cfg_attr(test, allow(dead_code, reason = "exploratory report metric"))]
@@ -794,11 +781,13 @@ fn assert_woodworking_maintained_witness(
     }
     match (case.role(), case.seed()) {
         (FocusedProbeRole::MaintainedAnchor, WOODWORKING_MAINTAINED_ANCHOR_SEED) => {
+            // The single fixed criterion prefers a reinforced adze that repays attention and keeps
+            // the protected copper reserve intact over buying a saw for the same workload.
             assert_eq!(
                 decision.reason,
-                WoodworkingInvestmentReason::PipelineNetTimberSaving
+                WoodworkingInvestmentReason::ReinforcedAdzePreservesCopper
             );
-            assert!(metrics.saw_fallback_due_to_copper);
+            assert!(decision.reinforced_reserve_safe_now);
         }
         (FocusedProbeRole::MaintainedCoverage, WOODWORKING_COPPER_BLOCKED_COVERAGE_SEED) => {
             assert_eq!(
@@ -807,6 +796,18 @@ fn assert_woodworking_maintained_witness(
             );
         }
         (FocusedProbeRole::MaintainedCoverage, WOODWORKING_REINFORCED_PAYBACK_COVERAGE_SEED) => {
+            // This disclosed workload cannot fund the reinforcement while keeping the protected
+            // reserve intact, so the fixed criterion declines it. The copper-funded witnesses that
+            // do clear the reserve cover the reinforced-adze route.
+            assert_eq!(
+                decision.reason,
+                WoodworkingInvestmentReason::CopperSupplyLimited
+            );
+            assert!(!decision.invest_in_reinforced_adze);
+        }
+        (FocusedProbeRole::MaintainedCoverage, WOODWORKING_TIMBER_NEUTRAL_COVERAGE_SEED) => {
+            // With one fixed criterion this disclosed timber-neutral workload is served by the
+            // reinforced adze because that route repays attention inside the protected reserve.
             assert_eq!(
                 decision.reason,
                 WoodworkingInvestmentReason::ReinforcedAdzeRepaysAttention
@@ -817,16 +818,10 @@ fn assert_woodworking_maintained_witness(
                     .is_some_and(|ticks| ticks < metrics.adze_total_attention)
             );
         }
-        (FocusedProbeRole::MaintainedCoverage, WOODWORKING_TIMBER_NEUTRAL_COVERAGE_SEED) => {
-            assert_eq!(
-                decision.reason,
-                WoodworkingInvestmentReason::PipelineTimberNeutralWithinSetupBudget
-            )
-        }
         (FocusedProbeRole::MaintainedCoverage, WOODWORKING_REINFORCED_RESERVE_COVERAGE_SEED) => {
             assert_eq!(
                 decision.reason,
-                WoodworkingInvestmentReason::ReinforcedAdzePreservesCopper
+                WoodworkingInvestmentReason::ReinforcedAdzeRepaysAttention
             );
             assert!(decision.reinforced_reserve_safe_now);
             assert!(
@@ -854,9 +849,11 @@ fn assert_woodworking_maintained_witness(
             assert!(decision.bare_attention < metrics.adze_total_attention);
         }
         (FocusedProbeRole::MaintainedCoverage, WOODWORKING_SAW_SERVICE_COVERAGE_SEED) => {
+            // The fixed criterion takes the reinforced adze over a new saw, but this workload still
+            // executes an authored saw service so lifecycle wear remains covered by a witness.
             assert_eq!(
                 decision.reason,
-                WoodworkingInvestmentReason::PipelineNetTimberSaving
+                WoodworkingInvestmentReason::ReinforcedAdzePreservesCopper
             );
             assert!(metrics.saw_service_count > 0);
         }
@@ -1206,14 +1203,13 @@ fn evaluate_woodworking_probe(
     case: FocusedProbeCase,
 ) -> (&'static str, u64, Option<u64>) {
     let seed = case.seed();
-    let behavior_seed = case.required_behavior_seed("woodworking investment policy");
     let organic = matches!(
         case.role(),
         FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay
     );
     let demand = plan_woodworking_demand(registries, seed, organic);
     let world = build_woodworking_world(registries, seed, organic);
-    let decision = plan_woodworking_investment(registries, behavior_seed, demand, &world);
+    let decision = plan_woodworking_investment(registries, demand, &world);
     let lifecycle = execute_woodworking_lifecycle(registries, &world, demand, decision);
     let metrics = evaluate_woodworking_lifecycle(case, &world, decision, &lifecycle);
     let selected = select_and_validate_woodworking_route(
@@ -1230,7 +1226,7 @@ fn evaluate_woodworking_probe(
     report::report_woodworking_result(
         registries,
         case,
-        behavior_seed,
+        case.required_behavior_seed("woodworking report"),
         &world,
         demand,
         decision,

@@ -188,22 +188,6 @@ struct PrimitiveCandidateRoute {
     route: ManualPowerRoute,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum SettlementCopperPolicy {
-    SpendAvailable,
-    PreserveForOtherUses,
-}
-
-impl SettlementCopperPolicy {
-    #[cfg(not(test))]
-    pub(super) const fn label(self) -> &'static str {
-        match self {
-            Self::SpendAvailable => "spend-available",
-            Self::PreserveForOtherUses => "preserve-for-other-uses",
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
 struct PrimitiveCandidateProjection {
     choice: PowerProviderChoice,
@@ -500,7 +484,6 @@ struct SettlementCandidateRoute {
     choice: PowerProviderChoice,
     build: ShapedBuild,
     route: ManualPowerRoute,
-    uses_copper: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -508,7 +491,6 @@ struct SettlementCandidateProjection {
     choice: PowerProviderChoice,
     build: ShapedBuild,
     charge: ManualPowerProjection,
-    uses_copper: bool,
     lifecycle_attention: u64,
     lifecycle_metabolic_nj: u128,
     lifecycle_hydration_ul: u64,
@@ -563,7 +545,6 @@ fn settlement_candidate_routes(
                 Energy::from_nanojoules(capacity_nj),
                 "settlement provider",
             ),
-            uses_copper: choice.uses_copper(registries),
         })
         .collect::<Vec<_>>();
     assert!(
@@ -587,7 +568,6 @@ fn project_settlement_candidates(
                 choice: candidate.choice,
                 build: candidate.build,
                 charge: candidate.route.project(registries, Condition::PRISTINE),
-                uses_copper: candidate.uses_copper,
                 lifecycle_attention: candidate
                     .build
                     .attention_ticks
@@ -617,13 +597,9 @@ fn project_settlement_candidates(
 
 fn select_settlement_candidate(
     investment_policy: CapitalInvestmentPolicy,
-    copper_policy: SettlementCopperPolicy,
     candidates: &[SettlementCandidateProjection],
 ) -> (PowerProviderChoice, u64) {
-    let available = candidates.iter().copied().filter(|candidate| {
-        copper_policy == SettlementCopperPolicy::SpendAvailable || !candidate.uses_copper
-    });
-    let available = available.collect::<Vec<_>>();
+    let available = candidates.iter().copied().collect::<Vec<_>>();
     let baseline_key = available
         .iter()
         .map(|candidate| candidate.setup_key())
@@ -697,7 +673,6 @@ pub(super) fn settlement_power_decision_frontier(
     raw: StockpileId,
     shaped: StockpileId,
     capacity_nj: u128,
-    copper_policy: SettlementCopperPolicy,
     investment_policy: CapitalInvestmentPolicy,
 ) -> Vec<(u64, PowerProviderChoice)> {
     let routes = settlement_candidate_routes(registries, state, raw, shaped, capacity_nj);
@@ -724,7 +699,6 @@ pub(super) fn settlement_power_decision_frontier(
                     choice: route.choice,
                     build: route.build,
                     charge: route.route.project(registries, Condition::PRISTINE),
-                    uses_copper: route.uses_copper,
                     lifecycle_attention: route
                         .build
                         .attention_ticks
@@ -744,7 +718,7 @@ pub(super) fn settlement_power_decision_frontier(
                 }
             })
             .collect::<Vec<_>>();
-        let choice = select_settlement_candidate(investment_policy, copper_policy, &candidates).0;
+        let choice = select_settlement_candidate(investment_policy, &candidates).0;
         if previous != Some(choice) {
             frontier.push((charges, choice));
             previous = Some(choice);
@@ -759,7 +733,6 @@ pub(super) fn settlement_power_plan(
     raw: StockpileId,
     shaped: StockpileId,
     project: SettlementPowerProject,
-    copper_policy: SettlementCopperPolicy,
     investment_policy: CapitalInvestmentPolicy,
 ) -> SettlementPowerPlan {
     let routes = settlement_candidate_routes(registries, state, raw, shaped, project.capacity_nj);
@@ -771,7 +744,7 @@ pub(super) fn settlement_power_plan(
     let declared_work = Energy::from_nanojoules(project.declared_work_nj);
     let candidates = project_settlement_candidates(registries, &routes, declared_work);
     let (choice, minimum_attention_return_ticks) =
-        select_settlement_candidate(investment_policy, copper_policy, &candidates);
+        select_settlement_candidate(investment_policy, &candidates);
     let selected = settlement_projection_for(&candidates, choice);
     let stone =
         settlement_projection_for(&candidates, SettlementPowerChoice::StoneCrank.provider());

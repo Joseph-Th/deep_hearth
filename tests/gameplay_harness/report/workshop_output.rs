@@ -4,10 +4,7 @@ use std::collections::BTreeSet;
 
 use deep_hearth::maintenance::MaintenanceBand;
 
-use super::{
-    EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioReport,
-    StructuralPreference,
-};
+use super::ScenarioReport;
 
 fn scenario_outcome(report: &ScenarioReport) -> &'static str {
     if report.structure.structural_stop {
@@ -47,7 +44,7 @@ fn scenario_constraint(report: &ScenarioReport) -> &'static str {
 
 fn print_capability_highlight(kind: &str, report: &ScenarioReport) {
     std::println!(
-        "CAPABILITY HIGHLIGHT kind={kind} world=0x{:016X} behavior=0x{:016X} pressure=[crusher:{:?} maintenance-units:{} stored-work:small:{}+{}ppm large:{}+{}ppm] policy=[power:{} recovery:{} maintenance:{} structure:{}] decisions=[power-batches:small:{} large:{} basis:policy:{} single-source:{} adaptive:condition:{} stored-work:{} manual-recharges:{} services:{} compact-support:{}] consequence=[processed:{}/{}mg operations:{} bottlenecks:energy:{} throughput:{} balanced:{} relocation:{} suspension:{} stranded:{} elapsed:{}t outcome:{} constraint:{}]",
+        "CAPABILITY HIGHLIGHT kind={kind} world=0x{:016X} behavior=0x{:016X} pressure=[crusher:{:?} maintenance-units:{} stored-work:small:{}+{}ppm large:{}+{}ppm] decisions=[power-batches:small:{} large:{} basis:policy:{} single-source:{} adaptive:condition:{} stored-work:{} manual-recharges:{} services:{} compact-support:{}] consequence=[processed:{}/{}mg operations:{} bottlenecks:energy:{} throughput:{} balanced:{} relocation:{} suspension:{} stranded:{} elapsed:{}t outcome:{} constraint:{}]",
         report.world_seed,
         report.behavior_seed,
         report.inputs.initial_maintenance_band,
@@ -56,10 +53,6 @@ fn print_capability_highlight(kind: &str, report: &ScenarioReport) {
         report.inputs.small_drive_partial_batch_ppm,
         report.inputs.large_drive_batch_budget,
         report.inputs.large_drive_partial_batch_ppm,
-        report.policy.power_preference.label(),
-        report.policy.energy_recovery_preference.label(),
-        report.policy.maintenance_preference.label(),
-        report.policy.structural_preference.label(),
         report.choices.small_drive_batches,
         report.choices.large_drive_batches,
         report.choices.policy_power_choices,
@@ -135,15 +128,11 @@ fn print_scenario_experiences(reports: &[ScenarioReport]) {
             )
         };
         std::println!(
-            "CAPABILITY EXPERIENCE world=0x{:016X} behavior=0x{:016X} start=[crusher:{:?} survival:{}] policy=[power:{} recovery:{} maintenance:{} structure:{}] initial=[small:{}+{}ppm nominal-batches large:{}+{}ppm nominal-batches maintenance:{}unit] order=[processed:{}/{}mg operations:{} adaptive:[total:{} condition:{} stored-work:{}] event:[{}]] power=[small:{} large:{} manual-recharges:{} generated:{}nJ manual-ticks:{}] maintenance=[services:{} warning-deferred:{} critical-required:{}] relocation={} suspension={} stranded={} final=[crusher:{}ppm crank:{}ppm small:{}nJ large:{}nJ maintenance:{}mg ticks:{} survival-spent=[energy:{}nJ hydration:{}uL] vitality:{}ppm] outcome={}",
+            "CAPABILITY EXPERIENCE world=0x{:016X} behavior=0x{:016X} start=[crusher:{:?} survival:{}] initial=[small:{}+{}ppm nominal-batches large:{}+{}ppm nominal-batches maintenance:{}unit] order=[processed:{}/{}mg operations:{} adaptive:[total:{} condition:{} stored-work:{}] event:[{}]] power=[small:{} large:{} manual-recharges:{} generated:{}nJ manual-ticks:{}] maintenance=[services:{} warning-deferred:{} critical-required:{}] relocation={} suspension={} stranded={} final=[crusher:{}ppm crank:{}ppm small:{}nJ large:{}nJ maintenance:{}mg ticks:{} survival-spent=[energy:{}nJ hydration:{}uL] vitality:{}ppm] outcome={}",
             report.world_seed,
             report.behavior_seed,
             report.inputs.initial_maintenance_band,
             survival_start,
-            report.policy.power_preference.label(),
-            report.policy.energy_recovery_preference.label(),
-            report.policy.maintenance_preference.label(),
-            report.policy.structural_preference.label(),
             report.inputs.small_drive_batch_budget,
             report.inputs.small_drive_partial_batch_ppm,
             report.inputs.large_drive_batch_budget,
@@ -717,53 +706,7 @@ pub(crate) fn print_harness_summary(
     );
     let observation_stats = harness_observation_stats(reports);
     std::println!(
-        "CAPABILITY SYSTEMS policy=[power:reserve:{} speed:{} recovery:protect:{} spend:{} maintenance:warning-demand-aware:{} critical-immediate:{} structure:margin:{} failure-only:{}] machine-work=[small-drive:{small_drive_batches} high-power:{large_drive_batches}] decisions=[power-policy:{policy_power_choices} single-source:{single_source_power_choices} manual-recharges:{manual_recharges} adaptive:[total:{adaptive_operations} condition:{condition_adaptive_operations} stored-work:{energy_adaptive_operations}]] survival=[elapsed:{elapsed_ticks_min}..{elapsed_ticks_max}t manual-metabolic:{manual_metabolic_energy}nJ manual-hydration:{manual_hydration}uL] recovery=[relocations:{} resumed-wip:{recovered_work_in_process} stranded-wip:{} maintenance-services:{maintenance_services} warning-deferred:{warning_deferrals} critical-required:{critical_services}] pressure=[structural:{} maintenance-warning:{}] bottlenecks=[energy-delivery:{energy_bottleneck_batches} throughput:{throughput_bottleneck_batches} balanced:{balanced_bottleneck_batches}]",
-        reports
-            .iter()
-            .filter(|report| report.policy.power_preference == PowerPreference::PreserveReserve)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| report.policy.power_preference == PowerPreference::FinishSooner)
-            .count(),
-        reports
-            .iter()
-            .filter(|report| {
-                report.policy.energy_recovery_preference
-                    == EnergyRecoveryPreference::ProtectSurvival
-            })
-            .count(),
-        reports
-            .iter()
-            .filter(|report| {
-                report.policy.energy_recovery_preference
-                    == EnergyRecoveryPreference::SpendSurvivalReserve
-            })
-            .count(),
-        reports
-            .iter()
-            .filter(|report| {
-                report.policy.maintenance_preference == MaintenancePreference::ServiceAtWarning
-            })
-            .count(),
-        reports
-            .iter()
-            .filter(|report| {
-                report.policy.maintenance_preference == MaintenancePreference::ServiceAtCritical
-            })
-            .count(),
-        reports
-            .iter()
-            .filter(|report| {
-                report.policy.structural_preference == StructuralPreference::PreserveMargin
-            })
-            .count(),
-        reports
-            .iter()
-            .filter(|report| {
-                report.policy.structural_preference == StructuralPreference::MoveOnlyForFailure
-            })
-            .count(),
+        "CAPABILITY SYSTEMS policy=fixed-conservative machine-work=[small-drive:{small_drive_batches} high-power:{large_drive_batches}] decisions=[power-policy:{policy_power_choices} single-source:{single_source_power_choices} manual-recharges:{manual_recharges} adaptive:[total:{adaptive_operations} condition:{condition_adaptive_operations} stored-work:{energy_adaptive_operations}]] survival=[elapsed:{elapsed_ticks_min}..{elapsed_ticks_max}t manual-metabolic:{manual_metabolic_energy}nJ manual-hydration:{manual_hydration}uL] recovery=[relocations:{} resumed-wip:{recovered_work_in_process} stranded-wip:{} maintenance-services:{maintenance_services} warning-deferred:{warning_deferrals} critical-required:{critical_services}] pressure=[structural:{} maintenance-warning:{}] bottlenecks=[energy-delivery:{energy_bottleneck_batches} throughput:{throughput_bottleneck_batches} balanced:{balanced_bottleneck_batches}]",
         observation_stats.relocations,
         observation_stats.stranded_work_in_process,
         observation_stats.structural_consequences,

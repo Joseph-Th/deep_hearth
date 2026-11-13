@@ -22,7 +22,6 @@ from tools.command_output import (
     rust_test_result_counts,
 )
 from tools.gameplay_targets import (
-    GAMEPLAY_AGENCY_TARGET,
     GAMEPLAY_AUDIT_TARGET,
     GAMEPLAY_BEHAVIOR_ENV,
     GAMEPLAY_CONTRACTS_TARGET,
@@ -65,9 +64,7 @@ GAMEPLAY_SEED_ENV_KEYS = (
     GAMEPLAY_BEHAVIOR_ENV,
     GAMEPLAY_VARIATION_SCOPE_ENV,
 )
-REUSED_TEST_REPORTS = (
-    frozenset(GAMEPLAY_SCOPE_SPECS) - frozenset(SCOPED_REPORT_EXAMPLES)
-) | {"agency"}
+REUSED_TEST_REPORTS = frozenset(GAMEPLAY_SCOPE_SPECS) - frozenset(SCOPED_REPORT_EXAMPLES)
 
 
 def configure_gameplay_replay_environment(
@@ -150,9 +147,9 @@ def gameplay_uses_behavior_seed(args: argparse.Namespace) -> bool | None:
 
 
 def gameplay_scope_uses_behavior_seed(scope: str) -> bool:
-    """Return whether one concrete gameplay sample scope varies actor policy."""
+    """Return whether one concrete gameplay sample scope varies the actor's starting conditions."""
 
-    return scope != "agency" and GAMEPLAY_SCOPE_SPECS[scope].uses_behavior_seed
+    return GAMEPLAY_SCOPE_SPECS[scope].uses_behavior_seed
 
 
 def audit_variation_scope(variation: str) -> str:
@@ -199,7 +196,7 @@ def configure_gameplay_verification_environment(
     return scope, variation, behavior
 
 
-REPORT_SCOPES = ("all", *GAMEPLAY_SCOPE_SPECS, "agency")
+REPORT_SCOPES = ("all", *GAMEPLAY_SCOPE_SPECS)
 FAILED_TEST = re.compile(r"^    (?P<name>[A-Za-z0-9_:]+)$", re.MULTILINE)
 FAILED_RERUN_TARGET = re.compile(r"to rerun pass `(?P<target>--lib|--test [A-Za-z0-9_-]+)`")
 RUST_SOURCE_DIAGNOSTIC = re.compile(
@@ -209,7 +206,6 @@ RUST_SOURCE_DIAGNOSTIC = re.compile(
 GAMEPLAY_REPLAY_ROOTS = re.compile(
     r"\bworld_root=(?P<world>\S+)\s+behavior_root=(?P<behavior>\S+)"
 )
-AGENCY_REPLAY_ROOT = re.compile(r"\bvariation_root=(?P<world>0x[0-9A-Fa-f]+)")
 WORKSHOP_PLAN_SUMMARY = re.compile(
     r"\bplan=(?P<plan>\S+)\s+anchors=(?P<anchors>\d+)\s+variation=(?P<variation>\d+)\s+custom=(?P<custom>\d+)"
 )
@@ -300,7 +296,7 @@ def gameplay_environment_summary(label: str, environ) -> str | None:
         for prefix in ("gameplay report ", "gameplay "):
             if label.startswith(prefix):
                 candidate = label.removeprefix(prefix)
-                if candidate in GAMEPLAY_SCOPE_SPECS or candidate == "agency":
+                if candidate in GAMEPLAY_SCOPE_SPECS:
                     scope = candidate
                 break
     if scope is None:
@@ -345,7 +341,6 @@ def repair_hint(command: list[str], stdout: str, stderr: str) -> str | None:
     gameplay_targets = (
         GAMEPLAY_CONTRACTS_TARGET,
         GAMEPLAY_AUDIT_TARGET,
-        GAMEPLAY_AGENCY_TARGET,
         *GAMEPLAY_TARGETS.values(),
     )
     if any(target in command for target in gameplay_targets):
@@ -441,10 +436,6 @@ def gameplay_replay_flags(output: str) -> str | None:
     """Return exact-test CLI replay flags from one captured failing gameplay test."""
 
     for line in reversed(output.splitlines()):
-        if line.startswith("AGENCY INPUT "):
-            match = AGENCY_REPLAY_ROOT.search(line)
-            if match is not None:
-                return f"--variation-seed {match.group('world')}"
         if line.startswith("PROBE INPUT ") or line.startswith("HARNESS INPUT "):
             match = GAMEPLAY_REPLAY_ROOTS.search(line)
             if match is None or match.group("world") in {
@@ -551,8 +542,6 @@ def gameplay_report_example_command(example: str) -> list[str]:
 def scoped_report_target(scope: str) -> tuple[str, str]:
     """Return the focused test artifact and exact test reused by one scoped report."""
 
-    if scope == "agency":
-        return GAMEPLAY_AGENCY_TARGET, "gameplay_agency_counterfactuals"
     spec = GAMEPLAY_SCOPE_SPECS[scope]
     return spec.target, spec.test
 

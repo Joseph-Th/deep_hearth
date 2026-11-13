@@ -22,9 +22,8 @@ use super::ore_fixture::copper_ore_composition;
 #[cfg(not(test))]
 use super::output::has_verbose_output;
 use super::report::{
-    EnergyRecoveryPreference, MaintenancePreference, PowerPreference, ScenarioChoiceReport,
-    ScenarioPolicyVariation, ScenarioProgressReport, ScenarioReport, ScenarioResourceReport,
-    ScenarioStructureReport, StructuralPreference,
+    ScenarioChoiceReport, ScenarioProgressReport, ScenarioReport, ScenarioResourceReport,
+    ScenarioStructureReport,
 };
 #[cfg(not(test))]
 use super::report::{print_content_summary, print_harness_summary};
@@ -226,7 +225,6 @@ struct CrushBatchExecution {
 /// Hidden controller state such as the future delivery tick is deliberately absent so decision code
 /// cannot accidentally inspect information that a player would not have.
 struct ScenarioActorRuntime<'state> {
-    policy: ScenarioPolicyVariation,
     nominal_batch_mass: Mass,
     current_support: &'state mut StructuralElementId,
     alternate_support: &'state mut StructuralElementId,
@@ -242,14 +240,12 @@ struct ScenarioActorReport<'state> {
 
 impl<'state> ScenarioActorRuntime<'state> {
     fn new(
-        policy: ScenarioPolicyVariation,
         nominal_batch_mass: Mass,
         current_support: &'state mut StructuralElementId,
         alternate_support: &'state mut StructuralElementId,
         report: ScenarioActorReport<'state>,
     ) -> Self {
         Self {
-            policy,
             nominal_batch_mass,
             current_support,
             alternate_support,

@@ -152,40 +152,6 @@ fn survey_investment_requires_a_material_disclosed_attention_payoff() {
 }
 
 #[test]
-fn behavior_seed_varies_survey_investment_tolerance_without_changing_physics() {
-    let baseline = FieldworkSurveyPolicy::baseline();
-    let eager = FieldworkSurveyPolicy::from_behavior_seed(0);
-    let cautious = FieldworkSurveyPolicy::from_behavior_seed(50_000);
-    assert!(eager.minimum_return_ppm() < baseline.minimum_return_ppm());
-    assert!(baseline.minimum_return_ppm() < cautious.minimum_return_ppm());
-    assert_eq!(
-        eager.productive_site_prior_ppm(),
-        cautious.productive_site_prior_ppm(),
-        "behavior entropy may vary return tolerance but not smuggle a different hidden-world success rate"
-    );
-    let indexed_ticks = 1_000_000_u64;
-    let midpoint_return_ppm = (eager.minimum_return_ppm() + cautious.minimum_return_ppm()) / 2;
-    let midpoint_saved_ticks = u64::try_from(midpoint_return_ppm)
-        .unwrap_or_else(|_| unreachable!("survey return policy fits u64"));
-    assert_eq!(
-        select_survey_strategy(
-            indexed_ticks + midpoint_saved_ticks,
-            Some(indexed_ticks),
-            eager
-        ),
-        FieldworkSurveyStrategy::IndexedChannel
-    );
-    assert_eq!(
-        select_survey_strategy(
-            indexed_ticks + midpoint_saved_ticks,
-            Some(indexed_ticks),
-            cautious,
-        ),
-        FieldworkSurveyStrategy::PointSearch
-    );
-}
-
-#[test]
 fn survey_decision_respects_campaign_horizon_expected_return_and_upgrade_supply() {
     let registries = build_registries();
     let requested = Mass::from_milligrams(24_000_000);

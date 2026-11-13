@@ -1510,7 +1510,6 @@ class TestTopologyContractTests(unittest.TestCase):
             forbidden = contracts_only | {
                 module for owner, module in probe_modules.items() if owner != scope
             }
-            forbidden.add("agency")
             for module in forbidden:
                 self.assertNotIn(
                     f"mod {module};",
@@ -1522,7 +1521,6 @@ class TestTopologyContractTests(unittest.TestCase):
         fresh_seed = (ROOT / "tests" / "gameplay_harness" / "fresh_seed.rs").resolve()
         routine_targets = (
             *ci.GAMEPLAY_TARGETS.values(),
-            gameplay_targets.GAMEPLAY_AGENCY_TARGET,
             ci.GAMEPLAY_CONTRACTS_TARGET,
             ci.GAMEPLAY_AUDIT_TARGET,
         )
@@ -1544,7 +1542,7 @@ class TestTopologyContractTests(unittest.TestCase):
         self.assertIn("gameplay_harness/fresh_seed.rs", report.read_text(encoding="utf-8"))
 
     def test_exact_gameplay_probe_catalog_stays_aligned_with_ci_scopes(self) -> None:
-        expected = {*ci.GAMEPLAY_TESTS.values(), "gameplay_agency_counterfactuals"}
+        expected = set(ci.GAMEPLAY_TESTS.values())
         self.assertEqual(gameplay_targets.GAMEPLAY_PROBE_TESTS, expected)
         self.assertEqual(
             gameplay_targets.GAMEPLAY_BEHAVIOR_PROBE_TESTS,
@@ -1585,10 +1583,6 @@ class TestTopologyContractTests(unittest.TestCase):
         self.assertEqual(
             by_mode[gameplay_targets.EVIDENCE_ORDINARY_GENERATED_OPENING],
             {"wilderness"},
-        )
-        self.assertEqual(
-            gameplay_targets.gameplay_evidence_mode("agency"),
-            gameplay_targets.EVIDENCE_COUNTERFACTUAL,
         )
 
         exact_local = (ROOT / "tests/gameplay_harness/exact_local_runtime.rs").resolve()
@@ -2206,17 +2200,6 @@ class GameplayCiRoutingTests(unittest.TestCase):
             "python tools/run_test.py --target gameplay_audit --variation-seed 0xAAAA gameplay_ore_preparation_probe",
         )
 
-    def test_agency_failure_reuses_the_warm_audit_target(self) -> None:
-        output = (
-            "AGENCY INPUT mode=gate organic=1 variation_root=0xAAAA\n"
-            "failures:\n    gameplay_agency_counterfactuals\n"
-        )
-        error = "error: test failed, to rerun pass `--test gameplay_audit`"
-        self.assertEqual(
-            ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_audit --variation-seed 0xAAAA gameplay_agency_counterfactuals",
-        )
-
     def test_workshop_failure_reuses_the_warm_audit_target(self) -> None:
         output = (
             "HARNESS INPUT plan=maintained+variation anchors=7 variation=1 custom=0 "
@@ -2501,9 +2484,6 @@ class GameplayCiRoutingTests(unittest.TestCase):
         ci.configure_report_mode_environment(all_report, report_environment)
         self.assertNotIn(ci.GAMEPLAY_REPORT_MODE_ENV, report_environment)
 
-        agency_report = ci.parse_args(["report", "--scope", "agency"])
-        ci.configure_report_mode_environment(agency_report, report_environment)
-        self.assertEqual(report_environment[ci.GAMEPLAY_REPORT_MODE_ENV], "1")
 
         gate = ci.parse_args(["gate", "--gameplay", "fieldwork"])
         gate_environment = {ci.GAMEPLAY_REPORT_MODE_ENV: "1"}
@@ -3157,792 +3137,6 @@ class GameplayReportContractTests(unittest.TestCase):
         self.assertIn("other:equipment-999:1 distinct:1", summary)
         self.assertIn("soft:pick0/quarry0/reinforced0/hard0/other1", summary)
 
-    def test_wilderness_summary_keeps_organic_need_sensitive_provisioning(self) -> None:
-        lines = [
-            "WILDERNESS DIRECT USE seed=0x1 movement=continuous-body route=[voxels:7 unique-edges:5/6 control-ticks:68] known-path-projection=[edges:2 control-ticks:18 matched:true] material-choice=[stone+timber:2 visited:2] haul=[timber:5000000mg carried:5500000mg/25000000mg return:9ct] body-effort=[jump-load:5500000mg vertical:3600000000nm/s energy:900000000000nJ>333000000000nJ-idle hydration:225uL>125uL-idle settle:72ct] input=one-shot-empty-hand-secondary admission-lag=[forage:0ct drink:0ct timber:0ct] gather=[before:4000000mg batch:500000mg remaining:3500000mg] water=[before:5000000uL serving:500000uL remaining:4500000uL] hydration=[before:3000000uL after:3500000uL] timed=true",
-            "WILDERNESS SHELTER EXPERIENCE source=fresh-world goal=long-stay selection=player-catalog tool=\"hafted stone woodworking adze\" travel=continuous/4legs materials=[stone:1000000mg timber:19750000mg] shelter=[supports:3x3250000mg panel:6500000mg board-work:9b] attention=[setup:110t bare:450t assisted:250t with-setup:360t saved:90t] exposure=[open:1000ppm/t covered:500ppm/t observed:500ppm/t] output=7200000mg wear=true matter-conserved=true continuity=same-opening-state staged-timber-used:5000000mg fresh-timber:14750000mg",
-            "WILDERNESS EXPERIENCE sample=maintained seed=0x1 start=rested goal=stay-mobile evidence=generated+exact-local timing=[food-secured:21t/1.3m stable:22t/1.3m] carrying=[peak:500000mg capacity:25000000mg] warmth=[fire:false] mode=single-continuous-world generation=[surface:ordinary water:ordinary] movement=[graph:6-edges body:continuous legs:2 choices:1-3 graph-unadvertised:1/1 water-branch:skipped material-junction:reached material-choices:2] forage=[opportunity:4210752mg secured:500000mg left:3710752mg rest-runway:31.6h] provisioning=[carried:500000mg cached:0mg meal:defer-fed consumed:0mg warning-safe:true] water=[observed:adjacent visited:false source:unvisited remaining:unvisited rest-runway:unvisited consumed:0uL decision:defer-hydrated] camp-project=[goal:stay-mobile storage:none material:none work:0t logistics-legs:0 source:0mg->0mg project-upper-budget:0nJ/0uL project-meal:0mg cached-total:0mg staged-timber:0mg retained-residue:0mg grounded-support:false:0mg/0t] storage-choice=[selected:defer] tool-choice=[selected:defer counterfactual-field-box=[crossover:5batches] reason:no-current-woodworking-workload] material-choice=[stone+timber:simultaneous selected:defer]",
-            "WILDERNESS EXPERIENCE sample=coverage seed=0x1 start=hydration-pressure goal=stay-mobile evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[graph:6-edges body:continuous legs:4 choices:1-3 graph-unadvertised:1/1 water-branch:visited material-junction:reached material-choices:2] forage=[opportunity:4210752mg secured:500000mg left:3710752mg rest-runway:31.6h] provisioning=[carried:500000mg cached:0mg meal:defer-fed consumed:0mg warning-safe:true] water=[observed:adjacent visited:true source:5078082uL remaining:4805954uL rest-runway:40.6h consumed:272128uL decision:drink-needed] camp-project=[goal:stay-mobile storage:none material:none work:0t logistics-legs:0 source:0mg->0mg project-upper-budget:0nJ/0uL project-meal:0mg cached-total:0mg staged-timber:0mg retained-residue:0mg grounded-support:false:0mg/0t] storage-choice=[selected:defer] tool-choice=[selected:defer counterfactual-field-box=[crossover:5batches] reason:no-current-woodworking-workload] material-choice=[stone+timber:simultaneous selected:defer]",
-            "WILDERNESS EXPERIENCE sample=coverage seed=0x4 start=rested goal=long-stay-shelter evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[graph:6-edges body:continuous legs:12 choices:1-3 graph-unadvertised:1/1 water-branch:skipped material-junction:reached material-choices:2] forage=[opportunity:5600000mg secured:1000000mg left:4600000mg rest-runway:42.0h] provisioning=[carried:0mg cached:1000000mg meal:defer-fed consumed:0mg warning-safe:true] water=[observed:adjacent visited:false source:unvisited remaining:unvisited rest-runway:unvisited consumed:0uL decision:defer-hydrated] warmth=[fire:true direct-control:true fuel:1000000mg logistics-legs:2 recovery:14t burn-runway:1112t/66.7m comfort:558000->810000ppm heat-remaining:11848800000000000nJ light:7] camp-project=[goal:long-stay-shelter storage:field-box material:timber work:319t logistics-legs:8 source:32130848mg->7755848mg project-upper-budget:1561813000000000nJ/438251uL project-meal:0mg cached-total:1400000mg staged-timber:6000000mg retained-residue:400000mg grounded-support:true:1625000mg/17t] storage-choice=[selected:field-box] tool-choice=[selected:stone-adze roof-work=[board-batches:9 setup:110t bare:450t adze:250t with-setup:360t saved:90t crossover:5batches] reason:roof-workload-repays-tool] material-choice=[stone+timber:simultaneous selected:timber+stone]",
-            "WILDERNESS EXPERIENCE sample=organic seed=0x2 start=hunger-pressure goal=preserve-provisions evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[graph:6-edges body:continuous legs:3 choices:1-3 graph-unadvertised:1/1 water-branch:skipped material-junction:reached material-choices:2] forage=[opportunity:5785609mg secured:1000000mg left:4785609mg rest-runway:43.4h] provisioning=[carried:0mg cached:818963mg meal:eat-needed consumed:181037mg warning-safe:true] water=[observed:adjacent visited:false source:unvisited remaining:unvisited rest-runway:unvisited consumed:0uL decision:defer-hydrated] camp-project=[goal:preserve-provisions storage:stone-crock material:stone work:216t logistics-legs:2 source:3500000mg->500000mg project-upper-budget:295128000000000nJ/82800uL project-meal:120164mg cached-total:818963mg staged-timber:0mg retained-residue:0mg grounded-support:false:0mg/0t] storage-choice=[selected:stone-crock] tool-choice=[selected:defer counterfactual-field-box=[crossover:5batches] reason:no-current-woodworking-workload] material-choice=[stone+timber:simultaneous selected:stone]",
-            "WILDERNESS EXPERIENCE sample=organic seed=0x3 start=hydration-pressure goal=worksite-cache evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[graph:6-edges body:continuous legs:7 choices:1-3 graph-unadvertised:1/1 water-branch:visited material-junction:reached material-choices:2] forage=[opportunity:5532888mg secured:1000000mg left:4532888mg rest-runway:41.5h] provisioning=[carried:0mg cached:1000000mg meal:defer-fed consumed:0mg warning-safe:true] water=[observed:adjacent visited:true source:4793191uL remaining:4521063uL rest-runway:38.3h consumed:272128uL decision:drink-needed] warmth=[fire:true direct-control:true fuel:1000000mg logistics-legs:2 recovery:15t burn-runway:1112t/66.7m comfort:545000->816000ppm heat-remaining:11838000000000000nJ] camp-project=[goal:worksite-cache storage:field-box material:timber work:269t logistics-legs:4 source:24000000mg->16000000mg project-upper-budget:383000000000000nJ/110000uL project-meal:0mg cached-total:6400000mg staged-timber:6000000mg retained-residue:400000mg grounded-support:true:1625000mg/17t] storage-choice=[selected:field-box] tool-choice=[selected:defer counterfactual-field-box=[crossover:5batches] reason:first-box-below-adze-crossover] material-choice=[stone+timber:simultaneous selected:timber]"
-        ]
-
-        summary = gameplay_report_summary.wilderness_summary(lines)
-        self.assertIsNotNone(summary)
-        assert summary is not None
-        lived = gameplay_report_summary.wilderness_player_experience(lines)
-        self.assertIsNotNone(lived)
-        assert lived is not None
-        self.assertIn("witness=maintained/rested/stay-mobile mode=one-generated-world", lived)
-        self.assertIn("first-food:1.3m", lived)
-        self.assertIn("water:defer-hydrated", lived)
-        self.assertIn("carried:0.50kg/25.00kg", lived)
-        # The summary reports newly selected actions instead of requiring this fixture's
-        # default restraint to remain a permanent gameplay decision.
-        alternative = (
-            lines[2]
-            .replace("decision:defer-hydrated", "decision:drink-needed")
-            .replace("selected:defer", "selected:field-box", 1)
-            .replace("food-secured:21t/1.3m", "food-secured:7t/25.2s")
-        )
-        alternate_lived = gameplay_report_summary.wilderness_player_experience([alternative])
-        self.assertIsNotNone(alternate_lived)
-        assert alternate_lived is not None
-        self.assertIn("water:drink-needed storage:field-box", alternate_lived)
-        self.assertIn("first-food:25.2s", alternate_lived)
-        with self.assertRaisesRegex(ValueError, "requires one maintained actor"):
-            gameplay_report_summary.wilderness_player_experience([*lines, lines[2]])
-        caution_record = (
-            "KOBOLD EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-patrol "
-            "detection=180t theft=185t unsecured-moved:500000mg guarded-retained:500000mg "
-            "recovered:500000mg deterrence=presence-routes-retreat "
-            "drop-protected:500000mg cautious-retained:500000mg "
-            "stolen-after-caution:500000mg wary-window:40t "
-            "route-changed:true matter-conserved:true"
-        )
-        cautious_summary = gameplay_report_summary.wilderness_summary([*lines, caution_record])
-        self.assertIn("caution:40t protected-then-vulnerable", cautious_summary)
-        with self.assertRaisesRegex(ValueError, "recoverable, avoidable world consequence"):
-            gameplay_report_summary.wilderness_summary([
-                *lines, caution_record.replace("stolen-after-caution:500000mg",
-                                               "stolen-after-caution:0mg")
-            ])
-        with self.assertRaisesRegex(ValueError, "recoverable, avoidable world consequence"):
-            gameplay_report_summary.wilderness_summary([
-                *lines, caution_record.replace("wary-window:40t", "wary-window:0t")
-            ])
-        club_record = (
-            "PLAYER CLUB DEFENSE seed=0x1 episode=coverage/rested/scavenger-armed-contact "
-            "evidence=ordinary-generated-world "
-            "weapon=player-gathered-timber+assembled+carried+selected "
-            "contact=direct-control+unobstructed "
-            "result=[club-balance:720000ppm shove-balance:920000ppm club-wear:3000ppm] "
-            "cache=[exposed:250000mg club-protected:250000mg shove-protected:250000mg "
-            "unattended-stolen:250000mg reclaimed:250000mg] "
-            "exertion=finite recovery=canonical replay=360-control-ticks "
-            "matter=conserved injury=not-yet-implemented"
-        )
-        club_summary = gameplay_report_summary.wilderness_summary([*lines, club_record])
-        self.assertIn(
-            "club-contact=[armed:720000ppm shove:920000ppm wear:3000ppm "
-            "guarded:250000mg reclaimed:250000mg replay:360ct]",
-            club_summary,
-        )
-        with self.assertRaisesRegex(ValueError, "distinct finite, conserved contact"):
-            gameplay_report_summary.wilderness_summary([
-                *lines, club_record.replace("club-wear:3000ppm", "club-wear:0ppm"),
-            ])
-        with self.assertRaisesRegex(ValueError, "distinct finite, conserved contact"):
-            gameplay_report_summary.wilderness_summary([
-                *lines, club_record.replace("shove-balance:920000ppm", "shove-balance:720000ppm"),
-            ])
-        with self.assertRaisesRegex(ValueError, "distinct finite, conserved contact"):
-            gameplay_report_summary.wilderness_summary([
-                *lines, club_record.replace("unattended-stolen:250000mg",
-                                           "unattended-stolen:0mg"),
-            ])
-        industrial_record = (
-            "KOBOLD INDUSTRIAL WORKSITE seed=0x1 "
-            "episode=coverage/rested/scavenger-industrial-worksite "
-            "evidence=ordinary-generated-world player-built=stone-flywheel+field-box "
-            "witness=[drive-assembled:144t mobilized-observed:261t] "
-            "choices=[unattended-stock:stolen-260000mg unalerted-stock:safe-600000mg "
-            "guarded-stock:safe-600000mg enclosed-stock:safe-600000mg] "
-            "intervention=[guard:presence box:joinery-175t] "
-            "recovery=[route+den:actual-pickup-260000mg] "
-            "save-replay:true matter=conserved witness-wait:115t"
-        )
-        industrial_summary = gameplay_report_summary.wilderness_summary([*lines, industrial_record])
-        self.assertIn(
-            "scout-industrial=[reported:261t stolen:260000mg unalerted:600000mg "
-            "guarded:600000mg enclosed:600000mg box-work:175t reclaimed:260000mg]",
-            industrial_summary,
-        )
-        with self.assertRaisesRegex(ValueError, "avoidable, paid for and recoverable"):
-            gameplay_report_summary.wilderness_summary([
-                *lines, industrial_record.replace("box:joinery-175t", "box:joinery-0t")
-            ])
-        with self.assertRaisesRegex(ValueError, "avoidable, paid for and recoverable"):
-            gameplay_report_summary.wilderness_summary([
-                *lines, industrial_record.replace("unalerted-stock:safe-600000mg",
-                                                   "unalerted-stock:safe-0mg")
-            ])
-        with self.assertRaisesRegex(ValueError, "avoidable, paid for and recoverable"):
-            gameplay_report_summary.wilderness_summary([
-                *lines, industrial_record.replace("actual-pickup-260000mg",
-                                                   "actual-pickup-0mg")
-            ])
-        camp_record = (
-            "KOBOLD FAR CACHE EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-camp-cache "
-            "cache:250000mg stolen:250000mg recovered:250000mg guarded:250000mg "
-            "intercepted:250000mg two-edges:true save-replay:true local-only:true "
-            "matter-conserved:true"
-        )
-        camp_summary = gameplay_report_summary.wilderness_summary([*lines, camp_record])
-        self.assertIn("intercepted:250000mg reach:2-edges", camp_summary)
-        with self.assertRaisesRegex(ValueError, "finite custody, interception and guard"):
-            gameplay_report_summary.wilderness_summary([
-                *lines, camp_record.replace("intercepted:250000mg", "intercepted:0mg")
-            ])
-        side_food_record = (
-            "KOBOLD SIDE FOOD EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-side-food "
-            "source-before:800000mg guarded:800000mg source-after:700000mg "
-            "foraged:100000mg recovered:100000mg depleted-junction:true "
-            "physical-return:true save-replay:true matter-conserved:true"
-        )
-        alternate_summary = gameplay_report_summary.wilderness_summary([*lines, side_food_record])
-        self.assertIn("scout-side-food=[source:0.8kg foraged:0.1kg", alternate_summary)
-        with self.assertRaisesRegex(ValueError, "conserve guarded and recovered fruit"):
-            gameplay_report_summary.wilderness_summary([
-                *lines, side_food_record.replace("recovered:100000mg", "recovered:0mg")
-            ])
-        preference = (
-            "KOBOLD FOOD PRIORITY EXPERIENCE seed=0x1 episode=coverage/rested/scavenger-food-choice "
-            "stone-before-food:true food-stolen:250000mg stone-left:250000mg "
-            "guarded:500000mg recovered:500000mg food-preferred:true "
-            "save-replay:true matter-conserved:true"
-        )
-        preference_summary = gameplay_report_summary.wilderness_summary([*lines, preference])
-        self.assertIn("food-first:250000mg stone-stays:250000mg", preference_summary)
-        with self.assertRaisesRegex(ValueError, "prefer food without losing the stone"):
-            gameplay_report_summary.wilderness_summary([
-                *lines, preference.replace("stone-left:250000mg", "stone-left:0mg")
-            ])
-        self.assertIn("sample-shape=[maintained:1 coverage:2 organic:2]", summary)
-        self.assertIn(
-            "direct-use=[route=5/6e/68ct plan=2e/18ct mats=2/2 haul=5/5.5/25kg@9ct lag=0.00/0.00/0.00s use=one-shot gather=[before:4000000mg batch:500000mg remaining:3500000mg] water=[before:5000000uL serving:500000uL remaining:4500000uL] hydration=[before:3000000uL after:3500000uL] timed=true]",
-            summary,
-        )
-        self.assertIn(
-            "organic-adaptation=[rested:0 hunger:1 hydration:1 goals=[mobile:0 cache:1 preserve:1] meals:1 water-visits:1]",
-            summary,
-        )
-        self.assertIn(
-            "resource-runway=[forage:31.6..43.4h opportunity:4.2..5.8kg secured:500..1000g visited-water:38.3..40.6h unvisited-water:hidden]",
-            summary,
-        )
-        self.assertIn(
-            "camp-goals=[mobile:2 worksite-cache:1 long-stay-shelter:1 preserve-provisions:1 built=[field-box:2 stone-crock:1] materials=[defer:2 timber:2 stone:1] project-meals:1]",
-            summary,
-        )
-        self.assertIn(
-            "worksite-support=[built:2/2 mass:1.6..1.6kg work:17..17t retained-residue:400..400g]",
-            summary,
-        )
-        self.assertIn(
-            "camp-warmth=[fires:2/2 direct:2/2 fuel:1..1kg runway:66.7..66.7m recovery:14..15t comfort:545..558kppm->810..816kppm light:7..7 heat-left:11.8..11.8MJ]",
-            summary,
-        )
-        self.assertIn(
-            "shelter=[long adze:+90t roof:6.5kg/9b posts:3 exposure:1000->500ppm/t]",
-            summary,
-        )
-        postfire_lines = lines.copy()
-        postfire_lines[1] += " postfire=[deferred:true covered:843100ppm unbuilt:476833ppm fuel-only:1000000ppm recycled-chips:500000mg]"
-        protected_summary = gameplay_report_summary.wilderness_summary(postfire_lines)
-        self.assertIn("fuel-free-hour:843k>476kppm", protected_summary)
-        self.assertIn("alternative-fire:1000kppm/1kg", protected_summary)
-        self.assertIn("reused-chips:500g", protected_summary)
-        no_reuse = postfire_lines.copy()
-        no_reuse[1] = no_reuse[1].replace("recycled-chips:500000mg", "recycled-chips:0mg")
-        with self.assertRaisesRegex(ValueError, "failed to recover"):
-            gameplay_report_summary.wilderness_summary(no_reuse)
-        postfire_lines[1] = postfire_lines[1].replace(
-            "covered:843100ppm unbuilt:476833ppm", "covered:476833ppm unbuilt:843100ppm"
-        )
-        with self.assertRaisesRegex(ValueError, "roof did not protect"):
-            gameplay_report_summary.wilderness_summary(postfire_lines)
-        self.assertIn("tool-policy=[short-cache-projects:1 first-box-adze-deferred:1/1 long-stay-adze:1/1 crossover:5batches]", summary)
-
-    def test_worksite_summary_requires_a_real_matched_choice_and_does_not_claim_productive_casting(self) -> None:
-        witness = (
-            "WILDERNESS CASTING BED seed=0xA evidence=generated-exact-local "
-            "goal=specified-workstation choice=[pre-work-fire:true] "
-            "worksite=[auto-placed-at-player:true stationary-mass:9600000mg "
-            "carried-mass:0mg output-produced:false] "
-            "payoff=deferred-until-molten-metal matter=conserved"
-        )
-        project = (
-            "PLAYER PROJECT TRADEOFF seed=0xA episode=coverage/rested/clay-worksite "
-            "goal=specified-not-discovered phase=prepare-vs-push-through "
-            "observation=[remaining-warmth:181t predicted-project-work-at-least:212t] "
-            "policy=[choose-prework-fire:true] "
-            "action=[same-acquisition-and-crafting:216t both-branches] "
-            "investment=[extra-fire-preparation:20t stone:1000000mg "
-            "timber-fuel:1000000mg remaining-runway:895t] matched-at=256t "
-            "consequence=[prepared-comfort:1000000ppm exposed-comfort:744000ppm] "
-            "benefit=[comfort-delta:+256000ppm] "
-            "ecology=[after-ration:685922mg fire:685922mg exposed:685922mg] "
-            "defer=[unneeded-pristine-service:true] "
-            "productive-output=[stationary-casting-bed:9.6kg metal-cast:0] "
-            "next-dependency=obtain-molten-metal matter=conserved replay=exact"
-        )
-        provision = (
-            "PLAYER PROJECT PROVISION seed=0xA episode=coverage/rested/clay-worksite "
-            "evidence=generated-direct-control "
-            "choice=[protein-wild-nuts:150000mg from:835922mg] "
-            "action=[explicit-source:4 admission-delay:0ct slow-work:17t] "
-            "consequence=[carried:150000mg left-at-source:685922mg] "
-            "automatic-other-source=false matter=conserved"
-        )
-        payoff = (
-            "PLAYER WORKSITE PAYOFF seed=0xA episode=coverage/rested/clay-worksite "
-            "continuity=one-actor-after-casting-bed "
-            "action=[gather-timber>shape-boards>join-box>same-berry-expedition>store-real-provisions>recover-food] "
-            "investment=[extra-attention:143t timber:2000000mg] "
-            "result=[stored-nuts:150000mg stored-berries:2000000mg recovered-berries:2000000mg "
-            "container:rough-timber-field-box preservation:1750000ppm] "
-            "after-observation=120t "
-            "age=[nuts-boxed:567571429parts nuts-carried:619000000parts "
-            "berries-boxed:567571429parts berries-carried:619000000parts] "
-            "counterfactual=equal-clock-matched-berry-trip-but-no-box "
-            "metal-produced=0 custody=conserved replay=exact"
-        )
-        priority = (
-            "PLAYER PRIORITY CHOICE seed=0xA episode=coverage/rested/clay-worksite "
-            "observation=[local-molten-metal:none local-melting-provider:none] "
-            "priority=protect-actual-food-before-inert-foundry "
-            "action=[finite-fire>timber-box>same-berry-expedition>recover-real-food] "
-            "payoff=[recovered-berries:2000000mg first-security:245t bed-first-security:461t] "
-            "extra-workshop-delay=216t unresolved=metal-production custody=conserved replay=exact"
-        )
-        first_metal = (
-            "PLAYER FIRST METAL seed=0xA episode=coverage/rested/clay-worksite "
-            "origin=finite-native-copper-float "
-            "action=[visit-clay-spur>collect-copper>cold-work>carve-stone>band-crock>forage>recover-food] "
-            "cost=[metal:40000mg stone:3000000mg security-elapsed:374t] "
-            "discovery=[float-before:101854mg float-after:61854mg] "
-            "payoff=[recovered-berries:2000000mg preservation:5000000ppm saved-age:96t-per-120t] "
-            "comparison=[timber-box:1750000ppm security-elapsed:225t extra-copper-route:149t] "
-            "smelted-metal=0 matter=conserved replay=exact"
-        )
-        metal_tool = (
-            "PLAYER COPPER TOOL seed=0xA episode=coverage/rested/clay-worksite "
-            "alternative=same-opening-before-copper goal=prepare-roof-panel-stock "
-            "allocation=metal-tool-not-crock "
-            "source=[native-copper:20000mg] investment=[extra-acquisition:49t] "
-            "matched=[boards:7200000mg roof-demand:6500000mg batches:9 "
-            "stone-work:250t copper-work:125t] "
-            "realized=[stone-complete:250t copper-complete:174t] "
-            "wear=[stone:750000ppm copper:875000ppm] matter=conserved replay=exact"
-        )
-        seam = (
-            "PLAYER FIRST SEAM seed=0xA episode=coverage/rested/clay-worksite "
-            "world=ordinary-generated-opening "
-            "action=[follow-native-copper-float>field-inspect>craft-sampling-hammer-and-stone-pick>"
-            "survey-hardness>reject-stone-pick>reinforce-with-collected-copper>mine-and-return] "
-            "work=[surveys:34t tools:192t mine:2t] "
-            "evidence=[acquired-upper-hardness:650000000Pa stone-limit:500000000Pa "
-            "copper-limit:750000000Pa] "
-            "outcome=[ore-delivered:200000mg followup-resolves:true] "
-            "fixture-ore=none matter=conserved replay=exact"
-        )
-        dressing = (
-            "PLAYER FIRST ORE DRESSING seed=0xA episode=coverage/rested/clay-worksite "
-            "provenance=generated-mined-ore "
-            "method=[select-owned-ore>hand-break>hand-sort>retain-gangue-and-unworked-ore] "
-            "route=[carried-custody:unchanged physical-work:timed] "
-            "batch=[feed:100000mg native:32500mg rejected:67500mg unworked:100000mg] "
-            "attention=168t "
-            "immediate-alternative=[finite-float:40000mg return-work:11t source-left:41854mg] "
-            "decision=[immediate-supply:float future-scale:ore] "
-            "downstream=[cold-workable-native:true molten-metal:false] "
-            "matter=conserved replay=exact"
-        )
-        records = [
-            witness, project, provision, payoff, priority, first_metal, metal_tool, seam, dressing,
-        ]
-        summary = gameplay_report_summary.wilderness_worksite_player_experience(records)
-        self.assertIsNotNone(summary)
-        assert summary is not None
-        self.assertIn("goal=specified-not-discovered", summary)
-        self.assertIn("provision=[selected-protein:0.15kg left-in-world:0.69kg admission:0ct gather:17t]", summary)
-        self.assertIn("choice=[prepare-fire:true extra:20t stone:1.00kg fuel:1.00kg]", summary)
-        self.assertIn("comfort:1000000ppm-vs:744000ppm", summary)
-        self.assertIn("local-ecology=[food-fire:0.69kg exposed:0.69kg scout-difference:0mg]", summary)
-        self.assertIn("defer=[no-service-on-pristine-machine]", summary)
-        self.assertIn(
-            "usable-payoff=[box-time:143t timber:2.00kg "
-            "stored:0.15kg-nuts+2.00kg-berries recovered:2.00kg-berries preservation:1750000ppm "
-            "saved-age:51.4t/120t]",
-            summary,
-        )
-        self.assertIn("metal-produced:0 next:molten-metal", summary)
-        self.assertIn("priority=[food-first:245t bed-first:461t saved:216t before-metal-feed]", summary)
-        self.assertIn("first-metal=[native-float:0.10kg took:0.04kg crock-security:374t vs-wood:225t cost-extra:149t saved-age:96t/120t vs-wood:51.4t/120t smelted:0]", summary)
-        self.assertIn("first-metal-tool=[copper:0.02kg cover-stock:7.20kg/6.50kg setup:49t shape:250t-vs:125t net-saved:76t condition:750000-vs:875000ppm]", summary)
-        self.assertIn("first-seam=[survey:34t tools:192t mine:2t ore-returned:0.20kg hardness:650MPa stone-rejected:true next-order:available]", summary)
-        self.assertIn(
-            "first-ore-dressing=[feed:0.10kg native:0.03kg gangue:0.07kg "
-            "ore-unworked:0.10kg manual:168t float-option:0.04kg/11t "
-            "float-left:0.04kg near-term:choose-float future-scale:retain-ore]",
-            summary,
-        )
-        with self.assertRaisesRegex(ValueError, "earned preparation tradeoff"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                witness, project.replace("same-acquisition-and-crafting:216t", "same-acquisition-and-crafting:10t"), provision, payoff, priority
-            ])
-        with self.assertRaisesRegex(ValueError, "earned preparation tradeoff"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                witness, project.replace("choose-prework-fire:true", "choose-prework-fire:false"), provision, payoff, priority
-            ])
-        with self.assertRaisesRegex(ValueError, "earned preparation tradeoff"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                witness, project.replace("benefit=[comfort-delta:+256000ppm]", "benefit=[comfort-delta:+1ppm]"), provision, payoff, priority
-            ])
-        with self.assertRaisesRegex(ValueError, "project ownership"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                witness, project.replace("specified-not-discovered", "spontaneously-discovered"), provision, payoff, priority
-            ])
-        with self.assertRaisesRegex(ValueError, "finished physical workstation"):
-            gameplay_report_summary.wilderness_worksite_player_experience([project, provision, payoff, priority])
-        with self.assertRaisesRegex(ValueError, "duplicate PLAYER PROJECT TRADEOFF"):
-            gameplay_report_summary.wilderness_worksite_player_experience([witness, project, project, provision, payoff, priority])
-        with self.assertRaisesRegex(ValueError, "finite-source selection or local ecology"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                witness, project, provision.replace("left-at-source:685922mg", "left-at-source:835922mg"), payoff, priority
-            ])
-        with self.assertRaisesRegex(ValueError, "finite-source selection or local ecology"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                witness, project, provision.replace("admission-delay:0ct", "admission-delay:71ct"), payoff, priority
-            ])
-        with self.assertRaisesRegex(ValueError, "finite-source selection or local ecology"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                witness, project.replace("ecology=[after-ration:685922mg fire:685922mg exposed:685922mg]", "ecology=[after-ration:685922mg fire:900000mg exposed:685922mg]"), provision, payoff, priority
-            ])
-        with self.assertRaisesRegex(ValueError, "direct-control provisions"):
-            gameplay_report_summary.wilderness_worksite_player_experience([witness, project, payoff, priority])
-        with self.assertRaisesRegex(ValueError, "productive food-cache continuation"):
-            gameplay_report_summary.wilderness_worksite_player_experience([witness, project, provision, priority])
-        with self.assertRaisesRegex(ValueError, "physically earned food-preservation benefit"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                witness, project, provision, priority,
-                payoff.replace("berries-boxed:567571429parts", "berries-boxed:619000000parts"),
-            ])
-        with self.assertRaisesRegex(ValueError, "physically earned food-preservation benefit"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                witness, project, provision, priority,
-                payoff.replace("stored-nuts:150000mg", "stored-nuts:250000mg"),
-            ])
-        with self.assertRaisesRegex(ValueError, "physically earned food-preservation benefit"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                witness, project, provision, priority,
-                payoff.replace("recovered-berries:2000000mg", "recovered-berries:1000000mg"),
-            ])
-        with self.assertRaisesRegex(ValueError, "actual matched player continuation"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                witness, project, provision, priority,
-                payoff.replace("equal-clock-matched-berry-trip-but-no-box", "assumed-unchanged"),
-            ])
-        with self.assertRaisesRegex(ValueError, "actually executed food-first alternative"):
-            gameplay_report_summary.wilderness_worksite_player_experience([witness, project, provision, payoff])
-        with self.assertRaisesRegex(ValueError, "earlier useful outcome"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                witness, project, provision, payoff,
-                priority.replace("extra-workshop-delay=216t", "extra-workshop-delay=1t"),
-            ])
-        with self.assertRaisesRegex(ValueError, "earlier useful outcome"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                witness, project, provision, payoff,
-                priority.replace("first-security:245t bed-first-security:461t", "first-security:461t bed-first-security:245t"),
-            ])
-        with self.assertRaisesRegex(ValueError, "generated native-copper cold-working payoff"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                witness, project, provision, payoff, priority,
-            ])
-        with self.assertRaisesRegex(ValueError, "distinct finite metal and food preservation"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-4],
-                first_metal.replace("float-after:61854mg", "float-after:101854mg"),
-                metal_tool,
-                seam,
-                dressing,
-            ])
-        with self.assertRaisesRegex(ValueError, "distinct finite metal and food preservation"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-4],
-                first_metal.replace("saved-age:96t-per-120t", "saved-age:20t-per-120t"),
-                metal_tool,
-                seam,
-                dressing,
-            ])
-        with self.assertRaisesRegex(ValueError, "physical cold-working"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-4],
-                first_metal.replace("smelted-metal=0", "smelted-metal=40000"),
-                metal_tool,
-                seam,
-                dressing,
-            ])
-        with self.assertRaisesRegex(ValueError, "alternative first-metal tool investment"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-3], seam, dressing,
-            ])
-        with self.assertRaisesRegex(ValueError, "repay its actual copper investment"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-3],
-                metal_tool.replace("copper-complete:174t", "copper-complete:474t"),
-                seam,
-                dressing,
-            ])
-        with self.assertRaisesRegex(ValueError, "repay its actual copper investment"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-3],
-                metal_tool.replace("boards:7200000mg", "boards:6200000mg"),
-                seam,
-                dressing,
-            ])
-        with self.assertRaisesRegex(ValueError, "actor or conservation contract"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-3],
-                metal_tool.replace("alternative=same-opening-before-copper", "alternative=unmatched-fixture"),
-                seam,
-                dressing,
-            ])
-        with self.assertRaisesRegex(ValueError, "geological discovery and extraction"):
-            gameplay_report_summary.wilderness_worksite_player_experience(records[:-2])
-        with self.assertRaisesRegex(ValueError, "harder-seam ore payoff"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-2],
-                seam.replace("stone-limit:500000000Pa", "stone-limit:700000000Pa"),
-                dressing,
-            ])
-        with self.assertRaisesRegex(ValueError, "harder-seam ore payoff"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-2],
-                seam.replace("followup-resolves:true", "followup-resolves:false"),
-                dressing,
-            ])
-        with self.assertRaisesRegex(ValueError, "actor's actual generated world"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-2],
-                seam.replace("fixture-ore=none", "fixture-ore=seeded-stockpile"),
-                dressing,
-            ])
-        with self.assertRaisesRegex(ValueError, "no executed manual liberation"):
-            gameplay_report_summary.wilderness_worksite_player_experience(records[:-1])
-        with self.assertRaisesRegex(ValueError, "did not earn its physical payoff"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-1],
-                dressing.replace("rejected:67500mg", "rejected:77500mg"),
-            ])
-        with self.assertRaisesRegex(ValueError, "did not earn its physical payoff"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-1],
-                dressing.replace("return-work:11t", "return-work:170t"),
-            ])
-        with self.assertRaisesRegex(ValueError, "physical custody"):
-            gameplay_report_summary.wilderness_worksite_player_experience([
-                *records[:-1],
-                dressing.replace("carried-custody:unchanged", "injected-ground-bin:true"),
-            ])
-
-    def test_fieldwork_player_experience_reports_actor_risk_and_delayed_consequence(self) -> None:
-        lines = [
-            "FIELDWORK EXPERIENCE seed=0x1 sample=anchor observed-resource-mass=0..5000000mg",
-            "FIELDWORK DECISION seed=0x1 selected=copper-hard-pick requested=33000000mg observed-resource-mass=0..5000000mg",
-            "FIELDWORK PACING seed=0x1 search=78t/4.6m sampling-tool=80t/4.8m extraction-tool=120t/7.2m extraction=9t/32.4s first-ore=281t/16.8m output=776403mg",
-            "FIELDWORK SUPPLY seed=0x1 shortfall=32223597mg stop=short-claim",
-            "FIELDWORK INITIAL SHORTFALL RECOVERY seed=0x1 sites-visited=6 search=324t/19.4m fulfilled=17115917mg remaining=15884083mg terminal=local-search-area-exhausted",
-            "FIELDWORK OPTIONAL ASSAY seed=0x1 extra-attention=60t visible-before=0..5000000mg visible-after=0..1000000mg selected-next-action=seek-other-seam-before-investment followup=searched:68t:barren",
-            # Diagnostic truth must not leak into the actor's choice or summarized experience.
-            "FIELDWORK FIXTURE DIAGNOSTIC seed=0x1 initial-reserve=776403mg policy-input=false",
-        ]
-        experience = gameplay_report_summary.fieldwork_player_experience(lines)
-        self.assertIsNotNone(experience)
-        assert experience is not None
-        self.assertIn("witness=maintained-anchor mode=spatial-proxy", experience)
-        self.assertIn("observed-reserve:0..5000000mg", experience)
-        self.assertIn("first-ore=[after:281t/16.8m", experience)
-        self.assertIn("recovered:0.78kg", experience)
-        self.assertIn("shortfall:32.22kg", experience)
-        self.assertIn("outcome:local-search-area-exhausted", experience)
-        self.assertIn("alternative=[matched-executed-hand-assay extra:60t", experience)
-        self.assertIn("reserve:0..5000000mg->0..1000000mg", experience)
-        self.assertIn("followup:searched:68t:barren", experience)
-        self.assertNotIn("initial-reserve", experience)
-        mined_assay = lines[5].replace(
-            "followup=searched:68t:barren",
-            "followup=searched:68t:located:0..5000000mg:prepared:120t:copper-hard-pick:"
-            "first-ore-after-assay-decision:251t:recovered:886509mg:extraction:9t:stop:short-claim",
-        )
-        mined_experience = gameplay_report_summary.fieldwork_player_experience([
-            *lines[:5], mined_assay, lines[6],
-        ])
-        assert mined_experience is not None
-        self.assertIn("followup=[search:68t reserve:0.00kg..5.00kg", mined_experience)
-        self.assertIn("extracted:0.89kg stop:short-claim", mined_experience)
-        self.assertIn("first-ore-same-survey=[direct:123t survey-other-seam:251t delta:+128t]", mined_experience)
-        self.assertNotIn("initial-reserve", mined_experience)
-        self.assertIsNone(
-            gameplay_report_summary.fieldwork_player_experience(
-                [lines[0], lines[2]]
-            )
-        )
-        with self.assertRaisesRegex(ValueError, "duplicate FIELDWORK DECISION"):
-            gameplay_report_summary.fieldwork_player_experience(
-                [*lines, lines[1]]
-            )
-
-    def test_lived_wilderness_continuation_distinguishes_actual_fire_from_matched_plan(self) -> None:
-        opening = (
-            "WILDERNESS EXPERIENCE sample=maintained seed=0x1 "
-            "episode=maintained/rested/stay-mobile start=rested goal=stay-mobile "
-            "evidence=generated+exact-local movement=[body:continuous] "
-            "timing=[food-secured:21t/1.3m] "
-            "forage=[secured:500000mg left:5000000mg rest-runway:42.0h] "
-            "carrying=[peak:500000mg capacity:25000000mg] "
-            "water=[decision:defer-hydrated] storage-choice=[selected:defer] "
-            "tool-choice=[selected:defer] material-choice=[selected:defer] warmth=[fire:false]"
-        )
-        adaptation = (
-            "PLAYER ADAPTATION opening=stay-mobile forecast=[unheated-open:179t roof-if-built:594t no-local-heat] "
-            "self-chosen-provisions:30t passive-exposure=8.9m "
-            "trigger=chilly/799000ppm after:179t/10.7m "
-            "reactive=[stone-ring:built fuel:1000g trips:2 light:7 recovered:3t "
-            "fueled:199t comfort:806000ppm no-fire:776000ppm] "
-            "planned=[start:158t fueled:178t comfort:963500ppm "
-            "fire-runway:1087t vs-reactive:1108t] "
-            "recon=[active:19t survey:10t copper:20000mg idle-after:106t "
-            "actual-evidence:true fire-only-control:matched]"
-        )
-        experienced = gameplay_report_summary.wilderness_player_experience([opening, adaptation])
-        assert experienced is not None
-        self.assertIn("fire:not-yet-built", experienced)
-        self.assertIn("continuation=[chilly-after:10.7m provisioning:30t passive:8.9m roof-forecast:594t-vs-open:179t reacted:built-fire-at-199t", experienced)
-        self.assertIn("alternative=[matched-early-fire-at:178t", experienced)
-        self.assertIn("fuel-runway:1087t-vs-late:1108t", experienced)
-        lived = [
-            "PLAYER TEMPO seed=0x1 episode=maintained/rested/stay-mobile "
-            "opening-elapsed:1.3m self-chosen-provisions:1.8m "
-            "reactive-passive-until-next-pressure:8.9m (74% of elapsed-to-warning) "
-            "proactive-passive-after-fire-and-recon:6.4m "
-            "next-problem=chilly",
-            "PLAYER JOURNEY seed=0x1 episode=maintained/rested/stay-mobile "
-            "phase=self-directed-provisions "
-            "execution=[gather:250g energy:1750kJ return-to-spawn:true] "
-            "return-observation=[unattended-source-lost:100g recovered-visible-parcel:100g "
-            "chase-cost:2t source-after:485g prepared-fire-source-after:585g] "
-            "no-hidden-scout-forecast=true",
-            "PLAYER JOURNEY seed=0x1 episode=maintained/rested/stay-mobile "
-            "phase=engineering-payoff "
-            "intervention=[forecast-driven-fire fueled-before-discomfort:178t] "
-            "benefits=[comfortable:963500ppm food-source-protected:100g] "
-            "costs=[early-fire-runway:1087t vs-late:1108t] "
-            "comparison=[late-recovery:100g extra-travel:2t comfort:806000ppm] "
-            "cause=heat-light-deterrence-and-finite-provisions",
-            "PLAYER JOURNEY seed=0x1 episode=maintained/rested/stay-mobile "
-            "phase=observed-chill after-passive-exposure:8.9m "
-            "response=[reactive-fire:199t recovered:3t comfort:806000ppm no-fire:776000ppm] "
-            "alternative=[prepare-at:30t comfort:963500ppm remaining-fuel:1087t "
-            "vs-reactive:1108t] "
-            "tradeoff=prepare-early-for-warmth-or-react-later-to-save-fuel",
-            "PLAYER JOURNEY seed=0x1 episode=maintained/rested/stay-mobile "
-            "phase=unattended-camp-reconnaissance "
-            "decision=[use-safe-forecast-window for-visible-copper-clay-outcrop] "
-            "action=[body-route:spawn>forage>water>outcrop>water>forage>spawn "
-            "field-inspection:10t sample:20g] "
-            "feedback=[positive-local-copper-evidence:true carried-new-metal:true reload:exact] "
-            "pacing=[active-recon:19t idle-after:106t vs-reactive-idle:149t] "
-            "comparison=[fire-only-scout-deterrence:matched same-source-custody:true] "
-            "scope=same-generated-world-branch",
-        ]
-        lived_experience = gameplay_report_summary.wilderness_player_experience(
-            [opening, adaptation, *lived]
-        )
-        self.assertIsNotNone(lived_experience)
-        assert lived_experience is not None
-        self.assertIn(
-            "lived=[nuts:250g 1750kJ active:1.8m passive:8.9m (74%) "
-            "scout-displaced:100g reclaimed:100g/2t unattended-fire-protected:100g "
-            "early-fuel:1087t-vs-reactive:1108t]",
-            lived_experience,
-        )
-        self.assertIn(
-            "productive-gap=[observed-copper-scout:survey-10t secured:20g "
-            "active:19t passive:6.4m-vs-8.9m fire-only-deterrence:matched]",
-            lived_experience,
-        )
-        # A chilly warning can predate the first patrol. Do not fabricate a
-        # theft, recovery trip or demonstrated fire protection in that branch.
-        untouched = [
-            row.replace(
-                "unattended-source-lost:100g recovered-visible-parcel:100g "
-                "chase-cost:2t source-after:485g prepared-fire-source-after:585g",
-                "unattended-source-lost:0g recovered-visible-parcel:0g "
-                "chase-cost:0t source-after:585g prepared-fire-source-after:585g",
-            ).replace(
-                "food-source-protected:100g", "food-source-protected:0g"
-            ).replace(
-                "late-recovery:100g extra-travel:2t",
-                "late-recovery:0g extra-travel:0t",
-            )
-            for row in lived
-        ]
-        no_theft = gameplay_report_summary.wilderness_player_experience(
-            [opening, adaptation, *untouched]
-        )
-        assert no_theft is not None
-        self.assertIn(
-            "scout-displaced:0g recovery:not-needed "
-            "fire-protection:not-observed-before-warning",
-            no_theft,
-        )
-        with self.assertRaisesRegex(ValueError, "finite provisions and firelight protection"):
-            gameplay_report_summary.wilderness_player_experience([
-                opening, adaptation,
-                untouched[0],
-                untouched[1].replace("recovered-visible-parcel:0g", "recovered-visible-parcel:1g"),
-                *untouched[2:],
-            ])
-        with self.assertRaisesRegex(ValueError, "finite provisions and firelight protection"):
-            gameplay_report_summary.wilderness_player_experience([
-                opening, adaptation,
-                untouched[0],
-                untouched[1].replace("chase-cost:0t", "chase-cost:2t"),
-                *untouched[2:],
-            ])
-        with self.assertRaisesRegex(ValueError, "all four physical journey phases"):
-            gameplay_report_summary.wilderness_player_experience(
-                [opening, adaptation, *lived[:-1]]
-            )
-        with self.assertRaisesRegex(ValueError, "finite provisions and firelight protection"):
-            gameplay_report_summary.wilderness_player_experience(
-                [opening, adaptation, *lived[:1],
-                 lived[1].replace("recovered-visible-parcel:100g", "recovered-visible-parcel:50g"),
-                 *lived[2:]]
-            )
-        with self.assertRaisesRegex(ValueError, "finite provisions and firelight protection"):
-            gameplay_report_summary.wilderness_player_experience(
-                [opening, adaptation, *lived[:2],
-                 lived[2].replace("food-source-protected:100g", "food-source-protected:0g"),
-                 *lived[3:]]
-            )
-        with self.assertRaisesRegex(ValueError, "finite provisions and firelight protection"):
-            gameplay_report_summary.wilderness_player_experience([
-                opening, adaptation, *lived[:-1],
-                lived[-1].replace("idle-after:106t", "idle-after:160t"),
-            ])
-        with self.assertRaisesRegex(ValueError, "finite provisions and firelight protection"):
-            gameplay_report_summary.wilderness_player_experience([
-                opening, adaptation.replace("copper:20000mg", "copper:30000mg"), *lived,
-            ])
-        with self.assertRaisesRegex(ValueError, "no hidden scout schedule"):
-            gameplay_report_summary.wilderness_player_experience(
-                [opening, adaptation, *lived[:1],
-                 lived[1].replace("no-hidden-scout-forecast=true",
-                                  "no-hidden-scout-forecast=false"),
-                 *lived[2:]]
-            )
-        with self.assertRaisesRegex(ValueError, "duplicate maintained wilderness"):
-            gameplay_report_summary.wilderness_player_experience(
-                [opening, adaptation, *lived, lived[2]]
-            )
-        self.assertNotIn("continuation=", gameplay_report_summary.wilderness_player_experience([opening]))
-        unprovisioned = adaptation.replace("self-chosen-provisions:30t ", "").replace(
-            "passive-exposure=8.9m", "passive-exposure=10.7m"
-        )
-        unprovisioned_experience = gameplay_report_summary.wilderness_player_experience(
-            [opening, unprovisioned]
-        )
-        assert unprovisioned_experience is not None
-        self.assertIn("continuation=[chilly-after:10.7m passive:10.7m", unprovisioned_experience)
-        self.assertNotIn("provisioning:", unprovisioned_experience)
-        with self.assertRaisesRegex(ValueError, "lost cold onset"):
-            gameplay_report_summary.wilderness_player_experience([
-                opening, adaptation.replace("after:179t", "after-total:179t"),
-            ])
-        with self.assertRaisesRegex(ValueError, "duplicate PLAYER ADAPTATION"):
-            gameplay_report_summary.wilderness_player_experience([opening, adaptation, adaptation])
-        with self.assertRaisesRegex(ValueError, "warmth and finite-fuel tradeoff"):
-            gameplay_report_summary.wilderness_player_experience([
-                opening, adaptation.replace("comfort:963500ppm", "comfort:700000ppm"),
-            ])
-        with self.assertRaisesRegex(ValueError, "provisioning, exposure or shelter tradeoff"):
-            gameplay_report_summary.wilderness_player_experience([
-                opening, adaptation.replace("roof-if-built:594t", "roof-if-built:50t"),
-            ])
-
-    def test_lived_field_expedition_never_inherits_proxy_actor_or_hidden_reserves(self) -> None:
-        expedition = (
-            "FIELDWORK EXPEDITION evidence=ordinary-exact-local "
-            "route=[body:continuous-generated-terrain edges:12 barren-sites:1 target-distance:2 haul-trips:2] "
-            "survey=[inspections:2 detailed:1 evidence:excavation-sample observed-mass:40000000..45000000mg] "
-            "extraction=[order:30000000mg batches:60 ticks:292 complete:true] "
-            "haul=[outbound:2000000mg return:9000000..25000000mg capacity:25000000mg utilization:360000..1000000ppm distance:8voxels moving-control:54ct] "
-            "cache=[returned:30000000mg tool-dropped:true] matter=conserved"
-        )
-        summary = gameplay_report_summary.fieldwork_exact_local_player_experience([
-            "FIELDWORK FIXTURE DIAGNOSTIC initial-reserve=1000mg", expedition,
-        ])
-        assert summary is not None
-        self.assertIn("continuity=separate-generated-world", summary)
-        self.assertIn("barren-sites:1", summary)
-        self.assertIn("walked-edges:12 mined-batches:60 work:292t haul-trips:2", summary)
-        self.assertIn("moving-control:54ct", summary)
-        self.assertIn("recovered:30.00kg", summary)
-        self.assertNotIn("initial-reserve", summary)
-        with self.assertRaisesRegex(ValueError, "complete recovered delivery"):
-            gameplay_report_summary.fieldwork_exact_local_player_experience([
-                expedition.replace("returned:30000000mg", "returned:20000000mg"),
-            ])
-        with self.assertRaisesRegex(ValueError, "duplicate FIELDWORK EXPEDITION"):
-            gameplay_report_summary.fieldwork_exact_local_player_experience([expedition, expedition])
-
-    def test_lived_settlement_portfolio_does_not_count_idle_delegated_time_as_player_work(self) -> None:
-        portfolio = (
-            "SETTLEMENT PORTFOLIO EXPERIENCE continuity=single-state provider=treadle "
-            "shared-bank=timber-frame-flywheel families=5 productive-batches=160 "
-            "charge-events=10 charge-attention=112t "
-            "parallel-maintenance=[component:stone-drill-bit attention:12t overlap:12t completed:true] "
-            "next-machine=[component:drawplate attention:70t overlap:70t built:true used-for:wire-drawbench] "
-            "service-option=[choice:defer-spare matched-bit-used:true spindle-condition:980000->1000000ppm matched-service:8t pending-batches:0] "
-            "delegated=935t elapsed=1047t matter=conserved"
-        )
-        summary = gameplay_report_summary.settlement_portfolio_player_experience([portfolio])
-        assert summary is not None
-        self.assertIn("charge-labor:112t delegated:935t", summary)
-        self.assertIn("proved-parallel-work=[stone-drill-bit:12t drawplate:70t next-machine:wire-drawbench]", summary)
-        self.assertIn("rational-defer=[spare-kept:true pending-batches:0 matched-service:980000->1000000ppm cost-not-spent:8t]", summary)
-        self.assertIn("unobserved-freed-time=853t", summary)
-        with self.assertRaisesRegex(ValueError, "unexecuted parallel player work"):
-            gameplay_report_summary.settlement_portfolio_player_experience([
-                portfolio.replace("overlap:12t", "overlap:20t"),
-            ])
-        with self.assertRaisesRegex(ValueError, "failed to build its next machine"):
-            gameplay_report_summary.settlement_portfolio_player_experience([
-                portfolio.replace("built:true", "built:false"),
-            ])
-        with self.assertRaisesRegex(ValueError, "matched spare service option"):
-            gameplay_report_summary.settlement_portfolio_player_experience([
-                portfolio.replace("matched-bit-used:true", "matched-bit-used:false"),
-            ])
-        with self.assertRaisesRegex(ValueError, "deferred service with active follow-up demand"):
-            gameplay_report_summary.settlement_portfolio_player_experience([
-                portfolio.replace("pending-batches:0", "pending-batches:8"),
-            ])
-
-    def test_scavenger_den_player_journey_reports_walked_retreat_and_real_recovery(self) -> None:
-        journey = (
-            "PLAYER JOURNEY seed=0x1 episode=coverage/rested/scavenger-den "
-            "phase=raid-full-den "
-            "observation-camp=[recorded-route:4legs off-graph:2legs separation:3voxels passive:580t] "
-            "observed=[source:835922mg reduced-to:315922mg cache:500000mg] "
-            "choice=[recover-cache:ordinary-pickup] "
-            "consequence=[carried:500000mg source-further-depleted:100000mg] "
-            "matter-conserved=true world=ordinary-generated-opening"
-        )
-        played = gameplay_report_summary.scavenger_den_player_experience([journey])
-        assert played is not None
-        self.assertIn("retreat:4legs off-graph:2legs separation:3voxels", played)
-        self.assertIn("unattended:580t source:0.84kg->0.32kg", played)
-        self.assertIn("den:0.50kg renewed-foraging:0.10kg", played)
-        with self.assertRaisesRegex(ValueError, "meaningful world feedback"):
-            gameplay_report_summary.scavenger_den_player_experience([
-                journey.replace("separation:3voxels", "separation:1voxels"),
-            ])
-
     def test_default_gameplay_report_keeps_compact_semantic_summaries_only(self) -> None:
         lines = [
             "SIMULATION TIME physical-tick-us=3600000",
@@ -3994,7 +3188,6 @@ class GameplayReportContractTests(unittest.TestCase):
             "HARNESS INPUT plan=maintained anchors=1 variation=0 custom=0 world_root=n/a behavior_root=n/a replay=0x1@0x2",
             "WORKSHOP CAPABILITY mode=exploratory scenarios=1 orders=[complete:1 partial:0 productive:1/1] adaptive=[total:0 condition:0 stored-work:0] stops=[structural:0 maintenance-required:1 energy:0 declined-manual:0 survival-limited-manual:0] maintenance-blockers=[replacement-supply:1 service-labor:0]",
             "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt pressure-shape=[clean:1 single:0 multi-system:10] interlocks=[stored-work+throughput:11 body+power:5 wear+maintenance:6 structure+production:9] recovery=[suspensions:3 resumed:3 stranded:0]",
-            "AGENCY SUMMARY worlds=1",
             "CAPABILITY ORE_PREP seed=0x1 sample=anchor outcome=completed feed=[copper:400000ppm]",
             "ORE REVIEW seed=0x2 sample=coverage role=capability-only outcome=stopped stage=grind blocker=finite-energy available=1nJ requested=2nJ tick=3 retry=stage-input-retained retry-input=10mg matter=conserved",
             "CAPABILITY FOUNDRY seed=0x1 sample=anchor outcome=full-order-complete offered=10mg melted=10mg unmelted=0mg feed-retained=true melt-limit=offered-batch first-cast=10mg cast-limit=offered-batch molten-after-first=0mg recovery-cast=0mg molten-final=0mg heating=[runtime-route:direct-melt same-source-preheat:counterfactual-only direct:10mg/2t preheated:10mg/3t]",
@@ -4032,13 +3225,11 @@ class GameplayReportContractTests(unittest.TestCase):
             "GAMEPLAY survival ",
             "GAMEPLAY wilderness ",
             "GAMEPLAY wilderness-direct-use ",
-            "PLAYER EXPERIENCE wilderness witness=maintained/rested/stay-mobile ",
             "GAMEPLAY fantasy ",
             "GAMEPLAY world-interaction ",
             "GAMEPLAY loop ",
             "GAMEPLAY loop-dynamics ",
             "CAPABILITY probe=workshop ",
-            "COUNTERFACTUAL probe=agency evidence=counterfactual ",
             "CAPABILITY probe=ore ",
             "CAPABILITY probe=foundry ",
         ):
@@ -4126,8 +3317,7 @@ class GameplayReportContractTests(unittest.TestCase):
         )
         self.assertIn("consumer-projected-batches:1..1", power_summary)
         self.assertNotIn("consumer-projected-charges:", power_summary)
-        self.assertIn("settlement-copper-policy=[spend:1 preserve:0]", power_summary)
-        self.assertIn("settlement-copper-policy=[spend:1 preserve:0]", concise)
+        self.assertIn("settlement-copper-rule=[spend-available:1]", power_summary)
         self.assertIn(
             "settlement-frontier=[spend-available:stone-crank@1ch->copper-crank@3ch]",
             concise,
@@ -4942,7 +4132,6 @@ class AuthorityContractTests(unittest.TestCase):
         self.assertEqual(
             targets,
             {
-                gameplay_targets.GAMEPLAY_AGENCY_TARGET,
                 ci.GAMEPLAY_AUDIT_TARGET,
                 ci.GAMEPLAY_CONTRACTS_TARGET,
                 *gameplay_targets.GAMEPLAY_OWNER_CONTRACT_TARGETS,
@@ -5392,8 +4581,7 @@ class ExactTestCommandTests(unittest.TestCase):
 
     def test_audit_gameplay_concerns_route_to_natural_focused_owners(self) -> None:
         for selector, expected_target in {
-            "gameplay_agency_counterfactuals": gameplay_targets.GAMEPLAY_AGENCY_TARGET,
-            "scenario_tests::world_seed_never_changes_player_policy": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
+            "scenario_tests::world_seed_never_changes_the_disclosed_player_policy": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
             "primitive_liberation_contract_tests::primitive_liberation_content_closes_the_pre_smelting_processing_gap": ci.GAMEPLAY_CONTRACTS_TARGET,
         }.items():
             with self.subTest(selector=selector):
@@ -5498,7 +4686,7 @@ class ExactTestCommandTests(unittest.TestCase):
             "primitive_recovery_and_reinforcement_routes_remain_connected": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],
             "progression_opportunity_generation_covers_distinct_search_and_reserve_pressure": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],
             "manual_processing_generation_varies_feed_and_composition_pressure": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["progression"],
-            "warning_service_prevents_condition_limited_batching_when_order_outlasts_safe_horizon": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
+            "warning_band_pressure_finishes_the_order_above_the_critical_floor": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
         }
         for selector, expected_target in cases.items():
             target, _name = run_test.resolve_automatic_exact_selection(selector, None)
@@ -5784,17 +4972,11 @@ class ExactTestCommandTests(unittest.TestCase):
                 None,
             ),
         )
-        workshop = run_test.source_test_catalog(ci.GAMEPLAY_TARGETS["workshop"], None)
-        self.assertNotIn("gameplay_agency_counterfactuals", workshop)
-        self.assertEqual(
-            run_test.source_test_catalog(gameplay_targets.GAMEPLAY_AGENCY_TARGET, None),
-            ["gameplay_agency_counterfactuals"],
-        )
         workshop_contracts = run_test.source_test_catalog(
             gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"], None
         )
         self.assertIn(
-            "scenario_tests::world_seed_never_changes_player_policy", workshop_contracts
+            "scenario_tests::world_seed_never_changes_the_disclosed_player_policy", workshop_contracts
         )
         contracts = run_test.source_test_catalog(ci.GAMEPLAY_CONTRACTS_TARGET, None)
         self.assertIn(
@@ -5802,8 +4984,7 @@ class ExactTestCommandTests(unittest.TestCase):
             contracts,
         )
         audit = run_test.source_test_catalog(ci.GAMEPLAY_AUDIT_TARGET, None)
-        self.assertIn("gameplay_agency_counterfactuals", audit)
-        self.assertIn("scenario_tests::world_seed_never_changes_player_policy", audit)
+        self.assertIn("scenario_tests::world_seed_never_changes_the_disclosed_player_policy", audit)
         self.assertNotIn(
             "gameplay_report",
             run_test.source_test_catalog(ci.GAMEPLAY_AUDIT_TARGET, None),

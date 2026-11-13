@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 GAMEPLAY_CONTRACTS_TARGET = "gameplay_contracts"
 GAMEPLAY_AUDIT_TARGET = "gameplay_audit"
-GAMEPLAY_AGENCY_TARGET = "gameplay_agency"
 GAMEPLAY_FEATURE = "test-gameplay"
 GAMEPLAY_VARIATION_ENV = "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"
 GAMEPLAY_BEHAVIOR_ENV = "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"
@@ -18,7 +17,6 @@ EVIDENCE_ORDINARY_EXACT_LOCAL = "ordinary-exact-local-after-disclosed-bootstrap"
 EVIDENCE_ORDINARY_GENERATED_OPENING = "ordinary-generated-opening+exact-local-after-admission"
 EVIDENCE_ORDINARY_SPATIAL_PROXY = "ordinary-system-spatial-proxy"
 EVIDENCE_CONTROLLED_CAPABILITY = "controlled-capability"
-EVIDENCE_COUNTERFACTUAL = "counterfactual"
 
 
 @dataclass(frozen=True)
@@ -188,7 +186,6 @@ GAMEPLAY_TEST_PREFIX_TARGETS = {
     "woodworking_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["woodworking"],
     "woodworking_generation_contract_tests::": GAMEPLAY_WOODWORKING_PLANNING_CONTRACT_TARGET,
     "woodworking_policy::tests::": GAMEPLAY_WOODWORKING_PLANNING_CONTRACT_TARGET,
-    "agency::contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
     "scenario_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
     "workshop_contract_tests::": GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
 }
@@ -206,21 +203,17 @@ GAMEPLAY_CARGO_TEST_TARGETS = tuple(
         {
             GAMEPLAY_CONTRACTS_TARGET,
             GAMEPLAY_AUDIT_TARGET,
-            GAMEPLAY_AGENCY_TARGET,
             *GAMEPLAY_TARGETS.values(),
             *GAMEPLAY_OWNER_CONTRACT_TARGETS,
         }
     )
 )
 GAMEPLAY_PROBE_TARGETS = {spec.test: spec.target for spec in GAMEPLAY_SCOPE_SPECS.values()}
-GAMEPLAY_PROBE_TARGETS["gameplay_agency_counterfactuals"] = GAMEPLAY_AGENCY_TARGET
 GAMEPLAY_PROBE_SCOPES = {
     spec.test: scope for scope, spec in GAMEPLAY_SCOPE_SPECS.items()
 }
-GAMEPLAY_PROBE_SCOPES["gameplay_agency_counterfactuals"] = "agency"
 GAMEPLAY_REPORT_SCOPE_BY_PROBE = {
     "workshop": "workshop",
-    "agency": "agency",
     "survival": "survival",
     "wilderness": "wilderness",
     "primitive-progression": "progression",
@@ -236,11 +229,9 @@ GAMEPLAY_REPORT_SCOPE_BY_PROBE = {
 
 
 def gameplay_evidence_mode(scope: str) -> str:
-    if scope == "agency":
-        return EVIDENCE_COUNTERFACTUAL
     return GAMEPLAY_SCOPE_SPECS[scope].evidence_mode
 GAMEPLAY_PROBE_TESTS = frozenset(GAMEPLAY_PROBE_TARGETS)
 GAMEPLAY_BEHAVIOR_PROBE_TESTS = frozenset(
     spec.test for spec in GAMEPLAY_SCOPE_SPECS.values() if spec.uses_behavior_seed
 )
-GAMEPLAY_ROUTINE_VARIATION_SCOPES = (*GAMEPLAY_SCOPE_SPECS, "agency")
+GAMEPLAY_ROUTINE_VARIATION_SCOPES = tuple(GAMEPLAY_SCOPE_SPECS)

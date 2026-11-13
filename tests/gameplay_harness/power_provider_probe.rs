@@ -36,7 +36,6 @@ use super::power_provider_market::reachable_mechanical_power_providers;
 use super::power_provider_market::{
     PowerProviderChoice, PrimitivePowerChoice, SettlementPowerChoice,
 };
-use super::seed::mix64;
 use super::settlement_demand::SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES;
 use super::stationary_survival::admit_stationary_player_with_survival_start;
 
@@ -57,22 +56,11 @@ use execution::{
     execute_primitive_comparison, execute_selected_primitive_project,
     execute_selected_settlement_project, execute_settlement_comparison,
 };
-use planning::{
-    PrimitivePowerProject, SettlementCopperPolicy, primitive_power_plan, settlement_power_plan,
-};
+use planning::{PrimitivePowerProject, primitive_power_plan, settlement_power_plan};
 use provisioning::seed_power_project_provisions;
 
-fn investment_policy(case: FocusedProbeCase) -> CapitalInvestmentPolicy {
-    match case.role() {
-        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => {
-            CapitalInvestmentPolicy::baseline()
-        }
-        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
-            CapitalInvestmentPolicy::from_behavior_seed(
-                case.required_behavior_seed("power-provider investment policy"),
-            )
-        }
-    }
+fn investment_policy() -> CapitalInvestmentPolicy {
+    CapitalInvestmentPolicy::baseline()
 }
 
 #[cfg(not(test))]
@@ -91,21 +79,6 @@ fn settlement_frontier_label(frontier: &[(u64, PowerProviderChoice)]) -> String 
         .map(|(charges, choice)| format!("{charges}:{}", choice.settlement_label()))
         .collect::<Vec<_>>()
         .join(",")
-}
-
-fn settlement_copper_policy(case: FocusedProbeCase) -> SettlementCopperPolicy {
-    match case.role() {
-        FocusedProbeRole::MaintainedAnchor => SettlementCopperPolicy::SpendAvailable,
-        FocusedProbeRole::MaintainedCoverage => SettlementCopperPolicy::PreserveForOtherUses,
-        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
-            let behavior = case.required_behavior_seed("settlement power copper policy");
-            if mix64(behavior ^ 0x5345_5454_5F43_4F50).is_multiple_of(2) {
-                SettlementCopperPolicy::SpendAvailable
-            } else {
-                SettlementCopperPolicy::PreserveForOtherUses
-            }
-        }
-    }
 }
 
 fn add_raw_requirement(
@@ -315,7 +288,7 @@ fn seed_raw_opportunity(
 
 pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedProbeCase) {
     let seed = case.seed();
-    let investment_policy = investment_policy(case);
+    let investment_policy = investment_policy();
     let maintained = matches!(
         case.role(),
         FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage
@@ -534,7 +507,6 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
     let settlement_fluid_before = calculate_fluid_volume_accounting(&settlement_state)
         .unwrap_or_else(|error| panic!("settlement power initial fluid audit failed: {error}"))
         .total();
-    let copper_policy = settlement_copper_policy(case);
     let settlement_plan = settlement_power_plan(
         registries,
         &settlement_state,
@@ -545,7 +517,6 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
             declared_mass: settlement_project_mass,
             declared_work_nj: settlement_project_work.nanojoules(),
         },
-        copper_policy,
         investment_policy,
     );
     #[cfg(not(test))]
@@ -555,7 +526,6 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         settlement_raw,
         settlement_shaped,
         settlement_capacity_nj,
-        copper_policy,
         investment_policy,
     );
     assert_eq!(
@@ -802,9 +772,6 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         ),
     ]
     .into_iter()
-    .filter(|(choice, _)| {
-        copper_policy == SettlementCopperPolicy::SpendAvailable || !choice.uses_copper(registries)
-    })
     .collect::<Vec<_>>();
     #[cfg(not(test))]
     let settlement_allowed_attention_minimum = settlement_allowed_attention
@@ -878,7 +845,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         case.role().label(),
         settlement_survival_start.label(),
         settlement_plan.choice.settlement_label(),
-        copper_policy.label(),
+        "spend-available",
         settlement_plan.declared_work_nj,
         settlement_plan.charge_events,
         settlement_provisions.food_supply_mg,
@@ -1028,7 +995,7 @@ pub(super) fn run_power_provider_probe(registries: &Registries, case: FocusedPro
         settlement_plan.charge_events,
         settlement_capacity_nj,
         settlement_plan.choice.settlement_label(),
-        copper_policy.label(),
+        "spend-available",
         settlement_plan.minimum_return_ppm,
         settlement_plan.minimum_attention_return_ticks,
         settlement_plan.treadle_lifecycle_attention,

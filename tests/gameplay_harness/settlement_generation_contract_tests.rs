@@ -10,7 +10,6 @@ use super::settlement_demand::{organic_lumber_batch_limits, organic_lumber_batch
 use super::settlement_generation::{
     SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES, crossover_workloads,
     organic_followup_lumber_batches, organic_inherited_equipment_condition,
-    organic_investment_policy,
 };
 
 #[test]
@@ -133,15 +132,6 @@ fn organic_settlement_generation_varies_visible_demand_without_using_investment_
                 .checked_add(*followup)
                 .is_some_and(|total| total <= opportunity_batches)
     }));
-    assert!(
-        (1_u64..=128)
-            .map(organic_investment_policy)
-            .map(CapitalInvestmentPolicy::minimum_return_ppm)
-            .collect::<BTreeSet<_>>()
-            .len()
-            > 1,
-        "organic settlement actor policy collapsed to one capital-return preference"
-    );
 }
 
 #[test]

@@ -252,7 +252,6 @@ fn probe_manual_recovery_option(
     state: &AppState,
     ids: WorkshopIds,
     mass: Mass,
-    preference: EnergyRecoveryPreference,
 ) -> ManualRecoveryProbe {
     let mut options = Vec::new();
     let mut constraints = BTreeSet::new();
@@ -267,9 +266,7 @@ fn probe_manual_recovery_option(
     }
 
     let before_policy_filter = options.len();
-    if preference == EnergyRecoveryPreference::ProtectSurvival {
-        retain_survival_safe_recovery_options(registries, state, &mut options);
-    }
+    retain_survival_safe_recovery_options(registries, state, &mut options);
     if before_policy_filter > 0 && options.is_empty() {
         constraints.insert(ManualRecoveryConstraint::SurvivalPolicy);
     }
@@ -408,7 +405,6 @@ fn maximum_recoverable_mass_for_destination(
     state: &AppState,
     ids: WorkshopIds,
     desired: Mass,
-    preference: EnergyRecoveryPreference,
     name: &'static str,
     store: EnergyStoreId,
 ) -> Option<Mass> {
@@ -428,11 +424,8 @@ fn maximum_recoverable_mass_for_destination(
         store,
         energy_limit,
     );
-    if preference == EnergyRecoveryPreference::ProtectSurvival {
-        let physiology = registries.survival().physiology();
-        request =
-            request.with_minimum_reserves(physiology.hungry_below(), physiology.thirsty_below());
-    }
+    let physiology = registries.survival().physiology();
+    request = request.with_minimum_reserves(physiology.hungry_below(), physiology.thirsty_below());
     let recoverable = assess_manual_power_energy_envelope(registries, state, request)
         .unwrap_or_else(|error| {
             panic!("workshop {name} drive manual-power envelope failed: {error}")
@@ -449,13 +442,12 @@ pub(super) fn largest_manual_recovery(
     state: &AppState,
     ids: WorkshopIds,
     desired: Mass,
-    preference: EnergyRecoveryPreference,
 ) -> ManualRecoverySearch {
     assert!(
         desired >= MINIMUM_SELECTABLE_MASS,
         "manual recovery planning requires a nonzero selectable crushing mass"
     );
-    let desired_probe = probe_manual_recovery_option(registries, state, ids, desired, preference);
+    let desired_probe = probe_manual_recovery_option(registries, state, ids, desired);
     if let Some(option) = desired_probe.option {
         return ManualRecoverySearch::Available {
             mass: desired,
@@ -468,13 +460,11 @@ pub(super) fn largest_manual_recovery(
     let best_mass = [("small", ids.small_drive), ("large", ids.large_drive)]
         .into_iter()
         .filter_map(|(name, store)| {
-            maximum_recoverable_mass_for_destination(
-                registries, state, ids, desired, preference, name, store,
-            )
+            maximum_recoverable_mass_for_destination(registries, state, ids, desired, name, store)
         })
         .max();
     if let Some(mass) = best_mass.filter(|mass| *mass >= MINIMUM_SELECTABLE_MASS) {
-        let probe = probe_manual_recovery_option(registries, state, ids, mass, preference);
+        let probe = probe_manual_recovery_option(registries, state, ids, mass);
         let option = probe.option.unwrap_or_else(|| {
             panic!(
                 "manual-power envelope reported {mass:?} recoverable but canonical recovery admission found no option"
@@ -488,6 +478,6 @@ pub(super) fn largest_manual_recovery(
     }
 
     let minimum_probe =
-        probe_manual_recovery_option(registries, state, ids, MINIMUM_SELECTABLE_MASS, preference);
+        probe_manual_recovery_option(registries, state, ids, MINIMUM_SELECTABLE_MASS);
     manual_recovery_failure(&desired_probe, &minimum_probe)
 }

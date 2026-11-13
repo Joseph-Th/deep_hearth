@@ -42,8 +42,8 @@ use super::woodworking_generation::{
     WoodworkingDemandPlan, organic_woodworking_native_copper, plan_woodworking_demand,
 };
 use super::woodworking_policy::{
-    WoodworkingInvestmentPreference, WoodworkingInvestmentReason, WoodworkingTimberBalance,
-    woodworking_investment_decision, woodworking_timber_balance,
+    WoodworkingInvestmentReason, WoodworkingTimberBalance, woodworking_investment_decision,
+    woodworking_timber_balance,
 };
 
 #[path = "woodworking_probe/evaluation.rs"]

@@ -115,17 +115,8 @@ fn fieldwork_order(registries: &Registries, seed: u64) -> Mass {
     }
 }
 
-fn survey_investment_policy(case: FocusedProbeCase) -> FieldworkSurveyPolicy {
-    match case.role() {
-        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => {
-            FieldworkSurveyPolicy::baseline()
-        }
-        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
-            FieldworkSurveyPolicy::from_behavior_seed(
-                case.required_behavior_seed("fieldwork survey policy"),
-            )
-        }
-    }
+fn survey_investment_policy() -> FieldworkSurveyPolicy {
+    FieldworkSurveyPolicy::baseline()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -654,7 +645,7 @@ fn run_fieldwork_with_supply(
             channel_voxels,
             sites: &campaign_sites,
             planned_sites: planned_future_sites(case),
-            investment_policy: survey_investment_policy(case),
+            investment_policy: survey_investment_policy(),
         },
     );
     let extraction = execute_fieldwork_extraction(

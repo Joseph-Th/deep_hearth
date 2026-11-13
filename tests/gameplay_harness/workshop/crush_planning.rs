@@ -110,7 +110,6 @@ struct ResolvableCrushBatch {
 #[derive(Clone, Copy)]
 pub(super) struct CrushChoiceContext {
     pub(super) thresholds: deep_hearth::maintenance::MaintenanceThresholds,
-    pub(super) preference: PowerPreference,
 }
 
 fn resolve_crush_option(
@@ -335,10 +334,7 @@ pub(super) fn choose_crush_option(
     large: Option<CrushOption>,
     context: CrushChoiceContext,
 ) -> (CrushOption, &'static str, PowerChoiceBasis) {
-    let CrushChoiceContext {
-        thresholds,
-        preference,
-    } = context;
+    let CrushChoiceContext { thresholds } = context;
     match (small, large) {
         (None, None) => unreachable!("safe powered batch must contain a viable energy option"),
         (Some(option), None) | (None, Some(option)) => (
@@ -355,30 +351,11 @@ pub(super) fn choose_crush_option(
                 thresholds.classify(large.resolved.condition_after()),
                 MaintenanceBand::Critical
             );
-            match preference {
-                PowerPreference::PreserveReserve => (
-                    small,
-                    "player priority preserves scarce high-power reserve",
-                    PowerChoiceBasis::Policy,
-                ),
-                PowerPreference::FinishSooner => {
-                    if large.resolved.process_resolution().duration()
-                        < small.resolved.process_resolution().duration()
-                    {
-                        (
-                            large,
-                            "player priority minimizes projected batch completion time",
-                            PowerChoiceBasis::Policy,
-                        )
-                    } else {
-                        (
-                            small,
-                            "both power choices finish equally soon, so preserve reserve",
-                            PowerChoiceBasis::Policy,
-                        )
-                    }
-                }
-            }
+            (
+                small,
+                "fixed policy preserves scarce high-power reserve",
+                PowerChoiceBasis::Policy,
+            )
         }
     }
 }

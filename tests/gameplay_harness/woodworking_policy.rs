@@ -1,30 +1,6 @@
-//! Pre-action woodworking investment policy and its observable decision vocabulary.
+//! Woodworking investment criterion and its observable decision vocabulary.
 
 use deep_hearth::core::quantity::Mass;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum WoodworkingInvestmentPreference {
-    ConserveScarceCopper,
-    ConserveTimber,
-}
-
-impl WoodworkingInvestmentPreference {
-    pub(super) const fn from_behavior_seed(seed: u64) -> Self {
-        if seed.is_multiple_of(2) {
-            Self::ConserveScarceCopper
-        } else {
-            Self::ConserveTimber
-        }
-    }
-
-    #[cfg(not(test))]
-    pub(super) const fn label(self) -> &'static str {
-        match self {
-            Self::ConserveScarceCopper => "conserve-scarce-copper",
-            Self::ConserveTimber => "conserve-timber",
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum WoodworkingInvestmentReason {
@@ -33,7 +9,6 @@ pub(super) enum WoodworkingInvestmentReason {
     CopperSupplyLimited,
     CopperReserveProtected,
     SetupAttentionBudgetExceeded,
-    SurplusCopperWithinSetupBudget,
     #[allow(dead_code, reason = "assigned by the lived woodworking evaluator")]
     ReinforcedAdzePreservesCopper,
     #[allow(dead_code, reason = "assigned by the lived woodworking evaluator")]
@@ -52,7 +27,6 @@ impl WoodworkingInvestmentReason {
             Self::CopperSupplyLimited => "copper-supply-limited",
             Self::CopperReserveProtected => "copper-reserve-protected",
             Self::SetupAttentionBudgetExceeded => "setup-attention-budget-exceeded",
-            Self::SurplusCopperWithinSetupBudget => "surplus-copper-within-setup-budget",
             Self::ReinforcedAdzePreservesCopper => "reinforced-adze-preserves-copper",
             Self::ReinforcedAdzeRepaysAttention => "reinforced-adze-repays-attention",
             Self::PipelineTimberCostNotRecovered => "pipeline-timber-cost-not-recovered",
@@ -99,8 +73,12 @@ pub(super) fn woodworking_timber_balance(
     }
 }
 
+/// Decide whether a saw is worth its setup for the disclosed workload.
+///
+/// The maintained criterion protects both finite inputs: never spend the protected copper reserve,
+/// never buy a saw that costs more timber than the adze route, and never pay setup attention that
+/// the disclosed workload cannot repay. The reviewer's own play decides the real opportunity.
 pub(super) fn woodworking_investment_decision(
-    preference: WoodworkingInvestmentPreference,
     reserve_safe: bool,
     setup_attention_budget_met: bool,
     timber_balance: WoodworkingTimberBalance,
@@ -108,59 +86,33 @@ pub(super) fn woodworking_investment_decision(
     if timber_balance == WoodworkingTimberBalance::Unavailable {
         return (false, WoodworkingInvestmentReason::CopperSupplyLimited);
     }
-    match preference {
-        WoodworkingInvestmentPreference::ConserveScarceCopper => {
-            conserve_copper_decision(reserve_safe, setup_attention_budget_met)
-        }
-        WoodworkingInvestmentPreference::ConserveTimber => {
-            conserve_timber_decision(timber_balance, setup_attention_budget_met)
-        }
-    }
-}
-
-fn conserve_copper_decision(
-    reserve_safe: bool,
-    setup_attention_budget_met: bool,
-) -> (bool, WoodworkingInvestmentReason) {
     if !reserve_safe {
         return (false, WoodworkingInvestmentReason::CopperReserveProtected);
+    }
+    if timber_balance == WoodworkingTimberBalance::Costlier {
+        return (
+            false,
+            WoodworkingInvestmentReason::PipelineTimberCostNotRecovered,
+        );
     }
     if !setup_attention_budget_met {
         return (
             false,
-            WoodworkingInvestmentReason::SetupAttentionBudgetExceeded,
+            if timber_balance == WoodworkingTimberBalance::Neutral {
+                WoodworkingInvestmentReason::PipelineTimberNeutralOutsideSetupBudget
+            } else {
+                WoodworkingInvestmentReason::SetupAttentionBudgetExceeded
+            },
         );
     }
     (
         true,
-        WoodworkingInvestmentReason::SurplusCopperWithinSetupBudget,
+        if timber_balance == WoodworkingTimberBalance::Neutral {
+            WoodworkingInvestmentReason::PipelineTimberNeutralWithinSetupBudget
+        } else {
+            WoodworkingInvestmentReason::PipelineNetTimberSaving
+        },
     )
-}
-
-fn conserve_timber_decision(
-    timber_balance: WoodworkingTimberBalance,
-    setup_attention_budget_met: bool,
-) -> (bool, WoodworkingInvestmentReason) {
-    match timber_balance {
-        WoodworkingTimberBalance::Costlier => (
-            false,
-            WoodworkingInvestmentReason::PipelineTimberCostNotRecovered,
-        ),
-        WoodworkingTimberBalance::Neutral if !setup_attention_budget_met => (
-            false,
-            WoodworkingInvestmentReason::PipelineTimberNeutralOutsideSetupBudget,
-        ),
-        WoodworkingTimberBalance::Neutral => (
-            true,
-            WoodworkingInvestmentReason::PipelineTimberNeutralWithinSetupBudget,
-        ),
-        WoodworkingTimberBalance::Saving => {
-            (true, WoodworkingInvestmentReason::PipelineNetTimberSaving)
-        }
-        WoodworkingTimberBalance::Unavailable => {
-            unreachable!("unavailable timber balance is handled before preference dispatch")
-        }
-    }
 }
 
 #[cfg(test)]

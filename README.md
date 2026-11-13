@@ -78,5 +78,5 @@ For transfers, reservations, support, delayed custody, or owner interaction, sta
 | Tick or scheduled behavior | Persist future-affecting state, keep tick ordering explicit, and prove deterministic continuation. |
 | Gameplay capability/reachability | Add production-path evidence and update [`STATUS.md`](STATUS.md); change [`GAME_DESIGN.md`](GAME_DESIGN.md) only if intent changed. |
 | Future priority | Update [`DIRECTION.md`](DIRECTION.md), not current-scope claims. |
-| Gameplay actor/evidence policy | Update [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) and preserve actor/diagnostic separation. |
+| Gameplay actor/evidence contract | Update [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md); keep probes script-driven and diagnostics separate. |
 | Verification tooling | Keep selectors fail-closed and local; update [`TESTING.md`](TESTING.md). |

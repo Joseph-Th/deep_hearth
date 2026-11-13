@@ -75,8 +75,6 @@ pub(super) struct FieldworkSurveyDecision {
 }
 
 pub(super) const MINIMUM_SURVEY_INVESTMENT_RETURN_PPM: u128 = 100_000;
-const ORGANIC_MINIMUM_SURVEY_RETURN_PPM: u128 = 75_000;
-const ORGANIC_MAXIMUM_SURVEY_RETURN_PPM: u128 = 125_000;
 const SITE_PRODUCTIVITY_SCALE_PPM: u128 = 1_000_000;
 const NEUTRAL_PRODUCTIVE_SITE_PRIOR_PPM: u128 = SITE_PRODUCTIVITY_SCALE_PPM / 2;
 
@@ -90,17 +88,6 @@ impl FieldworkSurveyPolicy {
     pub(super) const fn baseline() -> Self {
         Self {
             minimum_return_ppm: MINIMUM_SURVEY_INVESTMENT_RETURN_PPM,
-            productive_site_prior_ppm: NEUTRAL_PRODUCTIVE_SITE_PRIOR_PPM,
-        }
-    }
-
-    pub(super) const fn from_behavior_seed(seed: u64) -> Self {
-        let span = ORGANIC_MAXIMUM_SURVEY_RETURN_PPM - ORGANIC_MINIMUM_SURVEY_RETURN_PPM;
-        Self {
-            minimum_return_ppm: ORGANIC_MINIMUM_SURVEY_RETURN_PPM + (seed as u128) % (span + 1),
-            // Unknown neighboring ground is not assigned the hidden world's generated success
-            // frequency. Keep one explicit neutral prior while behavior entropy varies only the
-            // actor's capital-return tolerance.
             productive_site_prior_ppm: NEUTRAL_PRODUCTIVE_SITE_PRIOR_PPM,
         }
     }

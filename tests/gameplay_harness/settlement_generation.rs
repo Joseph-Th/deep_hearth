@@ -2,7 +2,6 @@
 
 use deep_hearth::registry::Registries;
 
-use super::capital_investment_policy::CapitalInvestmentPolicy;
 use super::inherited_condition::healthy_used_equipment_condition;
 pub(super) use super::settlement_demand::SETTLEMENT_SPECIALIZATION_OPPORTUNITY_BATCHES;
 use super::settlement_demand::organic_lumber_batches;
@@ -66,10 +65,6 @@ pub(super) fn crossover_workloads(
         marginal_batches: crossover_batches - 1,
         project_batches,
     }
-}
-
-pub(super) fn organic_investment_policy(behavior_seed: u64) -> CapitalInvestmentPolicy {
-    CapitalInvestmentPolicy::from_behavior_seed(behavior_seed)
 }
 
 pub(super) fn organic_inherited_equipment_condition(
