@@ -34,6 +34,12 @@ fn mined_copper_ore_can_be_broken_and_sorted_into_finite_native_metal() {
     finish_work(&mut session);
     let inventory = run(&mut session, "inventory");
     assert!(inventory.contains("copper ore | 300 g"));
+    assert!(
+        inventory.lines().any(|line| {
+            line.contains("copper ore | 300 g |") && line.ends_with("mixed material")
+        }),
+        "mined mixed ore should be distinguishable without exposing its exact assay: {inventory}"
+    );
     let first = carried_stack(&session, "copper ore");
     let catalog = run(&mut session, "ore");
     assert!(catalog.contains("15. "));

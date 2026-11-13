@@ -2,12 +2,22 @@
 
 use std::fmt::Write as _;
 
+use deep_hearth::inventory::MaterialStackProjection;
 use deep_hearth::logistics::{
     PlayerActiveSelection, PlayerStockpileProjection, project_player_inventory,
 };
 use deep_hearth::{AppState, Registries};
 
 use super::{celsius, grams, name};
+
+/// Reveal a mixed-cohort distinction without pretending the player knows an exact assay.
+fn composition_hint(stack: &MaterialStackProjection) -> &'static str {
+    if stack.composition().pure_material().is_some() {
+        ""
+    } else {
+        " | mixed material"
+    }
+}
 
 /// Resolve both the hand label and whether its selected material is carried.
 /// The status readout uses the same physical inventory projection for its food hint.
@@ -90,11 +100,12 @@ pub fn inventory(registries: &Registries, state: &AppState) -> Result<String, St
     for (index, stack) in carried.stacks().iter().enumerate() {
         let _ = writeln!(
             output,
-            "  {}. {} | {} g | {} C",
+            "  {}. {} | {} g | {} C{}",
             index + 1,
             name(registries, stack.commodity()),
             grams(stack.mass()),
             celsius(stack.temperature()),
+            composition_hint(stack),
         );
     }
     for (index, equipment) in projection.equipment().iter().enumerate() {
@@ -139,11 +150,12 @@ pub fn inventory(registries: &Registries, state: &AppState) -> Result<String, St
         for (stack_index, stack) in local.stacks().iter().enumerate() {
             let _ = writeln!(
                 output,
-                "    {}. {} | {} g | {} C",
+                "    {}. {} | {} g | {} C{}",
                 stack_index + 1,
                 name(registries, stack.commodity()),
                 grams(stack.mass()),
                 celsius(stack.temperature()),
+                composition_hint(stack),
             );
         }
     }

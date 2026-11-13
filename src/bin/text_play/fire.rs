@@ -5,8 +5,8 @@ use std::fmt::Write as _;
 use super::view;
 use deep_hearth::content::ENERGY_STONE_RING_CAMPFIRE;
 use deep_hearth::energy::{
-    EnergyStoreAssemblyError, EnergyStoreId, validate_assemble_energy_store,
-    validate_combust_selected_fuel,
+    CombustionError, EnergyStoreAssemblyError, EnergyStoreId, validate_assemble_energy_store,
+    validate_combust_stack_fuel,
 };
 use deep_hearth::logistics::project_player_inventory;
 use deep_hearth::{AppState, Registries};
@@ -66,6 +66,28 @@ pub(super) fn assembly_blocker(registries: &Registries, error: EnergyStoreAssemb
     }
 }
 
+fn fuel_blocker(registries: &Registries, error: CombustionError) -> String {
+    match error {
+        CombustionError::InsufficientFuel {
+            available,
+            required,
+            ..
+        } => format!(
+            "selected fuel stack has {} g; one charge needs {} g",
+            view::grams(available),
+            view::grams(required),
+        ),
+        CombustionError::ImpureFuel { fuel } => format!(
+            "selected {} stack contains impurities; this fire needs pure fuel",
+            registries
+                .materials()
+                .commodity_name(fuel)
+                .unwrap_or("unidentified material"),
+        ),
+        other => other.to_string(),
+    }
+}
+
 pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, String> {
     let source = carried(state)?;
     let inventory =
@@ -114,30 +136,42 @@ pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, Stri
             .ok_or("local fire has no authored definition")?;
         let _ = writeln!(
             output,
-            "  {count}. {} | {} stored",
+            "  {count}. {} | {} stored / {} capacity",
             definition.name(),
             energy_label(record.stored()),
+            energy_label(definition.capacity()),
         );
         for profile in definition.combustion_profiles() {
             let material = registries
                 .materials()
                 .commodity_name(profile.fuel())
                 .unwrap_or("unidentified material");
+            // Ask the combustion owner about actual admission rather than duplicating
+            // purity, mass, attention, occupancy, and thermal-capacity rules.
+            let mut first_blocker = None;
             let eligible = inventory
                 .carried()
                 .stacks()
                 .iter()
                 .enumerate()
-                .find(|(_, stack)| {
-                    stack.commodity() == profile.fuel() && stack.mass() >= profile.fuel_mass()
-                })
-                .map(|(index, _)| index + 1);
+                .filter(|(_, stack)| stack.commodity() == profile.fuel())
+                .find_map(|(index, stack)| {
+                    match validate_combust_stack_fuel(registries, state, id, source, stack) {
+                        Ok(_) => Some(index + 1),
+                        Err(error) => {
+                            if first_blocker.is_none() {
+                                first_blocker = Some(fuel_blocker(registries, error));
+                            }
+                            None
+                        }
+                    }
+                });
             let _ = writeln!(
                 output,
                 "     Fuel: {} g {material} per charge | {}",
                 view::grams(profile.fuel_mass()),
                 eligible.map_or_else(
-                    || "no sufficient carried stack".to_owned(),
+                    || first_blocker.unwrap_or_else(|| "no matching carried stack".to_owned()),
                     |stack| format!("feed-fire {count} {stack}")
                 ),
             );
@@ -202,8 +236,8 @@ pub fn fuel(
         .commodity_name(commodity)
         .unwrap_or("unidentified material")
         .to_owned();
-    validate_combust_selected_fuel(registries, state, store, source, commodity)
-        .map_err(|error| error.to_string())?
+    validate_combust_stack_fuel(registries, state, store, source, stack)
+        .map_err(|error| fuel_blocker(registries, error))?
         .commit(state)
         .map_err(|error| error.to_string())?;
     let energy = state

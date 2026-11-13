@@ -6,10 +6,11 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::{AggregateMass, Energy, Mass};
 use crate::core::state::AppState;
 use crate::inventory::{
+    ExplicitConsumptionSelectionError, MaterialStackProjection, MaterialStackProjectionError,
     StockpileId, StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedMaterialEgress,
     ValidatedStockpileStructuralLoad, apply_material_egress, validate_consumption_selection,
-    validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
-    validate_unreserved_stockpile_structural_load_headroom,
+    validate_explicit_consumption_selection, validate_material_egress_from_selection,
+    validate_stockpile_stored_mass_changes, validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::logistics::{
     PlayerEnergyStoreAccessError, PlayerStockpileAccessError, validate_player_energy_store_access,
@@ -40,6 +41,11 @@ pub enum CombustionError {
         store: EnergyStoreId,
         fuel: CommodityKey,
     },
+    ImpureFuel {
+        fuel: CommodityKey,
+    },
+    StackSelection(MaterialStackProjectionError),
+    ExplicitSelection(ExplicitConsumptionSelectionError),
     StoreBusy {
         store: EnergyStoreId,
     },
@@ -101,6 +107,16 @@ impl Display for CombustionError {
                 fuel.material().value(),
                 fuel.form().value()
             ),
+            Self::ImpureFuel { fuel } => write!(
+                formatter,
+                "combustion fuel material {} form {} must be pure",
+                fuel.material().value(),
+                fuel.form().value()
+            ),
+            Self::StackSelection(error) => write!(formatter, "combustion fuel stack: {error}"),
+            Self::ExplicitSelection(error) => {
+                write!(formatter, "combustion fuel lot selection: {error}")
+            }
             Self::StoreBusy { store } => {
                 write!(formatter, "energy store {} is occupied", store.value())
             }
@@ -160,6 +176,8 @@ impl Error for CombustionError {
             Self::StoreAccess(error) => Some(error),
             Self::SourceAccess(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
+            Self::StackSelection(error) => Some(error),
+            Self::ExplicitSelection(error) => Some(error),
             Self::PlayerDead
             | Self::PlayerBusy
             | Self::PreparedStrikeActive
@@ -167,6 +185,7 @@ impl Error for CombustionError {
             | Self::UnknownDefinition
             | Self::NoCombustionProfile { .. }
             | Self::UnsupportedFuel { .. }
+            | Self::ImpureFuel { .. }
             | Self::StoreBusy { .. }
             | Self::InsufficientFuel { .. }
             | Self::SourceMassOverflow { .. }
@@ -327,7 +346,7 @@ pub fn validate_combust_fuel(
     store: EnergyStoreId,
     source: StockpileId,
 ) -> Result<ValidatedCombustion, CombustionError> {
-    validate_combust_fuel_selected(registries, state, store, source, None)
+    validate_combust_fuel_selected(registries, state, store, source, FuelSelection::Default)
 }
 
 /// Uses one explicitly selected fuel form. Refuses to substitute logs when chips are insufficient,
@@ -339,7 +358,37 @@ pub fn validate_combust_selected_fuel(
     source: StockpileId,
     fuel: CommodityKey,
 ) -> Result<ValidatedCombustion, CombustionError> {
-    validate_combust_fuel_selected(registries, state, store, source, Some(fuel))
+    validate_combust_fuel_selected(
+        registries,
+        state,
+        store,
+        source,
+        FuelSelection::Commodity(fuel),
+    )
+}
+
+/// Burns one physically selected stack, never another same-commodity cohort.
+/// The projection must still match its inventory revision and simulation tick.
+pub fn validate_combust_stack_fuel(
+    registries: &Registries,
+    state: &AppState,
+    store: EnergyStoreId,
+    source: StockpileId,
+    stack: &MaterialStackProjection,
+) -> Result<ValidatedCombustion, CombustionError> {
+    validate_combust_fuel_selected(
+        registries,
+        state,
+        store,
+        source,
+        FuelSelection::Stack(stack),
+    )
+}
+
+enum FuelSelection<'a> {
+    Default,
+    Commodity(CommodityKey),
+    Stack(&'a MaterialStackProjection),
 }
 
 fn validate_combust_fuel_selected(
@@ -347,7 +396,7 @@ fn validate_combust_fuel_selected(
     state: &AppState,
     store: EnergyStoreId,
     source: StockpileId,
-    selected_fuel: Option<CommodityKey>,
+    selected_fuel: FuelSelection<'_>,
 ) -> Result<ValidatedCombustion, CombustionError> {
     let player_action =
         validate_optional_player_action(state).map_err(|_| CombustionError::PlayerDead)?;
@@ -371,7 +420,12 @@ fn validate_combust_fuel_selected(
     let profile = definition
         .combustion_profile()
         .ok_or(CombustionError::NoCombustionProfile { store })?;
-    let profile = if let Some(fuel) = selected_fuel {
+    let fuel = match selected_fuel {
+        FuelSelection::Default => None,
+        FuelSelection::Commodity(fuel) => Some(fuel),
+        FuelSelection::Stack(stack) => Some(stack.commodity()),
+    };
+    let profile = if let Some(fuel) = fuel {
         definition
             .combustion_profile_for(fuel)
             .ok_or(CombustionError::UnsupportedFuel { store, fuel })?
@@ -399,26 +453,58 @@ fn validate_combust_fuel_selected(
         });
     }
     let input = [MaterialInputSpec::pure(profile.fuel(), profile.fuel_mass())];
-    let selection =
-        validate_consumption_selection(state.inventory(), source, &input).map_err(|error| {
-            match error {
-                crate::inventory::ConsumptionSelectionError::UnknownStockpile { stockpile } => {
-                    CombustionError::SourceMassOverflow { source: stockpile }
-                }
-                crate::inventory::ConsumptionSelectionError::InsufficientMass {
-                    available,
-                    requested,
-                    ..
-                } => CombustionError::InsufficientFuel {
-                    source,
-                    available,
-                    required: requested,
-                },
-                crate::inventory::ConsumptionSelectionError::MassOverflow { .. } => {
-                    CombustionError::SourceMassOverflow { source }
-                }
+    let selection = match selected_fuel {
+        FuelSelection::Stack(stack) => {
+            let slices = stack
+                .selections_for_mass(state, source, profile.fuel_mass())
+                .map_err(|error| match error {
+                    MaterialStackProjectionError::MassExceedsStack {
+                        requested,
+                        available,
+                    } => CombustionError::InsufficientFuel {
+                        source,
+                        available,
+                        required: requested,
+                    },
+                    error @ (MaterialStackProjectionError::UnknownStockpile { .. }
+                    | MaterialStackProjectionError::StaleInventoryRevision { .. }
+                    | MaterialStackProjectionError::StaleSimulationTick { .. }
+                    | MaterialStackProjectionError::StackMembershipChanged { .. }
+                    | MaterialStackProjectionError::SourceMismatch { .. }
+                    | MaterialStackProjectionError::ZeroMass) => {
+                        CombustionError::StackSelection(error)
+                    }
+                })?;
+            if !input[0].is_satisfied_by(stack.composition()) {
+                return Err(CombustionError::ImpureFuel {
+                    fuel: profile.fuel(),
+                });
             }
-        })?;
+            validate_explicit_consumption_selection(state.inventory(), source, &slices)
+                .map_err(CombustionError::ExplicitSelection)?
+        }
+        FuelSelection::Default | FuelSelection::Commodity(_) => {
+            validate_consumption_selection(state.inventory(), source, &input).map_err(|error| {
+                match error {
+                    crate::inventory::ConsumptionSelectionError::UnknownStockpile { stockpile } => {
+                        CombustionError::SourceMassOverflow { source: stockpile }
+                    }
+                    crate::inventory::ConsumptionSelectionError::InsufficientMass {
+                        available,
+                        requested,
+                        ..
+                    } => CombustionError::InsufficientFuel {
+                        source,
+                        available,
+                        required: requested,
+                    },
+                    crate::inventory::ConsumptionSelectionError::MassOverflow { .. } => {
+                        CombustionError::SourceMassOverflow { source }
+                    }
+                }
+            })?
+        }
+    };
     let egress =
         validate_material_egress_from_selection(state.inventory(), selection).map_err(|error| {
             match error {

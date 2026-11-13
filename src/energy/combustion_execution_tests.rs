@@ -8,11 +8,14 @@ use crate::content::{
 use crate::core::quantity::{AggregateMass, Mass};
 use crate::core::state::{AppState, validate_loaded_state};
 use crate::crafting::validate_start_player_manual_craft;
-use crate::inventory::deposit_bulk_for_test;
+use crate::inventory::{
+    MaterialStackProjectionError, deposit_bulk_for_test, deposit_composed_lot_for_test,
+    deposit_lot_for_test, project_material_stacks,
+};
 use crate::logistics::{
     PlayerActiveSelection, relocate_player_for_test, validate_set_active_selection,
 };
-use crate::material::CommodityKey;
+use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
@@ -26,7 +29,10 @@ use std::num::NonZeroU64;
 
 use crate::energy::validate_assemble_energy_store;
 
-use super::{CombustionError, validate_combust_fuel, validate_combust_selected_fuel};
+use super::{
+    CombustionError, validate_combust_fuel, validate_combust_selected_fuel,
+    validate_combust_stack_fuel,
+};
 
 #[test]
 fn prepared_weapon_prevents_firelighting_and_stales_prior_fuel_commit() {
@@ -347,6 +353,155 @@ fn campfire_fixture() -> (
             .commit(&mut state)
             .unwrap_or_else(|error| panic!("campfire assembly commit failed: {error}"));
     (registries, state, carried, fire)
+}
+
+#[test]
+fn selected_fuel_stack_burns_the_chosen_cohort_and_replays_exactly() {
+    use crate::core::quantity::Temperature;
+
+    let (registries, mut state, carried, fire) = campfire_fixture();
+    let fuel = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let warm = Temperature::from_millikelvin(320_150);
+    let warm_lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        fuel,
+        CAMPFIRE_FUEL_MASS,
+        warm,
+    )
+    .unwrap();
+    let stacks = project_material_stacks(&registries, &state, carried).unwrap();
+    let warm_stack = stacks
+        .iter()
+        .find(|stack| stack.temperature() == warm)
+        .unwrap();
+    assert_eq!(warm_stack.mass(), CAMPFIRE_FUEL_MASS);
+    assert_eq!(
+        stacks
+            .iter()
+            .filter(|stack| stack.commodity() == fuel)
+            .count(),
+        2
+    );
+
+    // The ordinary hotbar form-only operation legitimately draws the older,
+    // cooler lot. A numbered fuel-stack command must not behave that way.
+    let mut form_only = state.clone();
+    validate_combust_selected_fuel(&registries, &form_only, fire, carried, fuel)
+        .unwrap()
+        .commit(&mut form_only)
+        .unwrap();
+    assert_eq!(
+        form_only.inventory().get_lot(warm_lot).unwrap().mass(),
+        CAMPFIRE_FUEL_MASS
+    );
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for world in [&mut state, &mut replay] {
+        let chosen = project_material_stacks(&registries, world, carried)
+            .unwrap()
+            .into_iter()
+            .find(|stack| stack.temperature() == warm)
+            .unwrap();
+        validate_combust_stack_fuel(&registries, world, fire, carried, &chosen)
+            .unwrap()
+            .commit(world)
+            .unwrap();
+        assert!(world.inventory().get_lot(warm_lot).is_none());
+        assert_eq!(
+            world
+                .inventory()
+                .get_stockpile(carried)
+                .unwrap()
+                .get_mass(fuel),
+            CAMPFIRE_FUEL_MASS,
+            "the older cool fuel remains in custody"
+        );
+        assert_eq!(
+            calculate_matter_accounting(world).unwrap().total(),
+            matter_before
+        );
+        assert_eq!(validate_loaded_state(&registries, world), Ok(()));
+    }
+    assert_eq!(state, replay);
+}
+
+#[test]
+fn selected_fuel_stack_rejects_short_impure_and_stale_cohorts_without_mutation() {
+    use crate::core::quantity::Temperature;
+
+    let (registries, mut state, carried, fire) = campfire_fixture();
+    let fuel = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let warm = Temperature::from_millikelvin(320_150);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        fuel,
+        Mass::from_milligrams(10_000),
+        warm,
+    )
+    .unwrap();
+    let short = project_material_stacks(&registries, &state, carried)
+        .unwrap()
+        .into_iter()
+        .find(|stack| stack.temperature() == warm)
+        .unwrap();
+    let before = state.clone();
+    assert!(matches!(
+        validate_combust_stack_fuel(&registries, &state, fire, carried, &short),
+        Err(CombustionError::InsufficientFuel { source, available, required })
+            if source == carried && available == Mass::from_milligrams(10_000)
+                && required == CAMPFIRE_FUEL_MASS
+    ));
+    assert_eq!(
+        state, before,
+        "another full log must not subsidize a short stack"
+    );
+
+    let impure = MaterialComposition::new(vec![
+        CompositionComponent::new(MATERIAL_STONE, 100_000),
+        CompositionComponent::new(MATERIAL_WOOD, 900_000),
+    ])
+    .unwrap();
+    deposit_composed_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        fuel,
+        CAMPFIRE_FUEL_MASS,
+        Temperature::from_millikelvin(300_150),
+        impure,
+    )
+    .unwrap();
+    let impure_stack = project_material_stacks(&registries, &state, carried)
+        .unwrap()
+        .into_iter()
+        .find(|stack| stack.composition().pure_material().is_none())
+        .unwrap();
+    let before = state.clone();
+    assert!(matches!(
+        validate_combust_stack_fuel(&registries, &state, fire, carried, &impure_stack),
+        Err(CombustionError::ImpureFuel { fuel: rejected }) if rejected == fuel
+    ));
+    assert_eq!(state, before);
+
+    let stale = short;
+    let before = state.clone();
+    assert!(matches!(
+        validate_combust_stack_fuel(&registries, &state, fire, carried, &stale),
+        Err(CombustionError::StackSelection(
+            MaterialStackProjectionError::StaleInventoryRevision { .. }
+        ))
+    ));
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

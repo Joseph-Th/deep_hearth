@@ -10,6 +10,138 @@ fn snapshot(session: &Session) -> Vec<u8> {
 }
 
 #[test]
+fn fire_command_consumes_the_exact_gathered_stack_and_conserves_matter() {
+    use deep_hearth::content::{FORM_LOG, MATERIAL_WOOD};
+    use deep_hearth::core::quantity::Mass;
+    use deep_hearth::core::state::validate_loaded_state;
+    use deep_hearth::material::CommodityKey;
+    use deep_hearth::matter::calculate_matter_accounting;
+
+    fn finish_work(session: &mut Session) {
+        for _ in 0..20 {
+            if session.state.player_work().active().is_none() {
+                break;
+            }
+            session.command("wait work").unwrap();
+        }
+        assert!(session.state.player_work().active().is_none());
+    }
+
+    let mut session = Session::new(24318).unwrap();
+    // Reach the stone source along the real opening trail and construct a fire.
+    for command in [
+        "e 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "gather 1 1000",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    finish_work(&mut session);
+    let (built, _) = session.command("build-fire").unwrap();
+    assert!(built.contains("Built a stone-ring campfire"), "{built}");
+
+    // Bring back a deliberately insufficient charge before completing it.
+    for command in ["w 20", "wait 10", "s 20", "wait 10", "gather 1 500"] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    finish_work(&mut session);
+    for command in ["n 20", "wait 10", "e 20", "wait 10"] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    let projected = project_player_inventory(&session.registries, &session.state).unwrap();
+    let source = projected.carried().stockpile();
+    let wood = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let short_index = projected
+        .carried()
+        .stacks()
+        .iter()
+        .position(|stack| stack.commodity() == wood)
+        .expect("ordinary gathered timber must be carried")
+        + 1;
+    let catalog = session.command("fire").unwrap().0;
+    assert!(
+        catalog.contains("selected fuel stack has 500 g; one charge needs 1000 g"),
+        "{catalog}"
+    );
+    let before_rejection = snapshot(&session);
+    let rejected = session
+        .command(&format!("feed-fire 1 {short_index}"))
+        .unwrap_err();
+    assert!(
+        rejected.contains("selected fuel stack has 500 g; one charge needs 1000 g"),
+        "{rejected}"
+    );
+    assert_eq!(snapshot(&session), before_rejection);
+
+    // The remaining timber is physically gathered, not borrowed from another cohort.
+    for command in ["w 20", "wait 10", "s 20", "wait 10", "gather 1 500"] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    finish_work(&mut session);
+    for command in ["n 20", "wait 10", "e 20", "wait 10"] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    let projection = project_player_inventory(&session.registries, &session.state).unwrap();
+    let index = projection
+        .carried()
+        .stacks()
+        .iter()
+        .position(|stack| {
+            stack.commodity() == wood && stack.mass() >= Mass::from_milligrams(1_000_000)
+        })
+        .expect("both gathered portions must provide one full charge")
+        + 1;
+    let catalog = session.command("fire").unwrap().0;
+    assert!(
+        catalog.contains(&format!("feed-fire 1 {index}")),
+        "{catalog}"
+    );
+    let conserved = calculate_matter_accounting(&session.state).unwrap().total();
+    let (receipt, _) = session.command(&format!("feed-fire 1 {index}")).unwrap();
+    assert!(receipt.contains("Burned 1000 g timber log"), "{receipt}");
+    assert_eq!(
+        session
+            .state
+            .inventory()
+            .get_stockpile(source)
+            .unwrap()
+            .get_mass(wood),
+        Mass::ZERO
+    );
+    assert_eq!(
+        calculate_matter_accounting(&session.state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        validate_loaded_state(&session.registries, &session.state),
+        Ok(())
+    );
+    let saved = snapshot(&session);
+    let replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&session.registries)
+        .unwrap();
+    assert_eq!(
+        serde_json::to_vec(&SaveEnvelope::new(&session.registries, &replay)).unwrap(),
+        saved
+    );
+}
+
+#[test]
 fn dropped_material_is_visibly_distinct_from_natural_supply_and_conserves_matter() {
     use deep_hearth::matter::calculate_matter_accounting;
 
