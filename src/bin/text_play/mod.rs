@@ -228,11 +228,11 @@ impl Session {
         let mass = if let Some(grams) = args.get(1) {
             parse_gather_grams(grams)?
         } else {
-            option
-                .source_mass()
-                .min(option.maximum_batch_mass())
-                .min(option.direct_batch_mass())
+            view::default_gather_mass(&self.state, option)
         };
+        if args.len() == 1 && mass.is_zero() {
+            return Err("no carrying space for the suggested gathering batch".to_owned());
+        }
         if mass.is_zero() || mass > option.source_mass() || mass > option.maximum_batch_mass() {
             return Err(
                 "gather quantity must be positive and within the displayed source/method limit"

@@ -86,6 +86,83 @@ fn celsius_safety_labels_retain_sign_and_millidegrees_at_the_limit() {
 }
 
 #[test]
+fn gathering_suggestion_respects_unreserved_capacity_and_matches_action() {
+    use deep_hearth::core::quantity::Mass;
+    use deep_hearth::surface::player_surface_gathering_options;
+
+    let mut session = super::super::Session::new(24318).unwrap();
+    for command in ["e 20", "wait 10"] {
+        session.command(command).unwrap();
+    }
+    let options = player_surface_gathering_options(&session.registries, &session.state).unwrap();
+    let option = options[0];
+    let carrying = session
+        .state
+        .logistics()
+        .player()
+        .unwrap()
+        .carried_stockpile();
+    let headroom = session
+        .state
+        .inventory()
+        .get_stockpile(carrying)
+        .unwrap()
+        .available_capacity();
+    let expected = option
+        .source_mass()
+        .min(option.maximum_batch_mass())
+        .min(option.direct_batch_mass())
+        .min(headroom);
+    assert_eq!(super::default_gather_mass(&session.state, option), expected);
+    assert_eq!(super::bounded_gather_mass(option, Mass::ZERO), Mass::ZERO);
+    assert_eq!(
+        super::bounded_gather_mass(option, Mass::from_milligrams(125)),
+        Mass::from_milligrams(125),
+    );
+    let catalog = super::gather_options(&session.registries, &session.state, &options);
+    assert!(
+        catalog.contains(&format!("default {} g", super::grams(expected))),
+        "{catalog}"
+    );
+    let (started, _) = session.command("gather 1").unwrap();
+    assert!(
+        started.contains(&format!("Gathering started: {} g", super::grams(expected))),
+        "{started}"
+    );
+}
+
+#[test]
+fn inventory_hotbar_uses_the_same_carried_projection_and_reports_stack_temperature() {
+    use deep_hearth::logistics::{PlayerActiveSelection, project_player_inventory};
+
+    let mut session = super::super::Session::new(24318).unwrap();
+    for command in ["e 20", "wait 10", "gather 1 0.125", "wait work", "select 1"] {
+        session.command(command).unwrap();
+    }
+    let projection = project_player_inventory(&session.registries, &session.state).unwrap();
+    let stack = &projection.carried().stacks()[0];
+    let selected = Some(PlayerActiveSelection::material(stack.commodity()));
+    assert_eq!(
+        super::actor_inventory::hand_status_with_carried(
+            &session.registries,
+            &session.state,
+            selected,
+            Some(projection.carried()),
+        ),
+        super::hand_status(&session.registries, &session.state, selected)
+    );
+    let inventory = super::inventory(&session.registries, &session.state).unwrap();
+    assert!(inventory.contains("slot 1: berries"), "{inventory}");
+    assert!(
+        inventory.contains(&format!(
+            "berries | 0.125 g | {} C",
+            super::celsius(stack.temperature())
+        )),
+        "{inventory}"
+    );
+}
+
+#[test]
 fn storage_catalog_names_missing_construction_material_instead_of_private_identifiers() {
     let session = super::super::Session::new(24318).unwrap();
     let text = super::super::storage::catalog(&session.registries, &session.state, true).unwrap();

@@ -1,7 +1,7 @@
 //! Text-only activity labels and completion estimates from persisted work schedules.
 
 use super::view;
-use deep_hearth::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
+use deep_hearth::core::time::{CONTROL_TICK_DURATION, CONTROL_TICKS_PER_SIMULATION_TICK};
 use deep_hearth::labor::PlayerWork;
 use deep_hearth::surface::active_player_surface_gathering_commodity;
 use deep_hearth::{AppState, Registries};
@@ -84,7 +84,8 @@ fn due_at_control_ticks(state: &AppState, work: PlayerWork) -> Option<u128> {
 
 fn time_label(control_ticks: u128) -> String {
     // Round upward rather than claiming a completion before its scheduled boundary.
-    let seconds = (control_ticks * 50).div_ceil(1_000);
+    let seconds =
+        (control_ticks * u128::from(CONTROL_TICK_DURATION.microseconds())).div_ceil(1_000_000);
     if seconds >= 60 {
         format!("{}m {}s", seconds / 60, seconds % 60)
     } else {

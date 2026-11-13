@@ -3,14 +3,18 @@
 use std::fmt::Write as _;
 
 use super::activity;
+mod actor_inventory;
 mod sensory;
+
+use actor_inventory::hand_status;
+pub use actor_inventory::{hand_label, inventory};
 use deep_hearth::core::quantity::{Mass, Volume};
-use deep_hearth::core::time::Season;
+use deep_hearth::core::time::{CONTROL_TICK_DURATION, CONTROL_TICKS_PER_SIMULATION_TICK, Season};
 use deep_hearth::kobolds::{
     KoboldFootfall, KoboldSighting, KoboldTrack, available_nearby_kobold_footfalls,
     available_nearby_kobold_scouts, available_nearby_kobold_tracks,
 };
-use deep_hearth::logistics::{PlayerActiveSelection, project_player_inventory};
+use deep_hearth::logistics::PlayerActiveSelection;
 use deep_hearth::spatial::ViewDirection;
 use deep_hearth::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord};
 use deep_hearth::surface::{
@@ -145,54 +149,6 @@ fn meters_from_nanometers(nanometers: i64) -> String {
         absolute / 1_000_000_000,
         (absolute % 1_000_000_000) / 1_000_000,
     )
-}
-
-/// Resolve both the hand label and whether its selected material is carried.
-/// The status readout uses the same physical inventory projection for its food hint.
-fn hand_status(
-    registries: &Registries,
-    state: &AppState,
-    selected: Option<PlayerActiveSelection>,
-) -> (String, bool) {
-    match selected {
-        None => ("empty".to_owned(), false),
-        Some(PlayerActiveSelection::Material(material)) => {
-            let carried = project_player_inventory(registries, state)
-                .ok()
-                .is_some_and(|inventory| {
-                    inventory
-                        .carried()
-                        .stacks()
-                        .iter()
-                        .any(|stack| stack.commodity() == material)
-                });
-            let label = if carried {
-                name(registries, material).to_owned()
-            } else {
-                format!("{} (none carried)", name(registries, material))
-            };
-            (label, carried)
-        }
-        Some(PlayerActiveSelection::Equipment(equipment)) => (
-            state
-                .equipment()
-                .get_equipment(equipment)
-                .and_then(|record| registries.equipment().get_equipment(record.definition()))
-                .map_or_else(
-                    || format!("equipment #{}", equipment.value()),
-                    |definition| definition.name().to_owned(),
-                ),
-            false,
-        ),
-    }
-}
-
-pub fn hand_label(
-    registries: &Registries,
-    state: &AppState,
-    selected: Option<PlayerActiveSelection>,
-) -> String {
-    hand_status(registries, state, selected).0
 }
 
 /// Relative displacement of a genuinely visible thing, not a reachable path.
@@ -534,8 +490,10 @@ fn runway_label(slow_ticks: Option<u64>) -> String {
     if ticks == 0 {
         return "now".to_owned();
     }
-    // Each slow simulation step is exactly 72 control frames at 20 Hz.
-    let seconds = (u128::from(ticks) * 36).div_ceil(10);
+    let microseconds = u128::from(ticks)
+        * u128::from(CONTROL_TICKS_PER_SIMULATION_TICK)
+        * u128::from(CONTROL_TICK_DURATION.microseconds());
+    let seconds = microseconds.div_ceil(1_000_000);
     if seconds >= 3_600 {
         format!("{}h {}m", seconds / 3_600, (seconds % 3_600) / 60)
     } else if seconds >= 60 {
@@ -556,10 +514,7 @@ pub fn gather_options(
     }
     output.push_str("Gather here (gather N, optional grams to 0.001 g):\n");
     for (index, option) in options.iter().copied().enumerate() {
-        let mass = option
-            .source_mass()
-            .min(option.maximum_batch_mass())
-            .min(option.direct_batch_mass());
+        let mass = default_gather_mass(state, option);
         let duration = option
             .duration_for_mass(mass)
             .map(|span| activity::gathering_duration(span.value()))
@@ -572,9 +527,12 @@ pub fn gather_options(
             grams(option.source_mass()),
             grams(mass),
             duration,
-            match option.hand_handling_blocker() {
-                Some(_) => " | too hot for bare hands",
-                None => "",
+            if option.hand_handling_blocker().is_some() {
+                " | too hot for bare hands"
+            } else if mass.is_zero() {
+                " | no carrying space"
+            } else {
+                ""
             }
         );
         if let Ok(Some(food)) = option.food_value(registries, state) {
@@ -591,81 +549,23 @@ pub fn gather_options(
     output
 }
 
-pub fn inventory(registries: &Registries, state: &AppState) -> Result<String, String> {
-    let projection =
-        project_player_inventory(registries, state).map_err(|error| error.to_string())?;
-    let mut output = String::new();
-    let carried = projection.carried();
-    let _ = writeln!(
-        output,
-        "Carried matter: {} g / {} g",
-        grams(carried.stored()),
-        grams(carried.capacity()),
-    );
-    if carried.stacks().is_empty() {
-        output.push_str("  (empty)\n");
-    }
-    for (index, stack) in carried.stacks().iter().enumerate() {
-        let _ = writeln!(
-            output,
-            "  {}. {} | {} g | {} C",
-            index + 1,
-            name(registries, stack.commodity()),
-            grams(stack.mass()),
-            (i64::from(stack.temperature().millikelvin()) - 273_150) / 1_000,
-        );
-    }
-    for (index, equipment) in projection.equipment().iter().enumerate() {
-        let _ = writeln!(
-            output,
-            "Carried equipment {}: {} | {} g | condition {}%",
-            index + 1,
-            registries
-                .equipment()
-                .get_equipment(equipment.definition())
-                .map_or("unidentified equipment", |definition| definition.name()),
-            grams(equipment.mass()),
-            equipment.condition().parts_per_million() / 10_000,
-        );
-    }
-    let _ = writeln!(
-        output,
-        "Active quick slot: {}",
-        projection.active_quick_access_slot().index() + 1,
-    );
-    for (index, selection) in projection.quick_access_slots().iter().enumerate() {
-        let _ = writeln!(
-            output,
-            "  slot {}: {}",
-            index + 1,
-            hand_label(registries, state, *selection)
-        );
-    }
-    for (index, local) in projection.local_containers().iter().enumerate() {
-        let storage_name = local
-            .storage_definition()
-            .and_then(|definition| registries.storage().get(definition))
-            .map_or("open ground stockpile", |definition| definition.name());
-        let _ = writeln!(
-            output,
-            "Local storage {}: {} | {} g / {} g",
-            index + 1,
-            storage_name,
-            grams(local.stored()),
-            grams(local.capacity()),
-        );
-        for (stack_index, stack) in local.stacks().iter().enumerate() {
-            let _ = writeln!(
-                output,
-                "    {}. {} | {} g | {} C",
-                stack_index + 1,
-                name(registries, stack.commodity()),
-                grams(stack.mass()),
-                (i64::from(stack.temperature().millikelvin()) - 273_150) / 1_000,
-            );
-        }
-    }
-    Ok(output)
+/// A suggested mass fits both the gathering method and the current unreserved
+/// carried capacity. It does not replace the inventory owner's admission proof.
+pub(super) fn default_gather_mass(state: &AppState, option: PlayerSurfaceGatheringOption) -> Mass {
+    let capacity = state
+        .logistics()
+        .player()
+        .and_then(|player| state.inventory().get_stockpile(player.carried_stockpile()))
+        .map_or(Mass::ZERO, |stockpile| stockpile.available_capacity());
+    bounded_gather_mass(option, capacity)
+}
+
+fn bounded_gather_mass(option: PlayerSurfaceGatheringOption, capacity: Mass) -> Mass {
+    option
+        .source_mass()
+        .min(option.maximum_batch_mass())
+        .min(option.direct_batch_mass())
+        .min(capacity)
 }
 
 #[cfg(test)]
