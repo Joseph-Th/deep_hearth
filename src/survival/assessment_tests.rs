@@ -1,7 +1,17 @@
 //! Warning-horizon arithmetic for player-facing resource forecasts.
 
-use super::{warning_runway, warning_runway_with_pending_exertion};
+use super::{reserve_percent, warning_runway, warning_runway_with_pending_exertion};
 use crate::core::time::TickSpan;
+
+#[test]
+fn reserve_percentage_is_exact_at_full_width_and_never_overflows_valid_energy() {
+    assert_eq!(reserve_percent(u128::MAX, u128::MAX), 100);
+    assert_eq!(reserve_percent(u128::MAX / 2, u128::MAX), 49);
+    assert_eq!(reserve_percent(u128::MAX / 2 + 1, u128::MAX), 50);
+    assert_eq!(reserve_percent(u128::MAX - 1, u128::MAX), 99);
+    assert_eq!(reserve_percent(0, u128::MAX), 0);
+    assert_eq!(reserve_percent(200, 400), 50);
+}
 
 #[test]
 fn resting_warning_timing_honors_strict_threshold_and_partial_last_tick() {

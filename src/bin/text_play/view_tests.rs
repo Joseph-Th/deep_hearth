@@ -1,6 +1,47 @@
 //! Regression tests for player-local text projection formatting.
 
 #[test]
+fn condition_report_matches_survival_owner_reserve_percentages() {
+    use deep_hearth::survival::assess_survival;
+
+    let session = super::super::Session::new(24318).unwrap();
+    let assessment = assess_survival(&session.registries, &session.state).unwrap();
+    let (food_percent, water_percent) = assessment.reserve_percentages(&session.registries);
+    let condition = super::status(&session.registries, &session.state);
+    assert!(
+        condition.contains(&format!(
+            "food reserve {}%, hydration {}%",
+            food_percent, water_percent
+        )),
+        "{condition}"
+    );
+}
+
+#[test]
+fn hand_status_uses_one_inventory_projection_for_label_and_carried_presence() {
+    use deep_hearth::content::{FORM_FOOD, MATERIAL_BERRIES};
+    use deep_hearth::logistics::PlayerActiveSelection;
+    use deep_hearth::material::CommodityKey;
+
+    let session = super::super::Session::new(24318).unwrap();
+    let selected = Some(PlayerActiveSelection::material(CommodityKey::new(
+        MATERIAL_BERRIES,
+        FORM_FOOD,
+    )));
+    let (label, carried) = super::hand_status(&session.registries, &session.state, selected);
+    assert!(!carried);
+    assert!(label.ends_with("(none carried)"), "{label}");
+    assert_eq!(
+        super::hand_label(&session.registries, &session.state, selected),
+        label
+    );
+    assert_eq!(
+        super::hand_status(&session.registries, &session.state, None),
+        ("empty".to_owned(), false)
+    );
+}
+
+#[test]
 fn signed_foot_elevation_is_correct_below_zero() {
     assert_eq!(super::meters_from_nanometers(2_225_000_000), "2.225");
     assert_eq!(super::meters_from_nanometers(-500_000_000), "-0.500");

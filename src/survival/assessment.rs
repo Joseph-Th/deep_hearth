@@ -1,5 +1,6 @@
 //! Read-only survival assessment and diet-supported vitality-recovery arithmetic.
 
+use crate::core::arithmetic::scaled_ratio_floor_saturating;
 use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
@@ -274,6 +275,24 @@ impl SurvivalAssessment {
         self.hydration
     }
 
+    /// Presentation-only percentages of the authored food and water reserves.
+    /// Keep scaling lazy: survival assessments also run during simulation and
+    /// gameplay planning, which must not pay for percentage divisions.
+    #[must_use]
+    pub fn reserve_percentages(self, registries: &Registries) -> (u8, u8) {
+        let physiology = registries.survival().physiology();
+        (
+            reserve_percent(
+                self.metabolic_energy.nanojoules(),
+                physiology.maximum_metabolic_energy().nanojoules(),
+            ),
+            reserve_percent(
+                u128::from(self.hydration.microliters()),
+                u128::from(physiology.maximum_hydration().microliters()),
+            ),
+        )
+    }
+
     #[must_use]
     pub const fn vitality(self) -> Vitality {
         self.vitality
@@ -330,6 +349,13 @@ pub fn assess_survival(registries: &Registries, state: &AppState) -> Option<Surv
         .player()
         .copied()
         .map(|player| assess_record(registries, player))
+}
+
+fn reserve_percent(remaining: u128, maximum: u128) -> u8 {
+    // A direct multiplication can overflow for a valid full-width energy reserve.
+    // Trusted survival reserves cannot exceed the authored maximum.
+    u8::try_from(scaled_ratio_floor_saturating(remaining, maximum, 100))
+        .unwrap_or_else(|_| unreachable!("validated survival reserve cannot exceed 100%"))
 }
 
 pub(super) fn assess_record(

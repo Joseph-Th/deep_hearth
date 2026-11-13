@@ -147,16 +147,17 @@ fn meters_from_nanometers(nanometers: i64) -> String {
     )
 }
 
-pub fn hand_label(
+/// Resolve both the hand label and whether its selected material is carried.
+/// The status readout uses the same physical inventory projection for its food hint.
+fn hand_status(
     registries: &Registries,
     state: &AppState,
     selected: Option<PlayerActiveSelection>,
-) -> String {
+) -> (String, bool) {
     match selected {
-        None => "empty".to_owned(),
+        None => ("empty".to_owned(), false),
         Some(PlayerActiveSelection::Material(material)) => {
-            let material_name = name(registries, material);
-            if project_player_inventory(registries, state)
+            let carried = project_player_inventory(registries, state)
                 .ok()
                 .is_some_and(|inventory| {
                     inventory
@@ -164,22 +165,34 @@ pub fn hand_label(
                         .stacks()
                         .iter()
                         .any(|stack| stack.commodity() == material)
-                })
-            {
-                material_name.to_owned()
+                });
+            let label = if carried {
+                name(registries, material).to_owned()
             } else {
-                format!("{material_name} (none carried)")
-            }
+                format!("{} (none carried)", name(registries, material))
+            };
+            (label, carried)
         }
-        Some(PlayerActiveSelection::Equipment(equipment)) => state
-            .equipment()
-            .get_equipment(equipment)
-            .and_then(|record| registries.equipment().get_equipment(record.definition()))
-            .map_or_else(
-                || format!("equipment #{}", equipment.value()),
-                |definition| definition.name().to_owned(),
-            ),
+        Some(PlayerActiveSelection::Equipment(equipment)) => (
+            state
+                .equipment()
+                .get_equipment(equipment)
+                .and_then(|record| registries.equipment().get_equipment(record.definition()))
+                .map_or_else(
+                    || format!("equipment #{}", equipment.value()),
+                    |definition| definition.name().to_owned(),
+                ),
+            false,
+        ),
     }
+}
+
+pub fn hand_label(
+    registries: &Registries,
+    state: &AppState,
+    selected: Option<PlayerActiveSelection>,
+) -> String {
+    hand_status(registries, state, selected).0
 }
 
 /// Relative displacement of a genuinely visible thing, not a reachable path.
@@ -283,18 +296,14 @@ pub fn urgency(registries: &Registries, state: &AppState) -> (bool, bool, bool, 
 
 fn survival_status(registries: &Registries, state: &AppState) -> String {
     let mut output = String::new();
-    if let Some(survival) = state.survival().player() {
-        let physiology = registries.survival().physiology();
-        let energy = survival.metabolic_energy().nanojoules() * 100
-            / physiology.maximum_metabolic_energy().nanojoules();
-        let water = u128::from(survival.hydration().microliters()) * 100
-            / u128::from(physiology.maximum_hydration().microliters());
+    if let Some(survival) = assess_survival(registries, state) {
+        let (food_percent, water_percent) = survival.reserve_percentages(registries);
         let _ = writeln!(
             output,
             "Condition: vitality {}%, food reserve {}%, hydration {}%, warmth {}%",
             survival.vitality().parts_per_million() / 10_000,
-            energy,
-            water,
+            food_percent,
+            water_percent,
             survival.thermal_comfort_ppm() / 10_000,
         );
         if survival.vitality() == Vitality::ZERO {
@@ -302,7 +311,10 @@ fn survival_status(registries: &Registries, state: &AppState) -> String {
                 "You are dead. Use respawn to return; your old pack remains at the death cache.\n",
             );
         } else {
-            let (hungry, thirsty, injured, cold) = urgency(registries, state);
+            let hungry = survival.hunger() != HungerState::Fed;
+            let thirsty = survival.hydration_state() != HydrationState::Hydrated;
+            let injured = survival.vitality() < Vitality::MAXIMUM;
+            let cold = survival.thermal_comfort_state() != ThermalComfortState::Comfortable;
             if hungry || thirsty || injured || cold {
                 let mut warnings = Vec::new();
                 if hungry {
@@ -344,23 +356,16 @@ pub fn status(registries: &Registries, state: &AppState) -> String {
     );
     output.push_str(&survival_status(registries, state));
     let active = state.logistics().active_selection();
+    let (hand, material_carried) = hand_status(registries, state, active);
     let _ = writeln!(
         output,
         "Hand: {} (slot {})",
-        hand_label(registries, state, active),
+        hand,
         state.logistics().active_quick_access_slot().index() + 1,
     );
     if let Some(PlayerActiveSelection::Material(commodity)) = active
         && registries.survival().get_food(commodity).is_some()
-        && project_player_inventory(registries, state)
-            .ok()
-            .is_some_and(|inventory| {
-                inventory
-                    .carried()
-                    .stacks()
-                    .iter()
-                    .any(|stack| stack.commodity() == commodity)
-            })
+        && material_carried
     {
         output.push_str(
             "Selected food: use eats it; eat N chooses a physical stack; drink N selects local water without changing the hand.\n",
