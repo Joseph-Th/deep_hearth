@@ -4,6 +4,8 @@
 **Profiles:** Universal, Stateful Application, Deterministic System, Automated Behavior Evaluation
 **BCA policy:** ratchet
 
+**Rust agent diagnostics:** advisory. Use bounded, uncertainty-driven commands from [`tools/README.md`](tools/README.md); they are not BCA or completion gates. [`TESTING.md`](TESTING.md) owns verification.
+
 Workspace [`../AGENTS.md`](../AGENTS.md) owns coordination; [`README.md`](README.md) owns project routing.
 
 <!-- workspace-contract:begin (generated from ../AGENTS.md by tools/sync_agent_context.py; edit the source, not this copy) -->
