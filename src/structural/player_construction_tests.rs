@@ -531,6 +531,67 @@ fn admitted_player_with_full_footprint_plan() -> (
 }
 
 #[test]
+fn existing_blueprint_rejects_hot_selected_timber_but_allows_cool_timber() {
+    let (registries, mut state, element, cool_lot) = admitted_player_with_planned_member();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    let temperature = Temperature::from_millikelvin(maximum.millikelvin() + 1);
+    let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let hot_lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        Mass::from_milligrams(MEMBER_MASS_MG),
+        temperature,
+    )
+    .unwrap();
+    let original = state.clone();
+    let original_matter = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(
+        validate_start_player_structural_construction(
+            &registries,
+            &state,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+            element,
+            &[MaterialLotSelection::new(
+                hot_lot,
+                Mass::from_milligrams(MEMBER_MASS_MG)
+            )],
+        )
+        .err(),
+        Some(PlayerStructuralConstructionError::Material(
+            StructuralConstructionError::MaterialTooHot {
+                element,
+                commodity,
+                temperature,
+                maximum,
+            },
+        ))
+    );
+    assert_eq!(state, original);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        original_matter
+    );
+    assert!(
+        validate_start_player_structural_construction(
+            &registries,
+            &state,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+            element,
+            &[MaterialLotSelection::new(
+                cool_lot,
+                Mass::from_milligrams(MEMBER_MASS_MG)
+            )],
+        )
+        .is_ok(),
+        "hot and cool physical lots must not be treated as interchangeable"
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn player_construction_rejects_surface_occupied_member_without_spending_timber() {
     for kind in [SurfaceResourceKind::Opportunity, SurfaceResourceKind::Drop] {
         let (registries, mut state, element, lot) = admitted_player_with_full_footprint_plan();

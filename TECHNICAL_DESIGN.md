@@ -1817,8 +1817,11 @@ If a player in a pre-generation graph attempts to drop material inside embodied 
 obstruction, the surface owner reports a typed placement rejection without spending inventory.
 
 The gameplay-audit fixture may materialize a planned member from exact conserved inventory traces after
-validating geometry-derived mass, consolidated form, composition, source capacity, and self-weight. This is
-setup infrastructure, not a player construction action. Embodied matter has no generic deletion path; any
+validating geometry-derived mass, consolidated form, composition, unprotected handling temperature,
+source capacity, and self-weight. The fixture is setup infrastructure, not a player construction
+action. Both atomic player-planned and existing-blueprint hand construction use the same material
+validator, rejecting dangerously hot selected stock before inventory egress.
+Embodied matter has no generic deletion path; any
 demolition/recovery operation must explicitly model authorization, labor/tools/time, and conserved salvage.
 
 Stockpile, equipment, and fluid owners each maintain their own structural load channel. Multi-owner load

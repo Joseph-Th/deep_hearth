@@ -21,10 +21,11 @@ use crate::player::validate_admit_player;
 use crate::simulation::advance_tick;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::structural::{
-    StructuralConstructionCommitError, StructuralElementGeometry, StructuralLifecycle,
-    StructuralLoadKind, add_structural_element, calculate_pristine_member_capacity,
-    materialize_structural_element_for_test, validate_activate_structural_element,
-    validate_set_structural_load, validate_start_player_structural_dismantling,
+    StructuralConstructionCommitError, StructuralConstructionError, StructuralElementGeometry,
+    StructuralLifecycle, StructuralLoadKind, add_structural_element,
+    calculate_pristine_member_capacity, materialize_structural_element_for_test,
+    validate_activate_structural_element, validate_set_structural_load,
+    validate_start_player_structural_dismantling,
 };
 
 const ORIGIN: VoxelCoord = VoxelCoord::new(0, 0, 0);
@@ -46,6 +47,63 @@ fn local_member_plan() -> GroundedStructuralElementPlan {
         MATERIAL_WOOD,
         geometry,
     )
+}
+
+#[test]
+fn atomic_grounded_construction_rejects_unsafe_carried_stock_before_creating_a_member() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let carried = validate_admit_player(&registries, &state, ORIGIN)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    let temperature = Temperature::from_millikelvin(maximum.millikelvin() + 1);
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        MEMBER_MASS,
+        temperature,
+    )
+    .unwrap();
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+    let before = state.clone();
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(
+        validate_start_player_grounded_structural_construction_from_stack(
+            &registries,
+            &state,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+            local_member_plan(),
+            &stack,
+        )
+        .err(),
+        Some(PlayerGroundedStructuralConstructionError::Construction(
+            PlayerStructuralConstructionError::Material(
+                StructuralConstructionError::MaterialTooHot {
+                    element: StructuralElementId::new(state.structures().next_element_id()),
+                    commodity,
+                    temperature,
+                    maximum,
+                },
+            ),
+        ))
+    );
+    assert_eq!(state, before);
+    assert_eq!(state.inventory().get_lot(lot).unwrap().mass(), MEMBER_MASS);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 fn active_fixture_support(

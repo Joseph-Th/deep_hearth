@@ -10,7 +10,7 @@ use crate::inventory::{
     ValidatedMaterialEgress, ValidatedStockpileStructuralLoad, apply_material_egress,
     validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
 };
-use crate::material::MaterialId;
+use crate::material::{MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE, MaterialId};
 use crate::registry::Registries;
 
 use super::load::calculate_aggregate_weight_force_ceiling;
@@ -454,6 +454,15 @@ fn validate_structural_construction_material(
             return Err(StructuralConstructionError::UnsupportedComposition {
                 element,
                 material: expected_material,
+            });
+        }
+        let temperature = trace.profile().temperature();
+        if temperature > MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE {
+            return Err(StructuralConstructionError::MaterialTooHot {
+                element,
+                commodity: trace.profile().commodity(),
+                temperature,
+                maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
             });
         }
     }

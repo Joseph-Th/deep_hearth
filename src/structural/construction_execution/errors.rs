@@ -3,9 +3,9 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::Mass;
+use crate::core::quantity::{Mass, Temperature};
 use crate::inventory::StockpileStructuralLoadError;
-use crate::material::{FormId, MaterialId};
+use crate::material::{CommodityKey, FormId, MaterialId};
 use crate::spatial::VoxelCoord;
 
 use super::super::geometry::StructuralGeometryError;
@@ -68,6 +68,12 @@ pub enum StructuralConstructionError {
         element: StructuralElementId,
         form: FormId,
     },
+    MaterialTooHot {
+        element: StructuralElementId,
+        commodity: CommodityKey,
+        temperature: Temperature,
+        maximum: Temperature,
+    },
     Geometry {
         element: StructuralElementId,
         error: StructuralGeometryError,
@@ -117,6 +123,20 @@ impl Display for StructuralConstructionError {
                 "structural element {} cannot directly embody unconsolidated form {}; shaping or consolidation must first produce rigid construction stock",
                 element.value(),
                 form.value()
+            ),
+            Self::MaterialTooHot {
+                element,
+                commodity,
+                temperature,
+                maximum,
+            } => write!(
+                formatter,
+                "structural element {} cannot be built by hand from material {} form {} at {} mK, exceeding the safe handling limit of {} mK",
+                element.value(),
+                commodity.material().value(),
+                commodity.form().value(),
+                temperature.millikelvin(),
+                maximum.millikelvin()
             ),
             Self::Geometry { element, error } => write!(
                 formatter,
@@ -267,6 +287,7 @@ impl Error for StructuralConstructionError {
                 element: _element,
                 material: _material,
             } => None,
+            Self::MaterialTooHot { .. } => None,
             Self::UnknownMaterialForm {
                 element: _element,
                 form: _form,

@@ -294,6 +294,97 @@ fn unmaterialized_construction_fixture() -> (
 }
 
 #[test]
+fn hand_construction_rejects_unsafe_hot_stock_without_consuming_it() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let required = Mass::from_milligrams(10);
+    let element = member(&registries, &mut state, required);
+    let source = add_solid_stockpile_for_test(&mut state, required).unwrap();
+    let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    let temperature =
+        crate::core::quantity::Temperature::from_millikelvin(maximum.millikelvin() + 1);
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        commodity,
+        required,
+        temperature,
+    )
+    .unwrap();
+    let resolution = bind_structural_construction_selection(
+        &state,
+        element,
+        source,
+        &[MaterialLotSelection::new(lot, required)],
+    )
+    .unwrap();
+    let original = state.clone();
+    let original_matter = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(
+        validate_structural_construction(&registries, &state, resolution).err(),
+        Some(StructuralConstructionError::MaterialTooHot {
+            element,
+            commodity,
+            temperature,
+            maximum,
+        })
+    );
+    assert_eq!(state, original);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        original_matter
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn hand_construction_accepts_exact_handling_boundary_and_conserves_energy() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let required = Mass::from_milligrams(10);
+    let element = member(&registries, &mut state, required);
+    let source = add_solid_stockpile_for_test(&mut state, required).unwrap();
+    let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        required,
+        maximum,
+    )
+    .unwrap();
+    let before_matter = calculate_matter_accounting(&state).unwrap().total();
+    let before_energy = explicit_energy(&registries, &state);
+    let resolution = bind_structural_construction_selection(
+        &state,
+        element,
+        source,
+        &[MaterialLotSelection::new(lot, required)],
+    )
+    .unwrap();
+    validate_structural_construction(&registries, &state, resolution)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let embodied = state.structures().get_element(element).unwrap();
+    assert_eq!(embodied.embodied_mass(), required);
+    assert_eq!(
+        embodied.embodied_material()[0].profile().temperature(),
+        maximum
+    );
+    assert_eq!(state.inventory().get_lot(lot), None);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        before_matter
+    );
+    assert_eq!(explicit_energy(&registries, &state), before_energy);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn full_footprint_member_cannot_embody_a_second_occupied_voxel() {
     let registries = build_registries();
     let mut state = AppState::new();
