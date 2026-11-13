@@ -8,6 +8,338 @@ fn snapshot(session: &Session) -> Vec<u8> {
     serde_json::to_vec(&SaveEnvelope::new(&session.registries, &session.state)).unwrap()
 }
 
+fn stone_campfire_from_wilderness() -> Session {
+    let mut session = Session::new(24318).unwrap();
+    for command in [
+        "e 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "gather 1 1000",
+        "wait work",
+        "build-fire",
+        "w 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "gather 1 1000",
+        "wait work",
+        "n 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    session
+}
+
+#[test]
+fn finite_campfire_fuel_warms_player_and_preserves_terminal_matter() {
+    let mut empty = Session::new(24318).unwrap();
+    let before = snapshot(&empty);
+    let (fire, _) = empty.command("fire").unwrap();
+    assert!(fire.contains("Requires 1000 g stone"));
+    assert!(fire.contains("none at your current location"));
+    for invalid in [
+        "build-fire",
+        "feed-fire 1 1",
+        "feed-fire 0 1",
+        "feed-fire 1 0",
+    ] {
+        assert!(empty.command(invalid).is_err(), "{invalid}");
+    }
+    assert_eq!(snapshot(&empty), before);
+
+    let mut session = stone_campfire_from_wilderness();
+    let (catalog, _) = session.command("fire").unwrap();
+    assert!(catalog.contains("stone-ring campfire | 0.000 MJ stored"));
+    assert!(catalog.contains("Fuel: 1000 g timber log per charge"));
+    assert!(catalog.contains("Fuel: 500 g wood chips per charge"));
+    let before_invalid = snapshot(&session);
+    assert!(session.command("feed-fire 1 2").is_err());
+    assert_eq!(snapshot(&session), before_invalid);
+
+    let total_before = deep_hearth::matter::calculate_matter_accounting(&session.state)
+        .unwrap()
+        .total();
+    let warmth_before = session
+        .state
+        .survival()
+        .player()
+        .unwrap()
+        .thermal_comfort_ppm();
+    let (burned, _) = session.command("feed-fire 1 1").unwrap();
+    assert!(burned.contains("Burned 1000 g timber log in the campfire"));
+    assert!(burned.contains("12.000 MJ"));
+    let (status, _) = session.command("status").unwrap();
+    assert!(status.contains("Local warmth: stone-ring campfire | 12.000 MJ stored"));
+    assert_eq!(
+        deep_hearth::matter::calculate_matter_accounting(&session.state)
+            .unwrap()
+            .total(),
+        total_before,
+    );
+    let saved = snapshot(&session);
+    let mut restored = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&session.registries)
+            .unwrap(),
+        seed: None,
+    };
+    let (first, _) = session.command("wait 7200").unwrap();
+    let (replay, _) = restored.command("wait 7200").unwrap();
+    assert_eq!(first, replay);
+    assert_eq!(snapshot(&session), snapshot(&restored));
+    assert!(
+        session
+            .state
+            .survival()
+            .player()
+            .unwrap()
+            .thermal_comfort_ppm()
+            > warmth_before
+    );
+    let (fire_after, _) = session.command("fire").unwrap();
+    assert!(fire_after.contains("10.") && fire_after.contains("MJ stored"));
+    assert_eq!(
+        deep_hearth::matter::calculate_matter_accounting(&session.state)
+            .unwrap()
+            .total(),
+        total_before,
+    );
+    session.command("w 20").unwrap();
+    session.command("wait 10").unwrap();
+    assert!(
+        session
+            .command("fire")
+            .unwrap()
+            .0
+            .contains("none at your current location")
+    );
+    let remote_snapshot = snapshot(&session);
+    assert!(session.command("feed-fire 1 1").is_err());
+    assert_eq!(snapshot(&session), remote_snapshot);
+}
+
+#[test]
+fn campfire_accepts_woodworking_byproduct_as_distinct_finite_fuel() {
+    let mut session = prepared_flint_and_handle();
+    for command in [
+        "n 20",
+        "wait 10",
+        "n 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "gather 1 1000",
+        "wait work",
+        "build-fire",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    let (inventory, _) = session.command("inventory").unwrap();
+    assert!(inventory.contains("wood chips | 800 g"));
+    assert!(inventory.contains("flint flakes | 80 g"));
+    let before = snapshot(&session);
+    assert!(session.command("feed-fire 1 2").is_err());
+    assert_eq!(snapshot(&session), before);
+    let accounting = deep_hearth::matter::calculate_matter_accounting(&session.state)
+        .unwrap()
+        .total();
+    let (result, _) = session.command("feed-fire 1 1").unwrap();
+    assert!(result.contains("Burned 500 g wood chips"));
+    assert!(result.contains("5.000 MJ"));
+    let (inventory, _) = session.command("inventory").unwrap();
+    assert!(inventory.contains("wood chips | 300 g"));
+    let after_one_charge = snapshot(&session);
+    assert!(session.command("feed-fire 1 1").is_err());
+    assert_eq!(snapshot(&session), after_one_charge);
+    assert_eq!(
+        deep_hearth::matter::calculate_matter_accounting(&session.state)
+            .unwrap()
+            .total(),
+        accounting,
+    );
+    assert!(
+        session
+            .command("fire")
+            .unwrap()
+            .0
+            .contains("5.000 MJ stored")
+    );
+}
+
+#[test]
+fn angled_pointing_constructs_real_timber_post_with_local_visibility_and_replay() {
+    let mut session = Session::new(24318).unwrap();
+    let original = snapshot(&session);
+    assert!(session.command("sprint e-down 3").is_err());
+    assert!(session.command("jump s-down 10").is_err());
+    let (initial, _) = session.command("look e-down").unwrap();
+    assert!(initial.contains("Pointed at"));
+    assert!(!initial.contains("Nearby framing"));
+    assert_eq!(snapshot(&session), original);
+    for command in [
+        "e 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "gather 1 3250",
+        "wait work",
+        "select 1",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    let target = session.command("look e-down").unwrap().0;
+    assert!(target.contains("Pointed at stone terrain at (11,1,9), face Top"));
+    let total = deep_hearth::matter::calculate_matter_accounting(&session.state)
+        .unwrap()
+        .total();
+    let (queued, _) = session.command("use e-down").unwrap();
+    assert!(queued.contains("QueuedUntilSimulationBoundary"));
+    let (admitted, _) = session.command("wait 72").unwrap();
+    assert!(admitted.contains("StructuralConstructionStarted"));
+    let checkpoint = snapshot(&session);
+    let mut restored = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+            .unwrap()
+            .into_state(&session.registries)
+            .unwrap(),
+        seed: None,
+    };
+    let (finished, _) = session.command("wait work").unwrap();
+    let (replayed, _) = restored.command("wait work").unwrap();
+    assert_eq!(finished, replayed);
+    assert_eq!(snapshot(&session), snapshot(&restored));
+    assert!(finished.contains("Construction finished"));
+    let (look, _) = session.command("look").unwrap();
+    assert!(look.contains("Nearby framing: axial compression at (11,2,9) | Active | 3250 g"));
+    assert_eq!(
+        deep_hearth::matter::calculate_matter_accounting(&session.state)
+            .unwrap()
+            .total(),
+        total,
+    );
+    session.command("w 20").unwrap();
+    session.command("wait 10").unwrap();
+    let (remote, _) = session.command("look").unwrap();
+    assert!(!remote.contains("Nearby framing"));
+}
+
+#[test]
+fn sprint_sneak_crouch_and_jump_use_authoritative_body_motion() {
+    let mut session = Session::new(24318).unwrap();
+    let before = snapshot(&session);
+    for invalid in [
+        "sprint",
+        "sneak",
+        "sprint up",
+        "sneak down",
+        "sprint e 0",
+        "sneak e 241",
+        "jump up",
+        "jump 10",
+        "jump n 241",
+        "crouch 0",
+    ] {
+        assert!(session.command(invalid).is_err(), "{invalid}");
+    }
+    assert_eq!(snapshot(&session), before);
+
+    let (crouched, _) = session.command("crouch").unwrap();
+    assert!(crouched.contains("Body: Crouching"));
+    assert_eq!(session.state.control_tick().value(), 1);
+    let (released, _) = session.command("wait 1").unwrap();
+    assert!(released.contains("Body: Standing"));
+    let (jump, _) = session.command("jump").unwrap();
+    assert!(jump.contains("Airborne: gravity is active"));
+    assert!(
+        session
+            .state
+            .logistics()
+            .player()
+            .unwrap()
+            .body()
+            .foot_position()
+            .y_nanometers()
+            > 2_000_000_000
+    );
+    let midair = snapshot(&session);
+    let mut resumed = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&midair)
+            .unwrap()
+            .into_state(&session.registries)
+            .unwrap(),
+        seed: None,
+    };
+    let (first, _) = session.command("wait 10").unwrap();
+    let (second, _) = resumed.command("wait 10").unwrap();
+    assert_eq!(first, second);
+    assert_eq!(snapshot(&session), snapshot(&resumed));
+
+    let mut walking = Session::new(24318).unwrap();
+    let mut sprinting = Session::new(24318).unwrap();
+    for _ in 0..12 {
+        walking
+            .step(
+                PlayerDirectControlInput::new(Direction::East.movement().unwrap()),
+                &mut String::new(),
+            )
+            .unwrap();
+        sprinting
+            .step(
+                PlayerDirectControlInput::new(
+                    Direction::East.movement().unwrap().with_sprint(true),
+                ),
+                &mut String::new(),
+            )
+            .unwrap();
+    }
+    let walk_x = walking
+        .state
+        .logistics()
+        .player()
+        .unwrap()
+        .body()
+        .foot_position()
+        .x_nanometers();
+    let sprint_x = sprinting
+        .state
+        .logistics()
+        .player()
+        .unwrap()
+        .body()
+        .foot_position()
+        .x_nanometers();
+    assert!(
+        sprint_x > walk_x,
+        "sprinting must move farther through production kinematics"
+    );
+    assert_eq!(walking.state.control_tick(), sprinting.state.control_tick());
+    let mut sneaking = Session::new(24318).unwrap();
+    let (sneak, _) = sneaking.command("sneak e 3").unwrap();
+    assert!(sneak.contains("Body: Crouching"));
+    let (running, _) = Session::new(24318).unwrap().command("sprint e 3").unwrap();
+    assert!(running.contains("Advanced 3 control ticks"));
+}
+
 #[test]
 fn seeded_opening_is_replayable_and_uses_authoritative_admission() {
     let first = Session::new(24318).unwrap();
@@ -145,6 +477,279 @@ fn manual_crafting_continues_deterministically_after_trusted_save_load() {
     assert_eq!(original_finished, restored_finished);
     assert!(original_finished.contains("Received 220 g knapped flint cutting head"));
     assert_eq!(snapshot(&session), snapshot(&restored));
+}
+
+fn prepared_flint_and_handle() -> Session {
+    let mut session = Session::new(24318).unwrap();
+    // Follow visible opening resources, not test-only material insertion.
+    for command in [
+        "e 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "gather 1 1000",
+        "wait work",
+        "craft 8",
+        "wait work",
+        "w 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "gather 3 300",
+        "wait work",
+        "craft 99",
+        "wait work",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    session
+}
+
+#[test]
+fn flint_knife_assembly_local_pickup_and_disassembly_conserve_player_matter() {
+    let mut session = Session::new(24318).unwrap();
+    let before = snapshot(&session);
+    let (all, _) = session.command("gear all").unwrap();
+    assert!(all.contains("58. hafted flint woodworking knife"));
+    assert!(all.contains("Requires 220 g knapped flint cutting head"));
+    let (ready, _) = session.command("gear").unwrap();
+    assert!(ready.contains("None available from your carried materials"));
+    for invalid in [
+        "assemble 58",
+        "assemble 0",
+        "take 1",
+        "recover 1",
+        "equip 1",
+    ] {
+        assert!(session.command(invalid).is_err(), "{invalid}");
+    }
+    assert_eq!(snapshot(&session), before);
+
+    let mut session = prepared_flint_and_handle();
+    let before_catalog = snapshot(&session);
+    let (ready, _) = session.command("gear").unwrap();
+    assert!(ready.contains("58. hafted flint woodworking knife | 420 g | ready"));
+    assert_eq!(snapshot(&session), before_catalog);
+    let (assembled, _) = session.command("assemble 58").unwrap();
+    assert!(assembled.contains("Assembled hafted flint woodworking knife"));
+    assert!(session.command("equip 1").is_err());
+    let (local, _) = session.command("gear").unwrap();
+    assert!(local.contains("1. hafted flint woodworking knife | 420 g | condition 100%"));
+    let (recovered, _) = session.command("recover 1").unwrap();
+    assert!(recovered.contains("Recovered hafted flint woodworking knife into carried materials"));
+    let (materials, _) = session.command("inventory").unwrap();
+    assert!(materials.contains("wood handle | 200 g"));
+    assert!(materials.contains("knapped flint cutting head | 220 g"));
+    assert!(materials.contains("Carried matter: 1300 g / 25000 g"));
+    assert!(session.command("take 1").is_err());
+
+    session.command("assemble 58").unwrap();
+    let (picked_up, _) = session.command("take 1").unwrap();
+    assert!(picked_up.contains("Picked up hafted flint woodworking knife"));
+    let (inventory, _) = session.command("inventory").unwrap();
+    assert!(inventory.contains("Carried equipment 1: hafted flint woodworking knife | 420 g"));
+    assert!(inventory.contains("Carried matter: 880 g / 24580 g"));
+    let (held, _) = session.command("equip 1").unwrap();
+    assert!(held.contains("Holding hafted flint woodworking knife"));
+    assert!(held.contains("Hand: hafted flint woodworking knife"));
+
+    let saved = snapshot(&session);
+    let decoded: LoadedSaveEnvelope = serde_json::from_slice(&saved).unwrap();
+    let restored = Session {
+        registries: build_registries(),
+        state: decoded.into_state(&session.registries).unwrap(),
+        seed: None,
+    };
+    assert_eq!(snapshot(&restored), saved);
+    assert!(
+        restored
+            .opening()
+            .contains("Hand: hafted flint woodworking knife")
+    );
+    let (dropped, _) = session.command("drop").unwrap();
+    assert!(dropped.contains("Drop:"));
+    let (local, _) = session.command("gear").unwrap();
+    assert!(local.contains("1. hafted flint woodworking knife"));
+    session.command("take 1").unwrap();
+    assert!(session.command("equip 1").is_ok());
+}
+
+#[test]
+fn carried_flint_knife_accelerates_timed_woodwork_and_survives_work_save() {
+    let mut session = prepared_flint_and_handle();
+    for command in [
+        "assemble 58",
+        "take 1",
+        "equip 1",
+        "n 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "gather 1 1000",
+        "wait work",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    let saved_before = snapshot(&session);
+    let mut without_tool = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&saved_before)
+            .unwrap()
+            .into_state(&session.registries)
+            .unwrap(),
+        seed: None,
+    };
+    let (bare, _) = without_tool.command("craft 14").unwrap();
+    assert!(bare.contains("Work: shape timber boards; scheduled completion in 3m 0s"));
+    let (with_tool, _) = session.command("craft 14 with 1").unwrap();
+    assert!(with_tool.contains("Work: shape timber boards; scheduled completion in 1m 12s"));
+    let started = snapshot(&session);
+    let mut restored = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&started)
+            .unwrap()
+            .into_state(&session.registries)
+            .unwrap(),
+        seed: None,
+    };
+    let (done, _) = session.command("wait work").unwrap();
+    let (replayed, _) = restored.command("wait work").unwrap();
+    assert_eq!(done, replayed);
+    assert_eq!(snapshot(&session), snapshot(&restored));
+    assert!(done.contains("Craft completed: shape timber boards"));
+    assert!(done.contains("Received 800 g timber board (carried)"));
+    let (inventory, _) = session.command("inventory").unwrap();
+    assert!(inventory.contains("Carried equipment 1: hafted flint woodworking knife"));
+    assert!(inventory.contains("condition 98%"));
+    assert!(inventory.contains("wood chips | 1000 g"));
+    assert!(inventory.contains("timber board | 800 g"));
+}
+
+fn field_box_body_from_wilderness() -> Session {
+    let mut session = Session::new(24318).unwrap();
+    for command in [
+        "e 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "gather 1 2000",
+        "wait work",
+        "craft 14 2",
+        "wait work",
+        "craft 27",
+        "wait work",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    session
+}
+
+#[test]
+fn rough_field_box_placement_and_local_quick_moves_are_production_backed() {
+    let mut empty = Session::new(24318).unwrap();
+    let before = snapshot(&empty);
+    let (catalog, _) = empty.command("storage all").unwrap();
+    assert!(catalog.contains("5. rough timber field box"));
+    assert!(catalog.contains("Requires 1600 g rough timber field box body"));
+    assert!(empty.command("place-store 5").is_err());
+    assert!(empty.command("stash 1 1").is_err());
+    assert!(empty.command("withdraw 1 1").is_err());
+    assert_eq!(snapshot(&empty), before);
+
+    let mut session = field_box_body_from_wilderness();
+    let (inventory, _) = session.command("inventory").unwrap();
+    assert!(inventory.contains("rough timber field box body | 1600 g"));
+    let before = snapshot(&session);
+    assert!(session.command("place-store 5").is_err());
+    let (blocked, _) = session.command("storage all").unwrap();
+    assert!(blocked.contains("intersects an opening or temple resident"));
+    assert_eq!(snapshot(&session), before);
+
+    for command in ["w 20", "wait 10", "s 20", "wait 10"] {
+        session.command(command).unwrap();
+    }
+    let (ready, _) = session.command("storage").unwrap();
+    assert!(ready.contains("5. rough timber field box | 10000 g capacity | ready"));
+    let before_placement = deep_hearth::matter::calculate_matter_accounting(&session.state)
+        .unwrap()
+        .total();
+    let (placed, _) = session.command("place-store 5").unwrap();
+    assert!(placed.contains("Placed rough timber field box"));
+    assert!(placed.contains("1. rough timber field box | 0 g / 10000 g"));
+    let (inventory, _) = session.command("inventory").unwrap();
+    assert!(inventory.contains("Carried matter: 400 g / 25000 g"));
+    assert!(inventory.contains("Local storage 1: rough timber field box | 0 g / 10000 g"));
+    let before_rejections = snapshot(&session);
+    for invalid in [
+        "place-store 0",
+        "stash 0 1",
+        "stash 1 0",
+        "withdraw 2 1",
+        "withdraw 1 1",
+    ] {
+        assert!(session.command(invalid).is_err(), "{invalid}");
+    }
+    assert_eq!(snapshot(&session), before_rejections);
+
+    let (stashed, _) = session.command("stash 1 1").unwrap();
+    assert!(stashed.contains("Stashed 400 g wood chips in rough timber field box"));
+    assert!(stashed.contains("Local storage 1: rough timber field box | 400 g / 10000 g"));
+    assert!(stashed.contains("Carried matter: 0 g / 25000 g"));
+    assert_eq!(
+        deep_hearth::matter::calculate_matter_accounting(&session.state)
+            .unwrap()
+            .total(),
+        before_placement,
+    );
+    let saved = snapshot(&session);
+    let mut restored = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&session.registries)
+            .unwrap(),
+        seed: None,
+    };
+    assert_eq!(snapshot(&restored), saved);
+    let (withdrawn, _) = session.command("withdraw 1 1").unwrap();
+    let (replayed, _) = restored.command("withdraw 1 1").unwrap();
+    assert_eq!(withdrawn, replayed);
+    assert_eq!(snapshot(&session), snapshot(&restored));
+    assert!(withdrawn.contains("Withdrew 400 g wood chips from rough timber field box"));
+    assert!(withdrawn.contains("Carried matter: 400 g / 25000 g"));
+    assert_eq!(
+        deep_hearth::matter::calculate_matter_accounting(&session.state)
+            .unwrap()
+            .total(),
+        before_placement,
+    );
+    session.command("n 20").unwrap();
+    session.command("wait 10").unwrap();
+    let (remote, _) = session.command("storage").unwrap();
+    assert!(remote.contains("Local containers"));
+    assert!(remote.contains("(none)"));
+    let before_remote = snapshot(&session);
+    assert!(session.command("stash 1 1").is_err());
+    assert_eq!(snapshot(&session), before_remote);
+    session.command("s 20").unwrap();
+    session.command("wait 10").unwrap();
+    assert!(
+        session
+            .command("storage")
+            .unwrap()
+            .0
+            .contains("rough timber field box | 0 g / 10000 g")
+    );
 }
 
 #[test]

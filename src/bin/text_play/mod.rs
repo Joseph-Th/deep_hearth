@@ -2,6 +2,9 @@
 
 mod activity;
 mod crafting;
+mod equipment;
+mod fire;
+mod storage;
 mod view;
 
 #[cfg(test)]
@@ -50,6 +53,10 @@ enum Direction {
     West,
     Up,
     Down,
+    NorthDown,
+    SouthDown,
+    EastDown,
+    WestDown,
 }
 
 impl Direction {
@@ -61,8 +68,12 @@ impl Direction {
             "w" | "west" => Ok(Self::West),
             "up" => Ok(Self::Up),
             "down" => Ok(Self::Down),
+            "n-down" => Ok(Self::NorthDown),
+            "s-down" => Ok(Self::SouthDown),
+            "e-down" => Ok(Self::EastDown),
+            "w-down" => Ok(Self::WestDown),
             _ => Err(format!(
-                "unknown direction {text}; use n, s, e, w, up, or down"
+                "unknown direction {text}; use n, s, e, w, up, down, or cardinal-down"
             )),
         }
     }
@@ -75,6 +86,10 @@ impl Direction {
             Self::West => (-1_000_000, 0, 0),
             Self::Up => (0, 1_000_000, 0),
             Self::Down => (0, -1_000_000, 0),
+            Self::NorthDown => (0, -800_000, -600_000),
+            Self::SouthDown => (0, -800_000, 600_000),
+            Self::EastDown => (600_000, -800_000, 0),
+            Self::WestDown => (-600_000, -800_000, 0),
         };
         ViewDirection::new(x, y, z)
             .unwrap_or_else(|error| panic!("axis direction must be normalized: {error}"))
@@ -86,8 +101,15 @@ impl Direction {
             Self::South => (0, 1_000_000),
             Self::East => (1_000_000, 0),
             Self::West => (-1_000_000, 0),
-            Self::Up | Self::Down => {
-                return Err("vertical direction is for aiming, not walking".to_owned());
+            Self::Up
+            | Self::Down
+            | Self::NorthDown
+            | Self::SouthDown
+            | Self::EastDown
+            | Self::WestDown => {
+                return Err(
+                    "vertical or diagonal-down direction is for aiming, not walking".to_owned(),
+                );
             }
         };
         let vector = HorizontalControlInput::new(x, z).map_err(|error| error.to_string())?;
@@ -262,11 +284,90 @@ impl Session {
                 let started = crafting::start(&self.registries, &mut self.state, args)?;
                 started + &view::status(&self.registries, &self.state)
             }
+            "gear" if args.is_empty() || args == ["all"] => {
+                equipment::catalog(&self.registries, &self.state, args == ["all"])?
+            }
+            "assemble" | "take" | "equip" | "recover" if args.len() == 1 => {
+                let index = parse_index(args[0], usize::MAX)?;
+                let report = match verb {
+                    "assemble" => equipment::assemble(&self.registries, &mut self.state, index),
+                    "take" => equipment::take(&self.registries, &mut self.state, index),
+                    "equip" => equipment::equip(&self.registries, &mut self.state, index),
+                    _ => equipment::recover(&self.registries, &mut self.state, index),
+                }?;
+                report + &view::status(&self.registries, &self.state)
+            }
+            "storage" if args.is_empty() || args == ["all"] => {
+                storage::catalog(&self.registries, &self.state, args == ["all"])?
+            }
+            "place-store" if args.len() == 1 => {
+                let id = args[0]
+                    .parse::<u32>()
+                    .map_err(|_| "storage definition ID must be a positive integer")?;
+                let report = storage::place(&self.registries, &mut self.state, id)?;
+                report + &storage::catalog(&self.registries, &self.state, false)?
+            }
+            "stash" | "withdraw" if args.len() == 2 => {
+                let container = parse_index(args[0], usize::MAX)?;
+                let stack = parse_index(args[1], usize::MAX)?;
+                let report = storage::move_stack(
+                    &self.registries,
+                    &mut self.state,
+                    container,
+                    stack,
+                    verb == "withdraw",
+                )?;
+                report + &view::inventory(&self.registries, &self.state)?
+            }
+            "fire" if args.is_empty() => fire::catalog(&self.registries, &self.state)?,
+            "build-fire" if args.is_empty() => {
+                let report = fire::build(&self.registries, &mut self.state)?;
+                report + &fire::catalog(&self.registries, &self.state)?
+            }
+            "feed-fire" if args.len() == 2 => {
+                let store = parse_index(args[0], usize::MAX)?;
+                let stack = parse_index(args[1], usize::MAX)?;
+                let report = fire::fuel(&self.registries, &mut self.state, store, stack)?;
+                report + &fire::catalog(&self.registries, &self.state)?
+            }
             "n" | "s" | "e" | "w" if args.len() <= 1 => {
                 let direction = Direction::parse(verb)?;
                 let count = parse_count(args.first().copied(), 20, MAX_MOVEMENT_TICKS)?;
                 self.advance_many(
                     PlayerDirectControlInput::new(direction.movement()?),
+                    count,
+                    true,
+                )?
+            }
+            "sprint" | "sneak" if (1..=2).contains(&args.len()) => {
+                let direction = Direction::parse(args[0])?;
+                let count = parse_count(args.get(1).copied(), 20, MAX_MOVEMENT_TICKS)?;
+                let move_input = direction.movement()?;
+                let move_input = if verb == "sprint" {
+                    move_input.with_sprint(true)
+                } else {
+                    move_input.with_crouch(true)
+                };
+                self.advance_many(PlayerDirectControlInput::new(move_input), count, true)?
+            }
+            "crouch" if args.len() <= 1 => {
+                let count = parse_count(args.first().copied(), 1, MAX_MOVEMENT_TICKS)?;
+                self.advance_many(
+                    PlayerDirectControlInput::new(PlayerControlInput::NEUTRAL.with_crouch(true)),
+                    count,
+                    false,
+                )?
+            }
+            "jump" if args.is_empty() => self.advance_many(
+                PlayerDirectControlInput::new(PlayerControlInput::NEUTRAL.with_jump(true)),
+                1,
+                false,
+            )?,
+            "jump" if (1..=2).contains(&args.len()) => {
+                let direction = Direction::parse(args[0])?;
+                let count = parse_count(args.get(1).copied(), 20, MAX_MOVEMENT_TICKS)?;
+                self.advance_many(
+                    PlayerDirectControlInput::new(direction.movement()?.with_jump(true)),
                     count,
                     true,
                 )?
@@ -367,7 +468,7 @@ impl Session {
             .map_err(|error| error.to_string())?;
         Ok(format!(
             "Active hand: {}.\n",
-            view::hand_label(&self.registries, selection)
+            view::hand_label(&self.registries, &self.state, selection)
         ))
     }
 

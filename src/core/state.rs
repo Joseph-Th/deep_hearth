@@ -334,6 +334,52 @@ impl AppState {
         &mut self.systems.structures
     }
 
+    /// Materialized framing in the player's immediate 3 x 3 horizontal neighborhood.
+    ///
+    /// Queries only the structure owner's indexed cells, including the occupied standing
+    /// level and two cells overhead. No remote plans, geometry or settlement topology is
+    /// returned, and dead players lose this observer capability.
+    pub fn available_nearby_structural_members(
+        &self,
+    ) -> Vec<&crate::structural::StructuralElementRecord> {
+        let Some(here) = self.player_observation_position() else {
+            return Vec::new();
+        };
+        let mut visible = std::collections::BTreeSet::new();
+        for x_offset in -1..=1 {
+            let Some(x) = here.x().checked_add(x_offset) else {
+                continue;
+            };
+            for z_offset in -1..=1 {
+                let Some(z) = here.z().checked_add(z_offset) else {
+                    continue;
+                };
+                for y_offset in 0..=2 {
+                    let Some(y) = here.y().checked_add(y_offset) else {
+                        continue;
+                    };
+                    for member in self
+                        .systems
+                        .structures
+                        .elements_covering(VoxelCoord::new(x, y, z))
+                    {
+                        if !member.embodied_material().is_empty() {
+                            visible.insert(member.id());
+                        }
+                    }
+                }
+            }
+        }
+        visible
+            .into_iter()
+            .map(|id| {
+                self.systems.structures.get_element(id).unwrap_or_else(|| {
+                    unreachable!("local structural index references existing member")
+                })
+            })
+            .collect()
+    }
+
     /// Returns read-only authoritative generated block-world state.
     #[must_use]
     pub const fn world(&self) -> &WorldState {

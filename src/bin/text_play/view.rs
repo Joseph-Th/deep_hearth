@@ -34,13 +34,32 @@ fn pos(position: VoxelCoord) -> String {
     format!("({},{},{})", position.x(), position.y(), position.z())
 }
 
-pub fn hand_label(registries: &Registries, selected: Option<PlayerActiveSelection>) -> String {
+fn meters_from_nanometers(nanometers: i64) -> String {
+    let absolute = i128::from(nanometers).abs();
+    format!(
+        "{}{}.{:03}",
+        if nanometers < 0 { "-" } else { "" },
+        absolute / 1_000_000_000,
+        (absolute % 1_000_000_000) / 1_000_000,
+    )
+}
+
+pub fn hand_label(
+    registries: &Registries,
+    state: &AppState,
+    selected: Option<PlayerActiveSelection>,
+) -> String {
     match selected {
         None => "empty".to_owned(),
         Some(PlayerActiveSelection::Material(material)) => name(registries, material).to_owned(),
-        Some(PlayerActiveSelection::Equipment(equipment)) => {
-            format!("equipment #{}", equipment.value())
-        }
+        Some(PlayerActiveSelection::Equipment(equipment)) => state
+            .equipment()
+            .get_equipment(equipment)
+            .and_then(|record| registries.equipment().get_equipment(record.definition()))
+            .map_or_else(
+                || format!("equipment #{}", equipment.value()),
+                |definition| definition.name().to_owned(),
+            ),
     }
 }
 
@@ -119,6 +138,12 @@ pub fn status(registries: &Registries, state: &AppState) -> String {
         state.control_tick().value(),
         state.tick().value(),
     );
+    let _ = writeln!(
+        output,
+        "Body: {:?} | foot elevation {} m",
+        player.body().stance(),
+        meters_from_nanometers(player.body().foot_position().y_nanometers()),
+    );
     if let Some(survival) = state.survival().player() {
         let physiology = registries.survival().physiology();
         let energy = survival.metabolic_energy().nanojoules() * 100
@@ -151,7 +176,7 @@ pub fn status(registries: &Registries, state: &AppState) -> String {
     let _ = writeln!(
         output,
         "Hand: {} (slot {})",
-        hand_label(registries, active),
+        hand_label(registries, state, active),
         state.logistics().active_quick_access_slot().index() + 1,
     );
     if let Some(PlayerActiveSelection::Material(commodity)) = active
@@ -161,9 +186,9 @@ pub fn status(registries: &Registries, state: &AppState) -> String {
             "Selected food: use eats it; empty clears the hand for local drinking or foraging.\n",
         );
     }
-    if player.body().horizontal_velocity() != HorizontalVelocity::ZERO
-        || player.body().vertical_velocity() != VerticalVelocity::ZERO
-    {
+    if player.body().vertical_velocity() != VerticalVelocity::ZERO {
+        output.push_str("Airborne: gravity is active; wait until landing before hand work.\n");
+    } else if player.body().horizontal_velocity() != HorizontalVelocity::ZERO {
         output.push_str("Still moving: wait 10 to let momentum settle before hand work.\n");
     }
     if let Some(weather) = assess_player_weather(registries, state) {
@@ -177,6 +202,19 @@ pub fn status(registries: &Registries, state: &AppState) -> String {
             weather.wind(),
             weather.wind_direction(),
         );
+    }
+    for source in state.available_local_energy_stores() {
+        if let Some(definition) = registries.energy().get_store(source.definition())
+            && definition.is_local_warmth_source()
+            && !source.stored().is_zero()
+        {
+            let _ = writeln!(
+                output,
+                "Local warmth: {} | {} stored",
+                definition.name(),
+                super::fire::energy_label(source.stored()),
+            );
+        }
     }
     if let Some(work) = state.player_work().active() {
         let _ = writeln!(
@@ -234,6 +272,24 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
             sighting.stature(),
             sighting.is_wary(),
             sighting.is_defending(),
+        );
+    }
+    for member in state.available_nearby_structural_members() {
+        let label = if member.geometry().covers_horizontal_footprint() {
+            "panel"
+        } else {
+            "framing"
+        };
+        let profile = registries
+            .structural()
+            .get_profile(member.profile())
+            .map_or("unidentified", |definition| definition.name());
+        let _ = writeln!(
+            output,
+            "Nearby {label}: {profile} at {} | {:?} | {} g",
+            pos(member.bounds().min()),
+            member.lifecycle(),
+            member.embodied_mass().milligrams() / 1_000,
         );
     }
     for scent in assess_player_forage_scents(registries, state) {
@@ -370,11 +426,14 @@ pub fn inventory(registries: &Registries, state: &AppState) -> Result<String, St
     for (index, equipment) in projection.equipment().iter().enumerate() {
         let _ = writeln!(
             output,
-            "Carried equipment {}: definition {} | equipment {} | {} g",
+            "Carried equipment {}: {} | {} g | condition {}%",
             index + 1,
-            equipment.definition().value(),
-            equipment.equipment().value(),
+            registries
+                .equipment()
+                .get_equipment(equipment.definition())
+                .map_or("unidentified equipment", |definition| definition.name()),
             equipment.mass().milligrams() / 1_000,
+            equipment.condition().parts_per_million() / 10_000,
         );
     }
     let _ = writeln!(
@@ -387,16 +446,36 @@ pub fn inventory(registries: &Registries, state: &AppState) -> Result<String, St
             output,
             "  slot {}: {}",
             index + 1,
-            hand_label(registries, *selection)
+            hand_label(registries, state, *selection)
         );
     }
-    for local in projection.local_containers() {
+    for (index, local) in projection.local_containers().iter().enumerate() {
+        let storage_name = local
+            .storage_definition()
+            .and_then(|definition| registries.storage().get(definition))
+            .map_or("open ground stockpile", |definition| definition.name());
         let _ = writeln!(
             output,
-            "Local storage: {} g / {} g",
+            "Local storage {}: {} | {} g / {} g",
+            index + 1,
+            storage_name,
             local.stored().milligrams() / 1_000,
             local.capacity().milligrams() / 1_000,
         );
+        for (stack_index, stack) in local.stacks().iter().enumerate() {
+            let _ = writeln!(
+                output,
+                "    {}. {} | {} g | {} C",
+                stack_index + 1,
+                name(registries, stack.commodity()),
+                stack.mass().milligrams() / 1_000,
+                (i64::from(stack.temperature().millikelvin()) - 273_150) / 1_000,
+            );
+        }
     }
     Ok(output)
 }
+
+#[cfg(test)]
+#[path = "view_tests.rs"]
+mod tests;

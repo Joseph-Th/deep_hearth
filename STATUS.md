@@ -28,7 +28,7 @@ Missing ordinary edges:
 | Implemented side | Missing ordinary edge |
 | --- | --- |
 | Settlement batch foundry | Industrial-scale foundry acquisition, support, and high-power infrastructure. |
-| Generated world + body + targeting | Inventory/crafting UI, placement, residency, richer contact and remote discovery. |
+| Generated world + body + targeting | Graphical inventory/crafting UI, broad placement, residency and remote discovery. |
 | Structural physics | Broader panels/joints, cascade demolition, and terrain support. |
 | Player equipment service/recovery | Maintenance-tool requirements and service-site transport beyond exact-local carried stock. |
 | Finite energy stores | Branching, gears, electrical distribution and conversion beyond straight timber shaft runs. |
@@ -54,7 +54,7 @@ These canonical owners may lack ordinary acquisition.
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; timed posts, framing, cover and grounded timber roller; timed primary-break recovery. |
 | Block world | Seeded ore, habitats, forage, trees, springs, temples and excavation. Crops expire before discovery; shade/moisture enable regrowth. Water remains finite. No renderer or full ecology. |
-| Spatial and presentation | Checked coordinates, views, textures/shaders; text play offers 20 Hz controls, local observations, scripts and saves. |
+| Spatial and presentation | Checked coordinates, textures/shaders; text play has 20 Hz movement, crafting, tools, boxes, fire, scripts and saves. |
 
 ## Capability-only evaluation
 

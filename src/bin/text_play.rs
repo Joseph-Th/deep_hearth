@@ -19,10 +19,14 @@ fn usage() -> &'static str {
      cargo run --locked --bin text-play -- [--seed NUMBER | --load SLOT] [--script FILE]\n\
      Commands: help, look [direction], status, inventory, gather, gather N [grams],\n\
      recipes [all], craft PROCESS_ID [batches] [from STACK] [with TOOL],\n\
-     n|s|e|w [ticks], wait [ticks|work], use [direction], break [direction],\n\
+     gear [all], assemble ID, take N, equip N, recover N,\n\
+     storage [all], place-store ID, stash CONTAINER STACK, withdraw CONTAINER STACK,\n\
+     fire, build-fire, feed-fire FIRE STACK,\n\
+     n|s|e|w [ticks], sprint|sneak DIRECTION [ticks], crouch [ticks],\n\
+     jump [direction] [ticks], wait [ticks|work], use [direction], break [direction],\n\
      shove|strike|prepare|release [direction], cancel, slot N, select N,\n\
      empty, drop, respawn, save SLOT, quit.\n\
-     Directions for pointing: n, s, e, w, up, down.\n\
+     Directions for pointing: n, s, e, w, up, down, n-down, s-down, e-down, w-down.\n\
      Text play uses real 20 Hz control steps, never simulated turns."
 }
 
