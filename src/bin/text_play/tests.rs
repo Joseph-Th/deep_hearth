@@ -60,8 +60,10 @@ fn finite_campfire_fuel_warms_player_and_preserves_terminal_matter() {
     assert!(catalog.contains("stone-ring campfire | 0.000 MJ stored"));
     assert!(catalog.contains("Fuel: 1000 g timber log per charge"));
     assert!(catalog.contains("Fuel: 500 g wood chips per charge"));
+    assert!(catalog.contains("feed-fire 1 1"));
     let before_invalid = snapshot(&session);
-    assert!(session.command("feed-fire 1 2").is_err());
+    let bad_fuel = session.command("feed-fire 1 2").unwrap_err();
+    assert!(bad_fuel.contains("no carried material at that stack index"));
     assert_eq!(snapshot(&session), before_invalid);
 
     let total_before = deep_hearth::matter::calculate_matter_accounting(&session.state)
@@ -152,7 +154,8 @@ fn campfire_accepts_woodworking_byproduct_as_distinct_finite_fuel() {
     assert!(inventory.contains("wood chips | 800 g"));
     assert!(inventory.contains("flint flakes | 80 g"));
     let before = snapshot(&session);
-    assert!(session.command("feed-fire 1 2").is_err());
+    let wrong_fuel = session.command("feed-fire 1 2").unwrap_err();
+    assert!(wrong_fuel.contains("use 'fire' to see eligible carried stacks"));
     assert_eq!(snapshot(&session), before);
     let accounting = deep_hearth::matter::calculate_matter_accounting(&session.state)
         .unwrap()
@@ -793,7 +796,10 @@ fn text_warmth_warning_uses_authored_survival_threshold() {
             let comfort = assessment.thermal_comfort_ppm();
             assert!(comfort < threshold);
             assert!(view::urgency(&session.registries, &session.state).3);
-            assert!(view::status(&session.registries, &session.state).contains("cold=true"));
+            assert!(
+                view::status(&session.registries, &session.state)
+                    .contains("Warnings: cold exposure")
+            );
             reached = true;
             break;
         }
@@ -804,6 +810,42 @@ fn text_warmth_warning_uses_authored_survival_threshold() {
     assert!(
         reached,
         "the exposed opening must eventually reach the authored cold warning"
+    );
+}
+
+#[test]
+fn work_boundary_rejection_explains_the_required_player_action() {
+    let mut session = Session::new(24318).unwrap();
+    for command in [
+        "e 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "gather 3 300",
+        "wait work",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    session.command("wait 1").unwrap();
+    let before = snapshot(&session);
+    assert!(
+        session
+            .command("craft 99")
+            .unwrap_err()
+            .contains("Run 'wait boundary', then retry")
+    );
+    assert_eq!(snapshot(&session), before);
+    session.command("wait boundary").unwrap();
+    assert!(
+        session
+            .command("craft 99")
+            .unwrap()
+            .0
+            .contains("Started knap flint cutting head")
     );
 }
 

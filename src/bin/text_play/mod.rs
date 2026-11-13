@@ -271,23 +271,27 @@ impl Session {
                 geology::knowledge(&self.registries, &self.state, width)?
             }
             "prospect" => {
-                let result = geology::start(&self.registries, &mut self.state, args)?;
+                let result = geology::start(&self.registries, &mut self.state, args)
+                    .map_err(work_start_error)?;
                 result + &view::status(&self.registries, &self.state)
             }
             "mine" => {
-                let result = geology::mine(&self.registries, &mut self.state, args)?;
+                let result = geology::mine(&self.registries, &mut self.state, args)
+                    .map_err(work_start_error)?;
                 result + &view::status(&self.registries, &self.state)
             }
             "ore" if args.is_empty() => ore::catalog(&self.registries, &self.state)?,
             "dress" => {
-                let result = ore::start(&self.registries, &mut self.state, args)?;
+                let result = ore::start(&self.registries, &mut self.state, args)
+                    .map_err(work_start_error)?;
                 result + &view::status(&self.registries, &self.state)
             }
             "recipes" if args.is_empty() || args == ["all"] => {
                 crafting::catalog(&self.registries, &self.state, args == ["all"])?
             }
             "craft" => {
-                let started = crafting::start(&self.registries, &mut self.state, args)?;
+                let started = crafting::start(&self.registries, &mut self.state, args)
+                    .map_err(work_start_error)?;
                 started + &view::status(&self.registries, &self.state)
             }
             "gear" if args.is_empty() || args == ["all"] => {
@@ -391,7 +395,12 @@ impl Session {
                 let count = activity::remaining_work_control_ticks(&self.state)
                     .ok_or("no active work with a scheduled completion; use wait [ticks]")?
                     .min(MAX_WAIT_TICKS);
-                self.advance_many(PlayerDirectControlInput::NEUTRAL, count, false)?
+                self.advance_many_with_work_wait(
+                    PlayerDirectControlInput::NEUTRAL,
+                    count,
+                    false,
+                    true,
+                )?
             }
             "wait" if args.len() <= 1 => {
                 let count = parse_count(args.first().copied(), 72, MAX_WAIT_TICKS)?;
@@ -547,6 +556,16 @@ impl Session {
         limit: u64,
         walking: bool,
     ) -> Result<String, String> {
+        self.advance_many_with_work_wait(input, limit, walking, false)
+    }
+
+    fn advance_many_with_work_wait(
+        &mut self,
+        input: PlayerDirectControlInput,
+        limit: u64,
+        walking: bool,
+        work_wait: bool,
+    ) -> Result<String, String> {
         let mut output = String::new();
         let starting_position = self.player_position()?;
         let before = view::urgency(&self.registries, &self.state);
@@ -560,12 +579,19 @@ impl Session {
                 break;
             }
             if self.state.tick() != slow_tick_before
-                && view::local_cues(&self.registries, &self.state) != visible_before
+                && let Some((description, requires_attention)) =
+                    visible_before.changed(&view::local_cues(&self.registries, &self.state))
+                && (requires_attention || !work_wait)
             {
-                output.push_str("Something nearby has changed.\n");
+                let _ = writeln!(output, "{description}");
                 break;
             }
-            if walking && self.player_position()? != starting_position {
+            let position = self.player_position()?;
+            // A directional jump crosses the vertical voxel before its horizontal
+            // destination. Do not release movement while the player is still overhead.
+            if walking
+                && (position.x() != starting_position.x() || position.z() != starting_position.z())
+            {
                 break;
             }
             if self
@@ -619,7 +645,15 @@ impl Session {
                 .and_then(|motion| motion.fall_impact()),
         );
         if let Some(simulation) = outcome.simulation() {
-            interrupt |= note(output, "Gathered", simulation.surface_gathering());
+            if let Some(gathered) = simulation.surface_gathering() {
+                let _ = writeln!(
+                    output,
+                    "Gathered: {} g collected; {} g remains at the source.",
+                    view::grams(gathered.gathered_mass()),
+                    view::grams(gathered.remaining_mass()),
+                );
+                interrupt = true;
+            }
             interrupt |= note(output, "Tree felled", simulation.tree_felling());
             interrupt |= note(
                 output,
@@ -636,18 +670,39 @@ impl Session {
                 "Storage recovered",
                 simulation.storage_enclosure_dismantling(),
             );
-            interrupt |= note(
-                output,
-                "Prospecting finished",
-                simulation.field_prospecting(),
-            );
+            if let Some(survey) = simulation.field_prospecting() {
+                let material = self
+                    .registries
+                    .materials()
+                    .get_material(survey.material())
+                    .map_or("unknown material", |definition| definition.name());
+                let _ = writeln!(
+                    output,
+                    "Prospecting finished: {} {:?} observation(s) of {material}. Use 'knowledge' or 'knowledge 2' to inspect acquired evidence.",
+                    survey.observation_count(),
+                    survey.evidence(),
+                );
+                interrupt = true;
+            }
             interrupt |= note(
                 output,
                 "Maintenance finished",
                 simulation.equipment_maintenance(),
             );
             interrupt |= note(output, "Manual power produced", simulation.manual_power());
-            interrupt |= note(output, "Mining produced", simulation.mining_output());
+            if let Some(mining) = simulation.mining_output() {
+                let material = self
+                    .registries
+                    .materials()
+                    .commodity_name(mining.output().commodity())
+                    .unwrap_or("unidentified ore");
+                let _ = writeln!(
+                    output,
+                    "Mining produced: {} g {material} entered inventory.",
+                    view::grams(mining.output().mass()),
+                );
+                interrupt = true;
+            }
             if let Some(deep_hearth::labor::PlayerWork::ManualProduction { job }) = previous_work {
                 for completion in simulation
                     .production_completions()
@@ -690,6 +745,14 @@ fn note<T: std::fmt::Debug>(output: &mut String, label: &str, event: Option<T>) 
         true
     } else {
         false
+    }
+}
+
+fn work_start_error(error: String) -> String {
+    if error.contains("slow-scheduled work cannot begin") {
+        "This task must start on a simulation boundary. Run 'wait boundary', then retry.".to_owned()
+    } else {
+        error
     }
 }
 

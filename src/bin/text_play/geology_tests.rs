@@ -112,7 +112,7 @@ fn mined_copper_ore_can_be_broken_and_sorted_into_finite_native_metal() {
         })
         .expect("hand sorting must return physically recovered native copper");
     assert_eq!(native.mass().milligrams(), 32_500);
-    assert!(run(&mut session, "inventory").contains("native copper | 32 g"));
+    assert!(run(&mut session, "inventory").contains("native copper | 32.5 g"));
     assert_eq!(
         calculate_matter_accounting(&session.state).unwrap().total(),
         conserved
@@ -123,7 +123,7 @@ fn mined_copper_ore_can_be_broken_and_sorted_into_finite_native_metal() {
     assert!(finished.contains("Craft completed: cold-work native copper reinforcement"));
     let after = run(&mut session, "inventory");
     assert!(after.contains("copper reinforcement | 20 g"));
-    assert!(after.contains("native copper | 12 g"));
+    assert!(after.contains("native copper | 12.5 g"));
     assert_eq!(
         calculate_matter_accounting(&session.state).unwrap().total(),
         conserved
@@ -242,6 +242,12 @@ fn field_prospecting_uses_acquired_evidence_and_cannot_invent_locality() {
     let _ = finish_work(&mut session);
     let broad_knowledge = run(&mut session, "knowledge");
     assert!(broad_knowledge.contains("copper | 1 observations | abundance"));
+    let after_survey = snapshot(&session);
+    let broad_details = run(&mut session, "knowledge 2");
+    assert!(broad_details.contains("Sample #1: region (9,2,10) to (11,3,12) exclusive"));
+    assert!(broad_details.contains("SurfaceExposure"));
+    assert!(broad_details.contains("ppm"));
+    assert_eq!(snapshot(&session), after_survey);
     let here = session.state.logistics().player().unwrap().position();
     let region = deep_hearth::spatial::VoxelBounds::new(
         here,

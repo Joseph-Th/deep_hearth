@@ -222,10 +222,10 @@ pub fn knowledge(
         match assessment.consistency() {
             GeologicalEvidenceConsistency::NoEvidence => output.push_str("no evidence"),
             GeologicalEvidenceConsistency::SpatiallyIncomparable => {
-                output.push_str("spatially incomparable evidence")
+                output.push_str("different survey footprints; no single shared locality")
             }
             GeologicalEvidenceConsistency::Conflicting { .. } => {
-                output.push_str("conflicting evidence")
+                output.push_str("conflicting measurements; inspect samples below")
             }
             GeologicalEvidenceConsistency::Compatible {
                 lower_ppm,
@@ -251,9 +251,80 @@ pub fn knowledge(
             );
         }
         output.push('\n');
+        // Preserve each original measured footprint without resampling hidden deposits.
+        if width > 1 || assessment.observations().len() > 1 {
+            append_observation_details(
+                &mut output,
+                state,
+                assessment.material(),
+                assessment.observations(),
+            );
+        }
     }
     output.push_str("Estimates are historical acquired measurements, not exact live reserves.\n");
     Ok(output)
+}
+
+fn append_observation_details(
+    output: &mut String,
+    state: &AppState,
+    material: MaterialId,
+    ids: &[deep_hearth::geology::GeologicalObservationId],
+) {
+    for observation in state.geological_knowledge().observations() {
+        if !ids.contains(&observation.id()) {
+            continue;
+        }
+        let Some(finding) = observation.finding(material) else {
+            continue;
+        };
+        let bounds = observation.region();
+        let start = bounds.min();
+        let end = bounds.max_exclusive();
+        let footprint =
+            if end.x() == start.x() + 1 && end.y() == start.y() + 1 && end.z() == start.z() + 1 {
+                format!("voxel ({},{},{})", start.x(), start.y(), start.z())
+            } else {
+                format!(
+                    "region ({},{},{}) to ({},{},{}) exclusive",
+                    start.x(),
+                    start.y(),
+                    start.z(),
+                    end.x(),
+                    end.y(),
+                    end.z(),
+                )
+            };
+        let _ = write!(
+            output,
+            "    Sample #{}: {footprint} | {:?} | {}..{} ppm",
+            observation.id().value(),
+            observation.evidence(),
+            finding.lower_ppm(),
+            finding.upper_ppm(),
+        );
+        if let Some(hardness) = observation.excavation_hardness() {
+            let _ = write!(
+                output,
+                " | hardness {}..{} MPa",
+                hardness.lower().pascals() / 1_000_000,
+                hardness.upper().pascals() / 1_000_000,
+            );
+        }
+        if let Some(resource) = observation.resource_mass() {
+            let _ = write!(
+                output,
+                " | sampled mass {}..{} g",
+                super::view::grams(resource.lower()),
+                super::view::grams(resource.upper()),
+            );
+        }
+        let _ = writeln!(
+            output,
+            " | observed at tick {}",
+            observation.observed_at().value()
+        );
+    }
 }
 
 pub fn mine(

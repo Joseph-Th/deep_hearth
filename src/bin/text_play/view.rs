@@ -3,6 +3,7 @@
 use std::fmt::Write as _;
 
 use super::activity;
+use deep_hearth::core::quantity::Mass;
 use deep_hearth::kobolds::{
     available_nearby_kobold_footfalls, available_nearby_kobold_scouts,
     available_nearby_kobold_tracks,
@@ -34,6 +35,20 @@ fn pos(position: VoxelCoord) -> String {
     format!("({},{},{})", position.x(), position.y(), position.z())
 }
 
+/// Inventory and receipts must not silently discard sub-gram material.
+pub fn grams(mass: Mass) -> String {
+    let milligrams = mass.milligrams();
+    let whole = milligrams / 1_000;
+    let remainder = milligrams % 1_000;
+    if remainder == 0 {
+        whole.to_string()
+    } else {
+        format!("{whole}.{remainder:03}")
+            .trim_end_matches('0')
+            .to_owned()
+    }
+}
+
 fn meters_from_nanometers(nanometers: i64) -> String {
     let absolute = i128::from(nanometers).abs();
     format!(
@@ -51,7 +66,23 @@ pub fn hand_label(
 ) -> String {
     match selected {
         None => "empty".to_owned(),
-        Some(PlayerActiveSelection::Material(material)) => name(registries, material).to_owned(),
+        Some(PlayerActiveSelection::Material(material)) => {
+            let material_name = name(registries, material);
+            if project_player_inventory(registries, state)
+                .ok()
+                .is_some_and(|inventory| {
+                    inventory
+                        .carried()
+                        .stacks()
+                        .iter()
+                        .any(|stack| stack.commodity() == material)
+                })
+            {
+                material_name.to_owned()
+            } else {
+                format!("{material_name} (none carried)")
+            }
+        }
         Some(PlayerActiveSelection::Equipment(equipment)) => state
             .equipment()
             .get_equipment(equipment)
@@ -93,24 +124,71 @@ fn bearing(from: VoxelCoord, toward: VoxelCoord) -> String {
     }
 }
 
-/// One player-visible environment signature, sampled only at consequential slow boundaries.
+/// Player-visible cues only. Weather alone need not interrupt a requested work completion;
+/// approaching creatures, tracks, and changing local supplies still demand attention.
+#[derive(Clone, PartialEq, Eq)]
+pub struct LocalCues {
+    resources: String,
+    water: String,
+    kobolds: String,
+    footfalls: String,
+    tracks: String,
+    scents: String,
+    weather: String,
+}
+
+impl LocalCues {
+    /// Returns the most actionable changed cue and whether it should stop a work wait.
+    pub fn changed(&self, next: &Self) -> Option<(&'static str, bool)> {
+        if self.kobolds != next.kobolds {
+            Some(("A nearby kobold moved or changed behavior.", true))
+        } else if self.footfalls != next.footfalls {
+            Some(("Nearby footsteps have changed.", true))
+        } else if self.tracks != next.tracks {
+            Some(("Nearby tracks have changed.", true))
+        } else if self.resources != next.resources {
+            Some(("Nearby loose resources have changed.", true))
+        } else if self.water != next.water {
+            Some(("Nearby water has changed.", true))
+        } else if self.scents != next.scents {
+            Some(("Scents in the area have shifted.", true))
+        } else if self.weather != next.weather {
+            Some(("The wind or weather has shifted.", false))
+        } else {
+            None
+        }
+    }
+}
+
 /// Do not inspect private geology, colony schedules, or all generated blocks to stop a wait.
-pub fn local_cues(registries: &Registries, state: &AppState) -> String {
-    format!(
-        "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
-        AdjacentSurfaceResource::visible_in_generated_world(registries, state).collect::<Vec<_>>(),
-        available_visible_generated_water(registries, state),
-        available_nearby_kobold_scouts(registries, state).collect::<Vec<_>>(),
-        available_nearby_kobold_footfalls(registries, state),
-        available_nearby_kobold_tracks(registries, state).collect::<Vec<_>>(),
-        assess_player_forage_scents(registries, state),
-        assess_player_weather(registries, state).map(|weather| (
-            weather.season(),
-            weather.phase(),
-            weather.wind(),
-            weather.wind_direction(),
-        )),
-    )
+pub fn local_cues(registries: &Registries, state: &AppState) -> LocalCues {
+    LocalCues {
+        resources: format!(
+            "{:?}",
+            AdjacentSurfaceResource::visible_in_generated_world(registries, state)
+                .collect::<Vec<_>>()
+        ),
+        water: format!("{:?}", available_visible_generated_water(registries, state)),
+        kobolds: format!(
+            "{:?}",
+            available_nearby_kobold_scouts(registries, state).collect::<Vec<_>>()
+        ),
+        footfalls: format!("{:?}", available_nearby_kobold_footfalls(registries, state)),
+        tracks: format!(
+            "{:?}",
+            available_nearby_kobold_tracks(registries, state).collect::<Vec<_>>()
+        ),
+        scents: format!("{:?}", assess_player_forage_scents(registries, state)),
+        weather: format!(
+            "{:?}",
+            assess_player_weather(registries, state).map(|weather| (
+                weather.season(),
+                weather.phase(),
+                weather.wind(),
+                weather.wind_direction(),
+            ))
+        ),
+    }
 }
 
 /// Threshold transitions, not tiny per-tick resource changes, interrupt long waits.
@@ -126,24 +204,8 @@ pub fn urgency(registries: &Registries, state: &AppState) -> (bool, bool, bool, 
     )
 }
 
-pub fn status(registries: &Registries, state: &AppState) -> String {
+fn survival_status(registries: &Registries, state: &AppState) -> String {
     let mut output = String::new();
-    let Some(player) = state.logistics().player() else {
-        return "No player admitted.\n".to_owned();
-    };
-    let _ = writeln!(
-        output,
-        "At {} | control {} | simulation {}",
-        pos(player.position()),
-        state.control_tick().value(),
-        state.tick().value(),
-    );
-    let _ = writeln!(
-        output,
-        "Body: {:?} | foot elevation {} m",
-        player.body().stance(),
-        meters_from_nanometers(player.body().foot_position().y_nanometers()),
-    );
     if let Some(survival) = state.survival().player() {
         let physiology = registries.survival().physiology();
         let energy = survival.metabolic_energy().nanojoules() * 100
@@ -165,13 +227,45 @@ pub fn status(registries: &Registries, state: &AppState) -> String {
         } else {
             let (hungry, thirsty, injured, cold) = urgency(registries, state);
             if hungry || thirsty || injured || cold {
-                let _ = writeln!(
-                    output,
-                    "Warnings: hunger={hungry}, thirst={thirsty}, injury={injured}, cold={cold}",
-                );
+                let mut warnings = Vec::new();
+                if hungry {
+                    warnings.push("hunger");
+                }
+                if thirsty {
+                    warnings.push("thirst");
+                }
+                if injured {
+                    warnings.push("injury");
+                }
+                if cold {
+                    warnings.push("cold exposure");
+                }
+                let _ = writeln!(output, "Warnings: {}", warnings.join(", "));
             }
         }
     }
+    output
+}
+
+pub fn status(registries: &Registries, state: &AppState) -> String {
+    let mut output = String::new();
+    let Some(player) = state.logistics().player() else {
+        return "No player admitted.\n".to_owned();
+    };
+    let _ = writeln!(
+        output,
+        "At {} | control {} | simulation {}",
+        pos(player.position()),
+        state.control_tick().value(),
+        state.tick().value(),
+    );
+    let _ = writeln!(
+        output,
+        "Body: {:?} | foot elevation {} m",
+        player.body().stance(),
+        meters_from_nanometers(player.body().foot_position().y_nanometers()),
+    );
+    output.push_str(&survival_status(registries, state));
     let active = state.logistics().active_selection();
     let _ = writeln!(
         output,
@@ -181,6 +275,15 @@ pub fn status(registries: &Registries, state: &AppState) -> String {
     );
     if let Some(PlayerActiveSelection::Material(commodity)) = active
         && registries.survival().get_food(commodity).is_some()
+        && project_player_inventory(registries, state)
+            .ok()
+            .is_some_and(|inventory| {
+                inventory
+                    .carried()
+                    .stacks()
+                    .iter()
+                    .any(|stack| stack.commodity() == commodity)
+            })
     {
         output.push_str(
             "Selected food: use eats it; empty clears the hand for local drinking or foraging.\n",
@@ -339,20 +442,38 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
     if let Some(runway) = assess_player_resting_provision_runway(registries, state) {
         let _ = writeln!(
             output,
-            "At rest, hunger warning in {:?} slow ticks, thirst warning in {:?} slow ticks",
-            runway.hungry_in().map(|time| time.value()),
-            runway.thirsty_in().map(|time| time.value())
+            "At rest, hunger warning in {}, thirst warning in {}",
+            runway_label(runway.hungry_in().map(|time| time.value())),
+            runway_label(runway.thirsty_in().map(|time| time.value()))
         );
     }
     if let Some(runway) = assess_player_unheated_comfort_runway(registries, state) {
         let _ = writeln!(
             output,
-            "Without heat, current warmth runway: {:?} slow ticks; cover: {:?}",
-            runway.current().map(|span| span.value()),
+            "Without heat, time until cold warning: {}; cover: {:?}",
+            runway_label(runway.current().map(|span| span.value())),
             runway.overhead_cover()
         );
     }
     output
+}
+
+fn runway_label(slow_ticks: Option<u64>) -> String {
+    let Some(ticks) = slow_ticks else {
+        return "not projected".to_owned();
+    };
+    if ticks == 0 {
+        return "now".to_owned();
+    }
+    // Each slow simulation step is exactly 72 control frames at 20 Hz.
+    let seconds = (u128::from(ticks) * 36).div_ceil(10);
+    if seconds >= 3_600 {
+        format!("{}h {}m", seconds / 3_600, (seconds % 3_600) / 60)
+    } else if seconds >= 60 {
+        format!("{}m {}s", seconds / 60, seconds % 60)
+    } else {
+        format!("{seconds}s")
+    }
 }
 
 pub fn gather_options(
@@ -407,8 +528,8 @@ pub fn inventory(registries: &Registries, state: &AppState) -> Result<String, St
     let _ = writeln!(
         output,
         "Carried matter: {} g / {} g",
-        carried.stored().milligrams() / 1_000,
-        carried.capacity().milligrams() / 1_000,
+        grams(carried.stored()),
+        grams(carried.capacity()),
     );
     if carried.stacks().is_empty() {
         output.push_str("  (empty)\n");
@@ -419,7 +540,7 @@ pub fn inventory(registries: &Registries, state: &AppState) -> Result<String, St
             "  {}. {} | {} g | {} C",
             index + 1,
             name(registries, stack.commodity()),
-            stack.mass().milligrams() / 1_000,
+            grams(stack.mass()),
             (i64::from(stack.temperature().millikelvin()) - 273_150) / 1_000,
         );
     }
@@ -432,7 +553,7 @@ pub fn inventory(registries: &Registries, state: &AppState) -> Result<String, St
                 .equipment()
                 .get_equipment(equipment.definition())
                 .map_or("unidentified equipment", |definition| definition.name()),
-            equipment.mass().milligrams() / 1_000,
+            grams(equipment.mass()),
             equipment.condition().parts_per_million() / 10_000,
         );
     }
@@ -459,8 +580,8 @@ pub fn inventory(registries: &Registries, state: &AppState) -> Result<String, St
             "Local storage {}: {} | {} g / {} g",
             index + 1,
             storage_name,
-            local.stored().milligrams() / 1_000,
-            local.capacity().milligrams() / 1_000,
+            grams(local.stored()),
+            grams(local.capacity()),
         );
         for (stack_index, stack) in local.stacks().iter().enumerate() {
             let _ = writeln!(
@@ -468,7 +589,7 @@ pub fn inventory(registries: &Registries, state: &AppState) -> Result<String, St
                 "    {}. {} | {} g | {} C",
                 stack_index + 1,
                 name(registries, stack.commodity()),
-                stack.mass().milligrams() / 1_000,
+                grams(stack.mass()),
                 (i64::from(stack.temperature().millikelvin()) - 273_150) / 1_000,
             );
         }

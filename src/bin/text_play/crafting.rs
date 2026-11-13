@@ -259,7 +259,7 @@ pub fn completion(
             let _ = writeln!(
                 output,
                 "  Received {} g {} ({destination}).",
-                item.mass().milligrams() / 1_000,
+                super::view::grams(item.mass()),
                 commodity(registries, item.commodity()),
             );
         }
