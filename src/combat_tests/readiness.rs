@@ -214,6 +214,43 @@ fn melee_hud_never_advertises_an_attack_with_exhausted_owner_revisions() {
         validate_primitive_strike(&registries, &exhausted, east()).err(),
         Some(PrimitiveAttackError::EquipmentRevisionExhausted)
     );
+    let before = exhausted.clone();
+    assert_eq!(
+        validate_prepare_primitive_strike(&registries, &exhausted, east()).err(),
+        Some(PrimitiveAttackError::EquipmentRevisionExhausted),
+        "raising a weapon must not lock the hand when its wear could never be committed"
+    );
+    assert_eq!(exhausted, before);
+}
+
+#[test]
+fn existing_windup_can_be_cancelled_after_equipment_revision_exhaustion() {
+    use crate::content::EQUIPMENT_WOODEN_CLUB;
+
+    let (registries, mut state, _, _, tip) = opening_contact_world();
+    validate_admit_player(&registries, &state, tip)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    arm_player(&registries, &mut state, EQUIPMENT_WOODEN_CLUB);
+    let _ = validate_prepare_primitive_strike(&registries, &state, east())
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let mut exhausted = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    exhausted["state"]["systems"]["equipment"]["revision"] = serde_json::json!(u64::MAX);
+    let mut exhausted = serde_json::from_value::<LoadedSaveEnvelope>(exhausted)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &exhausted), Ok(()));
+    let cancellation = validate_cancel_primitive_preparation(&exhausted).unwrap();
+    assert_eq!(
+        cancellation.commit(&mut exhausted),
+        Ok(PrimitivePreparationOutcome::Cancelled)
+    );
+    assert!(!exhausted.combat().has_prepared_strike());
+    assert_eq!(validate_loaded_state(&registries, &exhausted), Ok(()));
 }
 
 #[test]
@@ -342,6 +379,11 @@ fn armed_strike_preserves_equipment_revision_promised_to_running_production() {
     assert_eq!(
         validate_primitive_strike(&registries, &constrained, west).err(),
         Some(PrimitiveAttackError::EquipmentRevisionExhausted)
+    );
+    assert_eq!(
+        validate_prepare_primitive_strike(&registries, &constrained, west).err(),
+        Some(PrimitiveAttackError::EquipmentRevisionExhausted),
+        "a running job's promised equipment revision must also block a new windup"
     );
     let before = constrained.clone();
     let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(

@@ -53,6 +53,40 @@ fn scripted_quit_is_a_successful_stop_not_a_command_error() {
     );
 }
 
+#[test]
+fn control_command_dispatch_preserves_clock_and_rejects_bad_arguments_atomically() {
+    let mut session = Session::new(24318).unwrap();
+    let status = |session: &mut Session| session.command("status").unwrap().0;
+    for invalid in [
+        "n 0",
+        "sprint up 1",
+        "wait work",
+        "wait 1 2",
+        "slot 10",
+        "prepare n extra",
+    ] {
+        assert!(
+            session.command(invalid).is_err(),
+            "expected rejection for {invalid}"
+        );
+        assert!(
+            status(&mut session).contains("control 0 | simulation 0"),
+            "{invalid} advanced time"
+        );
+    }
+    let (already_aligned, running) = session.command("wait boundary").unwrap();
+    assert!(running);
+    assert!(already_aligned.contains("Already on a simulation boundary"));
+    assert!(status(&mut session).contains("control 0 | simulation 0"));
+
+    let (one_tick, _) = session.command("wait 1").unwrap();
+    assert!(one_tick.contains("Advanced 1 control ticks"));
+    assert!(status(&mut session).contains("control 1 | simulation 0"));
+    let (to_boundary, _) = session.command("wait boundary").unwrap();
+    assert!(to_boundary.contains("Advanced 71 control ticks"));
+    assert!(status(&mut session).contains("control 72 | simulation 1"));
+}
+
 /// Drives the maintained opening script through the same `play_script` path `--script` uses.
 ///
 /// The file is checked in so a reviewer can run the identical commands by hand. Rejection of any

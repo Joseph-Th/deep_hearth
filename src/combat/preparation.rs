@@ -51,7 +51,12 @@ impl ValidatedPrimitivePreparation {
         if state.player_work().revision() != self.expected_player_work_revision {
             return Err(PrimitiveAttackCommitError::StalePlayerWorkRevision);
         }
-        if state.equipment().revision() != self.expected_equipment_revision {
+        if state.equipment().revision() != self.expected_equipment_revision
+            || (self.next.is_some() && !state.can_spend_equipment_revisions(1))
+        {
+            // Starting a production job can reserve the final equipment revision
+            // without changing the equipment owner's current revision.
+            // Cancellation, unlike preparing, must remain available at exhaustion.
             return Err(PrimitiveAttackCommitError::StaleEquipmentRevision);
         }
         self.player_action
@@ -112,6 +117,12 @@ pub fn validate_prepare_primitive_strike(
     let weapon = assessment
         .weapon()
         .ok_or(PrimitiveAttackError::NoHeldWeapon)?;
+    // A windup occupies the active hand and prevents ordinary work until release or
+    // cancellation. Do not admit a stance whose eventual weapon wear already
+    // lacks equipment-owner revision headroom (including promised job wear).
+    if !state.can_spend_equipment_revisions(1) {
+        return Err(PrimitiveAttackError::EquipmentRevisionExhausted);
+    }
     if !state.combat().ready(state.control_tick()) {
         return Err(PrimitiveAttackError::Recovering {
             last_at: state
