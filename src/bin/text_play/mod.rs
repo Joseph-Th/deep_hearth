@@ -4,9 +4,11 @@ mod activity;
 mod command;
 mod crafting;
 mod equipment;
+mod errors;
 mod fire;
 mod geology;
 mod ore;
+mod quantity;
 mod save_file;
 mod stepping;
 mod storage;
@@ -35,7 +37,8 @@ use deep_hearth::world::{
 use deep_hearth::world_generation::validate_generate_initial_wilderness;
 use deep_hearth::{AppState, Registries, build_registries};
 
-use command::{parse_gather_grams, parse_index};
+use command::parse_index;
+use quantity::parse_decimal_grams;
 use save_file::{publish_new_save, slot_path};
 
 pub struct Session {
@@ -226,7 +229,7 @@ impl Session {
         let index = parse_index(args[0], options.len())?;
         let option = options[index - 1];
         let mass = if let Some(grams) = args.get(1) {
-            parse_gather_grams(grams)?
+            parse_decimal_grams(grams, "gather quantity")?
         } else {
             view::default_gather_mass(&self.state, option)
         };

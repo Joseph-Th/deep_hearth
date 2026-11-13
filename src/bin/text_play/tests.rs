@@ -144,7 +144,7 @@ fn decimal_gather_amounts_are_exact_and_reject_unrepresentable_inputs() {
         ("18446744073709551.615", u64::MAX),
     ] {
         assert_eq!(
-            command::parse_gather_grams(text),
+            quantity::parse_decimal_grams(text, "gather quantity"),
             Ok(Mass::from_milligrams(milligrams)),
             "{text}"
         );
@@ -164,7 +164,10 @@ fn decimal_gather_amounts_are_exact_and_reject_unrepresentable_inputs() {
         "18446744073709551.616",
         "18446744073709551616",
     ] {
-        assert!(command::parse_gather_grams(text).is_err(), "{text}");
+        assert!(
+            quantity::parse_decimal_grams(text, "gather quantity").is_err(),
+            "{text}"
+        );
     }
 }
 

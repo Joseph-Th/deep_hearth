@@ -206,7 +206,7 @@ pub fn start(
             );
         }
     }
-    .map_err(|e| e.to_string())?;
+    .map_err(super::errors::work_start_error)?;
     let job = candidate.commit(state).map_err(|e| e.to_string())?;
     let process_name = registries
         .production()

@@ -1,7 +1,6 @@
 //! Text-play command parsing and dispatch; session setup and stepping remain in the parent.
 
 use super::{Session, activity, crafting, equipment, fire, geology, ore, storage, view};
-use deep_hearth::core::quantity::Mass;
 use deep_hearth::logistics::{HorizontalControlInput, PlayerControlInput, PlayerQuickAccessSlot};
 use deep_hearth::simulation::{
     PlayerDirectControlInput, PrimaryControlIntent, SecondaryControlIntent,
@@ -121,27 +120,23 @@ impl Session {
                 geology::knowledge(&self.registries, &self.state, width)?
             }
             "prospect" => {
-                let result = geology::start(&self.registries, &mut self.state, args)
-                    .map_err(work_start_error)?;
+                let result = geology::start(&self.registries, &mut self.state, args)?;
                 result + &view::status(&self.registries, &self.state)
             }
             "mine" => {
-                let result = geology::mine(&self.registries, &mut self.state, args)
-                    .map_err(work_start_error)?;
+                let result = geology::mine(&self.registries, &mut self.state, args)?;
                 result + &view::status(&self.registries, &self.state)
             }
             "ore" if args.is_empty() => ore::catalog(&self.registries, &self.state)?,
             "dress" => {
-                let result = ore::start(&self.registries, &mut self.state, args)
-                    .map_err(work_start_error)?;
+                let result = ore::start(&self.registries, &mut self.state, args)?;
                 result + &view::status(&self.registries, &self.state)
             }
             "recipes" if args.is_empty() || args == ["all"] => {
                 crafting::catalog(&self.registries, &self.state, args == ["all"])?
             }
             "craft" => {
-                let started = crafting::start(&self.registries, &mut self.state, args)
-                    .map_err(work_start_error)?;
+                let started = crafting::start(&self.registries, &mut self.state, args)?;
                 started + &view::status(&self.registries, &self.state)
             }
             "gear" if args.is_empty() || args == ["all"] => {
@@ -301,14 +296,6 @@ impl Session {
     }
 }
 
-fn work_start_error(error: String) -> String {
-    if error.contains("slow-scheduled work cannot begin") {
-        "This task must start on a simulation boundary. Run 'wait boundary', then retry.".to_owned()
-    } else {
-        error
-    }
-}
-
 fn aim_or_default(args: &[&str]) -> Result<ViewDirection, String> {
     let direction = args
         .first()
@@ -339,44 +326,4 @@ pub(super) fn parse_index(text: &str, maximum: usize) -> Result<usize, String> {
         ));
     }
     Ok(index)
-}
-
-/// Parse the same exact milligram precision displayed to the player; never
-/// round through floating point or silently truncate a source remainder.
-pub(super) fn parse_gather_grams(text: &str) -> Result<Mass, String> {
-    const INVALID: &str = "gather quantity must be decimal grams (up to three fractional digits)";
-    let (whole, fractional) = match text.split_once('.') {
-        Some((whole, fractional)) if (1..=3).contains(&fractional.len()) => {
-            (whole, Some(fractional))
-        }
-        Some(_) => return Err(INVALID.to_owned()),
-        None => (text, None),
-    };
-    if whole.is_empty()
-        || !whole.bytes().all(|byte| byte.is_ascii_digit())
-        || fractional.is_some_and(|fraction| !fraction.bytes().all(|byte| byte.is_ascii_digit()))
-    {
-        return Err(INVALID.to_owned());
-    }
-    let grams = whole
-        .parse::<u64>()
-        .map_err(|_| "gather quantity is too large")?;
-    let fractional_milligrams = match fractional {
-        Some(fraction) => {
-            let digits = fraction.parse::<u64>().map_err(|_| INVALID)?;
-            digits
-                * match fraction.len() {
-                    1 => 100,
-                    2 => 10,
-                    3 => 1,
-                    _ => unreachable!("fractional digits already validated"),
-                }
-        }
-        None => 0,
-    };
-    let milligrams = grams
-        .checked_mul(1_000)
-        .and_then(|amount| amount.checked_add(fractional_milligrams))
-        .ok_or("gather quantity is too large")?;
-    Ok(Mass::from_milligrams(milligrams))
 }

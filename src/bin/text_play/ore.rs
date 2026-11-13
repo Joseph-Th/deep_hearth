@@ -2,9 +2,8 @@
 
 use std::fmt::Write as _;
 
-use super::view;
+use super::{quantity, view};
 
-use deep_hearth::core::quantity::Mass;
 use deep_hearth::logistics::project_player_inventory;
 use deep_hearth::ore_processing::{
     resolve_manual_comminution_from_stack, resolve_manual_constituent_separation_from_stack,
@@ -105,13 +104,8 @@ pub fn start(
     let stack_index = stack_index
         .parse::<usize>()
         .map_err(|_| "stack must be a numbered carried material")?;
-    let grams = grams
-        .parse::<u64>()
-        .map_err(|_| "processing quantity must be whole grams")?;
-    let milligrams = grams
-        .checked_mul(1_000)
-        .ok_or("processing quantity is too large")?;
-    if milligrams == 0 {
+    let mass = quantity::parse_decimal_grams(grams, "processing quantity")?;
+    if mass.is_zero() {
         return Err("processing quantity must be positive".to_owned());
     }
     let inventory =
@@ -126,7 +120,6 @@ pub fn start(
                 .ok_or("stack indices begin at 1")?,
         )
         .ok_or("no carried material at that stack index")?;
-    let mass = Mass::from_milligrams(milligrams);
     let (job, duration, product) = if registries
         .ore_processing()
         .get_manual_comminution(process)
@@ -138,7 +131,7 @@ pub fn start(
         let duration = resolved.duration().value();
         let validated =
             validate_start_manual_comminution(registries, state, &resolved, source, source)
-                .map_err(|error| error.to_string())?;
+                .map_err(super::errors::work_start_error)?;
         let job = validated.commit(state).map_err(|error| error.to_string())?;
         (job, duration, "crushed material")
     } else if registries
@@ -154,7 +147,7 @@ pub fn start(
         let validated = validate_start_manual_constituent_separation(
             registries, state, &resolved, source, source, source,
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(super::errors::work_start_error)?;
         let job = validated.commit(state).map_err(|error| error.to_string())?;
         (job, duration, "recovered constituent and residue")
     } else {
@@ -164,7 +157,7 @@ pub fn start(
         "Started {} (job {}) on {} g from stack {}; {} in {} slow ticks. Use 'wait work' to complete.\n",
         process_name(registries, process),
         job.value(),
-        grams,
+        view::grams(mass),
         stack_index,
         product,
         duration,

@@ -2,8 +2,7 @@
 
 use std::fmt::Write as _;
 
-use super::view;
-use deep_hearth::core::quantity::Mass;
+use super::{quantity, view};
 use deep_hearth::geology::{
     FieldProspectingRequest, GeologicalEvidenceConsistency, build_geological_knowledge_map,
     player_prospecting_options, validate_start_field_prospecting,
@@ -191,7 +190,7 @@ pub fn start(
         |id| FieldProspectingRequest::new_with_equipment(method, region, material, id),
     );
     let validated = validate_start_field_prospecting(registries, state, request)
-        .map_err(|error| error.to_string())?;
+        .map_err(super::errors::work_start_error)?;
     let duration = validated.work().completes_at().value() - state.tick().value();
     let evidence = registries
         .labor()
@@ -354,11 +353,8 @@ pub fn mine(
         return Err("usage: mine MATERIAL GRAMS with TOOL [using METHOD]".to_owned());
     }
     let material = parse_material(registries, material)?;
-    let grams = grams
-        .parse::<u64>()
-        .map_err(|_| "mining mass must be whole grams")?;
-    let milligrams = grams.checked_mul(1_000).ok_or("mining mass overflow")?;
-    if milligrams == 0 {
+    let mass = quantity::parse_decimal_grams(grams, "mining mass")?;
+    if mass.is_zero() {
         return Err("mining mass must be positive".to_owned());
     }
     let equipment_index = equipment
@@ -384,20 +380,12 @@ pub fn mine(
         .player()
         .ok_or("no admitted player")?
         .carried_stockpile();
-    let work = validate_start_mining(
-        registries,
-        state,
-        method,
-        target,
-        destination,
-        tool,
-        Mass::from_milligrams(milligrams),
-    )
-    .map_err(|error| error.to_string())?;
+    let work = validate_start_mining(registries, state, method, target, destination, tool, mass)
+        .map_err(super::errors::work_start_error)?;
     let job = work.commit(state).map_err(|error| error.to_string())?;
     Ok(format!(
         "Started {} g {} extraction (job {:?}) with carried tool {}. Use 'wait work'.\n",
-        grams,
+        view::grams(mass),
         material_name(registries, material),
         job,
         equipment_index,

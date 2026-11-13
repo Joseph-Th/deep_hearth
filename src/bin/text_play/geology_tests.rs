@@ -130,6 +130,67 @@ fn mined_copper_ore_can_be_broken_and_sorted_into_finite_native_metal() {
     );
 }
 
+#[test]
+fn fractional_mining_and_hand_dressing_preserve_subgram_matter_and_save_replay() {
+    let mut session = equipped_for_copper_survey_and_mining();
+    run(&mut session, "prospect copper 1");
+    finish_work(&mut session);
+    let before = snapshot(&session);
+    for command in [
+        "mine copper 0 with 2",
+        "mine copper 0.0001 with 2",
+        "mine copper .125 with 2",
+        "mine copper 18446744073709551.616 with 2",
+        "dress 15 1 0.0001",
+        "dress 15 1 1e3",
+    ] {
+        assert!(session.command(command).is_err(), "{command}");
+    }
+    assert_eq!(
+        snapshot(&session),
+        before,
+        "invalid mass cannot spend time or matter"
+    );
+
+    let conserved = calculate_matter_accounting(&session.state).unwrap().total();
+    assert!(
+        run(&mut session, "mine copper 0.125 with 2").contains("Started 0.125 g copper extraction")
+    );
+    finish_work(&mut session);
+    assert!(run(&mut session, "inventory").contains("copper ore | 0.125 g"));
+
+    let ore = carried_stack(&session, "copper ore");
+    let started = run(&mut session, &format!("dress 15 {ore} 0.125"));
+    assert!(started.contains("0.125 g from stack"), "{started}");
+    let saved_during_work = snapshot(&session);
+    let mut restored = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&saved_during_work)
+            .unwrap()
+            .into_state(&session.registries)
+            .unwrap(),
+        seed: None,
+    };
+    assert_eq!(finish_work(&mut session), finish_work(&mut restored));
+    assert_eq!(snapshot(&session), snapshot(&restored));
+    assert!(run(&mut session, "inventory").contains("crushed copper ore | 0.125 g"));
+
+    let crushed = carried_stack(&session, "crushed copper ore");
+    let started = run(&mut session, &format!("dress 13 {crushed} 0.125"));
+    assert!(started.contains("0.125 g from stack"), "{started}");
+    let completed = finish_work(&mut session);
+    assert!(completed.contains("Ore processing completed: hand sort native copper"));
+    assert!(run(&mut session, "inventory").contains("native copper | 0.04 g"));
+    assert_eq!(
+        calculate_matter_accounting(&session.state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
+        Ok(())
+    );
+}
+
 fn snapshot(session: &Session) -> Vec<u8> {
     serde_json::to_vec(&SaveEnvelope::new(&session.registries, &session.state)).unwrap()
 }
