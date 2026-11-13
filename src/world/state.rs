@@ -246,6 +246,28 @@ trait TreeIndexRecord {
     fn index_key(&self) -> VoxelCoord;
 }
 
+/// A standing trunk is discovered by horizontal proximity. Keep X and Z
+/// adjacent in its sole authoritative index so local sky and canopy probes
+/// never scan distant north-south woodland with the same X coordinate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct TreeSpatialKey {
+    x: i64,
+    z: i64,
+    y: i64,
+}
+
+impl TreeSpatialKey {
+    const fn new(x: i64, z: i64, y: i64) -> Self {
+        Self { x, z, y }
+    }
+}
+
+impl From<VoxelCoord> for TreeSpatialKey {
+    fn from(voxel: VoxelCoord) -> Self {
+        Self::new(voxel.x(), voxel.z(), voxel.y())
+    }
+}
+
 impl TreeIndexRecord for TreeRecord {
     fn index_key(&self) -> VoxelCoord {
         (*self).root()
@@ -258,8 +280,8 @@ impl TreeIndexRecord for FelledTreeRecord {
     }
 }
 
-fn serialize_tree_index<T: Serialize, S: Serializer>(
-    index: &BTreeMap<VoxelCoord, T>,
+fn serialize_tree_index<K: Ord, T: Serialize, S: Serializer>(
+    index: &BTreeMap<K, T>,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     serializer.collect_seq(index.values())
@@ -267,16 +289,17 @@ fn serialize_tree_index<T: Serialize, S: Serializer>(
 
 fn deserialize_btree_map_no_duplicates_tree_index<
     'de,
+    K: Copy + Ord + From<VoxelCoord>,
     T: Deserialize<'de> + TreeIndexRecord,
     D: Deserializer<'de>,
 >(
     deserializer: D,
-) -> Result<BTreeMap<VoxelCoord, T>, D::Error> {
+) -> Result<BTreeMap<K, T>, D::Error> {
     let records = Vec::<T>::deserialize(deserializer)?;
     let mut index = BTreeMap::new();
     let mut previous = None;
     for record in records {
-        let key = record.index_key();
+        let key = K::from(record.index_key());
         if previous.is_some_and(|previous| previous >= key) {
             return Err(serde::de::Error::custom(
                 "tree records must have strictly increasing identities without duplicates",
@@ -301,7 +324,7 @@ pub struct WorldState {
         serialize_with = "serialize_tree_index",
         deserialize_with = "deserialize_btree_map_no_duplicates_tree_index"
     )]
-    trees: BTreeMap<VoxelCoord, TreeRecord>,
+    trees: BTreeMap<TreeSpatialKey, TreeRecord>,
     /// Dry wood synthesized from the environment and already transferred out of trees.
     assimilated_wood_milligrams: u128,
     /// Seed-origin-indexed felling receipts account for absorbed carbon after timber changes owner.
@@ -516,7 +539,9 @@ impl WorldState {
             self.chunks.insert(index, chunk);
             if let Some(tree) = tree {
                 assert!(
-                    self.trees.insert(tree.root(), tree).is_none(),
+                    self.trees
+                        .insert(TreeSpatialKey::from(tree.root()), tree)
+                        .is_none(),
                     "generated chunk cannot replace an existing tree"
                 );
             }

@@ -212,8 +212,10 @@ and materialized-structure occlusion rules.
 
 Standard stone-terrain chunks may also generate one deterministic, seed-positioned living tree
 record when its supporting ground and two-cell trunk are free. The world owner persists these
-sorted roots in an ordered spatial index (serialized as canonical arrays with duplicate-strict
-loading), treats trunk cells as solid for movement, lighting, interaction occlusion,
+sorted roots in one X/Z/Y-ordered spatial index (serialized as canonical arrays with
+duplicate-strict loading). Local skylight and canopy queries bound both horizontal
+axes before visiting tree records, while trunk lookups use the same owner index.
+The world treats trunk cells as solid for movement, lighting, interaction occlusion,
 construction, storage placement and loose surface custody, and refuses generation
 that would intersect an admitted actor or any embodied structural member, including
 narrow posts that do not block an entire movement cell.

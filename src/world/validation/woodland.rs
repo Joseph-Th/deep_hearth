@@ -13,7 +13,6 @@ pub(super) fn validate_loaded_woodland(
     state: &WorldState,
 ) -> Result<(), WorldValidationError> {
     let transplant_paths = validate_transplant_paths(state)?;
-    let mut previous_tree = None;
     let mut occupied_seed_origins = BTreeSet::new();
     for tree in state.trees() {
         let root = tree.root();
@@ -31,7 +30,6 @@ pub(super) fn validate_loaded_woodland(
             && (transplant_paths.contains_key(&origin) || root == origin)
             && state.get_chunk(ChunkCoord::containing(origin)).is_some()
             && occupied_seed_origins.insert(origin)
-            && previous_tree.is_none_or(|previous| previous < root)
             && tree.initial_wood().milligrams() > 0
             && tree.initial_wood().milligrams() <= 1_600_000_000
             && state.has_tree_root_terrain_floor(registry, root)
@@ -43,7 +41,6 @@ pub(super) fn validate_loaded_woodland(
         if !valid {
             return Err(WorldValidationError::InvalidStandingTree { root });
         }
-        previous_tree = Some(root);
     }
     // The cumulative biomass-input ledger is a cache of exactly reproducible felled-tree
     // records. Decode cannot forge atmospheric mass by tweaking an unaudited total.

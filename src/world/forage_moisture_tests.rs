@@ -21,22 +21,25 @@ use crate::world::{
 
 #[test]
 fn spring_survey_selects_the_wettest_reachable_basin_at_spatial_boundaries() {
-    let mut survey = RootMoistureSurvey {
-        springs: vec![
-            (VoxelCoord::new(13, 0, 0), 900_000),
-            (VoxelCoord::new(0, 0, 13), 900_000),
-            (VoxelCoord::new(0, 4, 0), 900_000),
-            (VoxelCoord::new(12, 0, 12), 990_000),
-            (VoxelCoord::new(12, 0, 0), 700_000),
-            (VoxelCoord::new(-12, 0, 0), 100_000),
-            (VoxelCoord::new(0, 0, 0), 400_000),
-            (VoxelCoord::new(i64::MIN, 0, 0), 300_000),
-            (VoxelCoord::new(i64::MAX, 0, 0), 600_000),
-        ],
-    };
-    survey
-        .springs
-        .sort_unstable_by_key(|(position, _)| position.x());
+    let mut springs = vec![
+        (VoxelCoord::new(13, 0, 0), 900_000),
+        (VoxelCoord::new(0, 0, 13), 900_000),
+        (VoxelCoord::new(0, 4, 0), 900_000),
+        (VoxelCoord::new(12, 0, 12), 990_000),
+        (VoxelCoord::new(12, 0, 0), 700_000),
+        (VoxelCoord::new(-12, 0, 0), 100_000),
+        (VoxelCoord::new(0, 0, 0), 400_000),
+        (VoxelCoord::new(i64::MIN, 0, 0), 300_000),
+        (VoxelCoord::new(i64::MAX, 0, 0), 600_000),
+    ];
+    // Remote springs with the same X coordinate must not contaminate a
+    // local wettest-basin query or require a world-length Z scan.
+    for z in -2_000_i64..=2_000 {
+        if z.abs() > BASIN_ROOT_REACH_VOXELS as i64 {
+            springs.push((VoxelCoord::new(0, 0, z), 1_000_000));
+        }
+    }
+    let survey = RootMoistureSurvey::from_springs(springs);
     assert_eq!(
         survey.at(VoxelCoord::new(0, 0, 0)),
         RootMoisture::Basin {

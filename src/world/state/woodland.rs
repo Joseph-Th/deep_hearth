@@ -1,6 +1,8 @@
 //! Indexed living woodland, finite biomass growth, and permanent tree history.
 
-use super::{FelledTreeRecord, TransplantedTreeRecord, TreeRecord, VoxelCoord, WorldState};
+use super::{
+    FelledTreeRecord, TransplantedTreeRecord, TreeRecord, TreeSpatialKey, VoxelCoord, WorldState,
+};
 
 impl WorldState {
     /// Standing trees are indexed by root location, not repeatedly scanned as block entities.
@@ -10,12 +12,12 @@ impl WorldState {
 
     #[must_use]
     pub fn tree_at(&self, root: VoxelCoord) -> Option<&TreeRecord> {
-        self.trees.get(&root)
+        self.trees.get(&TreeSpatialKey::from(root))
     }
 
-    /// Only tree roots in a bounded horizontal footprint can shade one sky
-    /// column. Index by x before filtering z; distant planted forests must
-    /// not make one player's local light query scan every tree in the world.
+    /// Query only the X/Z columns in this fixed-radius horizontal footprint.
+    /// Each X range is independently bounded by Z in the sole spatial index,
+    /// even if the player has explored arbitrarily far along either axis.
     pub(crate) fn trees_near_horizontal(
         &self,
         position: VoxelCoord,
@@ -25,13 +27,14 @@ impl WorldState {
         let high = position.x().saturating_add(radius);
         let low_z = position.z().saturating_sub(radius);
         let high_z = position.z().saturating_add(radius);
-        self.trees
-            .range(
-                VoxelCoord::new(low, i64::MIN, i64::MIN)
-                    ..=VoxelCoord::new(high, i64::MAX, i64::MAX),
-            )
-            .map(|(_, tree)| tree)
-            .filter(move |tree| (low_z..=high_z).contains(&tree.root().z()))
+        (low..=high).flat_map(move |x| {
+            self.trees
+                .range(
+                    TreeSpatialKey::new(x, low_z, i64::MIN)
+                        ..=TreeSpatialKey::new(x, high_z, i64::MAX),
+                )
+                .map(|(_, tree)| tree)
+        })
     }
 
     /// World-history receipts are for diagnostics and trusted-load checks, not discovery.
@@ -63,8 +66,8 @@ impl WorldState {
         &self,
         bounds: crate::spatial::VoxelBounds,
     ) -> Option<VoxelCoord> {
-        let from = VoxelCoord::new(bounds.min().x(), i64::MIN, i64::MIN);
-        let to = VoxelCoord::new(bounds.max_exclusive().x(), i64::MIN, i64::MIN);
+        let from = TreeSpatialKey::new(bounds.min().x(), i64::MIN, i64::MIN);
+        let to = TreeSpatialKey::new(bounds.max_exclusive().x(), i64::MIN, i64::MIN);
         for tree in self.trees.range(from..to).map(|(_, tree)| tree) {
             let root = tree.root();
             if bounds.has_voxel(root) {
@@ -110,14 +113,18 @@ impl WorldState {
         assert_eq!(self.revision, expected_revision);
         assert_eq!(expected_revision.checked_add(1), Some(next_revision));
         assert!(
-            !self.trees.contains_key(&to),
+            !self.trees.contains_key(&TreeSpatialKey::from(to)),
             "validated transplant destination occupied"
         );
         let tree = self
             .trees
-            .remove(&from)
+            .remove(&TreeSpatialKey::from(from))
             .expect("validated sapling disappeared");
-        assert!(self.trees.insert(to, tree.transplanted_to(to)).is_none());
+        assert!(
+            self.trees
+                .insert(TreeSpatialKey::from(to), tree.transplanted_to(to))
+                .is_none()
+        );
         self.transplants.push(TransplantedTreeRecord::new(
             tree.origin_root(),
             from,
@@ -138,7 +145,7 @@ impl WorldState {
         assert_eq!(expected_revision.checked_add(1), Some(next_revision));
         let tree = self
             .trees
-            .remove(&root)
+            .remove(&TreeSpatialKey::from(root))
             .expect("validated standing tree disappeared");
         let gained = tree
             .wood_at(at)
@@ -158,3 +165,7 @@ impl WorldState {
         self.revision = next_revision;
     }
 }
+
+#[cfg(test)]
+#[path = "woodland_tests.rs"]
+mod tests;
