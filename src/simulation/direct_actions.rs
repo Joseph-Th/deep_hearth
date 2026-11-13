@@ -107,7 +107,9 @@ pub(super) fn attempt_direct_actions_after_quick_access(
             Some(
                 SecondaryControlIntent::UseActive { .. }
                 | SecondaryControlIntent::GatherSurface { .. }
-                | SecondaryControlIntent::GatherSurfaceOption { .. },
+                | SecondaryControlIntent::GatherSurfaceOption { .. }
+                | SecondaryControlIntent::EatStack { .. }
+                | SecondaryControlIntent::DrinkSource { .. },
             )
             | None => None,
         })

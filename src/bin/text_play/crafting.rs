@@ -3,6 +3,7 @@
 use std::fmt::Write as _;
 use std::num::NonZeroU64;
 
+use super::view;
 use deep_hearth::crafting::{
     ManualCraftInputMode, player_manual_craft_options,
     validate_start_player_manual_craft_from_stack, validate_start_player_manual_craft_option,
@@ -80,7 +81,7 @@ pub fn catalog(
             "{}. {} | {} g {} | {} | {}",
             option.process().value(),
             process.name(),
-            definition.input_mass().milligrams() / 1000,
+            view::grams(definition.input_mass()),
             commodity(registries, definition.input()),
             available,
             tool,
@@ -93,7 +94,7 @@ pub fn catalog(
             let _ = write!(
                 products,
                 "{} g {}",
-                product.mass().milligrams() / 1000,
+                view::grams(product.mass()),
                 commodity(registries, product.commodity())
             );
         }

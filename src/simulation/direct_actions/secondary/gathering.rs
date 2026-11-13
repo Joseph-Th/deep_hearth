@@ -327,6 +327,23 @@ pub(in crate::simulation::direct_actions) fn attempt_explicit_surface_gathering(
     start_surface_gathering(registries, state, option, mass)
 }
 
+/// An explicit choice bypasses only contextual ambiguity. Drinking still
+/// validates the store's current local access, temperature, volume and player
+/// attention through the same canonical owner.
+pub(in crate::simulation::direct_actions) fn attempt_selected_drinking(
+    registries: &Registries,
+    state: &mut AppState,
+    store: crate::fluid::FluidStoreId,
+) -> SecondaryActionOutcome {
+    match validate_player_action(state) {
+        Ok(_) => attempt_direct_drinking(registries, state, store),
+        Err(PlayerActionValidationError::PlayerNotAdmitted) => {
+            SecondaryActionOutcome::PlayerNotAdmitted
+        }
+        Err(PlayerActionValidationError::PlayerDead) => SecondaryActionOutcome::PlayerDead,
+    }
+}
+
 fn attempt_direct_drinking(
     registries: &Registries,
     state: &mut AppState,

@@ -2,6 +2,7 @@
 
 use std::fmt::Write as _;
 
+use super::view;
 use deep_hearth::equipment::{
     PlayerEquipmentAssemblyAvailability, player_equipment_assembly_options,
     validate_assemble_player_equipment_option, validate_player_disassemble_equipment,
@@ -57,7 +58,7 @@ pub fn catalog(
             "  {}. {} | {} g | ",
             option.definition().value(),
             option.name(),
-            option.embodied_mass().milligrams() / 1_000
+            view::grams(option.embodied_mass())
         );
         match option.availability() {
             PlayerEquipmentAssemblyAvailability::Ready => {
@@ -75,9 +76,9 @@ pub fn catalog(
                 let _ = write!(
                     output,
                     "needs {} g {} (have {} g)",
-                    required.milligrams() / 1_000,
+                    view::grams(required),
                     name,
-                    available.milligrams() / 1_000
+                    view::grams(available)
                 );
             }
             PlayerEquipmentAssemblyAvailability::MaterialTooHot {
@@ -108,7 +109,7 @@ pub fn catalog(
                 let _ = writeln!(
                     output,
                     "     Requires {} g {name}",
-                    material.mass().milligrams() / 1_000
+                    view::grams(material.mass())
                 );
             }
         }

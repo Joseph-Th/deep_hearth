@@ -3,7 +3,7 @@
 use std::fmt::Write as _;
 
 use super::activity;
-use deep_hearth::core::quantity::Mass;
+use deep_hearth::core::quantity::{Mass, Volume};
 use deep_hearth::kobolds::{
     available_nearby_kobold_footfalls, available_nearby_kobold_scouts,
     available_nearby_kobold_tracks,
@@ -15,8 +15,9 @@ use deep_hearth::surface::{
     AdjacentSurfaceResource, PlayerSurfaceGatheringOption, player_surface_gathering_options,
 };
 use deep_hearth::survival::{
-    HungerState, HydrationState, ThermalComfortState, Vitality,
+    FoodFreshness, HungerState, HydrationState, ThermalComfortState, Vitality,
     assess_player_resting_provision_runway, assess_player_unheated_comfort_runway, assess_survival,
+    available_local_drink_sources,
 };
 use deep_hearth::world::{
     assess_player_forage_scents, assess_player_weather, available_visible_generated_water,
@@ -47,6 +48,41 @@ pub fn grams(mass: Mass) -> String {
             .trim_end_matches('0')
             .to_owned()
     }
+}
+
+pub fn milliliters(volume: Volume) -> String {
+    let microliters = volume.microliters();
+    let whole = microliters / 1_000;
+    let remainder = microliters % 1_000;
+    if remainder == 0 {
+        whole.to_string()
+    } else {
+        format!("{whole}.{remainder:03}")
+            .trim_end_matches('0')
+            .to_owned()
+    }
+}
+
+/// Numbered exact-local drinking choices, never remote or unsafe water.
+/// Choosing one still revalidates the actual finite source on the input tick.
+pub fn drink_options(registries: &Registries, state: &AppState) -> String {
+    let mut output = String::new();
+    let sources = available_local_drink_sources(registries, state).collect::<Vec<_>>();
+    if sources.is_empty() {
+        return "No drinkable source at your current location.\n".to_owned();
+    }
+    output.push_str("Drink here (drink N):\n");
+    for (index, source) in sources.iter().enumerate() {
+        let celsius = (i64::from(source.temperature().millikelvin()) - 273_150) / 1_000;
+        let _ = writeln!(
+            output,
+            "  {}. {} mL available | {} C",
+            index + 1,
+            milliliters(source.available_volume()),
+            celsius,
+        );
+    }
+    output
 }
 
 fn meters_from_nanometers(nanometers: i64) -> String {
@@ -286,7 +322,7 @@ pub fn status(registries: &Registries, state: &AppState) -> String {
             })
     {
         output.push_str(
-            "Selected food: use eats it; empty clears the hand for local drinking or foraging.\n",
+            "Selected food: use eats it; eat N chooses a physical stack; drink N selects local water without changing the hand.\n",
         );
     }
     if player.body().vertical_velocity() != VerticalVelocity::ZERO {
@@ -392,7 +428,7 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
             "Nearby {label}: {profile} at {} | {:?} | {} g",
             pos(member.bounds().min()),
             member.lifecycle(),
-            member.embodied_mass().milligrams() / 1_000,
+            grams(member.embodied_mass()),
         );
     }
     for scent in assess_player_forage_scents(registries, state) {
@@ -485,7 +521,7 @@ pub fn gather_options(
     if options.is_empty() {
         return "No gatherable source at your current location.\n".to_owned();
     }
-    output.push_str("Gather here (gather N, optional whole grams):\n");
+    output.push_str("Gather here (gather N, optional grams to 0.001 g):\n");
     for (index, option) in options.iter().copied().enumerate() {
         let mass = option
             .source_mass()
@@ -500,8 +536,8 @@ pub fn gather_options(
             "  {}. {} | available {} g | default {} g | work {}{}",
             index + 1,
             name(registries, option.commodity()),
-            option.source_mass().milligrams() / 1_000,
-            mass.milligrams() / 1_000,
+            grams(option.source_mass()),
+            grams(mass),
             duration,
             match option.hand_handling_blocker() {
                 Some(_) => " | too hot for bare hands",
@@ -509,12 +545,14 @@ pub fn gather_options(
             }
         );
         if let Ok(Some(food)) = option.food_value(registries, state) {
-            let _ = writeln!(
-                output,
-                "     Food: {:?}, freshness {:?}",
-                food.category(),
-                food.current_freshness(),
-            );
+            let freshness = match food.current_freshness() {
+                FoodFreshness::Fresh { remaining, .. } => format!(
+                    "fresh; estimated spoilage in {}",
+                    runway_label(Some(remaining.value()))
+                ),
+                FoodFreshness::Spoiled { .. } => "spoiled".to_owned(),
+            };
+            let _ = writeln!(output, "     Food: {:?}, {freshness}", food.category(),);
         }
     }
     output

@@ -1,6 +1,7 @@
 //! Text-play command parsing and dispatch; session setup and stepping remain in the parent.
 
 use super::{Session, activity, crafting, equipment, fire, geology, ore, storage, view};
+use deep_hearth::core::quantity::Mass;
 use deep_hearth::logistics::{HorizontalControlInput, PlayerControlInput, PlayerQuickAccessSlot};
 use deep_hearth::simulation::{
     PlayerDirectControlInput, PrimaryControlIntent, SecondaryControlIntent,
@@ -100,6 +101,9 @@ impl Session {
                 view::inventory(&self.registries, &self.state)?
             }
             "gather" if args.len() <= 2 => self.gather(args)?,
+            "eat" if args.len() == 1 => self.eat(args[0])?,
+            "drink" if args.is_empty() => view::drink_options(&self.registries, &self.state),
+            "drink" if args.len() == 1 => self.drink(args[0])?,
             "surveys" if args.len() <= 1 => {
                 let width = args.first().map_or(Ok(1_usize), |value| {
                     value
@@ -335,4 +339,44 @@ pub(super) fn parse_index(text: &str, maximum: usize) -> Result<usize, String> {
         ));
     }
     Ok(index)
+}
+
+/// Parse the same exact milligram precision displayed to the player; never
+/// round through floating point or silently truncate a source remainder.
+pub(super) fn parse_gather_grams(text: &str) -> Result<Mass, String> {
+    const INVALID: &str = "gather quantity must be decimal grams (up to three fractional digits)";
+    let (whole, fractional) = match text.split_once('.') {
+        Some((whole, fractional)) if (1..=3).contains(&fractional.len()) => {
+            (whole, Some(fractional))
+        }
+        Some(_) => return Err(INVALID.to_owned()),
+        None => (text, None),
+    };
+    if whole.is_empty()
+        || !whole.bytes().all(|byte| byte.is_ascii_digit())
+        || fractional.is_some_and(|fraction| !fraction.bytes().all(|byte| byte.is_ascii_digit()))
+    {
+        return Err(INVALID.to_owned());
+    }
+    let grams = whole
+        .parse::<u64>()
+        .map_err(|_| "gather quantity is too large")?;
+    let fractional_milligrams = match fractional {
+        Some(fraction) => {
+            let digits = fraction.parse::<u64>().map_err(|_| INVALID)?;
+            digits
+                * match fraction.len() {
+                    1 => 100,
+                    2 => 10,
+                    3 => 1,
+                    _ => unreachable!("fractional digits already validated"),
+                }
+        }
+        None => 0,
+    };
+    let milligrams = grams
+        .checked_mul(1_000)
+        .and_then(|amount| amount.checked_add(fractional_milligrams))
+        .ok_or("gather quantity is too large")?;
+    Ok(Mass::from_milligrams(milligrams))
 }

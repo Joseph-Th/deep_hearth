@@ -110,6 +110,7 @@ pub struct MaterialStackProjection {
     expected_inventory_revision: u64,
     expected_tick: SimulationTick,
     stockpile: StockpileId,
+    index: usize,
     profile: MaterialLotProfile,
     provenance: MaterialLotProvenance,
     storage_history: MaterialStorageHistory,
@@ -118,7 +119,29 @@ pub struct MaterialStackProjection {
     selections: Vec<MaterialLotSelection>,
 }
 
+/// Opaque, copyable choice of one observed physical stack at an exact inventory
+/// revision and simulation tick. Its index is not a lot identity: resolving it
+/// always reprojects through inventory and rejects changed custody or age.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MaterialStackChoice {
+    stockpile: StockpileId,
+    index: usize,
+    revision: u64,
+    tick: SimulationTick,
+}
+
 impl MaterialStackProjection {
+    /// Retain one displayed stack choice across an input frame without exposing
+    /// its private material-lot membership to the controller.
+    pub const fn choice(&self) -> MaterialStackChoice {
+        MaterialStackChoice {
+            stockpile: self.stockpile,
+            index: self.index,
+            revision: self.expected_inventory_revision,
+            tick: self.expected_tick,
+        }
+    }
     /// Marks a physical byproduct on the same stack used by ordinary transfer and recovery.
     /// Residue remains conserved inventory rather than an abstract trash counter.
     #[must_use]
@@ -365,6 +388,7 @@ pub fn project_material_stacks(
             expected_inventory_revision: revision,
             expected_tick: at,
             stockpile,
+            index: stacks.len(),
             profile: lot.profile().clone(),
             provenance: lot.provenance(),
             storage_history: lot.storage_history(),
@@ -377,6 +401,35 @@ pub fn project_material_stacks(
         });
     }
     Ok(stacks)
+}
+
+/// Resolve a deliberately selected stack only against its original physical
+/// snapshot. A slow-boundary mutation cannot silently redirect the choice to
+/// another same-commodity freshness or temperature cohort.
+pub fn resolve_material_stack_choice(
+    registries: &Registries,
+    state: &AppState,
+    choice: MaterialStackChoice,
+) -> Result<MaterialStackProjection, MaterialStackProjectionError> {
+    let actual = state.inventory().revision();
+    if actual != choice.revision {
+        return Err(MaterialStackProjectionError::StaleInventoryRevision {
+            expected: choice.revision,
+            actual,
+        });
+    }
+    if state.tick() != choice.tick {
+        return Err(MaterialStackProjectionError::StaleSimulationTick {
+            expected: choice.tick,
+            actual: state.tick(),
+        });
+    }
+    project_material_stacks(registries, state, choice.stockpile)?
+        .into_iter()
+        .nth(choice.index)
+        .ok_or(MaterialStackProjectionError::StackMembershipChanged {
+            stockpile: choice.stockpile,
+        })
 }
 
 #[cfg(test)]

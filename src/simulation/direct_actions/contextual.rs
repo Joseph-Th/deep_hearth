@@ -11,7 +11,8 @@ use super::super::outcome::SecondaryActionOutcome;
 use super::placement::attempt_storage_placement;
 use super::secondary::{
     attempt_empty_hand_secondary_action, attempt_explicit_surface_gathering,
-    attempt_selected_secondary_action, attempt_selected_surface_gathering,
+    attempt_selected_drinking, attempt_selected_eating, attempt_selected_secondary_action,
+    attempt_selected_surface_gathering,
 };
 
 pub(super) fn attempt_secondary_action(
@@ -46,6 +47,12 @@ pub(super) fn attempt_secondary_action(
             return Some(attempt_selected_surface_gathering(
                 registries, state, option, mass,
             ));
+        }
+        SecondaryControlIntent::EatStack { choice } => {
+            return Some(attempt_selected_eating(registries, state, choice));
+        }
+        SecondaryControlIntent::DrinkSource { store } => {
+            return Some(attempt_selected_drinking(registries, state, store));
         }
         SecondaryControlIntent::PlaceStorage {
             definition,

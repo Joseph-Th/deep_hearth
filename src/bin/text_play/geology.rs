@@ -2,6 +2,7 @@
 
 use std::fmt::Write as _;
 
+use super::view;
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::geology::{
     FieldProspectingRequest, GeologicalEvidenceConsistency, build_geological_knowledge_map,
@@ -246,8 +247,8 @@ pub fn knowledge(
             let _ = write!(
                 output,
                 " | surveyed mass {}..{} g",
-                scale.lower().milligrams() / 1_000,
-                scale.upper().milligrams() / 1_000
+                view::grams(scale.lower()),
+                view::grams(scale.upper())
             );
         }
         output.push('\n');

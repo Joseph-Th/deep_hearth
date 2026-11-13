@@ -1,5 +1,6 @@
 //! Text-only activity labels and completion estimates from persisted work schedules.
 
+use super::view;
 use deep_hearth::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
 use deep_hearth::labor::PlayerWork;
 use deep_hearth::surface::active_player_surface_gathering_commodity;
@@ -17,7 +18,7 @@ pub fn label(registries: &Registries, state: &AppState, work: PlayerWork) -> Str
                 .unwrap_or("loose material");
             format!(
                 "Gathering {} g of {name}",
-                work.gathered_mass().milligrams() / 1_000
+                view::grams(work.gathered_mass())
             )
         }
         PlayerWork::BlockExcavation { .. } => "Excavating a block".to_owned(),
@@ -37,10 +38,10 @@ pub fn label(registries: &Registries, state: &AppState, work: PlayerWork) -> Str
         PlayerWork::ManualPower { .. } => "Generating manual power".to_owned(),
         PlayerWork::Prospecting { .. } => "Prospecting".to_owned(),
         PlayerWork::Eating { work } => {
-            format!("Eating {} g", work.mass().milligrams() / 1_000)
+            format!("Eating {} g", view::grams(work.mass()))
         }
         PlayerWork::Drinking { work } => {
-            format!("Drinking {} mL", work.volume().microliters() / 1_000)
+            format!("Drinking {} mL", view::milliliters(work.volume()))
         }
         PlayerWork::EquipmentMaintenance { .. } => "Maintaining equipment".to_owned(),
         PlayerWork::StorageEnclosureDismantling { .. } => "Dismantling storage".to_owned(),

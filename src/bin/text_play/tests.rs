@@ -10,6 +10,169 @@ fn snapshot(session: &Session) -> Vec<u8> {
 }
 
 #[test]
+fn decimal_gather_amounts_are_exact_and_reject_unrepresentable_inputs() {
+    use deep_hearth::core::quantity::Mass;
+
+    for (text, milligrams) in [
+        ("0.001", 1),
+        ("0.01", 10),
+        ("0.1", 100),
+        ("3", 3_000),
+        ("3.2", 3_200),
+        ("3.020", 3_020),
+        ("3.002", 3_002),
+        ("18446744073709551.615", u64::MAX),
+    ] {
+        assert_eq!(
+            command::parse_gather_grams(text),
+            Ok(Mass::from_milligrams(milligrams)),
+            "{text}"
+        );
+    }
+    for text in [
+        "",
+        ".",
+        ".001",
+        "1.",
+        "+1",
+        "-1",
+        "1e3",
+        "1.0000",
+        "1..0",
+        "1.2.3",
+        " 1",
+        "18446744073709551.616",
+        "18446744073709551616",
+    ] {
+        assert!(command::parse_gather_grams(text).is_err(), "{text}");
+    }
+}
+
+#[test]
+fn fractional_gathering_conserves_the_actual_requested_milligrams() {
+    use deep_hearth::logistics::project_player_inventory;
+    use deep_hearth::matter::calculate_matter_accounting;
+
+    let mut session = Session::new(24318).unwrap();
+    for command in ["e 20", "wait 10"] {
+        session.command(command).unwrap();
+    }
+    let before = calculate_matter_accounting(&session.state).unwrap().total();
+    let (started, _) = session.command("gather 1 0.125").unwrap();
+    assert!(started.contains("Gathering started: 0.125 g"), "{started}");
+    let (completed, _) = session.command("wait work").unwrap();
+    assert!(
+        completed.contains("Gathered: 0.125 g collected"),
+        "{completed}"
+    );
+    let carried = project_player_inventory(&session.registries, &session.state).unwrap();
+    assert_eq!(
+        carried
+            .carried()
+            .stacks()
+            .iter()
+            .map(|s| s.mass().milligrams())
+            .sum::<u64>(),
+        125
+    );
+    assert_eq!(
+        calculate_matter_accounting(&session.state).unwrap().total(),
+        before
+    );
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
+        Ok(())
+    );
+    let (inventory, _) = session.command("inventory").unwrap();
+    assert!(inventory.contains("berries | 0.125 g"), "{inventory}");
+
+    // Out-of-range and nonrepresentable input cannot spend control time or
+    // mutate the physical source, even after an earlier legal collection.
+    let saved = snapshot(&session);
+    for input in ["gather 1 0.0001", "gather 1 -1", "gather 1 99999999"] {
+        assert!(session.command(input).is_err(), "{input}");
+    }
+    assert_eq!(snapshot(&session), saved);
+}
+
+#[test]
+fn explicit_food_and_water_commands_use_the_observed_player_view() {
+    use deep_hearth::core::quantity::{Mass, Volume};
+    use deep_hearth::logistics::project_player_inventory;
+
+    assert_eq!(view::grams(Mass::from_milligrams(1)), "0.001");
+    assert_eq!(view::milliliters(Volume::from_microliters(1)), "0.001");
+    let mut session = Session::new(24318).unwrap();
+    let initial = snapshot(&session);
+    let sources =
+        deep_hearth::survival::available_local_drink_sources(&session.registries, &session.state)
+            .count();
+    let initial_stacks = project_player_inventory(&session.registries, &session.state)
+        .unwrap()
+        .carried()
+        .stacks()
+        .len();
+    let (drink_catalog, _) = session.command("drink").unwrap();
+    assert_eq!(drink_catalog.contains("No drinkable source"), sources == 0);
+    for invalid in [
+        "eat 0".to_owned(),
+        format!("eat {}", initial_stacks + 1),
+        "drink 0".to_owned(),
+        format!("drink {}", sources + 1),
+    ] {
+        assert!(session.command(&invalid).is_err(), "{invalid}");
+    }
+    assert_eq!(
+        snapshot(&session),
+        initial,
+        "listing and invalid choices are read-only"
+    );
+
+    for command in ["e 20", "wait 10", "gather 1 500"] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    let ticks = activity::remaining_work_control_ticks(&session.state).unwrap();
+    for _ in 0..ticks {
+        session
+            .step(PlayerDirectControlInput::NEUTRAL, &mut String::new())
+            .unwrap();
+        if session.state.player_work().active().is_none() {
+            break;
+        }
+    }
+    assert!(session.state.player_work().active().is_none());
+    let projected = project_player_inventory(&session.registries, &session.state).unwrap();
+    let berries = projected
+        .carried()
+        .stacks()
+        .iter()
+        .enumerate()
+        .find(|(_, stack)| {
+            session
+                .registries
+                .materials()
+                .commodity_name(stack.commodity())
+                == Some("berries")
+        })
+        .map(|(index, _)| index + 1)
+        .expect("ordinary gathered berries are present in carried inventory");
+    let (meal, _) = session.command(&format!("eat {berries}")).unwrap();
+    assert!(
+        meal.contains("Eating started") || meal.contains("AlreadySatisfied"),
+        "explicit food choice must produce a canonical intake result: {meal}"
+    );
+    assert!(!meal.contains("MaterialLotId"));
+    assert!(!meal.contains("AggregateVolume"));
+    assert!(!meal.contains("Energy("));
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
+        Ok(())
+    );
+}
+
+#[test]
 fn active_gathering_status_names_its_reserved_source() {
     let mut session = Session::new(24318).unwrap();
     assert!(
@@ -434,8 +597,10 @@ fn walking_to_berries_and_gathering_reaches_real_carried_inventory() {
     assert!(moving.contains("berries here"));
     let (settled, _) = session.command("wait 10").unwrap();
     assert!(!settled.contains("Still moving"));
+    assert!(settled.contains("Food: Fruit, fresh; estimated spoilage in"));
+    assert!(!settled.contains("TickSpan("));
     let (began, _) = session.command("gather 1").unwrap();
-    assert!(began.contains("SurfaceGatheringStarted"));
+    assert!(began.contains("Gathering started"));
     assert!(began.contains("Work: Gathering 500 g of berries"));
     assert!(began.contains("scheduled completion in"));
     let (finished, _) = session.command("wait 1600").unwrap();
@@ -469,7 +634,7 @@ fn gathered_flint_can_be_crafted_through_ordinary_carried_recipe() {
     let (available, _) = session.command("gather").unwrap();
     assert!(available.contains("3. flint nodule"));
     let (started, _) = session.command("gather 3 300").unwrap();
-    assert!(started.contains("SurfaceGatheringStarted"));
+    assert!(started.contains("Gathering started"));
     let (gathered, _) = session.command("wait work").unwrap();
     assert!(gathered.contains("Gathered:"));
     let (recipes, _) = session.command("recipes").unwrap();
@@ -807,7 +972,7 @@ fn food_selection_and_contextual_drinking_are_explained_and_authoritative() {
     let (selected, _) = session.command("select 1").unwrap();
     assert!(selected.contains("Active hand: berries"));
     let (meal, _) = session.command("use").unwrap();
-    assert!(meal.contains("EatingStarted"));
+    assert!(meal.contains("Eating started"));
     assert!(meal.contains("Hand: berries"));
     assert!(meal.contains("Selected food: use eats it"));
     assert!(meal.contains("Work: Eating"));
@@ -817,7 +982,7 @@ fn food_selection_and_contextual_drinking_are_explained_and_authoritative() {
     let (empty, _) = session.command("empty").unwrap();
     assert!(empty.contains("Active hand: empty"));
     let (drinking, _) = session.command("use").unwrap();
-    assert!(drinking.contains("DrinkingStarted"));
+    assert!(drinking.contains("Drinking started"));
     assert!(drinking.contains("Work: Drinking"));
 }
 

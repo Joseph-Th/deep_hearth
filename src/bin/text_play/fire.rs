@@ -2,6 +2,7 @@
 
 use std::fmt::Write as _;
 
+use super::view;
 use deep_hearth::content::ENERGY_STONE_RING_CAMPFIRE;
 use deep_hearth::energy::{
     EnergyStoreId, validate_assemble_energy_store, validate_combust_selected_fuel,
@@ -72,7 +73,7 @@ pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, Stri
         let _ = writeln!(
             output,
             "  Requires {} g {material}",
-            input.mass().milligrams() / 1_000,
+            view::grams(input.mass()),
         );
     }
     output.push_str("Local fires (feed-fire FIRE STACK):\n");
@@ -110,7 +111,7 @@ pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, Stri
             let _ = writeln!(
                 output,
                 "     Fuel: {} g {material} per charge | {}",
-                profile.fuel_mass().milligrams() / 1_000,
+                view::grams(profile.fuel_mass()),
                 eligible.map_or_else(
                     || "no sufficient carried stack".to_owned(),
                     |stack| format!("feed-fire {count} {stack}")
@@ -171,7 +172,7 @@ pub fn fuel(
                 .unwrap_or("unidentified material")
         )
     })?;
-    let mass = fuel.fuel_mass().milligrams() / 1_000;
+    let mass = view::grams(fuel.fuel_mass());
     let material = registries
         .materials()
         .commodity_name(commodity)

@@ -73,7 +73,8 @@ pub(crate) use selection::{
 };
 pub use selection::{ExplicitConsumptionSelectionError, MaterialLotSelection};
 pub use stack_projection::{
-    MaterialStackProjection, MaterialStackProjectionError, project_material_stacks,
+    MaterialStackChoice, MaterialStackProjection, MaterialStackProjectionError,
+    project_material_stacks, resolve_material_stack_choice,
 };
 pub(crate) use state::{
     AMBIENT_PRESERVATION_MULTIPLIER_PPM, MaterialLotProfile, MaterialLotProvenance,

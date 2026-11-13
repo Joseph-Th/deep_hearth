@@ -1245,6 +1245,15 @@ material with an edible form, equal current-and-future storage-exposure cohorts.
 index preserves first-lot stack order and exact private lot membership without a linear scan of
 candidate stacks per lot; it owns no additional persistent material custody.
 
+For deliberate eating, a visible `MaterialStackProjection::choice()` carries only the
+source stockpile, projected index, inventory revision and simulation tick. Inventory
+reprojects and rejects stale choices before the canonical eating owner validates
+freshness, reserves, attention and matter transfer. This preserves the selected
+physical cohort instead of guessing among equal-commodity stacks or retaining
+private lot identifiers in input. `SecondaryControlIntent::drink_source` similarly
+names one finite fluid store for the existing local drinking validator. Both explicit
+choices are transient 20 Hz control intents, not new persistent inventory or fluid state.
+
 Material-backed storage enclosures own exact consolidated assembly traces and an authored storage profile.
 Both ordinary player placement and in-place construction select exact hand-safe body cohorts at or below 353,150 mK.
 An older hot lot cannot block construction when enough newer cool material is present; hot-only stock returns a typed

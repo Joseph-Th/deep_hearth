@@ -17,7 +17,8 @@ struct Arguments {
 fn usage() -> &'static str {
     "Deep Hearth text play\n\
      cargo run --locked --bin text-play -- [--seed NUMBER | --load SLOT] [--script FILE]\n\
-     Commands: help, look [direction], status, inventory, gather, gather N [grams],\n\
+     Commands: help, look [direction], status, inventory, gather, gather N [decimal grams],\n\
+     eat STACK, drink, drink SOURCE,\n\
      recipes [all], craft PROCESS_ID [batches] [from STACK] [with TOOL],\n\
      surveys [width], prospect MATERIAL METHOD [width] [with TOOL], knowledge [width],\n\
      mine MATERIAL GRAMS with TOOL [using METHOD], ore, dress PROCESS STACK GRAMS,\n\

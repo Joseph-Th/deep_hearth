@@ -20,7 +20,6 @@ mod tests;
 use std::fmt::Write as _;
 
 use deep_hearth::content::BLOCK_STATE_STONE;
-use deep_hearth::core::quantity::Mass;
 use deep_hearth::logistics::{
     PlayerActiveSelection, project_player_inventory, validate_set_active_selection,
 };
@@ -36,7 +35,7 @@ use deep_hearth::world::{
 use deep_hearth::world_generation::validate_generate_initial_wilderness;
 use deep_hearth::{AppState, Registries, build_registries};
 
-use command::parse_index;
+use command::{parse_gather_grams, parse_index};
 use save_file::{publish_new_save, slot_path};
 
 pub struct Session {
@@ -227,14 +226,7 @@ impl Session {
         let index = parse_index(args[0], options.len())?;
         let option = options[index - 1];
         let mass = if let Some(grams) = args.get(1) {
-            let grams = grams
-                .parse::<u64>()
-                .map_err(|_| "gather quantity must be whole grams")?;
-            Mass::from_milligrams(
-                grams
-                    .checked_mul(1_000)
-                    .ok_or("gather quantity is too large")?,
-            )
+            parse_gather_grams(grams)?
         } else {
             option
                 .source_mass()
@@ -251,5 +243,27 @@ impl Session {
             PlayerDirectControlInput::NEUTRAL
                 .with_secondary(SecondaryControlIntent::gather_surface_option(option, mass)),
         )
+    }
+
+    fn eat(&mut self, index: &str) -> Result<String, String> {
+        let inventory = project_player_inventory(&self.registries, &self.state)
+            .map_err(|error| error.to_string())?;
+        let stacks = inventory.carried().stacks();
+        let index = parse_index(index, stacks.len())?;
+        let choice = stacks[index - 1].choice();
+        self.advance_one(
+            PlayerDirectControlInput::NEUTRAL
+                .with_secondary(SecondaryControlIntent::eat_stack(choice)),
+        )
+    }
+
+    fn drink(&mut self, index: &str) -> Result<String, String> {
+        let sources =
+            deep_hearth::survival::available_local_drink_sources(&self.registries, &self.state)
+                .collect::<Vec<_>>();
+        let index = parse_index(index, sources.len())?;
+        self.advance_one(PlayerDirectControlInput::NEUTRAL.with_secondary(
+            SecondaryControlIntent::drink_source(sources[index - 1].store()),
+        ))
     }
 }

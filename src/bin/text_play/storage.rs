@@ -2,6 +2,7 @@
 
 use std::fmt::Write as _;
 
+use super::view;
 use deep_hearth::inventory::{StorageDefinitionId, validate_place_player_storage};
 use deep_hearth::logistics::{project_player_inventory, validate_quick_move_player_stack};
 use deep_hearth::{AppState, Registries};
@@ -32,7 +33,7 @@ pub fn catalog(registries: &Registries, state: &AppState, all: bool) -> Result<S
             "  {}. {} | {} g capacity | {}",
             definition.id().value(),
             definition.name(),
-            definition.maximum_stockpile_capacity().milligrams() / 1_000,
+            view::grams(definition.maximum_stockpile_capacity()),
             match readiness {
                 Ok(_) => "ready".to_owned(),
                 Err(error) => format!("blocked: {error}"),
@@ -47,7 +48,7 @@ pub fn catalog(registries: &Registries, state: &AppState, all: bool) -> Result<S
                 let _ = writeln!(
                     output,
                     "     Requires {} g {name}",
-                    input.mass().milligrams() / 1_000,
+                    view::grams(input.mass()),
                 );
             }
         }
@@ -65,8 +66,8 @@ pub fn catalog(registries: &Registries, state: &AppState, all: bool) -> Result<S
             "  {}. {} | {} g / {} g",
             index + 1,
             local_storage_name(registries, local.storage_definition()),
-            local.stored().milligrams() / 1_000,
-            local.capacity().milligrams() / 1_000,
+            view::grams(local.stored()),
+            view::grams(local.capacity()),
         );
     }
     Ok(output)
@@ -137,7 +138,7 @@ pub fn move_stack(
         } else {
             "Stashed"
         },
-        moved.mass().milligrams() / 1_000,
+        view::grams(moved.mass()),
         if take_from_container { "from" } else { "in" },
         local_storage_name(registries, container.storage_definition()),
     ))

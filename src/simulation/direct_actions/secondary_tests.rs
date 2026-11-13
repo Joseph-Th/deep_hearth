@@ -1,5 +1,7 @@
 //! Regression contracts for physical-source and gathering-method contextual selection.
 
+#[path = "secondary_tests/explicit_selection.rs"]
+mod explicit_selection;
 #[path = "secondary_tests/food_preview.rs"]
 mod food_preview;
 

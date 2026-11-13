@@ -2,6 +2,8 @@
 
 use std::fmt::Write as _;
 
+use super::view;
+
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::logistics::project_player_inventory;
 use deep_hearth::ore_processing::{
@@ -33,7 +35,7 @@ pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, Stri
                 .materials()
                 .get_form(definition.input_form())
                 .map_or("unidentified form", |form| form.name()),
-            definition.max_batch_mass().milligrams() / 1_000,
+            view::grams(definition.max_batch_mass()),
         );
         for (index, stack) in stacks.iter().enumerate() {
             if stack.commodity().form() == definition.input_form() {
@@ -45,7 +47,7 @@ pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, Stri
                         .materials()
                         .commodity_name(stack.commodity())
                         .unwrap_or("unidentified material"),
-                    stack.mass().milligrams() / 1_000,
+                    view::grams(stack.mass()),
                 );
             }
         }
@@ -63,7 +65,7 @@ pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, Stri
                 .materials()
                 .get_form(definition.input_form())
                 .map_or("unidentified form", |form| form.name()),
-            definition.operating_profile().max_batch_mass().milligrams() / 1_000,
+            view::grams(definition.operating_profile().max_batch_mass()),
             definition.target_recovery_ppm() / 10_000,
         );
         for (index, stack) in stacks.iter().enumerate() {
@@ -76,7 +78,7 @@ pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, Stri
                         .materials()
                         .commodity_name(stack.commodity())
                         .unwrap_or("unidentified material"),
-                    stack.mass().milligrams() / 1_000,
+                    view::grams(stack.mass()),
                 );
             }
         }

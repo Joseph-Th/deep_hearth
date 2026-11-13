@@ -3,7 +3,9 @@
 use std::fmt::Write as _;
 
 use super::{Session, activity, crafting, view};
-use deep_hearth::simulation::{PlayerDirectControlInput, advance_control_tick_with_direct_input};
+use deep_hearth::simulation::{
+    PlayerDirectControlInput, SecondaryActionOutcome, advance_control_tick_with_direct_input,
+};
 use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::survival::Vitality;
 
@@ -100,7 +102,7 @@ impl Session {
             advance_control_tick_with_direct_input(&self.registries, &mut self.state, input)
                 .map_err(|error| format!("simulation tick failed: {error}"))?;
         let mut interrupt = note(output, "Primary", outcome.primary_action());
-        interrupt |= note(output, "Use", outcome.secondary_action());
+        interrupt |= note_secondary(output, outcome.secondary_action());
         interrupt |= note(output, "Slot", outcome.quick_access_selection());
         interrupt |= note(output, "Drop", outcome.active_selection_drop());
         interrupt |= note(output, "Excavated", outcome.block_excavation());
@@ -204,6 +206,43 @@ impl Session {
             Self::expand_neighborhood(&self.registries, &mut self.state)?;
         }
         Ok(interrupt)
+    }
+}
+
+/// Project only visible intake and gathering facts into the player transcript.
+/// Debug formatting the canonical eating receipt would expose private lot IDs,
+/// internal energy units and hidden consumption accounting.
+fn note_secondary(output: &mut String, event: Option<&SecondaryActionOutcome>) -> bool {
+    match event {
+        Some(SecondaryActionOutcome::EatingStarted(meal)) => {
+            let _ = writeln!(
+                output,
+                "Eating started: {} g of food; finishes at simulation tick {}.",
+                view::grams(meal.total_mass()),
+                meal.completes_at().value(),
+            );
+            true
+        }
+        Some(SecondaryActionOutcome::DrinkingStarted(drink)) => {
+            let _ = writeln!(
+                output,
+                "Drinking started: {} mL; finishes at simulation tick {}.",
+                view::milliliters(drink.volume()),
+                drink.completes_at().value(),
+            );
+            true
+        }
+        Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => {
+            let _ = writeln!(
+                output,
+                "Gathering started: {} g; finishes at simulation tick {}.",
+                view::grams(work.gathered_mass()),
+                work.completes_at().value(),
+            );
+            true
+        }
+        Some(other) => note(output, "Use", Some(other)),
+        None => false,
     }
 }
 

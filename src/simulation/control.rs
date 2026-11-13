@@ -1,7 +1,8 @@
 //! Transient direct-control intents above locomotion ownership.
 
 use crate::core::quantity::Mass;
-use crate::inventory::StorageDefinitionId;
+use crate::fluid::FluidStoreId;
+use crate::inventory::{MaterialStackChoice, StorageDefinitionId};
 use crate::logistics::{PlayerControlInput, PlayerQuickAccessSlot};
 use crate::spatial::ViewDirection;
 use crate::surface::{PlayerSurfaceGatheringOption, SurfaceResourceId};
@@ -50,6 +51,15 @@ pub enum SecondaryControlIntent {
         option: PlayerSurfaceGatheringOption,
         mass: Mass,
     },
+    /// Use one exact observed material cohort, even when several carried
+    /// cohorts share a commodity but differ in age or temperature.
+    EatStack {
+        choice: MaterialStackChoice,
+    },
+    /// Choose an exact-local drinking store when contextual use is ambiguous.
+    DrinkSource {
+        store: FluidStoreId,
+    },
     /// Explicitly selected multi-material storage plan; material-stack selection alone cannot
     /// distinguish enclosures sharing the same timber or clay input.
     PlaceStorage {
@@ -59,6 +69,16 @@ pub enum SecondaryControlIntent {
 }
 
 impl SecondaryControlIntent {
+    #[must_use]
+    pub const fn eat_stack(choice: MaterialStackChoice) -> Self {
+        Self::EatStack { choice }
+    }
+
+    #[must_use]
+    pub const fn drink_source(store: FluidStoreId) -> Self {
+        Self::DrinkSource { store }
+    }
+
     #[must_use]
     pub const fn use_active(direction: ViewDirection) -> Self {
         Self::UseActive { direction }
