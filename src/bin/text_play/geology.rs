@@ -88,6 +88,9 @@ pub fn catalog(registries: &Registries, state: &AppState, width: usize) -> Resul
         "Field surveys for current {} x {} voxel region (prospect MATERIAL METHOD [width] [with TOOL]):\n",
         width, width,
     );
+    // Equipment is read from one inventory projection for the entire catalogue.
+    // Multiple survey methods must not rebuild identical carried-stack views.
+    let mut carried = None;
     for option in methods {
         let _ = write!(
             output,
@@ -113,8 +116,15 @@ pub fn catalog(registries: &Registries, state: &AppState, width: usize) -> Resul
             if option.instruments().is_empty() {
                 output.push_str(" (none usable here)");
             } else {
-                let inventory = project_player_inventory(registries, state)
-                    .map_err(|error| error.to_string())?;
+                if carried.is_none() {
+                    carried = Some(
+                        project_player_inventory(registries, state)
+                            .map_err(|error| error.to_string())?,
+                    );
+                }
+                let inventory = carried
+                    .as_ref()
+                    .expect("carried inventory was just projected");
                 for instrument in option.instruments() {
                     if let Some(index) = inventory
                         .equipment()
@@ -272,13 +282,17 @@ fn append_observation_details(
     material: MaterialId,
     ids: &[deep_hearth::geology::GeologicalObservationId],
 ) {
-    for observation in state.geological_knowledge().observations() {
-        if !ids.contains(&observation.id()) {
-            continue;
-        }
-        let Some(finding) = observation.finding(material) else {
-            continue;
-        };
+    // Assessments already supply matching observation IDs in ascending order.
+    // Resolve only those records instead of rescanning every historical survey
+    // for each material represented in the current local knowledge view.
+    for &id in ids {
+        let observation = state
+            .geological_knowledge()
+            .get_observation(id)
+            .expect("knowledge assessment references a current acquired observation");
+        let finding = observation
+            .finding(material)
+            .expect("knowledge assessment references a finding for its material");
         let bounds = observation.region();
         let start = bounds.min();
         let end = bounds.max_exclusive();

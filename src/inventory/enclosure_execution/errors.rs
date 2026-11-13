@@ -62,6 +62,10 @@ pub enum StorageEnclosureConstructionError {
     RootedVegetationOccupiesSite {
         position: VoxelCoord,
     },
+    LooseResidueFooting {
+        position: VoxelCoord,
+        compact_depth_um: u128,
+    },
     ResidentOccupiesSite {
         position: VoxelCoord,
     },
@@ -369,6 +373,18 @@ impl Display for StorageEnclosureConstructionError {
                 position.y(),
                 position.z()
             ),
+            Self::LooseResidueFooting {
+                position,
+                compact_depth_um,
+            } => write!(
+                formatter,
+                "storage enclosure foundation ({},{},{}) has {}.{} mm of exposed processing residue (solid-equivalent; limit is below 25 mm)",
+                position.x(),
+                position.y(),
+                position.z(),
+                compact_depth_um / 1_000,
+                (compact_depth_um % 1_000) / 100,
+            ),
             Self::ResidentOccupiesSite { position } => write!(
                 formatter,
                 "storage enclosure at ({},{},{}) intersects an opening or temple resident",
@@ -466,6 +482,7 @@ impl Error for StorageEnclosureConstructionError {
             | Self::LocatedTargetSourceRemote { .. }
             | Self::GeneratedSolidTerrain { .. }
             | Self::RootedVegetationOccupiesSite { .. }
+            | Self::LooseResidueFooting { .. }
             | Self::ResidentOccupiesSite { .. }
             | Self::UnsupportedFloor { .. }
             | Self::TargetBusyStorageDismantling { .. }
@@ -497,6 +514,10 @@ pub enum StorageEnclosureCommitError {
         actual: u64,
     },
     StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleSurfaceRevision {
         expected: u64,
         actual: u64,
     },
@@ -541,6 +562,10 @@ impl Display for StorageEnclosureCommitError {
                 formatter,
                 "storage construction expected logistics revision {expected} but current revision is {actual}"
             ),
+            Self::StaleSurfaceRevision { expected, actual } => write!(
+                formatter,
+                "storage construction expected surface revision {expected} but current revision is {actual}"
+            ),
             Self::StaleWorldRevision { expected, actual } => write!(
                 formatter,
                 "storage construction expected world revision {expected} but current revision is {actual}"
@@ -583,6 +608,7 @@ impl Error for StorageEnclosureCommitError {
             | Self::StaleSurvivalRevision { .. }
             | Self::StaleInventoryRevision { .. }
             | Self::StaleLogisticsRevision { .. }
+            | Self::StaleSurfaceRevision { .. }
             | Self::StaleWorldRevision { .. }
             | Self::StaleControlTick { .. }
             | Self::UnknownTarget { .. }

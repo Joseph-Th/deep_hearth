@@ -320,6 +320,14 @@ fn ordinary_wilderness_survey_to_reinforced_pick_ore_conserves_matter_and_replay
     assert!(finished.contains("Prospecting finished"));
     let local = run(&mut session, "knowledge");
     assert!(local.contains("copper | 2 observations"));
+    let first_sample = local.find("Sample #1:").expect("first acquired sample");
+    let second_sample = local.find("Sample #2:").expect("second acquired sample");
+    assert!(
+        first_sample < second_sample,
+        "knowledge must retain acquired ID order"
+    );
+    assert_eq!(local.matches("Sample #1:").count(), 1);
+    assert_eq!(local.matches("Sample #2:").count(), 1);
     assert!(local.contains("hardness 600..650 MPa"));
     assert!(local.contains("surveyed mass 25000..30000 g"));
     assert!(local.contains("historical acquired measurements"));
