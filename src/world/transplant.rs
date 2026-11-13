@@ -139,12 +139,7 @@ impl ValidatedSaplingTransplant {
 }
 
 fn beside(player: VoxelCoord, target: VoxelCoord) -> bool {
-    player.y() == target.y()
-        && player
-            .x()
-            .abs_diff(target.x())
-            .checked_add(player.z().abs_diff(target.z()))
-            == Some(1)
+    player.y() == target.y() && player.is_face_adjacent_to(target)
 }
 
 fn destination_clear(registries: &Registries, state: &AppState, root: VoxelCoord) -> bool {

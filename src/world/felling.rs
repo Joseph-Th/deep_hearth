@@ -451,13 +451,7 @@ fn validate_fell_tree_at(
             .map_err(|_| TreeFellingError::PlayerBusy)?;
     }
     let position = player.position();
-    if !(position.y() == root.y()
-        && position
-            .x()
-            .abs_diff(root.x())
-            .checked_add(position.z().abs_diff(root.z()))
-            == Some(1))
-    {
+    if !position.is_face_adjacent_to(root) || position.y() != root.y() {
         return Err(TreeFellingError::TooFar {
             root,
             player: position,
