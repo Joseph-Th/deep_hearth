@@ -2,10 +2,56 @@
 
 use super::*;
 use deep_hearth::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
+use deep_hearth::logistics::{HorizontalControlInput, PlayerControlInput};
 use deep_hearth::survival::{ThermalComfortState, assess_survival};
 
 fn snapshot(session: &Session) -> Vec<u8> {
     serde_json::to_vec(&SaveEnvelope::new(&session.registries, &session.state)).unwrap()
+}
+
+#[test]
+fn active_gathering_status_names_its_reserved_source() {
+    let mut session = Session::new(24318).unwrap();
+    assert!(
+        deep_hearth::surface::active_player_surface_gathering_commodity(&session.state).is_none()
+    );
+    for command in ["e 20", "wait 10", "gather 1 500"] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    let work = session
+        .state
+        .player_work()
+        .active()
+        .expect("gathering started");
+    let commodity = deep_hearth::surface::active_player_surface_gathering_commodity(&session.state)
+        .expect("active gathering must expose its own material");
+    assert_eq!(
+        session.registries.materials().commodity_name(commodity),
+        Some("berries")
+    );
+    let label = activity::label(&session.registries, &session.state, work);
+    assert!(label.contains("berries"), "active work label: {label}");
+    assert!(label.contains("500 g"), "active work label: {label}");
+    let status = session.command("status").unwrap().0;
+    assert!(
+        status.contains(&label),
+        "status must show the same work label"
+    );
+    let ticks = activity::remaining_work_control_ticks(&session.state).unwrap();
+    for _ in 0..ticks {
+        session
+            .step(PlayerDirectControlInput::NEUTRAL, &mut String::new())
+            .unwrap();
+        if session.state.player_work().active().is_none() {
+            break;
+        }
+    }
+    assert!(session.state.player_work().active().is_none());
+    assert!(
+        deep_hearth::surface::active_player_surface_gathering_commodity(&session.state).is_none()
+    );
 }
 
 fn stone_campfire_from_wilderness() -> Session {
@@ -299,18 +345,14 @@ fn sprint_sneak_crouch_and_jump_use_authoritative_body_motion() {
 
     let mut walking = Session::new(24318).unwrap();
     let mut sprinting = Session::new(24318).unwrap();
+    let east = PlayerControlInput::new(HorizontalControlInput::new(1_000_000, 0).unwrap());
     for _ in 0..12 {
         walking
-            .step(
-                PlayerDirectControlInput::new(Direction::East.movement().unwrap()),
-                &mut String::new(),
-            )
+            .step(PlayerDirectControlInput::new(east), &mut String::new())
             .unwrap();
         sprinting
             .step(
-                PlayerDirectControlInput::new(
-                    Direction::East.movement().unwrap().with_sprint(true),
-                ),
+                PlayerDirectControlInput::new(east.with_sprint(true)),
                 &mut String::new(),
             )
             .unwrap();

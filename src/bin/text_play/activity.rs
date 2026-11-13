@@ -2,21 +2,16 @@
 
 use deep_hearth::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
 use deep_hearth::labor::PlayerWork;
-use deep_hearth::surface::player_surface_gathering_options;
+use deep_hearth::surface::active_player_surface_gathering_commodity;
 use deep_hearth::{AppState, Registries};
 
 pub fn label(registries: &Registries, state: &AppState, work: PlayerWork) -> String {
     match work {
         PlayerWork::TreeFelling { .. } => "Felling a tree".to_owned(),
         PlayerWork::SurfaceGathering { work } => {
-            let commodity = player_surface_gathering_options(registries, state)
-                .ok()
-                .and_then(|options| {
-                    options
-                        .into_iter()
-                        .find(|option| option.resource() == work.resource())
-                        .map(|option| option.commodity())
-                });
+            // Active work already owns an exact source ID. Avoid re-running the
+            // available-action planner, whose options can change during work.
+            let commodity = active_player_surface_gathering_commodity(state);
             let name = commodity
                 .and_then(|key| registries.materials().commodity_name(key))
                 .unwrap_or("loose material");

@@ -23,9 +23,9 @@ pub(crate) use footing::{OBSTRUCTING_RESIDUE_COMPACT_DEPTH_UM, exposed_residue_c
 pub use gathering::{
     PlayerSurfaceFoodValue, PlayerSurfaceGatheringOption, SurfaceGatheringCommitError,
     SurfaceGatheringError, SurfaceGatheringOutcome, SurfaceGatheringRequest,
-    ValidatedSurfaceGatheringStart, player_surface_gathering_options,
-    validate_start_player_surface_gathering, validate_start_player_surface_gathering_option,
-    validate_start_surface_gathering,
+    ValidatedSurfaceGatheringStart, active_player_surface_gathering_commodity,
+    player_surface_gathering_options, validate_start_player_surface_gathering,
+    validate_start_player_surface_gathering_option, validate_start_surface_gathering,
 };
 pub(crate) use gathering::{
     SurfaceGatheringCancellationPlan, SurfaceGatheringTickError, SurfaceGatheringTickPlan,

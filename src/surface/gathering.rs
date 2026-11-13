@@ -60,6 +60,21 @@ impl SurfaceGatheringRequest {
     }
 }
 
+/// Material already known to the player's current gathering work, without
+/// re-evaluating all nearby available choices or exposing unrelated sources.
+#[must_use]
+pub fn active_player_surface_gathering_commodity(
+    state: &AppState,
+) -> Option<crate::material::CommodityKey> {
+    let PlayerWork::SurfaceGathering { work } = state.player_work().active()? else {
+        return None;
+    };
+    state
+        .surface()
+        .get(work.resource())
+        .map(|source| source.commodity())
+}
+
 /// A logistics-only capability fixture may gather without a survival actor.
 /// A real actor whose survival record exists but is dead cannot observe or
 /// reuse the old body's exact-local resources before respawn.
