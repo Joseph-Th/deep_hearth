@@ -66,7 +66,7 @@ fn fire_command_consumes_the_exact_gathered_stack_and_conserves_matter() {
         .stacks()
         .iter()
         .position(|stack| stack.commodity() == wood)
-        .expect("ordinary gathered timber must be carried")
+        .unwrap_or_else(|| panic!("ordinary gathered timber must be carried"))
         + 1;
     let catalog = session.command("fire").unwrap().0;
     assert!(
@@ -103,7 +103,7 @@ fn fire_command_consumes_the_exact_gathered_stack_and_conserves_matter() {
         .position(|stack| {
             stack.commodity() == wood && stack.mass() >= Mass::from_milligrams(1_000_000)
         })
-        .expect("both gathered portions must provide one full charge")
+        .unwrap_or_else(|| panic!("both gathered portions must provide one full charge"))
         + 1;
     let catalog = session.command("fire").unwrap().0;
     assert!(
