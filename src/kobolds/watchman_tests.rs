@@ -51,6 +51,42 @@ fn ration_mass(
 }
 
 #[test]
+fn trusted_load_rejects_scout_and_watchman_claiming_the_same_exposed_post() {
+    use crate::core::state::StateValidationError;
+    use crate::persistence::LoadError;
+
+    let (registries, mut state, route) =
+        scenario(EnergyCarrier::Mechanical, Some(VoxelCoord::new(0, 0, 0)));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let at_home = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(at_home.scout_position(), route[0]);
+    assert_eq!(at_home.watch_position(), route[0]);
+
+    advance_to(&registries, &mut state, 195);
+    ration(&registries, &mut state, route[0]);
+    advance_to(&registries, &mut state, 200);
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(colony.watch_position(), route[1]);
+    assert_ne!(colony.scout_position(), route[1]);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    // A forged route cursor and a stripped optional trail can claim a scout
+    // simultaneously standing on the sentry's occupied junction.
+    let mut forged = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let saved_colony = &mut forged["state"]["systems"]["kobolds"]["colony"];
+    saved_colony["scout_step"] = serde_json::json!(1);
+    saved_colony["returning"] = serde_json::json!(false);
+    saved_colony["tracks"] = serde_json::json!([]);
+    let loaded: LoadedSaveEnvelope = serde_json::from_value(forged).unwrap();
+    assert_eq!(
+        loaded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Kobolds(
+            "opening kobold residents overlap outside their shared den"
+        )))
+    );
+}
+
+#[test]
 fn opening_a_real_stone_screen_keeps_a_watchman_home_for_a_visible_player() {
     use crate::content::{BLOCK_STATE_STONE, ENERGY_ELECTRICAL_BUFFER, build_registries};
     use crate::core::quantity::Energy;

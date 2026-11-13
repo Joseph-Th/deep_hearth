@@ -76,6 +76,18 @@ fn validate_opening_resident_infrastructure(
     Ok(())
 }
 
+/// The den shelters both residents, but every exposed patrol post has room
+/// for only one. Movement checks this before each step; persisted route
+/// cursors must obey the same physical occupancy contract on admission.
+fn validate_resident_separation(colony: &KoboldColony) -> Result<(), &'static str> {
+    if colony.scout_position() == colony.watch_position()
+        && colony.scout_position() != colony.route[0]
+    {
+        return Err("opening kobold residents overlap outside their shared den");
+    }
+    Ok(())
+}
+
 fn validate_meal_schedule(colony: &KoboldColony, current: u64) -> Result<(), &'static str> {
     let next = colony.next_meal_at.value();
     let first = FIRST_SCOUT_TICK + SCOUT_MEAL_INTERVAL_TICKS;
@@ -288,6 +300,7 @@ pub(crate) fn validate_loaded_kobolds(
     colony.validate_mobilization(state.tick())?;
     scrap_tools::validate_pry_fitting(state, colony, state.tick())?;
     colony.validate_watchman(state.tick())?;
+    validate_resident_separation(colony)?;
     colony.validate_tracks(state)?;
     colony.validate_watch_tracks(state)?;
     validate_caution_schedule(colony, current)?;
