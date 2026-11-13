@@ -4,9 +4,13 @@ mod activity;
 mod crafting;
 mod equipment;
 mod fire;
+mod geology;
+mod ore;
 mod storage;
 mod view;
 
+#[cfg(test)]
+mod geology_tests;
 #[cfg(test)]
 mod tests;
 
@@ -277,6 +281,35 @@ impl Session {
                 view::inventory(&self.registries, &self.state)?
             }
             "gather" if args.len() <= 2 => self.gather(args)?,
+            "surveys" if args.len() <= 1 => {
+                let width = args.first().map_or(Ok(1_usize), |value| {
+                    value
+                        .parse::<usize>()
+                        .map_err(|_| "survey width must be a number")
+                })?;
+                geology::catalog(&self.registries, &self.state, width)?
+            }
+            "knowledge" if args.len() <= 1 => {
+                let width = args.first().map_or(Ok(1_usize), |value| {
+                    value
+                        .parse::<usize>()
+                        .map_err(|_| "knowledge width must be a number")
+                })?;
+                geology::knowledge(&self.registries, &self.state, width)?
+            }
+            "prospect" => {
+                let result = geology::start(&self.registries, &mut self.state, args)?;
+                result + &view::status(&self.registries, &self.state)
+            }
+            "mine" => {
+                let result = geology::mine(&self.registries, &mut self.state, args)?;
+                result + &view::status(&self.registries, &self.state)
+            }
+            "ore" if args.is_empty() => ore::catalog(&self.registries, &self.state)?,
+            "dress" => {
+                let result = ore::start(&self.registries, &mut self.state, args)?;
+                result + &view::status(&self.registries, &self.state)
+            }
             "recipes" if args.is_empty() || args == ["all"] => {
                 crafting::catalog(&self.registries, &self.state, args == ["all"])?
             }
@@ -371,6 +404,15 @@ impl Session {
                     count,
                     true,
                 )?
+            }
+            "wait" if args == ["boundary"] => {
+                let scale = deep_hearth::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
+                let remainder = self.state.control_tick().value() % scale;
+                if remainder == 0 {
+                    "Already on a simulation boundary; scheduled work can start now.\n".to_owned()
+                } else {
+                    self.advance_many(PlayerDirectControlInput::NEUTRAL, scale - remainder, false)?
+                }
             }
             "wait" if args == ["work"] => {
                 let count = activity::remaining_work_control_ticks(&self.state)

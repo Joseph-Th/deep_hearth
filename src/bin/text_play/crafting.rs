@@ -224,7 +224,26 @@ pub fn completion(
         .production()
         .get_process(receipt.process())
         .map_or("manual recipe", |p| p.name());
-    let mut output = format!("Craft completed: {process}.\n");
+    let label = if registries
+        .crafting()
+        .get_manual(receipt.process())
+        .is_some()
+    {
+        "Craft completed"
+    } else if registries
+        .ore_processing()
+        .get_manual_comminution(receipt.process())
+        .is_some()
+        || registries
+            .ore_processing()
+            .get_manual_constituent_separation(receipt.process())
+            .is_some()
+    {
+        "Ore processing completed"
+    } else {
+        "Work completed"
+    };
+    let mut output = format!("{label}: {process}.\n");
     let carried = state
         .logistics()
         .player()

@@ -34,7 +34,11 @@ pub fn label(registries: &Registries, state: &AppState, work: PlayerWork) -> Str
                 || "Manual production".to_owned(),
                 |process| process.name().to_owned(),
             ),
-        PlayerWork::Mining { .. } => "Mining".to_owned(),
+        PlayerWork::Mining { job } => state
+            .mining()
+            .get_job(job)
+            .and_then(|record| registries.mining().get_method(record.method()))
+            .map_or_else(|| "Mining".to_owned(), |method| method.name().to_owned()),
         PlayerWork::ManualPower { .. } => "Generating manual power".to_owned(),
         PlayerWork::Prospecting { .. } => "Prospecting".to_owned(),
         PlayerWork::Eating { work } => {
@@ -72,7 +76,12 @@ fn due_at_control_ticks(state: &AppState, work: PlayerWork) -> Option<u128> {
             .filter(|job| !job.is_suspended())?
             .completes_at()
             .value(),
-        PlayerWork::Mining { .. } => return None,
+        PlayerWork::Mining { job } => state
+            .mining()
+            .get_job(job)
+            .filter(|record| record.is_working())?
+            .completes_at()
+            .value(),
     };
     Some(u128::from(slow_tick) * u128::from(CONTROL_TICKS_PER_SIMULATION_TICK))
 }

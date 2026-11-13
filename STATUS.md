@@ -54,7 +54,7 @@ These canonical owners may lack ordinary acquisition.
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; timed posts, framing, cover and grounded timber roller; timed primary-break recovery. |
 | Block world | Seeded ore, habitats, forage, trees, springs, temples and excavation. Crops expire before discovery; shade/moisture enable regrowth. Water remains finite. No renderer or full ecology. |
-| Spatial and presentation | Checked coordinates, textures/shaders; text play has 20 Hz movement, crafting, tools, boxes, fire, scripts and saves. |
+| Spatial and presentation | Checked coords/shaders; text play: motion, crafting, tools, copper surveys/mining/dressing, boxes, fire, saves. |
 
 ## Capability-only evaluation
 
