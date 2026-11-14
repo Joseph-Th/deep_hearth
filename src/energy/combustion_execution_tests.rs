@@ -1,9 +1,10 @@
 //! Contract tests for material-backed local campfire combustion and warmth.
 
 use crate::content::{
-    CAMPFIRE_CHIP_FUEL_MASS, CAMPFIRE_CHIP_FUEL_THERMAL_ENERGY, CAMPFIRE_FUEL_MASS,
-    CAMPFIRE_FUEL_THERMAL_ENERGY, ENERGY_STONE_RING_CAMPFIRE, FORM_BOARD, FORM_CHIP, FORM_LOG,
-    FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD, PROCESS_SHAPE_WOOD_BOARDS, build_registries,
+    CAMPFIRE_BOARD_FUEL_MASS, CAMPFIRE_BOARD_FUEL_THERMAL_ENERGY, CAMPFIRE_CHIP_FUEL_MASS,
+    CAMPFIRE_CHIP_FUEL_THERMAL_ENERGY, CAMPFIRE_FUEL_MASS, CAMPFIRE_FUEL_THERMAL_ENERGY,
+    ENERGY_STONE_RING_CAMPFIRE, FORM_BOARD, FORM_CHIP, FORM_LOG, FORM_LUMP, MATERIAL_STONE,
+    MATERIAL_WOOD, PROCESS_SHAPE_WOOD_BOARDS, build_registries,
 };
 use crate::core::quantity::{AggregateMass, Mass};
 use crate::core::state::{AppState, validate_loaded_state};
@@ -314,6 +315,57 @@ fn real_woodworking_chips_can_refuel_camp_without_consuming_reserved_logs() {
         matter_before
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn recovered_timber_boards_can_fuel_campfire_without_burning_other_wood() {
+    let (registries, mut state, carried, fire) = campfire_fixture();
+    let boards = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
+    let logs = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    deposit_bulk_for_test(
+        &registries,
+        &mut state,
+        carried,
+        boards,
+        Mass::from_milligrams(750_000),
+    )
+    .unwrap();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let before = state.clone();
+
+    let released = validate_combust_selected_fuel(&registries, &state, fire, carried, boards)
+        .expect("500 g of shaped timber should provide a campfire charge")
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(released, CAMPFIRE_BOARD_FUEL_THERMAL_ENERGY);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(boards),
+        Mass::from_milligrams(250_000)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(logs),
+        CAMPFIRE_FUEL_MASS
+    );
+    assert_eq!(state.energy().get_store(fire).unwrap().stored(), released);
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+    assert_ne!(state, before);
+    assert_eq!(CAMPFIRE_BOARD_FUEL_MASS, Mass::from_milligrams(500_000));
 }
 
 fn campfire_fixture() -> (

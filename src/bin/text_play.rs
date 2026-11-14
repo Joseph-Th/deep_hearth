@@ -27,7 +27,8 @@ fn usage() -> &'static str {
      storage [all], place-store ID, stash CONTAINER STACK, withdraw CONTAINER STACK,\n\
      fire, build-fire, feed-fire FIRE STACK,\n\
      n|s|e|w [ticks], sprint|sneak DIRECTION [ticks], crouch [ticks],\n\
-     jump [direction] [ticks], wait [ticks|work|boundary], use [direction], break [direction],\n\
+     jump [direction] [ticks], wait [ticks|work|boundary|until PHASE],\n\
+     use [direction], break [direction],\n\
      shove|strike|prepare|release [direction], cancel, slot N, select N,\n\
      empty, drop, respawn, save SLOT, quit.\n\
      Directions for pointing: n, s, e, w, up, down, n-down, s-down, e-down, w-down,\n\

@@ -14,9 +14,12 @@ use deep_hearth::kobolds::{
     KoboldFootfall, KoboldSighting, KoboldTrack, available_nearby_kobold_footfalls,
     available_nearby_kobold_scouts, available_nearby_kobold_tracks,
 };
-use deep_hearth::logistics::PlayerActiveSelection;
+use deep_hearth::logistics::{
+    PlayerActiveSelection, PlayerOverheadCoverAssessment, assess_player_overhead_cover,
+};
 use deep_hearth::spatial::ViewDirection;
 use deep_hearth::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord};
+use deep_hearth::structural::StructuralLifecycle;
 use deep_hearth::surface::{
     AdjacentSurfaceResource, PlayerSurfaceGatheringOption, SurfaceResourceKind,
     player_surface_gathering_options,
@@ -358,6 +361,40 @@ pub fn status(registries: &Registries, state: &AppState) -> String {
     output
 }
 
+fn nearby_structure_report(registries: &Registries, state: &AppState) -> String {
+    let mut output = String::new();
+    let mut active_roof_nearby = false;
+    for member in state.available_nearby_structural_members() {
+        active_roof_nearby |= member.geometry().covers_horizontal_footprint()
+            && member.lifecycle() == StructuralLifecycle::Active;
+        let label = if member.geometry().covers_horizontal_footprint() {
+            "panel"
+        } else {
+            "framing"
+        };
+        let profile = registries
+            .structural()
+            .get_profile(member.profile())
+            .map_or("unidentified", |definition| definition.name());
+        let _ = writeln!(
+            output,
+            "Nearby {label}: {profile} at {} | {:?} | {} g",
+            pos(member.bounds().min()),
+            member.lifecycle(),
+            grams(member.embodied_mass()),
+        );
+    }
+    if active_roof_nearby
+        && assess_player_overhead_cover(registries, state)
+            == Some(PlayerOverheadCoverAssessment::Open)
+    {
+        output.push_str(
+            "Nearby roof does not cover your standing position. Shelter requires a reachable space directly beneath a panel, with clearance for your body.\n",
+        );
+    }
+    output
+}
+
 pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection>) -> String {
     let mut output = status(registries, state);
     let from = state.logistics().player().map(|player| player.position());
@@ -408,24 +445,7 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
             sensory::sighting_condition(sighting),
         );
     }
-    for member in state.available_nearby_structural_members() {
-        let label = if member.geometry().covers_horizontal_footprint() {
-            "panel"
-        } else {
-            "framing"
-        };
-        let profile = registries
-            .structural()
-            .get_profile(member.profile())
-            .map_or("unidentified", |definition| definition.name());
-        let _ = writeln!(
-            output,
-            "Nearby {label}: {profile} at {} | {:?} | {} g",
-            pos(member.bounds().min()),
-            member.lifecycle(),
-            grams(member.embodied_mass()),
-        );
-    }
+    output.push_str(&nearby_structure_report(registries, state));
     for scent in assess_player_forage_scents(registries, state) {
         let _ = writeln!(
             output,

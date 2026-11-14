@@ -54,6 +54,11 @@ pub const CAMPFIRE_FUEL_THERMAL_ENERGY: Energy = Energy::from_nanojoules(12_000_
 pub const CAMPFIRE_CHIP_FUEL_MASS: Mass = Mass::from_milligrams(500_000);
 pub const CAMPFIRE_CHIP_FUEL_THERMAL_ENERGY: Energy =
     Energy::from_nanojoules(5_000_000_000_000_000);
+/// Half-kilogram charges of shaped timber retain useful wood heat. Recovered
+/// boards can warm a camp instead of being trapped as construction stock.
+pub const CAMPFIRE_BOARD_FUEL_MASS: Mass = Mass::from_milligrams(500_000);
+pub const CAMPFIRE_BOARD_FUEL_THERMAL_ENERGY: Energy =
+    Energy::from_nanojoules(6_000_000_000_000_000);
 
 const WORKSHOP_ELECTRICAL_BUFFER_CAPACITY: Energy = Energy::from_nanojoules(25_000_000_000_000_000);
 const WORKSHOP_ELECTRICAL_BUFFER_TRANSFER_POWER: Power = Power::from_microwatts(1_000_000_000_000);
@@ -460,6 +465,11 @@ pub(crate) fn build_energy_registry() -> EnergyRegistry {
             CommodityKey::new(MATERIAL_WOOD, FORM_CHIP),
             CAMPFIRE_CHIP_FUEL_MASS,
             CAMPFIRE_CHIP_FUEL_THERMAL_ENERGY,
+        ))
+        .with_alternative_combustion_profile(CombustionProfile::new(
+            CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+            CAMPFIRE_BOARD_FUEL_MASS,
+            CAMPFIRE_BOARD_FUEL_THERMAL_ENERGY,
         ))
         .with_local_warmth_source()
         .with_local_light_source(7)

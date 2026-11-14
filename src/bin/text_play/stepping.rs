@@ -9,8 +9,106 @@ use deep_hearth::simulation::{
 };
 use deep_hearth::spatial::{HorizontalVelocity, VoxelCoord};
 use deep_hearth::survival::Vitality;
+use deep_hearth::world::{DayPhase, assess_player_weather};
 
 impl Session {
+    /// Wait awake for the next requested daylight phase, never skipping physical
+    /// control steps. Events, changing local threats, expired heat and new
+    /// survival warnings end the watch before its requested horizon.
+    pub(super) fn advance_until_phase(&mut self, target: DayPhase) -> Result<String, String> {
+        let phase_name = match target {
+            DayPhase::Morning => "morning",
+            DayPhase::Afternoon => "afternoon",
+            DayPhase::Evening => "evening",
+            DayPhase::Night => "night",
+        };
+        let current = assess_player_weather(&self.registries, &self.state)
+            .ok_or("current local daylight phase is unavailable")?;
+        if current.phase() == target {
+            return Ok(format!(
+                "It is already {phase_name}.\n{}",
+                view::status(&self.registries, &self.state),
+            ));
+        }
+        if self.state.player_work().active().is_some() {
+            return Err("finish active work with 'wait work' before a daylight watch".to_owned());
+        }
+        let urgency = view::urgency(&self.registries, &self.state);
+        if urgency != (false, false, false, false) {
+            return Err(
+                "resolve current survival warnings before a long daylight watch".to_owned(),
+            );
+        }
+        let calendar = self.registries.core().calendar();
+        let ticks_per_day = calendar.ticks_per_day();
+        let day_tick = calendar.date_at(self.state.tick()).day_tick();
+        let target_quarter = match target {
+            DayPhase::Morning => 0_u128,
+            DayPhase::Afternoon => 1,
+            DayPhase::Evening => 2,
+            DayPhase::Night => 3,
+        };
+        let target_day_tick =
+            u64::try_from((u128::from(ticks_per_day) * target_quarter).div_ceil(4))
+                .map_err(|_| "daylight wait target exceeds the clock range")?;
+        let slow_ticks = if target_day_tick > day_tick {
+            target_day_tick - day_tick
+        } else {
+            (ticks_per_day - day_tick)
+                .checked_add(target_day_tick)
+                .ok_or("daylight wait target exceeds the clock range")?
+        };
+        let scale = deep_hearth::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
+        let maximum = slow_ticks
+            .checked_mul(scale)
+            .and_then(|ticks| ticks.checked_sub(self.state.control_tick().value() % scale))
+            .ok_or("daylight wait exceeds the control-clock range")?;
+        let observed = view::local_cues(&self.registries, &self.state);
+        let lit_fire = has_lit_local_fire(&self.registries, &self.state);
+        let mut output = String::new();
+        let mut actual = 0_u64;
+        for _ in 0..maximum {
+            let previous_tick = self.state.tick();
+            let noteworthy = self.step(PlayerDirectControlInput::NEUTRAL, &mut output)?;
+            actual += 1;
+            if noteworthy {
+                output.push_str("Daylight watch interrupted by an event.\n");
+                break;
+            }
+            if view::urgency(&self.registries, &self.state) != urgency {
+                output.push_str("Daylight watch interrupted by a survival warning.\n");
+                break;
+            }
+            if self.state.tick() != previous_tick {
+                if assess_player_weather(&self.registries, &self.state)
+                    .is_some_and(|weather| weather.phase() == target)
+                {
+                    let _ = writeln!(output, "Reached {phase_name}.");
+                    break;
+                }
+                if lit_fire && !has_lit_local_fire(&self.registries, &self.state) {
+                    output.push_str("Daylight watch interrupted: local fire extinguished.\n");
+                    break;
+                }
+                if let Some((description, requires_attention)) =
+                    observed.changed(&view::local_cues(&self.registries, &self.state))
+                    && requires_attention
+                {
+                    let _ = writeln!(output, "{description}");
+                    output.push_str("Daylight watch interrupted by a local change.\n");
+                    break;
+                }
+            }
+        }
+        let _ = writeln!(
+            output,
+            "Advanced {actual} control ticks ({} ms).",
+            actual * 50
+        );
+        output.push_str(&view::look(&self.registries, &self.state, None));
+        Ok(output)
+    }
+
     pub(super) fn advance_one(
         &mut self,
         input: PlayerDirectControlInput,
@@ -347,6 +445,16 @@ fn note_secondary(
         Some(other) => note_text(output, "Use", Some(feedback::secondary(registries, other))),
         None => false,
     }
+}
+
+fn has_lit_local_fire(registries: &deep_hearth::Registries, state: &deep_hearth::AppState) -> bool {
+    state.available_local_energy_stores().any(|store| {
+        !store.stored().is_zero()
+            && registries
+                .energy()
+                .get_store(store.definition())
+                .is_some_and(|definition| definition.is_local_warmth_source())
+    })
 }
 
 fn note_text(output: &mut String, label: &str, event: Option<String>) -> bool {

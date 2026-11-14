@@ -144,6 +144,10 @@ fn shallow_aim_completes_an_overhead_timber_cover_on_the_played_seed() {
         look.contains("Nearby panel: axial compression at (9,0,11) | Active | 6500 g"),
         "{look}"
     );
+    assert!(
+        look.contains("Nearby roof does not cover your standing position"),
+        "the completed panel must not be mistaken for usable shelter: {look}"
+    );
     assert_eq!(
         calculate_matter_accounting(&session.state).unwrap().total(),
         original_matter

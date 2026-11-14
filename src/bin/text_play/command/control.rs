@@ -8,6 +8,7 @@ use deep_hearth::simulation::{
     PlayerDirectControlInput, PrimaryControlIntent, SecondaryControlIntent,
 };
 use deep_hearth::spatial::ViewDirection;
+use deep_hearth::world::DayPhase;
 
 const MAX_MOVEMENT_TICKS: u64 = 240;
 const MAX_WAIT_TICKS: u64 = 7_200;
@@ -71,6 +72,20 @@ impl Session {
                 } else {
                     self.advance_many(PlayerDirectControlInput::NEUTRAL, scale - remainder, false)?
                 }
+            }
+            "wait" if let ["until", phase] = args => {
+                let target = match *phase {
+                    "morning" => DayPhase::Morning,
+                    "afternoon" => DayPhase::Afternoon,
+                    "evening" => DayPhase::Evening,
+                    "night" => DayPhase::Night,
+                    _ => {
+                        return Err(
+                            "wait until accepts morning, afternoon, evening, or night".to_owned()
+                        );
+                    }
+                };
+                self.advance_until_phase(target)?
             }
             "wait" if args == ["work"] => {
                 let count = activity::remaining_work_control_ticks(&self.state)

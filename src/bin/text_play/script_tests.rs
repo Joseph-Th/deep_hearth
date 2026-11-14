@@ -112,6 +112,34 @@ fn scripted_quit_is_a_successful_stop_not_a_command_error() {
 }
 
 #[test]
+fn daylight_watch_rejects_bad_phases_and_never_waits_a_day_when_already_there() {
+    let mut session = Session::new(24318).unwrap();
+    for invalid in ["wait until dusk", "wait until", "wait until morning extra"] {
+        assert!(session.command(invalid).is_err(), "{invalid}");
+    }
+    let (already, _) = session.command("wait until morning").unwrap();
+    assert!(already.contains("It is already morning."), "{already}");
+    assert!(already.contains("control 0 | simulation 0"), "{already}");
+}
+
+#[test]
+fn daylight_watch_checks_real_survival_and_stops_before_the_next_phase() {
+    let mut session = Session::new(24318).unwrap();
+    let (watch, _) = session.command("wait until afternoon").unwrap();
+    assert!(
+        watch.contains("Daylight watch interrupted"),
+        "the uncovered, unfueled player should not be left unattended for six hours: {watch}"
+    );
+    assert!(!watch.contains("Reached afternoon."), "{watch}");
+    let (after, _) = session.command("status").unwrap();
+    assert!(after.contains("Weather: Spring Morning"), "{after}");
+    if after.contains("Warnings: ") {
+        assert!(session.command("wait until afternoon").is_err());
+        assert_eq!(session.command("status").unwrap().0, after);
+    }
+}
+
+#[test]
 fn control_command_dispatch_preserves_clock_and_rejects_bad_arguments_atomically() {
     let mut session = Session::new(24318).unwrap();
     let status = |session: &mut Session| session.command("status").unwrap().0;
