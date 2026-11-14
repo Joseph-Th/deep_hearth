@@ -54,6 +54,102 @@ fn daylight_watch_tolerates_passive_footprints_but_not_a_new_close_resident() {
 }
 
 #[test]
+fn watch_attention_counts_same_role_residents_instead_of_treating_roles_as_identities() {
+    let mut session = super::super::Session::new(1170684742).unwrap();
+    session.command("s 20").unwrap();
+    session.command("wait 10").unwrap();
+    let initial = super::local_cues(&session.registries, &session.state);
+    let resident = *initial
+        .kobolds
+        .iter()
+        .find(|resident| !resident.is_defending())
+        .expect("the seeded clearing contains a non-defending visible resident");
+    let position = resident.position();
+    let mut before = initial.clone();
+    before.kobolds = vec![resident];
+    let mut after = before.clone();
+    // These are two observation entries of the same caste. Their shared role
+    // cannot stand in for a unique resident when evaluating a changed count.
+    after.kobolds.push(resident);
+    assert_eq!(
+        before.watch_attention(&after, position),
+        Some("A resident has approached your immediate position.")
+    );
+    assert_eq!(
+        before.work_attention(&after, position),
+        Some("A resident has approached your immediate position.")
+    );
+    assert_eq!(after.watch_attention(&after, position), None);
+}
+
+#[test]
+fn watch_attention_includes_residents_on_an_adjacent_vertical_ledge() {
+    let mut session = super::super::Session::new(1170684742).unwrap();
+    session.command("s 20").unwrap();
+    session.command("wait 10").unwrap();
+    let initial = super::local_cues(&session.registries, &session.state);
+    let resident = *initial
+        .kobolds
+        .iter()
+        .find(|resident| !resident.is_defending())
+        .expect("the seeded clearing contains a non-defending visible resident");
+    let mut unseen = initial.clone();
+    unseen.kobolds.clear();
+    let position = resident.position();
+    let above = deep_hearth::spatial::VoxelCoord::new(position.x(), position.y() + 1, position.z());
+    let below = deep_hearth::spatial::VoxelCoord::new(position.x(), position.y() - 1, position.z());
+    let two_above =
+        deep_hearth::spatial::VoxelCoord::new(position.x(), position.y() + 2, position.z());
+    for player in [above, below] {
+        assert_eq!(
+            unseen.watch_attention(&initial, player),
+            Some("A resident has approached your immediate position.")
+        );
+    }
+    assert_eq!(unseen.watch_attention(&initial, two_above), None);
+}
+
+#[test]
+fn shelter_preview_treats_living_trunks_as_solid_body_cells_and_support() {
+    use deep_hearth::world::BlockStateId;
+
+    let session = super::super::Session::new(24318).unwrap();
+    let root = session
+        .state
+        .world()
+        .trees()
+        .next()
+        .expect("generated opening has a living tree")
+        .root();
+    let upper = deep_hearth::spatial::VoxelCoord::new(root.x(), root.y() + 1, root.z());
+    assert_eq!(
+        session.state.world().block_at(root),
+        Some(BlockStateId::AIR)
+    );
+    assert!(session.state.world().tree_trunk_at(root).is_some());
+    assert!(
+        !super::preview_standing_space_is_clear(&session.registries, &session.state, [root, upper]),
+        "air terrain cannot turn an embodied living trunk into open shelter space"
+    );
+    assert!(
+        super::preview_floor_is_solid(&session.registries, &session.state, root),
+        "the same living trunk is real standing support from above"
+    );
+
+    let player = session.player_position().unwrap();
+    let head = deep_hearth::spatial::VoxelCoord::new(player.x(), player.y() + 1, player.z());
+    assert!(super::preview_standing_space_is_clear(
+        &session.registries,
+        &session.state,
+        [player, head]
+    ));
+    assert!(
+        !super::preview_floor_is_solid(&session.registries, &session.state, player),
+        "an air cell cannot serve as footing"
+    );
+}
+
+#[test]
 fn work_wait_still_notices_changes_to_physical_food_and_water() {
     let mut session = super::super::Session::new(24318).unwrap();
     session.command("e 20").unwrap();

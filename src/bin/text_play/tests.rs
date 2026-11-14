@@ -1121,11 +1121,7 @@ fn seeded_opening_is_replayable_and_uses_authoritative_admission() {
     assert!(first.opening().contains("seed 24318"));
     assert!(first.opening().contains("Condition: vitality"));
     assert!(first.opening().contains("berries 1 east at (9,2,8)"));
-    assert!(
-        first
-            .opening()
-            .contains("Visible spring water 1 east, 1 south")
-    );
+    assert!(first.opening().contains("Visible water 1 east, 1 south"));
     assert!(first.opening().contains("Hand: empty"));
     assert!(first.opening().contains("13 C"));
 }

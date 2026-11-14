@@ -433,7 +433,7 @@ impl WorldState {
     /// the distinction between unknown world truth and a known clear voxel:
     /// callers decide whether an ungenerated cell may admit custody or movement.
     #[must_use]
-    pub(crate) fn full_cell_collision_at(
+    pub fn full_cell_collision_at(
         &self,
         registry: &WorldRegistry,
         voxel: VoxelCoord,

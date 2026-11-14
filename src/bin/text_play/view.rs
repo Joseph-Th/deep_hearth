@@ -35,7 +35,7 @@ use deep_hearth::survival::{
     available_local_drink_sources,
 };
 use deep_hearth::world::{
-    BlockStateId, DayPhase, ForageScent, VisibleWaterSource, WindCondition, WindDirection,
+    DayPhase, ForageScent, VisibleWaterSource, WindCondition, WindDirection,
     assess_player_forage_scents, assess_player_weather, available_visible_generated_water,
     raycast_player_block,
 };
@@ -231,23 +231,45 @@ impl LocalCues {
     pub fn watch_attention(&self, next: &Self, player: VoxelCoord) -> Option<&'static str> {
         let near = |sighting: &KoboldSighting| {
             let position = sighting.position();
-            position.y() == player.y()
+            position.y().abs_diff(player.y()) <= 1
                 && position.x().abs_diff(player.x()) <= 1
                 && position.z().abs_diff(player.z()) <= 1
         };
-        for current in &next.kobolds {
-            let previous_defender = self
+        // Role names are not resident identities. Multiple temples can have
+        // residents of the same caste in sight, so one already-close or
+        // defending resident must not conceal a second one's approach.
+        for (index, current) in next.kobolds.iter().enumerate() {
+            let role = current.role();
+            if next.kobolds[..index]
+                .iter()
+                .any(|earlier| earlier.role() == role)
+            {
+                continue;
+            }
+            let before = self
                 .kobolds
                 .iter()
-                .any(|old| old.role() == current.role() && old.is_defending());
-            if current.is_defending() && !previous_defender {
+                .filter(|old| old.role() == role && old.is_defending())
+                .count();
+            let after = next
+                .kobolds
+                .iter()
+                .filter(|seen| seen.role() == role && seen.is_defending())
+                .count();
+            if after > before {
                 return Some("A nearby resident has taken a defensive posture.");
             }
-            let previous_nearby = self
+            let before = self
                 .kobolds
                 .iter()
-                .any(|old| old.role() == current.role() && near(old));
-            if near(current) && !previous_nearby {
+                .filter(|old| old.role() == role && near(old))
+                .count();
+            let after = next
+                .kobolds
+                .iter()
+                .filter(|seen| seen.role() == role && near(seen))
+                .count();
+            if after > before {
                 return Some("A resident has approached your immediate position.");
             }
         }
@@ -472,10 +494,12 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
             );
         }
     }
+    // The world visibility query includes placed water vessels as well as
+    // natural springs. Sight alone does not establish a natural source.
     for water in available_visible_generated_water(registries, state) {
         let _ = writeln!(
             output,
-            "Visible spring water {} at {}",
+            "Visible water {} at {}",
             from.map_or_else(
                 || "unlocated".to_owned(),
                 |from| bearing(from, water.position())
@@ -611,16 +635,8 @@ fn timber_cover_preview(registries: &Registries, state: &AppState, aim: ViewDire
     let footing = standing_y
         .checked_sub(1)
         .map(|y| VoxelCoord::new(target.x(), y, target.z()));
-    let clear = [beneath, head].iter().all(|cell| {
-        state.world().block_at(*cell) == Some(BlockStateId::AIR)
-            && !state.structures().has_materialized_member_at(*cell)
-    });
-    let grounded = footing.is_some_and(|floor| {
-        state
-            .world()
-            .block_at(floor)
-            .is_some_and(|block| block != BlockStateId::AIR)
-    });
+    let clear = preview_standing_space_is_clear(registries, state, [beneath, head]);
+    let grounded = footing.is_some_and(|floor| preview_floor_is_solid(registries, state, floor));
     if !clear || !grounded {
         let _ = writeln!(
             output,
@@ -635,6 +651,30 @@ fn timber_cover_preview(registries: &Registries, state: &AppState, aim: ViewDire
         );
     }
     output
+}
+
+/// Use the generated world's physical collision classification. A living
+/// trunk is solid even when its terrain block is air; embodied construction
+/// can also prevent a reliably clear standing-height preview.
+fn preview_standing_space_is_clear(
+    registries: &Registries,
+    state: &AppState,
+    cells: [VoxelCoord; 2],
+) -> bool {
+    cells.into_iter().all(|cell| {
+        state
+            .world()
+            .full_cell_collision_at(registries.world(), cell)
+            == Some(false)
+            && !state.structures().has_materialized_member_at(cell)
+    })
+}
+
+fn preview_floor_is_solid(registries: &Registries, state: &AppState, floor: VoxelCoord) -> bool {
+    state
+        .world()
+        .full_cell_collision_at(registries.world(), floor)
+        == Some(true)
 }
 
 fn runway_label(slow_ticks: Option<u64>) -> String {
