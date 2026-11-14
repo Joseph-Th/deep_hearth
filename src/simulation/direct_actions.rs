@@ -8,6 +8,30 @@ mod structural_target;
 
 pub(super) use placement::project_pointed_timber_cover_target;
 
+/// Read-only structural break selection with the same standing-tree priority
+/// as the primary-action owner. Terrain and absent targets return None.
+pub(super) fn project_pointed_structural_break_target(
+    registries: &crate::registry::Registries,
+    state: &crate::core::state::AppState,
+    direction: crate::spatial::ViewDirection,
+) -> Result<Option<crate::structural::StructuralElementId>, usize> {
+    if let Ok(Some(_)) =
+        crate::world::raycast_player_air_voxel(registries, state, direction, |voxel, _| {
+            state.world().tree_trunk_at(voxel).map(|tree| tree.root())
+        })
+    {
+        return Ok(None);
+    }
+    match structural_target::resolve_direct_structural_target(registries, state, direction) {
+        Ok(element) => Ok(Some(element)),
+        Err(structural_target::DirectStructuralTargetError::Ambiguous { count }) => Err(count),
+        Err(
+            structural_target::DirectStructuralTargetError::TargetUnavailable
+            | structural_target::DirectStructuralTargetError::NoTarget,
+        ) => Ok(None),
+    }
+}
+
 pub(super) use contextual::attempt_pending_secondary_action;
 use contextual::attempt_secondary_action;
 pub(super) use primary::attempt_pending_primary_break;

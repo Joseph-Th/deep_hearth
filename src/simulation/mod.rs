@@ -26,6 +26,16 @@ pub fn project_pointed_timber_cover_target(
     direct_actions::project_pointed_timber_cover_target(registries, state, direction)
 }
 
+/// Preview the structural member selected by a pointed primary break, if any.
+/// This uses the action owner's physical ray selection without starting work.
+pub fn project_pointed_structural_break_target(
+    registries: &crate::registry::Registries,
+    state: &crate::core::state::AppState,
+    direction: crate::spatial::ViewDirection,
+) -> Result<Option<crate::structural::StructuralElementId>, usize> {
+    direct_actions::project_pointed_structural_break_target(registries, state, direction)
+}
+
 use crate::core::state::{AppState, apply_control_clock_advance, debug_assert_runtime_invariants};
 use crate::core::time::{ControlTick, SimulationTick};
 use crate::labor::{PlayerWork, apply_player_work_tick, decide_player_work_control_tick};

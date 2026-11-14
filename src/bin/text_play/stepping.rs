@@ -4,6 +4,7 @@ use std::fmt::Write as _;
 
 use super::{Session, activity, crafting, view};
 mod feedback;
+use deep_hearth::labor::PlayerWork;
 use deep_hearth::simulation::{
     PlayerDirectControlInput, SecondaryActionOutcome, advance_control_tick_with_direct_input,
 };
@@ -192,9 +193,7 @@ impl Session {
             }
             if !directional_jump
                 && self.state.tick() != slow_tick_before
-                && let Some((description, requires_attention)) =
-                    visible_before.changed(&view::local_cues(&self.registries, &self.state))
-                && (requires_attention || !work_wait)
+                && let Some(description) = self.wait_attention(&visible_before, work_wait)?
             {
                 let _ = writeln!(output, "{description}");
                 break;
@@ -243,6 +242,19 @@ impl Session {
             output.push_str(&view::look(&self.registries, &self.state, None));
         }
         Ok(output)
+    }
+
+    fn wait_attention(
+        &self,
+        previous: &view::LocalCues,
+        work_wait: bool,
+    ) -> Result<Option<&'static str>, String> {
+        let current = view::local_cues(&self.registries, &self.state);
+        if work_wait {
+            Ok(previous.work_attention(&current, self.player_position()?))
+        } else {
+            Ok(previous.changed(&current).map(|(message, _)| message))
+        }
     }
 
     pub(super) fn player_position(&self) -> Result<VoxelCoord, String> {
@@ -339,7 +351,13 @@ impl Session {
                 "Dismantling finished",
                 simulation
                     .structural_dismantling()
-                    .map(|_| "Structural materials recovered into storage.".to_owned()),
+                    .map(|_| match previous_work {
+                        Some(PlayerWork::StructuralDismantling { work }) => format!(
+                            "Recovered {} g of structural materials into your pack.",
+                            view::grams(work.recovered_mass()),
+                        ),
+                        _ => "Structural materials recovered into your pack.".to_owned(),
+                    }),
             );
             interrupt |= note_text(
                 output,

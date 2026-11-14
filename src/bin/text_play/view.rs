@@ -19,7 +19,9 @@ use deep_hearth::logistics::{
     PlayerActiveSelection, PlayerOverheadCoverAssessment, assess_player_overhead_cover,
 };
 use deep_hearth::material::CommodityKey;
-use deep_hearth::simulation::project_pointed_timber_cover_target;
+use deep_hearth::simulation::{
+    project_pointed_structural_break_target, project_pointed_timber_cover_target,
+};
 use deep_hearth::spatial::ViewDirection;
 use deep_hearth::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord};
 use deep_hearth::structural::StructuralLifecycle;
@@ -187,8 +189,8 @@ fn bearing(from: VoxelCoord, toward: VoxelCoord) -> String {
     }
 }
 
-/// Player-visible cues only. Weather alone need not interrupt a requested work completion;
-/// approaching creatures, tracks, and changing local supplies still demand attention.
+/// Player-visible cues only. Routine patrol traces can interrupt ordinary short
+/// waits without repeatedly disrupting a requested work completion.
 #[derive(Clone, PartialEq, Eq)]
 pub struct LocalCues {
     resources: Vec<AdjacentSurfaceResource>,
@@ -250,6 +252,22 @@ impl LocalCues {
             }
         }
         None
+    }
+
+    /// During hand work, ignore passive patrol motion, traces, and drifting
+    /// scents. A new close approach, defensive resident, or changing physical
+    /// supply remains actionable; canonical events and survival warnings are
+    /// handled by the control-step owner independently of these observations.
+    pub fn work_attention(&self, next: &Self, player: VoxelCoord) -> Option<&'static str> {
+        self.watch_attention(next, player).or_else(|| {
+            if self.resources != next.resources {
+                Some("Nearby loose resources have changed.")
+            } else if self.water != next.water {
+                Some("Nearby water has changed.")
+            } else {
+                None
+            }
+        })
     }
 }
 
@@ -511,6 +529,7 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
                 let _ = writeln!(output, "Pointing unavailable: {error}");
             }
         }
+        output.push_str(&structural_break_preview(registries, state, aim));
         if state.logistics().active_selection()
             == Some(PlayerActiveSelection::material(CommodityKey::new(
                 MATERIAL_WOOD,
@@ -542,6 +561,32 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
         );
     }
     output
+}
+
+fn structural_break_preview(
+    registries: &Registries,
+    state: &AppState,
+    aim: ViewDirection,
+) -> String {
+    match project_pointed_structural_break_target(registries, state, aim) {
+        Ok(Some(element)) => state
+            .structures()
+            .get_element(element)
+            .map_or_else(String::new, |member| {
+                let label = if member.geometry().covers_horizontal_footprint() {
+                    "panel"
+                } else {
+                    "framing"
+                };
+                format!(
+                    "Break target: {label} at {} | {} g. 'break' selects this structure before terrain.\n",
+                    pos(member.bounds().min()),
+                    grams(member.embodied_mass()),
+                )
+            }),
+        Err(count) => format!("Break target: {count} overlapping structures; aim more precisely.\n"),
+        Ok(None) => String::new(),
+    }
 }
 
 /// Show the production target before the player spends timber boards. A

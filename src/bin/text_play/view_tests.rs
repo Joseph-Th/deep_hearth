@@ -29,8 +29,7 @@ fn daylight_watch_tolerates_passive_footprints_but_not_a_new_close_resident() {
         "the seeded clearing must contain a visible resident"
     );
 
-    // Watches ignore footsteps, tracks, scents, and weather shifts, while
-    // shorter work waits retain their detailed observation boundaries.
+    // Watches and scheduled work ignore passive patrol traces, scents, and weather.
     let mut passive = initial.clone();
     passive.footfalls.clear();
     passive.tracks.clear();
@@ -38,6 +37,7 @@ fn daylight_watch_tolerates_passive_footprints_but_not_a_new_close_resident() {
     passive.weather = None;
     assert!(initial.changed(&passive).is_some());
     assert_eq!(initial.watch_attention(&passive, player), None);
+    assert_eq!(initial.work_attention(&passive, player), None);
 
     // A newly close resident is still a real reason to stop watching.
     let mut unseen = initial.clone();
@@ -47,6 +47,34 @@ fn daylight_watch_tolerates_passive_footprints_but_not_a_new_close_resident() {
         unseen.watch_attention(&initial, resident_position),
         Some("A resident has approached your immediate position.")
     );
+    assert_eq!(
+        unseen.work_attention(&initial, resident_position),
+        Some("A resident has approached your immediate position.")
+    );
+}
+
+#[test]
+fn work_wait_still_notices_changes_to_physical_food_and_water() {
+    let mut session = super::super::Session::new(24318).unwrap();
+    session.command("e 20").unwrap();
+    session.command("wait 10").unwrap();
+    let player = session.player_position().unwrap();
+    let initial = super::local_cues(&session.registries, &session.state);
+    assert!(!initial.resources.is_empty());
+    let mut changed = initial.clone();
+    changed.resources.clear();
+    assert_eq!(
+        initial.work_attention(&changed, player),
+        Some("Nearby loose resources have changed.")
+    );
+    changed = initial.clone();
+    changed.water.clear();
+    if !initial.water.is_empty() {
+        assert_eq!(
+            initial.work_attention(&changed, player),
+            Some("Nearby water has changed.")
+        );
+    }
 }
 
 #[test]

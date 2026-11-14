@@ -68,6 +68,17 @@ pub(super) fn assembly_blocker(registries: &Registries, error: EnergyStoreAssemb
 
 fn fuel_blocker(registries: &Registries, error: CombustionError) -> String {
     match error {
+        CombustionError::InsufficientThermalCapacity {
+            stored,
+            released,
+            capacity,
+            ..
+        } => format!(
+            "fire has {} stored / {} capacity; this charge adds {}. Let it burn down before adding fuel",
+            energy_label(stored),
+            energy_label(capacity),
+            energy_label(released),
+        ),
         CombustionError::InsufficientFuel {
             available,
             required,
@@ -250,3 +261,7 @@ pub fn fuel(
         energy_label(energy),
     ))
 }
+
+#[cfg(test)]
+#[path = "fire_tests.rs"]
+mod tests;

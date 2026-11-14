@@ -985,11 +985,31 @@ fn angled_pointing_constructs_real_timber_post_with_local_visibility_and_replay(
     assert!(finished.contains("Construction finished"));
     let (look, _) = session.command("look").unwrap();
     assert!(look.contains("Nearby framing: axial compression at (11,2,9) | Active | 3250 g"));
+    let (aimed, _) = session.command("look e-down").unwrap();
+    assert!(
+        aimed.contains("Break target: framing at (11,2,9) | 3250 g."),
+        "the pointed look must identify the structural break target: {aimed}"
+    );
     assert_eq!(
         deep_hearth::matter::calculate_matter_accounting(&session.state)
             .unwrap()
             .total(),
         total,
+    );
+    session.command("empty").unwrap();
+    let (broken, _) = session.command("break e-down").unwrap();
+    assert!(broken.contains("Action queued"), "{broken}");
+    let (started, _) = session.command("wait boundary").unwrap();
+    assert!(
+        started.contains("Structural dismantling started"),
+        "{started}"
+    );
+    let (recovered, _) = session.command("wait work").unwrap();
+    assert!(
+        recovered.contains(
+            "Dismantling finished: Recovered 3250 g of structural materials into your pack."
+        ),
+        "{recovered}"
     );
     session.command("w 20").unwrap();
     session.command("wait 10").unwrap();
