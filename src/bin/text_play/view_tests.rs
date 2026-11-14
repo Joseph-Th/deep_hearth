@@ -420,6 +420,71 @@ fn campfire_without_stone_reports_a_real_material_shortfall() {
 }
 
 #[test]
+fn built_fire_is_reported_from_its_real_warmth_radius_without_remote_fuel_access() {
+    let mut session = super::super::Session::new(24318).unwrap();
+    // Follow the real player route: collect a stone ring and timber fuel.
+    for command in [
+        "e 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "gather 1 1000",
+        "wait work",
+        "build-fire",
+        "w 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "gather 1 1000",
+        "wait work",
+        "n 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "feed-fire 1 1",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command} failed: {error}"));
+    }
+    let stored = session
+        .state
+        .available_local_energy_stores()
+        .next()
+        .expect("the constructed fire must remain at the player's position")
+        .stored();
+    assert_eq!(stored, deep_hearth::content::CAMPFIRE_FUEL_THERMAL_ENERGY);
+    let charge = super::super::fire::energy_label(stored);
+    let local = super::status(&session.registries, &session.state);
+    assert!(
+        local.contains(&format!(
+            "Local warmth: stone-ring campfire | {charge} stored"
+        )),
+        "{local}"
+    );
+    for command in ["w 20", "wait 10"] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command} failed: {error}"));
+    }
+    let adjacent = super::status(&session.registries, &session.state);
+    assert!(
+        adjacent.contains(&format!(
+            "Adjacent warmth: stone-ring campfire at (11,2,8) | {charge} stored"
+        )),
+        "{adjacent}"
+    );
+    assert!(!adjacent.contains("Local warmth:"), "{adjacent}");
+    let remote_fire = super::super::fire::catalog(&session.registries, &session.state).unwrap();
+    assert!(
+        remote_fire.contains("(none at your current location)"),
+        "{remote_fire}"
+    );
+}
+
+#[test]
 fn exact_gram_labels_retain_milligrams_without_trailing_zeros() {
     use deep_hearth::core::quantity::Mass;
 

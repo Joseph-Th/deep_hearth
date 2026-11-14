@@ -11,6 +11,7 @@ pub use actor_inventory::{hand_label, inventory};
 use deep_hearth::content::{FORM_BOARD, MATERIAL_WOOD};
 use deep_hearth::core::quantity::{Mass, Volume};
 use deep_hearth::core::time::{CONTROL_TICK_DURATION, CONTROL_TICKS_PER_SIMULATION_TICK, Season};
+use deep_hearth::energy::project_player_nearby_warmth_sources;
 use deep_hearth::kobolds::{
     KoboldFootfall, KoboldSighting, KoboldTrack, available_nearby_kobold_footfalls,
     available_nearby_kobold_scouts, available_nearby_kobold_tracks,
@@ -411,15 +412,26 @@ pub fn status(registries: &Registries, state: &AppState) -> String {
     if let Some(weather) = assess_player_weather(registries, state) {
         let _ = writeln!(output, "Weather: {}", sensory::weather(weather));
     }
-    for source in state.available_local_energy_stores() {
-        if let Some(definition) = registries.energy().get_store(source.definition())
-            && definition.is_local_warmth_source()
-            && !source.stored().is_zero()
-        {
+    for source in project_player_nearby_warmth_sources(registries, state) {
+        let definition = registries
+            .energy()
+            .get_store(source.definition())
+            .unwrap_or_else(|| {
+                unreachable!("energy owner projected a missing warmth source definition")
+            });
+        if source.position() == player.position() {
             let _ = writeln!(
                 output,
                 "Local warmth: {} | {} stored",
                 definition.name(),
+                super::fire::energy_label(source.stored()),
+            );
+        } else {
+            let _ = writeln!(
+                output,
+                "Adjacent warmth: {} at {} | {} stored",
+                definition.name(),
+                pos(source.position()),
                 super::fire::energy_label(source.stored()),
             );
         }

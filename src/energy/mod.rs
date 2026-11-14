@@ -50,6 +50,7 @@ pub use integration::{
     calculate_power_duration_ceiling, integrate_power,
 };
 pub(crate) use local_warmth::assess_player_local_warmth;
+pub use local_warmth::{NearbyWarmthSource, project_player_nearby_warmth_sources};
 pub use mechanical_transmission::MechanicalTransmissionReceipt;
 pub(crate) use mechanical_transmission::{
     apply_mechanical_transmission, decide_mechanical_transmission,

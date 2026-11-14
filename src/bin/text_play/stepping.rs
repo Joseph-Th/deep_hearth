@@ -4,6 +4,7 @@ use std::fmt::Write as _;
 
 use super::{Session, activity, crafting, view};
 mod feedback;
+use deep_hearth::energy::project_player_nearby_warmth_sources;
 use deep_hearth::labor::PlayerWork;
 use deep_hearth::simulation::{
     PlayerDirectControlInput, SecondaryActionOutcome, advance_control_tick_with_direct_input,
@@ -71,7 +72,7 @@ impl Session {
             .and_then(|ticks| ticks.checked_sub(self.state.control_tick().value() % scale))
             .ok_or("daylight wait exceeds the control-clock range")?;
         let observed = view::local_cues(&self.registries, &self.state);
-        let lit_fire = has_lit_local_fire(&self.registries, &self.state);
+        let initial_lit_fires = lit_nearby_fires(&self.registries, &self.state);
         let mut output = String::new();
         let mut actual = 0_u64;
         for _ in 0..maximum {
@@ -95,8 +96,15 @@ impl Session {
                     let _ = writeln!(output, "Reached {phase_name}.");
                     break;
                 }
-                if lit_fire && !has_lit_local_fire(&self.registries, &self.state) {
-                    output.push_str("Daylight watch interrupted: local fire extinguished.\n");
+                if !initial_lit_fires.is_empty() && {
+                    let still_lit = lit_nearby_fires(&self.registries, &self.state);
+                    initial_lit_fires
+                        .iter()
+                        .any(|fire| !still_lit.contains(fire))
+                } {
+                    output.push_str(
+                        "Daylight watch interrupted: a nearby fire stopped providing warmth.\n",
+                    );
                     break;
                 }
                 if let Some(description) = observed.watch_attention(
@@ -488,14 +496,14 @@ fn note_secondary(
     }
 }
 
-fn has_lit_local_fire(registries: &deep_hearth::Registries, state: &deep_hearth::AppState) -> bool {
-    state.available_local_energy_stores().any(|store| {
-        !store.stored().is_zero()
-            && registries
-                .energy()
-                .get_store(store.definition())
-                .is_some_and(|definition| definition.is_local_warmth_source())
-    })
+fn lit_nearby_fires(
+    registries: &deep_hearth::Registries,
+    state: &deep_hearth::AppState,
+) -> Vec<deep_hearth::energy::EnergyStoreId> {
+    project_player_nearby_warmth_sources(registries, state)
+        .into_iter()
+        .map(|source| source.store())
+        .collect()
 }
 
 fn note_text(output: &mut String, label: &str, event: Option<String>) -> bool {
