@@ -254,6 +254,50 @@ fn directional_jump_can_regain_a_one_voxel_ledge_on_the_played_seed() {
 }
 
 #[test]
+fn directional_jump_is_one_impulse_even_when_held_movement_outlasts_landing() {
+    let mut played = Session::new(24318).unwrap();
+    let mut reference = Session::new(24318).unwrap();
+    for _ in 0..7 {
+        played.command("n 240").unwrap();
+        reference.command("n 240").unwrap();
+    }
+    let (report, _) = played.command("jump n 240").unwrap();
+    assert!(
+        report.contains("Fall impact:"),
+        "the blocked directional jump must report its real landing: {report}"
+    );
+    let elapsed: u64 = report
+        .lines()
+        .find_map(|line| line.strip_prefix("Advanced "))
+        .and_then(|line| line.split_whitespace().next())
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(elapsed > 1 && elapsed < 240, "{report}");
+    assert_eq!(
+        played
+            .state
+            .logistics()
+            .player()
+            .unwrap()
+            .body()
+            .vertical_velocity(),
+        deep_hearth::spatial::VerticalVelocity::ZERO,
+        "the blocked jump must end on a real landing, not a second impulse"
+    );
+    let north = HorizontalControlInput::new(0, -1_000_000).unwrap();
+    for step in 0..elapsed {
+        reference
+            .step(
+                PlayerDirectControlInput::new(PlayerControlInput::new(north).with_jump(step == 0)),
+                &mut String::new(),
+            )
+            .unwrap();
+    }
+    assert_eq!(snapshot(&played), snapshot(&reference));
+}
+
+#[test]
 fn fire_command_consumes_the_exact_gathered_stack_and_conserves_matter() {
     use deep_hearth::content::{FORM_LOG, MATERIAL_WOOD};
     use deep_hearth::core::quantity::Mass;

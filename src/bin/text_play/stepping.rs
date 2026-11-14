@@ -7,7 +7,7 @@ mod feedback;
 use deep_hearth::simulation::{
     PlayerDirectControlInput, SecondaryActionOutcome, advance_control_tick_with_direct_input,
 };
-use deep_hearth::spatial::{HorizontalVelocity, VoxelCoord};
+use deep_hearth::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord};
 use deep_hearth::surface::SurfaceGatheringError;
 use deep_hearth::survival::Vitality;
 use deep_hearth::world::{DayPhase, assess_player_weather};
@@ -169,10 +169,10 @@ impl Session {
         let starting_position = self.player_position()?;
         let before = view::urgency(&self.registries, &self.state);
         let visible_before = view::local_cues(&self.registries, &self.state);
-        // A directional jump is one short continuous maneuver. A changed
-        // spring/track at the next slow boundary must not release horizontal
-        // input while the character is still clearing a ledge. Direct injury,
-        // explicit events and survival warning transitions still interrupt it.
+        // A directional jump is one impulse followed by continued horizontal
+        // control. Do not hold the jump button across a landing: the motion
+        // owner would legitimately launch another jump on the next grounded
+        // sample. Nearby changes must not interrupt the first jump mid-ledge.
         let directional_jump = walking && input.movement().jump();
         let mut actual = 0;
         for _ in 0..limit {
@@ -180,7 +180,12 @@ impl Session {
                 .then(|| self.state.logistics().player().map(|player| player.body()))
                 .flatten();
             let slow_tick_before = self.state.tick();
-            let noteworthy = self.step(input, &mut output)?.noteworthy;
+            let sampled_input = if directional_jump && actual != 0 {
+                PlayerDirectControlInput::new(input.movement().with_jump(false))
+            } else {
+                input
+            };
+            let noteworthy = self.step(sampled_input, &mut output)?.noteworthy;
             actual += 1;
             if noteworthy || view::urgency(&self.registries, &self.state) != before {
                 break;
@@ -198,12 +203,13 @@ impl Session {
             // requested interval. Stop once the real motion owner has settled at
             // zero velocity and an unchanged horizontal position. A mere lack of
             // voxel crossing is not enough: acceleration moves within a voxel.
-            // Directional jumps remain held while ascending to clear a ledge.
-            if !directional_jump
-                && let (Some(previous), Some(current)) = (
-                    body_before,
-                    self.state.logistics().player().map(|player| player.body()),
-                )
+            // A single jump may need to push against a ledge while ascending.
+            // Once its vertical motion ends, a blocked horizontal input can
+            // terminate normally rather than wasting the remaining command.
+            if let (Some(previous), Some(current)) = (
+                body_before,
+                self.state.logistics().player().map(|player| player.body()),
+            ) && (!directional_jump || current.vertical_velocity() == VerticalVelocity::ZERO)
                 && previous.foot_position().x_nanometers() == current.foot_position().x_nanometers()
                 && previous.foot_position().z_nanometers() == current.foot_position().z_nanometers()
                 && current.horizontal_velocity() == HorizontalVelocity::ZERO
