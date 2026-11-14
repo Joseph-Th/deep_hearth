@@ -168,7 +168,9 @@ pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, Stri
                 .filter(|(_, stack)| stack.commodity() == profile.fuel())
                 .find_map(|(index, stack)| {
                     match validate_combust_stack_fuel(registries, state, id, source, stack) {
-                        Ok(_) => Some(index + 1),
+                        Ok(charge) => {
+                            Some((index + 1, charge.consumed_mass(), charge.released_energy()))
+                        }
                         Err(error) => {
                             if first_blocker.is_none() {
                                 first_blocker = Some(fuel_blocker(registries, error));
@@ -179,11 +181,15 @@ pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, Stri
                 });
             let _ = writeln!(
                 output,
-                "     Fuel: {} g {material} per charge | {}",
+                "     Fuel: up to {} g {material} per charge | {}",
                 view::grams(profile.fuel_mass()),
                 eligible.map_or_else(
                     || first_blocker.unwrap_or_else(|| "no matching carried stack".to_owned()),
-                    |stack| format!("feed-fire {count} {stack}")
+                    |(stack, mass, heat)| format!(
+                        "feed-fire {count} {stack} ({} g, {})",
+                        view::grams(mass),
+                        energy_label(heat)
+                    )
                 ),
             );
         }
@@ -232,7 +238,7 @@ pub fn fuel(
         .get_store(store)
         .and_then(|record| registries.energy().get_store(record.definition()))
         .ok_or("local campfire has no definition")?;
-    let fuel = definition.combustion_profile_for(commodity).ok_or_else(|| {
+    definition.combustion_profile_for(commodity).ok_or_else(|| {
         format!(
             "stack {stack_index} contains {}, not campfire fuel; use 'fire' to see eligible carried stacks",
             registries
@@ -241,16 +247,15 @@ pub fn fuel(
                 .unwrap_or("unidentified material")
         )
     })?;
-    let mass = view::grams(fuel.fuel_mass());
     let material = registries
         .materials()
         .commodity_name(commodity)
         .unwrap_or("unidentified material")
         .to_owned();
-    validate_combust_stack_fuel(registries, state, store, source, stack)
-        .map_err(|error| fuel_blocker(registries, error))?
-        .commit(state)
-        .map_err(|error| error.to_string())?;
+    let charge = validate_combust_stack_fuel(registries, state, store, source, stack)
+        .map_err(|error| fuel_blocker(registries, error))?;
+    let mass = view::grams(charge.consumed_mass());
+    charge.commit(state).map_err(|error| error.to_string())?;
     let energy = state
         .energy()
         .get_store(store)

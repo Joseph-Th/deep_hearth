@@ -485,7 +485,81 @@ fn selected_fuel_stack_burns_the_chosen_cohort_and_replays_exactly() {
 }
 
 #[test]
-fn selected_fuel_stack_rejects_short_impure_and_stale_cohorts_without_mutation() {
+fn stranded_board_chip_and_log_fragments_heat_a_fire_without_touching_other_lots() {
+    use crate::core::quantity::{Energy, Temperature};
+
+    let (registries, mut state, carried, fire) = campfire_fixture();
+    let logs = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let boards = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
+    let chips = CommodityKey::new(MATERIAL_WOOD, FORM_CHIP);
+    let warm = Temperature::from_millikelvin(320_150);
+    for (fuel, mass) in [
+        (boards, Mass::from_milligrams(400_000)),
+        (chips, Mass::from_milligrams(200_000)),
+    ] {
+        deposit_bulk_for_test(&registries, &mut state, carried, fuel, mass).unwrap();
+    }
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        logs,
+        Mass::from_milligrams(262_769),
+        warm,
+    )
+    .unwrap();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+
+    for (fuel, temperature, mass, expected_heat) in [
+        (
+            boards,
+            Temperature::from_millikelvin(293_150),
+            Mass::from_milligrams(400_000),
+            Energy::from_nanojoules(4_800_000_000_000_000),
+        ),
+        (
+            chips,
+            Temperature::from_millikelvin(293_150),
+            Mass::from_milligrams(200_000),
+            Energy::from_nanojoules(2_000_000_000_000_000),
+        ),
+        (
+            logs,
+            warm,
+            Mass::from_milligrams(262_769),
+            Energy::from_nanojoules(3_153_228_000_000_000),
+        ),
+    ] {
+        let stack = project_material_stacks(&registries, &state, carried)
+            .unwrap()
+            .into_iter()
+            .find(|stack| stack.commodity() == fuel && stack.temperature() == temperature)
+            .unwrap();
+        let charge =
+            validate_combust_stack_fuel(&registries, &state, fire, carried, &stack).unwrap();
+        assert_eq!(charge.consumed_mass(), mass);
+        assert_eq!(charge.commit(&mut state).unwrap(), expected_heat);
+        assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    }
+    let stock = state.inventory().get_stockpile(carried).unwrap();
+    assert_eq!(stock.get_mass(logs), CAMPFIRE_FUEL_MASS);
+    assert_eq!(stock.get_mass(boards), Mass::ZERO);
+    assert_eq!(stock.get_mass(chips), Mass::ZERO);
+    assert_eq!(
+        state.energy().get_store(fire).unwrap().stored(),
+        Energy::from_nanojoules(9_953_228_000_000_000)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let reloaded = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(reloaded, state);
+}
+
+#[test]
+fn selected_fuel_stack_burns_short_and_rejects_impure_or_stale_cohorts() {
     use crate::core::quantity::Temperature;
 
     let (registries, mut state, carried, fire) = campfire_fixture();
@@ -505,16 +579,31 @@ fn selected_fuel_stack_rejects_short_impure_and_stale_cohorts_without_mutation()
         .into_iter()
         .find(|stack| stack.temperature() == warm)
         .unwrap();
-    let before = state.clone();
-    assert!(matches!(
-        validate_combust_stack_fuel(&registries, &state, fire, carried, &short),
-        Err(CombustionError::InsufficientFuel { source, available, required })
-            if source == carried && available == Mass::from_milligrams(10_000)
-                && required == CAMPFIRE_FUEL_MASS
-    ));
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let partial_heat = validate_combust_stack_fuel(&registries, &state, fire, carried, &short)
+        .expect("a small, pure log cohort should provide proportionate heat")
+        .commit(&mut state)
+        .unwrap();
     assert_eq!(
-        state, before,
-        "another full log must not subsidize a short stack"
+        partial_heat,
+        crate::core::quantity::Energy::from_nanojoules(120_000_000_000_000)
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(fuel),
+        CAMPFIRE_FUEL_MASS,
+        "the separate full log must not subsidize a short selected cohort"
+    );
+    assert_eq!(
+        state.energy().get_store(fire).unwrap().stored(),
+        partial_heat
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
     );
 
     let impure = MaterialComposition::new(vec![

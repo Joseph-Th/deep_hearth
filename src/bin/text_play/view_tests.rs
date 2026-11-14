@@ -1,6 +1,28 @@
 //! Regression tests for player-local text projection formatting.
 
 #[test]
+fn repeated_patrol_impressions_are_collapsed_without_erasing_distinct_routes() {
+    let grouped = super::group_track_descriptions([
+        "scout footprints at (0,-3,8), heading 1 east".to_owned(),
+        "scout hurried footprints at (0,-3,9), heading 1 north".to_owned(),
+        "scout footprints at (0,-3,8), heading 1 east".to_owned(),
+        "scout footprints at (1,-3,8), heading 1 west".to_owned(),
+        "scout footprints at (0,-3,8), heading 1 east".to_owned(),
+    ]);
+    assert_eq!(
+        grouped,
+        vec![
+            ("scout footprints at (0,-3,8), heading 1 east".to_owned(), 3),
+            (
+                "scout hurried footprints at (0,-3,9), heading 1 north".to_owned(),
+                1
+            ),
+            ("scout footprints at (1,-3,8), heading 1 west".to_owned(), 1),
+        ]
+    );
+}
+
+#[test]
 fn condition_report_matches_survival_owner_reserve_percentages() {
     use deep_hearth::survival::assess_survival;
 

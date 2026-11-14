@@ -54,6 +54,9 @@ pub enum CombustionError {
         available: Mass,
         required: Mass,
     },
+    FractionalChargeTooSmall {
+        available: Mass,
+    },
     SourceMassOverflow {
         source: StockpileId,
     },
@@ -131,6 +134,11 @@ impl Display for CombustionError {
                 available.milligrams(),
                 required.milligrams()
             ),
+            Self::FractionalChargeTooSmall { available } => write!(
+                formatter,
+                "fuel fragment of {} mg cannot release representable heat",
+                available.milligrams()
+            ),
             Self::SourceMassOverflow { source } => write!(
                 formatter,
                 "fuel source {} stored mass overflowed",
@@ -188,6 +196,7 @@ impl Error for CombustionError {
             | Self::ImpureFuel { .. }
             | Self::StoreBusy { .. }
             | Self::InsufficientFuel { .. }
+            | Self::FractionalChargeTooSmall { .. }
             | Self::SourceMassOverflow { .. }
             | Self::StaleInventorySelection { .. }
             | Self::InventoryRevisionExhausted
@@ -268,6 +277,7 @@ pub struct ValidatedCombustion {
     store: EnergyStoreId,
     expected_stored: Energy,
     released_energy: Energy,
+    consumed_mass: Mass,
     fuel_material: crate::material::MaterialId,
     next_combusted_mass: AggregateMass,
     expected_energy_revision: u64,
@@ -279,6 +289,18 @@ pub struct ValidatedCombustion {
 }
 
 impl ValidatedCombustion {
+    /// Exact fuel mass that this validated charge will consume.
+    #[must_use]
+    pub const fn consumed_mass(&self) -> Mass {
+        self.consumed_mass
+    }
+
+    /// Thermal energy this exact selected charge will release on commit.
+    #[must_use]
+    pub const fn released_energy(&self) -> Energy {
+        self.released_energy
+    }
+
     pub fn commit(self, state: &mut AppState) -> Result<Energy, CombustionCommitError> {
         if state.logistics().revision() != self.expected_logistics_revision {
             return Err(CombustionCommitError::StaleLogistics {
@@ -367,7 +389,9 @@ pub fn validate_combust_selected_fuel(
     )
 }
 
-/// Burns one physically selected stack, never another same-commodity cohort.
+/// Burns up to one authored charge from one physically selected stack, including smaller
+/// pure remnants, without borrowing from another same-commodity cohort. Full charges retain
+/// their authored heat output; fragments release proportionate, rounded-down nanojoules.
 /// The projection must still match its inventory revision and simulation tick.
 pub fn validate_combust_stack_fuel(
     registries: &Registries,
@@ -435,28 +459,48 @@ fn validate_combust_fuel_selected(
     if energy_store_occupancy(state, store).is_some() {
         return Err(CombustionError::StoreBusy { store });
     }
-    let stored_after = record
-        .stored()
-        .checked_add(profile.released_energy())
-        .ok_or(CombustionError::InsufficientThermalCapacity {
+    // A numbered physical stack can burn a genuine leftover rather than leaving
+    // unusable fuel after the last whole charge. Commodity/default admission still
+    // selects one full authored charge, so those paths never silently change size.
+    let fuel_mass = match selected_fuel {
+        FuelSelection::Stack(stack) => stack.mass().min(profile.fuel_mass()),
+        FuelSelection::Default | FuelSelection::Commodity(_) => profile.fuel_mass(),
+    };
+    let full_mass = u128::from(profile.fuel_mass().milligrams());
+    let portion = u128::from(fuel_mass.milligrams());
+    let full_energy = profile.released_energy().nanojoules();
+    // Split the division before multiplying. Both products fit u128 even when
+    // an authored charge approaches the quantity limits, and truncation never
+    // grants extra heat for a fractional nanojoule.
+    let released =
+        (full_energy / full_mass) * portion + ((full_energy % full_mass) * portion) / full_mass;
+    if released == 0 {
+        return Err(CombustionError::FractionalChargeTooSmall {
+            available: fuel_mass,
+        });
+    }
+    let released_energy = Energy::from_nanojoules(released);
+    let stored_after = record.stored().checked_add(released_energy).ok_or(
+        CombustionError::InsufficientThermalCapacity {
             store,
             stored: record.stored(),
-            released: profile.released_energy(),
+            released: released_energy,
             capacity: definition.capacity(),
-        })?;
+        },
+    )?;
     if stored_after > definition.capacity() {
         return Err(CombustionError::InsufficientThermalCapacity {
             store,
             stored: record.stored(),
-            released: profile.released_energy(),
+            released: released_energy,
             capacity: definition.capacity(),
         });
     }
-    let input = [MaterialInputSpec::pure(profile.fuel(), profile.fuel_mass())];
+    let input = [MaterialInputSpec::pure(profile.fuel(), fuel_mass)];
     let selection = match selected_fuel {
         FuelSelection::Stack(stack) => {
             let slices = stack
-                .selections_for_mass(state, source, profile.fuel_mass())
+                .selections_for_mass(state, source, fuel_mass)
                 .map_err(|error| match error {
                     MaterialStackProjectionError::MassExceedsStack {
                         requested,
@@ -535,7 +579,7 @@ fn validate_combust_fuel_selected(
     let next_combusted_mass = state
         .energy()
         .combusted_mass(fuel_material)
-        .checked_add(AggregateMass::from_mass(profile.fuel_mass()))
+        .checked_add(AggregateMass::from_mass(fuel_mass))
         .ok_or(CombustionError::CombustedMassOverflow)?;
     let expected_energy_revision = state.energy().revision();
     let next_energy_revision = expected_energy_revision
@@ -545,7 +589,8 @@ fn validate_combust_fuel_selected(
         player_action,
         store,
         expected_stored: record.stored(),
-        released_energy: profile.released_energy(),
+        released_energy,
+        consumed_mass: fuel_mass,
         fuel_material,
         next_combusted_mass,
         expected_energy_revision,

@@ -334,7 +334,7 @@ fn fire_command_consumes_the_exact_gathered_stack_and_conserves_matter() {
     let (built, _) = session.command("build-fire").unwrap();
     assert!(built.contains("Built a stone-ring campfire"), "{built}");
 
-    // Bring back a deliberately insufficient charge before completing it.
+    // Bring back a half charge and burn it without waiting for a full log.
     for command in ["w 20", "wait 10", "s 20", "wait 10", "gather 1 500"] {
         session
             .command(command)
@@ -358,20 +358,30 @@ fn fire_command_consumes_the_exact_gathered_stack_and_conserves_matter() {
         + 1;
     let catalog = session.command("fire").unwrap().0;
     assert!(
-        catalog.contains("selected fuel stack has 500 g; one charge needs 1000 g"),
+        catalog.contains(&format!("feed-fire 1 {short_index} (500 g, 6.000 MJ)")),
         "{catalog}"
     );
-    let before_rejection = snapshot(&session);
-    let rejected = session
+    let conserved = calculate_matter_accounting(&session.state).unwrap().total();
+    let (first, _) = session
         .command(&format!("feed-fire 1 {short_index}"))
-        .unwrap_err();
-    assert!(
-        rejected.contains("selected fuel stack has 500 g; one charge needs 1000 g"),
-        "{rejected}"
+        .unwrap();
+    assert!(first.contains("Burned 500 g timber log"), "{first}");
+    assert!(first.contains("6.000 MJ"), "{first}");
+    assert_eq!(
+        session
+            .state
+            .inventory()
+            .get_stockpile(source)
+            .unwrap()
+            .get_mass(wood),
+        Mass::ZERO
     );
-    assert_eq!(snapshot(&session), before_rejection);
+    assert_eq!(
+        calculate_matter_accounting(&session.state).unwrap().total(),
+        conserved
+    );
 
-    // The remaining timber is physically gathered, not borrowed from another cohort.
+    // The next half charge is gathered rather than borrowed from another cohort.
     for command in ["w 20", "wait 10", "s 20", "wait 10", "gather 1 500"] {
         session
             .command(command)
@@ -389,9 +399,9 @@ fn fire_command_consumes_the_exact_gathered_stack_and_conserves_matter() {
         .stacks()
         .iter()
         .position(|stack| {
-            stack.commodity() == wood && stack.mass() >= Mass::from_milligrams(1_000_000)
+            stack.commodity() == wood && stack.mass() == Mass::from_milligrams(500_000)
         })
-        .unwrap_or_else(|| panic!("both gathered portions must provide one full charge"))
+        .unwrap_or_else(|| panic!("the second half charge must be carried"))
         + 1;
     let catalog = session.command("fire").unwrap().0;
     assert!(
@@ -400,7 +410,9 @@ fn fire_command_consumes_the_exact_gathered_stack_and_conserves_matter() {
     );
     let conserved = calculate_matter_accounting(&session.state).unwrap().total();
     let (receipt, _) = session.command(&format!("feed-fire 1 {index}")).unwrap();
-    assert!(receipt.contains("Burned 1000 g timber log"), "{receipt}");
+    assert!(receipt.contains("Burned 500 g timber log"), "{receipt}");
+    // The first charge has dissipated some heat during the second gathering trip.
+    assert!(receipt.contains("thermal store now has "), "{receipt}");
     assert_eq!(
         session
             .state

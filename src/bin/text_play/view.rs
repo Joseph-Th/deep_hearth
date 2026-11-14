@@ -531,8 +531,19 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
     for footfall in available_nearby_kobold_footfalls(registries, state) {
         let _ = writeln!(output, "Heard: {}", sensory::footfall(footfall));
     }
-    for track in available_nearby_kobold_tracks(registries, state) {
-        let _ = writeln!(output, "Track: {}", sensory::track(track));
+    // The same patrol leg may leave multiple impressions. Keep its location,
+    // heading and activity observable without flooding every 'look' with repeats.
+    let tracks = group_track_descriptions(
+        available_nearby_kobold_tracks(registries, state)
+            .into_iter()
+            .map(sensory::track),
+    );
+    for (track, count) in tracks {
+        if count == 1 {
+            let _ = writeln!(output, "Track: {track}");
+        } else {
+            let _ = writeln!(output, "Track: {track} ({count} impressions)");
+        }
     }
     if let Some(aim) = aim {
         match raycast_player_block(registries, state, aim) {
@@ -585,6 +596,19 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
         );
     }
     output
+}
+
+/// Combine identical physical traces while retaining first-observed route order.
+fn group_track_descriptions(tracks: impl IntoIterator<Item = String>) -> Vec<(String, usize)> {
+    let mut grouped: Vec<(String, usize)> = Vec::new();
+    for description in tracks {
+        if let Some((_, count)) = grouped.iter_mut().find(|(label, _)| *label == description) {
+            *count += 1;
+        } else {
+            grouped.push((description, 1));
+        }
+    }
+    grouped
 }
 
 fn structural_break_preview(
