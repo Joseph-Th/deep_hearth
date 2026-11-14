@@ -119,11 +119,12 @@ const WATCH_RECOVERY_TICKS: u64 = 100;
 struct KoboldColony {
     /// The three authored patrol voxels never change after wilderness generation.
     route: [VoxelCoord; 3],
-    /// One temporary branch diversion, valid only until the scout returns to the den.
+    /// Temporary intermediate route cell, including the patrol tip for an extended
+    /// two-edge trip. Cleared when the scout returns to the den.
     /// Persisted colony records must include this field even when its value is null.
     #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     detour: Option<VoxelCoord>,
-    /// Second traversable branch cell when a scout investigates a farther exposed cache.
+    /// Second traversable destination when a scout investigates farther supplies.
     #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     detour_goal: Option<VoxelCoord>,
     scout_step: u8,
@@ -262,7 +263,7 @@ impl KoboldColony {
                 && !(self.scout_step == 1 && self.returning))
                 || detour == self.route[0]
                 || detour == self.route[1]
-                || detour == self.route[2]
+                || (detour == self.route[2] && self.detour_goal.is_none())
                 || !state.logistics().has_traversal_edge(self.route[1], detour))
         {
             return Err("invalid kobold temporary detour or traversal edge");

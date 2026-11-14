@@ -186,6 +186,68 @@ fn water_route_uses_current_sight_then_rechecks_the_guard_at_the_next_real_step(
 }
 
 #[test]
+fn scout_can_reach_water_beyond_its_normal_patrol_tip_and_replay_the_trip() {
+    let (registries, mut state, [_, _, tip, _]) = water_route();
+    let beyond_tip = VoxelCoord::new(tip.x() + 1, tip.y(), tip.z());
+    add_traversable_edge_for_test(&mut state, tip, beyond_tip);
+    let water = place_water(&registries, &mut state, beyond_tip, SCOUT_DRINK_VOLUME);
+    assert_eq!(
+        observed_route(&registries, &state),
+        Some((tip, Some(beyond_tip))),
+        "the normal patrol tip is a legitimate intermediate walking edge"
+    );
+    let fluid_before = calculate_fluid_volume_accounting(&state).unwrap();
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    let mut reached_water = false;
+    for _ in 0..1_400 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+        let colony = state.kobold_state().colony.as_ref().unwrap();
+        reached_water |= colony.scout_position() == beyond_tip;
+        if colony.last_drink_at.is_some() {
+            break;
+        }
+    }
+    assert!(
+        reached_water,
+        "water must be reached by actual walking edges"
+    );
+    assert!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .last_drink_at
+            .is_some(),
+        "the visible water route must end in a physical drink"
+    );
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.fluid().get_store(water).unwrap().stored_volume(),
+        Volume::ZERO
+    );
+    assert_eq!(
+        calculate_fluid_volume_accounting(&state).unwrap(),
+        fluid_before
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn scout_chooses_a_full_side_drink_over_one_microliter_on_its_regular_patrol() {
     let (registries, mut state, [_, _, tip, side]) = water_route();
     let tiny = Volume::from_microliters(1);

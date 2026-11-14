@@ -11,6 +11,7 @@ use crate::spatial::VoxelCoord;
 use crate::world::{WindCondition, generated_air_at, wind_at_generated_position};
 
 use super::patrol::{opening_resident_can_depart, scout_can_approach_visible_unlit_cell};
+use super::scavenging::{ScavengeRoute, two_edge_candidates};
 use super::{KoboldColony, SCOUT_DRINK_INTERVAL_TICKS, SCOUT_DRINK_VOLUME};
 
 /// The scout's next water requirement responds to the ambient temperature at
@@ -160,19 +161,24 @@ pub(super) fn reachable_water_from_junction(
             );
             best_route = Some(best_route.map_or(route, |best| route.max(best)));
         }
-        for goal in state.logistics().traversable_destinations(first) {
-            if goal == junction || goal == colony.route[0] || goal == tip || !safe(goal) {
-                continue;
-            }
-            if let Some((_, volume)) = usable_water_at(registries, state, goal) {
-                let route = (
-                    volume,
-                    std::cmp::Reverse(2_u8),
-                    std::cmp::Reverse(first),
-                    std::cmp::Reverse(Some(goal)),
-                );
-                best_route = Some(best_route.map_or(route, |best| route.max(best)));
-            }
+    }
+    // A visible source beyond the normal patrol tip remains reachable via
+    // that same first edge. Every candidate shares the other resource
+    // planners' two-edge traversal envelope and current-view safety check.
+    for (first, goal) in
+        two_edge_candidates(state, ScavengeRoute::new(colony.route, player_position))
+    {
+        if !safe(first) || !safe(goal) {
+            continue;
+        }
+        if let Some((_, volume)) = usable_water_at(registries, state, goal) {
+            let route = (
+                volume,
+                std::cmp::Reverse(2_u8),
+                std::cmp::Reverse(first),
+                std::cmp::Reverse(Some(goal)),
+            );
+            best_route = Some(best_route.map_or(route, |best| route.max(best)));
         }
     }
     best_route.map(|(_, _, std::cmp::Reverse(first), std::cmp::Reverse(goal))| (first, goal))

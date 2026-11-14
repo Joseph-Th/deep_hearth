@@ -43,6 +43,27 @@ impl ScavengeRoute {
     }
 }
 
+/// The bounded two-edge envelope includes a continuation through the ordinary
+/// patrol tip. The den and directly reachable patrol cells are not far goals.
+pub(in crate::kobolds) fn two_edge_candidates(
+    state: &AppState,
+    route: ScavengeRoute,
+) -> impl Iterator<Item = (VoxelCoord, VoxelCoord)> + '_ {
+    state
+        .logistics()
+        .traversable_destinations(route.junction)
+        .filter(move |first| *first != route.den)
+        .flat_map(move |first| {
+            state
+                .logistics()
+                .traversable_destinations(first)
+                .filter(move |goal| {
+                    *goal != route.den && *goal != route.junction && *goal != route.authored_tip
+                })
+                .map(move |goal| (first, goal))
+        })
+}
+
 /// An informed scout may divert to one genuinely visible, reachable exposed
 /// outpost store from its patrol junction. Distant inventory is never scanned:
 /// the existing short traversal graph, local sight, barriers, light and player
@@ -81,27 +102,9 @@ pub(in crate::kobolds) fn reachable_far_stockpile(
     route: ScavengeRoute,
     at: SimulationTick,
 ) -> Option<(VoxelCoord, VoxelCoord)> {
-    let ScavengeRoute {
-        junction,
-        den,
-        authored_tip,
-        ..
-    } = route;
-    state
-        .logistics()
-        .traversable_destinations(junction)
-        .filter(|first| *first != den && *first != authored_tip)
-        .flat_map(|first| {
-            state
-                .logistics()
-                .traversable_destinations(first)
-                .filter(move |goal| {
-                    *goal != junction && *goal != den && *goal != authored_tip && *goal != first
-                })
-                .filter(move |goal| {
-                    local_unenclosed_stockpile_target(registries, state, *goal, at).is_some()
-                })
-                .map(move |goal| (first, goal))
+    two_edge_candidates(state, route)
+        .filter(|(_, goal)| {
+            local_unenclosed_stockpile_target(registries, state, *goal, at).is_some()
         })
         .filter(|(first, goal)| {
             far_route_is_sighted_and_safe(registries, state, route, (*first, *goal))
@@ -270,27 +273,10 @@ pub(in crate::kobolds) fn reachable_far_drop(
     at: SimulationTick,
     food_shortage: Option<Mass>,
 ) -> Option<(VoxelCoord, VoxelCoord)> {
-    let ScavengeRoute {
-        junction,
-        den,
-        authored_tip,
-        ..
-    } = route;
-    state
-        .logistics()
-        .traversable_destinations(junction)
-        .filter(|first| *first != den && *first != authored_tip)
-        .flat_map(|first| {
-            state
-                .logistics()
-                .traversable_destinations(first)
-                .filter(move |goal| {
-                    *goal != first && *goal != den && *goal != junction && *goal != authored_tip
-                })
-                .filter_map(move |goal| {
-                    best_local_drop_priority(registries, state, goal, capacity, at, food_shortage)
-                        .map(|priority| (priority, first, goal))
-                })
+    two_edge_candidates(state, route)
+        .filter_map(|(first, goal)| {
+            best_local_drop_priority(registries, state, goal, capacity, at, food_shortage)
+                .map(|priority| (priority, first, goal))
         })
         .filter(|(_, first, goal)| {
             far_route_is_sighted_and_safe(registries, state, route, (*first, *goal))
@@ -418,25 +404,10 @@ pub(in crate::kobolds) fn reachable_far_food(
     at: SimulationTick,
     maximum_mass: Mass,
 ) -> Option<(VoxelCoord, VoxelCoord)> {
-    let ScavengeRoute {
-        junction,
-        den,
-        authored_tip,
-        ..
-    } = route;
-    state
-        .logistics()
-        .traversable_destinations(junction)
-        .filter(|first| *first != den && *first != authored_tip)
-        .flat_map(|first| {
-            state
-                .logistics()
-                .traversable_destinations(first)
-                .filter(move |goal| *goal != junction && *goal != den && *goal != authored_tip)
-                .filter_map(move |goal| {
-                    best_local_forage(registries, state, goal, at, maximum_mass)
-                        .map(|(mass, id)| (mass, id, first, goal))
-                })
+    two_edge_candidates(state, route)
+        .filter_map(|(first, goal)| {
+            best_local_forage(registries, state, goal, at, maximum_mass)
+                .map(|(mass, id)| (mass, id, first, goal))
         })
         .filter(|(_, _, first, goal)| {
             far_route_is_sighted_and_safe(registries, state, route, (*first, *goal))

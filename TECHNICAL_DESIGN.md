@@ -318,8 +318,11 @@ ration ranking. The actual returning scout's portable pickup and bulk-source
 ranking use that same remaining meal requirement, rather than selecting a newer
 oversized parcel over an earlier sufficient one at the chosen cell. Non-food
 salvage retains its separate distance-first policy.
-The scout's finite-water route planner uses the **current junction's** local
-sightline to judge player deterrence at both one-edge and two-edge destinations.
+The scout's short two-edge search is shared by water, wild food, loose parcels,
+and exposed stockpiles. It includes destinations reached by continuing past the
+normal patrol tip, not only side branches. The finite-water route planner uses
+the **current junction's** local sightline to judge player deterrence at both
+one-edge and two-edge destinations.
 A hypothetical intermediate step cannot reveal a player before the scout actually
 arrives there. Each completed walking edge independently rechecks the current
 player threat, terrain, illumination and fluid availability before further movement

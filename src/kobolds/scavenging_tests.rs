@@ -70,6 +70,68 @@ fn drop(position: VoxelCoord, food: bool, mass: u64) -> SurfaceResourceSpec {
 }
 
 #[test]
+fn scout_recovers_visible_loose_cargo_past_the_patrol_tip_on_real_edges() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let path = route(&mut state);
+    let beyond_tip = VoxelCoord::new(path.tip.x(), path.tip.y(), path.tip.z() + 1);
+    add_traversable_edge_for_test(&mut state, path.tip, beyond_tip);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([path.den, path.junction, path.tip]);
+    let plan =
+        validate_create_surface_resources(&registries, &state, [drop(beyond_tip, false, 250_000)])
+            .unwrap();
+    let cargo = plan.first_resource_id();
+    plan.commit(&mut state).unwrap();
+    let scout_route = ScavengeRoute::new([path.den, path.junction, path.tip], None);
+    assert_eq!(
+        reachable_far_drop(
+            &registries,
+            &state,
+            scout_route,
+            Mass::from_milligrams(500_000),
+            state.tick(),
+            None,
+        ),
+        Some((path.tip, beyond_tip))
+    );
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    let mut recovered = false;
+    for _ in 0..250 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+        if state.surface().get(cargo).unwrap().position() == path.den {
+            recovered = true;
+            break;
+        }
+    }
+    assert!(
+        recovered,
+        "the scout must recover cargo through the patrol tip"
+    );
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(cargo).unwrap().remaining_mass(),
+        Mass::from_milligrams(250_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn scouts_select_unreserved_local_material_during_player_gathering() {
     use crate::content::{
         SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS, SURFACE_GATHERING_HAND_FORAGE_BERRIES,

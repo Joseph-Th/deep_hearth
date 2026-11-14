@@ -98,3 +98,47 @@ The report observes deterministic simulated gameplay and finite resource
 consequences, not a graphical client or universal behavior across every
 possible seed. It does not convert controlled capability setups or
 spatial-proxy episodes into claims of ordinary-player reachability.
+
+## Continued audit: scout route search and physical recovery
+
+A subsequent source pass traced the opening scout's due-water selection,
+scavenging target searches, actual patrol movement, return cargo handling and
+trusted-load route-cursor validation. The three-stop patrol had a coherent
+two-edge local sight and traversal contract, but water, wild forage, exposed
+stockpiles and loose-cargo searches independently excluded the ordinary patrol
+tip as an intermediate cell. Consequently a real, visible resource just
+one further traversable edge beyond the tip was ignored, even when the scout
+could safely reach it. The excluded route was neither a balance decision nor
+an unavailable gameplay feature.
+
+A shared bounded two-edge iterator now admits the tip as a first edge without
+changing resource-owner lookup or local sight, temperature, guarding,
+illumination and custody gates. The colony route validator permits this
+intermediate step only when an actual second destination exists; it still
+rejects malformed routes, preserves the current save schema and requires real
+traversal edges. The implementation removes three repeated far-route loops
+and reuses the same envelope for the resident's water search. No extra
+persistent state or fallback implementation was introduced.
+
+Two production-tick regression cases cover real drinking and real loose-cargo
+recovery through the patrol tip, compared tick for tick with trusted saved
+continuations. They assert resident arrival, water consumption or the same
+physical parcel returning to the den, and unchanged fluid/matter accounting.
+The prior route loops would reject both test destinations.
+
+Verification after these changes: `python ci.py quick` passed;
+the two new exact tests passed; `python ci.py audit --all` passed 2,680
+core and 192 gameplay tests; `cargo test --locked -j 4 --bin text-play`
+passed 62 tests; `python ci.py gate --lint` passed; and
+`python ci.py report --scope all` passed. The exploratory report
+distinguishes normal generated wilderness, generated exact-local actions,
+spatial-proxy scenarios and controlled capability setups. A separate
+unconfigured all-targets Clippy command still reports existing widespread
+`expect`/`unwrap` violations; no global lint suppressions or assertion
+rewrites were made to conceal them.
+
+No active compatibility runtime or obsolete alternative gameplay owner was
+identified in the inspected source. Explicit rejection of outdated save
+versions is required trusted-load behavior, not a backwards-compatibility
+path. No claim is made of exercising every possible generated seed or all
+future mechanics.

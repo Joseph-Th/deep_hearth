@@ -19,7 +19,7 @@ mod stockpiles;
 use routes::unguarded_unlit_cell;
 pub(super) use routes::{
     ScavengeRoute, reachable_detour_drop, reachable_detour_food, reachable_far_stockpile,
-    reachable_side_stockpile,
+    reachable_side_stockpile, two_edge_candidates,
 };
 #[cfg(test)]
 use routes::{reachable_far_drop, reachable_far_food, reachable_side_drop, reachable_side_food};
