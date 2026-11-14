@@ -36,7 +36,11 @@ fn usage() -> &'static str {
 }
 
 fn parse_arguments() -> Result<Arguments, String> {
-    let mut args = std::env::args().skip(1);
+    parse_arguments_from(std::env::args().skip(1))
+}
+
+fn parse_arguments_from(args: impl IntoIterator<Item = String>) -> Result<Arguments, String> {
+    let mut args = args.into_iter();
     let mut parsed = Arguments {
         seed: None,
         load: None,
@@ -45,13 +49,22 @@ fn parse_arguments() -> Result<Arguments, String> {
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--seed" => {
+                if parsed.seed.is_some() {
+                    return Err("--seed can only be specified once".to_owned());
+                }
                 let value = args.next().ok_or("--seed needs a number")?;
                 parsed.seed = Some(value.parse().map_err(|_| "invalid --seed number")?);
             }
             "--load" => {
+                if parsed.load.is_some() {
+                    return Err("--load can only be specified once".to_owned());
+                }
                 parsed.load = Some(args.next().ok_or("--load needs a save slot")?);
             }
             "--script" => {
+                if parsed.script.is_some() {
+                    return Err("--script can only be specified once".to_owned());
+                }
                 parsed.script = Some(PathBuf::from(
                     args.next().ok_or("--script needs a file path")?,
                 ));

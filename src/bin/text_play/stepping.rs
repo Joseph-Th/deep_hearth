@@ -7,7 +7,7 @@ mod feedback;
 use deep_hearth::simulation::{
     PlayerDirectControlInput, SecondaryActionOutcome, advance_control_tick_with_direct_input,
 };
-use deep_hearth::spatial::VoxelCoord;
+use deep_hearth::spatial::{HorizontalVelocity, VoxelCoord};
 use deep_hearth::survival::Vitality;
 
 impl Session {
@@ -70,6 +70,9 @@ impl Session {
         let directional_jump = walking && input.movement().jump();
         let mut actual = 0;
         for _ in 0..limit {
+            let body_before = walking
+                .then(|| self.state.logistics().player().map(|player| player.body()))
+                .flatten();
             let slow_tick_before = self.state.tick();
             let noteworthy = self.step(input, &mut output)?;
             actual += 1;
@@ -83,6 +86,23 @@ impl Session {
                 && (requires_attention || !work_wait)
             {
                 let _ = writeln!(output, "{description}");
+                break;
+            }
+            // A held walk into a wall can make no continuous progress for the entire
+            // requested interval. Stop once the real motion owner has settled at
+            // zero velocity and an unchanged horizontal position. A mere lack of
+            // voxel crossing is not enough: acceleration moves within a voxel.
+            // Directional jumps remain held while ascending to clear a ledge.
+            if !directional_jump
+                && let (Some(previous), Some(current)) = (
+                    body_before,
+                    self.state.logistics().player().map(|player| player.body()),
+                )
+                && previous.foot_position().x_nanometers() == current.foot_position().x_nanometers()
+                && previous.foot_position().z_nanometers() == current.foot_position().z_nanometers()
+                && current.horizontal_velocity() == HorizontalVelocity::ZERO
+            {
+                output.push_str("Movement stopped: no horizontal progress.\n");
                 break;
             }
             let position = self.player_position()?;

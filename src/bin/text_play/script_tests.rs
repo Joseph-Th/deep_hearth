@@ -2,6 +2,64 @@
 
 use super::*;
 
+#[test]
+fn repeated_startup_options_are_rejected_instead_of_silently_changing_campaign() {
+    for args in [
+        ["--seed", "17", "--seed", "19"],
+        ["--load", "first", "--load", "second"],
+        ["--script", "one.script", "--script", "two.script"],
+    ] {
+        let parsed = parse_arguments_from(args.map(str::to_owned));
+        assert!(parsed.is_err(), "repeated option accepted: {args:?}");
+    }
+}
+
+#[test]
+fn one_startup_source_and_script_remain_independently_selectable() {
+    let seeded =
+        parse_arguments_from(["--seed", "17", "--script", "journey.script"].map(str::to_owned))
+            .unwrap();
+    assert_eq!(seeded.seed, Some(17));
+    assert_eq!(seeded.load, None);
+    assert_eq!(seeded.script, Some(PathBuf::from("journey.script")));
+
+    let loaded = parse_arguments_from(
+        ["--load", "campaign", "--script", "journey.script"].map(str::to_owned),
+    )
+    .unwrap();
+    assert_eq!(loaded.seed, None);
+    assert_eq!(loaded.load.as_deref(), Some("campaign"));
+    assert_eq!(loaded.script, Some(PathBuf::from("journey.script")));
+    assert!(
+        parse_arguments_from(["--seed", "17", "--load", "campaign"].map(str::to_owned)).is_err()
+    );
+}
+
+#[test]
+fn blocked_walking_stops_at_the_physical_collision_instead_of_consuming_twelve_seconds() {
+    let mut session = Session::new(24318).unwrap();
+    for _ in 0..7 {
+        let (step, _) = session.command("n 240").unwrap();
+        assert!(step.contains("Advanced "));
+        assert!(!step.contains("Movement stopped"));
+    }
+
+    let before = session.command("status").unwrap().0;
+    assert!(before.contains("At (8,2,1) | control 32"), "{before}");
+
+    let (blocked, _) = session.command("n 240").unwrap();
+    assert!(blocked.contains("Movement stopped"), "{blocked}");
+    assert!(blocked.contains("At (8,2,1)"), "{blocked}");
+    let ticks: u64 = blocked
+        .lines()
+        .find_map(|line| line.strip_prefix("Advanced "))
+        .and_then(|line| line.split_whitespace().next())
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(ticks < 10, "a confirmed collision spent {ticks} ticks");
+}
+
 struct ScriptFile(PathBuf);
 
 impl ScriptFile {
