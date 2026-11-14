@@ -18,6 +18,38 @@ fn condition_report_matches_survival_owner_reserve_percentages() {
 }
 
 #[test]
+fn daylight_watch_tolerates_passive_footprints_but_not_a_new_close_resident() {
+    let mut session = super::super::Session::new(1170684742).unwrap();
+    session.command("s 20").unwrap();
+    session.command("wait 10").unwrap();
+    let player = session.player_position().unwrap();
+    let initial = super::local_cues(&session.registries, &session.state);
+    assert!(
+        !initial.kobolds.is_empty(),
+        "the seeded clearing must contain a visible resident"
+    );
+
+    // Watches ignore footsteps, tracks, scents, and weather shifts, while
+    // shorter work waits retain their detailed observation boundaries.
+    let mut passive = initial.clone();
+    passive.footfalls.clear();
+    passive.tracks.clear();
+    passive.scents.clear();
+    passive.weather = None;
+    assert!(initial.changed(&passive).is_some());
+    assert_eq!(initial.watch_attention(&passive, player), None);
+
+    // A newly close resident is still a real reason to stop watching.
+    let mut unseen = initial.clone();
+    unseen.kobolds.clear();
+    let resident_position = initial.kobolds[0].position();
+    assert_eq!(
+        unseen.watch_attention(&initial, resident_position),
+        Some("A resident has approached your immediate position.")
+    );
+}
+
+#[test]
 fn hand_status_uses_one_inventory_projection_for_label_and_carried_presence() {
     use deep_hearth::content::{FORM_FOOD, MATERIAL_BERRIES};
     use deep_hearth::logistics::PlayerActiveSelection;

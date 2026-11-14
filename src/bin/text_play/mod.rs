@@ -30,7 +30,7 @@ use deep_hearth::persistence::{LoadedSaveEnvelope, SaveEnvelope, validate_persis
 use deep_hearth::player::{validate_admit_player, validate_respawn_player};
 use deep_hearth::simulation::{PlayerDirectControlInput, SecondaryControlIntent};
 use deep_hearth::spatial::VoxelCoord;
-use deep_hearth::surface::player_surface_gathering_options;
+use deep_hearth::surface::{PlayerSurfaceGatheringOption, player_surface_gathering_options};
 use deep_hearth::world::{
     BlockStateId, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
     validate_generate_chunk, validate_generate_player_neighborhood,
@@ -243,10 +243,62 @@ impl Session {
                     .to_owned(),
             );
         }
-        self.advance_one(
-            PlayerDirectControlInput::NEUTRAL
-                .with_secondary(SecondaryControlIntent::gather_surface_option(option, mass)),
-        )
+        let mut output = self.start_gathering(option, mass)?;
+        output.push_str(&view::status(&self.registries, &self.state));
+        Ok(output)
+    }
+
+    /// Automatic physical pickup precedes secondary use within one control
+    /// frame. It can invalidate a previously listed gather option even though
+    /// the intended rooted source has not changed. Reproject only the *same*
+    /// source and method after that real pickup; never retarget by row number
+    /// or weaken the surface owner's stale-revision admission.
+    fn start_gathering(
+        &mut self,
+        original: PlayerSurfaceGatheringOption,
+        mass: deep_hearth::core::quantity::Mass,
+    ) -> Result<String, String> {
+        let mut output = String::new();
+        let mut option = original;
+        for _ in 0..8 {
+            let mut frame = String::new();
+            let report = self.step(
+                PlayerDirectControlInput::NEUTRAL
+                    .with_secondary(SecondaryControlIntent::gather_surface_option(option, mass)),
+                &mut frame,
+            )?;
+            if !report.stale_gathering_option {
+                output.push_str(&frame);
+                return Ok(output);
+            }
+            // Preserve actual pickups and events, but not the provisional
+            // stale-option rejection that the adapter is about to recover.
+            for line in frame.lines().filter(|line| !line.starts_with("Use: ")) {
+                let _ = writeln!(output, "{line}");
+            }
+            let current = player_surface_gathering_options(&self.registries, &self.state)
+                .map_err(|error| error.to_string())?;
+            let mut matches = current.into_iter().filter(|next| {
+                next.resource() == original.resource()
+                    && next.commodity() == original.commodity()
+                    && next.maximum_batch_mass() == original.maximum_batch_mass()
+                    && next.direct_batch_mass() == original.direct_batch_mass()
+                    && next.exertion() == original.exertion()
+            });
+            match (matches.next(), matches.next()) {
+                (Some(next), None) if mass <= view::default_gather_mass(&self.state, next) => {
+                    option = next;
+                }
+                _ => {
+                    output.push_str("Gathering stopped: the original source or carrying space changed after a nearby pickup.\n");
+                    return Ok(output);
+                }
+            }
+        }
+        output.push_str(
+            "Gathering stopped: nearby pickups kept changing the original source selection.\n",
+        );
+        Ok(output)
     }
 
     /// Repeat exact-local hand gathering without skipping any authoritative work
@@ -323,11 +375,7 @@ impl Session {
                 );
                 break;
             }
-            let _ = self.step(
-                PlayerDirectControlInput::NEUTRAL
-                    .with_secondary(SecondaryControlIntent::gather_surface_option(option, mass)),
-                &mut output,
-            )?;
+            output.push_str(&self.start_gathering(option, mass)?);
             if !matches!(
                 self.state.player_work().active(),
                 Some(PlayerWork::SurfaceGathering { .. })

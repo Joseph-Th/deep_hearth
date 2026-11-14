@@ -84,6 +84,64 @@ fn repeated_gathering_stops_on_a_cold_warning_with_work_still_active() {
 }
 
 #[test]
+fn gathering_reprojects_the_same_rooted_source_after_automatic_loose_pickup() {
+    use deep_hearth::core::quantity::Mass;
+    use deep_hearth::core::state::validate_loaded_state;
+    use deep_hearth::matter::calculate_matter_accounting;
+
+    let mut session = Session::new(24318).unwrap();
+    for command in ["e 20", "wait 10", "gather 1 0.125", "wait work", "select 1"] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    let (dropped, _) = session.command("drop").unwrap();
+    assert!(dropped.contains("Dropped 0.125 g berries"), "{dropped}");
+    // Player drops have a real 40-control-tick grace interval. Advance to
+    // one tick before reacquisition so that the next gather input encounters
+    // a same-frame automatic pickup and the source revision genuinely shifts.
+    let (grace, _) = session.command("wait 39").unwrap();
+    assert!(!grace.contains("Picked up:"), "{grace}");
+    let options = player_surface_gathering_options(&session.registries, &session.state).unwrap();
+    let original_index = options
+        .iter()
+        .position(|option| option.source_mass() > Mass::from_milligrams(100_000))
+        .unwrap_or_else(|| panic!("rooted berries disappeared after the drop"))
+        + 1;
+    let matter_before = calculate_matter_accounting(&session.state).unwrap().total();
+    let (begun, _) = session
+        .command(&format!("gather {original_index} 100"))
+        .unwrap();
+    assert!(begun.contains("Picked up: 0.125 g berries"), "{begun}");
+    assert!(begun.contains("Gathering started: 100 g"), "{begun}");
+    assert!(!begun.contains("surface revision"), "{begun}");
+    for _ in 0..20 {
+        if session.state.player_work().active().is_none() {
+            break;
+        }
+        session.command("wait work").unwrap();
+    }
+    assert!(session.state.player_work().active().is_none());
+    assert_eq!(
+        calculate_matter_accounting(&session.state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(
+        validate_loaded_state(&session.registries, &session.state),
+        Ok(())
+    );
+    let saved = snapshot(&session);
+    let replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&session.registries)
+        .unwrap();
+    assert_eq!(
+        serde_json::to_vec(&SaveEnvelope::new(&session.registries, &replay)).unwrap(),
+        saved
+    );
+}
+
+#[test]
 fn shallow_aim_completes_an_overhead_timber_cover_on_the_played_seed() {
     use deep_hearth::core::state::validate_loaded_state;
     use deep_hearth::matter::calculate_matter_accounting;
@@ -126,6 +184,21 @@ fn shallow_aim_completes_an_overhead_timber_cover_on_the_played_seed() {
     let (inventory, _) = session.command("inventory").unwrap();
     assert!(inventory.contains("timber board | 7200 g"), "{inventory}");
     session.command("select 3").unwrap();
+    let before_preview = snapshot(&session);
+    let (preview, _) = session.command("look e-shallow").unwrap();
+    assert!(
+        preview.contains("Cover preview: panel would occupy (9,0,11)"),
+        "a player must see the real panel destination before committing materials: {preview}"
+    );
+    assert!(
+        preview.contains("(9,-2,11)"),
+        "the preview must describe the standing-height space below the panel: {preview}"
+    );
+    assert_eq!(
+        snapshot(&session),
+        before_preview,
+        "preview must be read-only"
+    );
     let (started, _) = session.command("use e-shallow").unwrap();
     assert!(started.contains("Action queued"), "{started}");
     let (building, _) = session.command("wait boundary").unwrap();

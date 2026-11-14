@@ -16,6 +16,16 @@ pub use outcome::{
     QuickAccessSelectionOutcome, SecondaryActionOutcome, TickOutcome,
 };
 
+/// Preview the physical destination of a pointed timber cover panel, without
+/// committing work or materials. Uses the placement owner's target resolution.
+pub fn project_pointed_timber_cover_target(
+    registries: &crate::registry::Registries,
+    state: &crate::core::state::AppState,
+    direction: crate::spatial::ViewDirection,
+) -> Result<Option<crate::spatial::VoxelCoord>, SecondaryActionOutcome> {
+    direct_actions::project_pointed_timber_cover_target(registries, state, direction)
+}
+
 use crate::core::state::{AppState, apply_control_clock_advance, debug_assert_runtime_invariants};
 use crate::core::time::{ControlTick, SimulationTick};
 use crate::labor::{PlayerWork, apply_player_work_tick, decide_player_work_control_tick};

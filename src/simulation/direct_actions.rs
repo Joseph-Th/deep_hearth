@@ -6,6 +6,8 @@ mod primary;
 mod secondary;
 mod structural_target;
 
+pub(super) use placement::project_pointed_timber_cover_target;
+
 pub(super) use contextual::attempt_pending_secondary_action;
 use contextual::attempt_secondary_action;
 pub(super) use primary::attempt_pending_primary_break;

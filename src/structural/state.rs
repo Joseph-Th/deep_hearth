@@ -89,6 +89,14 @@ impl StructureState {
             .filter(move |element| element.bounds().has_voxel(voxel))
     }
 
+    /// Read-only occupancy for placement previews and other player-local
+    /// observations. Uses the same rebuilt spatial index as physical placement.
+    #[must_use]
+    pub fn has_materialized_member_at(&self, voxel: VoxelCoord) -> bool {
+        self.elements_covering(voxel)
+            .any(|member| !member.embodied_material().is_empty())
+    }
+
     /// Tests active, full-footprint shelter on one horizontal sky-exposure column.
     ///
     /// Derived horizontal projection avoids scanning every settlement member on

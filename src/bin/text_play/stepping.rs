@@ -8,8 +8,14 @@ use deep_hearth::simulation::{
     PlayerDirectControlInput, SecondaryActionOutcome, advance_control_tick_with_direct_input,
 };
 use deep_hearth::spatial::{HorizontalVelocity, VoxelCoord};
+use deep_hearth::surface::SurfaceGatheringError;
 use deep_hearth::survival::Vitality;
 use deep_hearth::world::{DayPhase, assess_player_weather};
+
+pub(super) struct StepReport {
+    noteworthy: bool,
+    pub(super) stale_gathering_option: bool,
+}
 
 impl Session {
     /// Wait awake for the next requested daylight phase, never skipping physical
@@ -69,7 +75,9 @@ impl Session {
         let mut actual = 0_u64;
         for _ in 0..maximum {
             let previous_tick = self.state.tick();
-            let noteworthy = self.step(PlayerDirectControlInput::NEUTRAL, &mut output)?;
+            let noteworthy = self
+                .step(PlayerDirectControlInput::NEUTRAL, &mut output)?
+                .noteworthy;
             actual += 1;
             if noteworthy {
                 output.push_str("Daylight watch interrupted by an event.\n");
@@ -90,10 +98,10 @@ impl Session {
                     output.push_str("Daylight watch interrupted: local fire extinguished.\n");
                     break;
                 }
-                if let Some((description, requires_attention)) =
-                    observed.changed(&view::local_cues(&self.registries, &self.state))
-                    && requires_attention
-                {
+                if let Some(description) = observed.watch_attention(
+                    &view::local_cues(&self.registries, &self.state),
+                    self.player_position()?,
+                ) {
                     let _ = writeln!(output, "{description}");
                     output.push_str("Daylight watch interrupted by a local change.\n");
                     break;
@@ -172,7 +180,7 @@ impl Session {
                 .then(|| self.state.logistics().player().map(|player| player.body()))
                 .flatten();
             let slow_tick_before = self.state.tick();
-            let noteworthy = self.step(input, &mut output)?;
+            let noteworthy = self.step(input, &mut output)?.noteworthy;
             actual += 1;
             if noteworthy || view::urgency(&self.registries, &self.state) != before {
                 break;
@@ -244,12 +252,18 @@ impl Session {
         &mut self,
         input: PlayerDirectControlInput,
         output: &mut String,
-    ) -> Result<bool, String> {
+    ) -> Result<StepReport, String> {
         let before = self.player_position()?;
         let previous_work = self.state.player_work().active();
         let outcome =
             advance_control_tick_with_direct_input(&self.registries, &mut self.state, input)
                 .map_err(|error| format!("simulation tick failed: {error}"))?;
+        let stale_gathering_option = matches!(
+            outcome.secondary_action(),
+            Some(SecondaryActionOutcome::SurfaceGatheringRejected(
+                SurfaceGatheringError::StalePlayerOption { .. }
+            ))
+        );
         // Physical motion and automatic custody transfer precede direct actions
         // in the control owner. Preserve that order when both occur in one frame.
         let mut interrupt = note_text(
@@ -402,7 +416,10 @@ impl Session {
         if self.player_position()? != before {
             Self::expand_neighborhood(&self.registries, &mut self.state)?;
         }
-        Ok(interrupt)
+        Ok(StepReport {
+            noteworthy: interrupt,
+            stale_gathering_option,
+        })
     }
 }
 

@@ -22,6 +22,24 @@ pub(super) use timber::{
     attempt_selected_timber_cover_placement, attempt_selected_timber_placement,
 };
 
+/// Read-only counterpart of timber-panel pointed target resolution.
+/// Placement previews must reuse the actual face and occupancy checks without
+/// reserving materials or player work.
+pub(in crate::simulation) fn project_pointed_timber_cover_target(
+    registries: &Registries,
+    state: &AppState,
+    direction: ViewDirection,
+) -> Result<Option<VoxelCoord>, SecondaryActionOutcome> {
+    let (bounds, _) = match resolve_supported_timber_target(registries, state, direction) {
+        Ok(Some(target)) => target,
+        Ok(None) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    validate_structural_placement_position(state, bounds.min())
+        .map_err(structural_placement_error)?;
+    Ok(Some(bounds.min()))
+}
+
 fn validate_direct_placement_position(
     registries: &Registries,
     state: &AppState,

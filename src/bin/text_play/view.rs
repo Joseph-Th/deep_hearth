@@ -8,6 +8,7 @@ mod sensory;
 
 use actor_inventory::hand_status;
 pub use actor_inventory::{hand_label, inventory};
+use deep_hearth::content::{FORM_BOARD, MATERIAL_WOOD};
 use deep_hearth::core::quantity::{Mass, Volume};
 use deep_hearth::core::time::{CONTROL_TICK_DURATION, CONTROL_TICKS_PER_SIMULATION_TICK, Season};
 use deep_hearth::kobolds::{
@@ -17,6 +18,8 @@ use deep_hearth::kobolds::{
 use deep_hearth::logistics::{
     PlayerActiveSelection, PlayerOverheadCoverAssessment, assess_player_overhead_cover,
 };
+use deep_hearth::material::CommodityKey;
+use deep_hearth::simulation::project_pointed_timber_cover_target;
 use deep_hearth::spatial::ViewDirection;
 use deep_hearth::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord};
 use deep_hearth::structural::StructuralLifecycle;
@@ -30,7 +33,7 @@ use deep_hearth::survival::{
     available_local_drink_sources,
 };
 use deep_hearth::world::{
-    DayPhase, ForageScent, VisibleWaterSource, WindCondition, WindDirection,
+    BlockStateId, DayPhase, ForageScent, VisibleWaterSource, WindCondition, WindDirection,
     assess_player_forage_scents, assess_player_weather, available_visible_generated_water,
     raycast_player_block,
 };
@@ -217,6 +220,36 @@ impl LocalCues {
         } else {
             None
         }
+    }
+
+    /// Long watches ignore routine patrol movement, footsteps, tracks, and weather.
+    /// The stepping owner handles real events, extinguished fires, and survival
+    /// warnings separately; only a new close approach or defensive posture
+    /// requires attention from the otherwise passive local observations.
+    pub fn watch_attention(&self, next: &Self, player: VoxelCoord) -> Option<&'static str> {
+        let near = |sighting: &KoboldSighting| {
+            let position = sighting.position();
+            position.y() == player.y()
+                && position.x().abs_diff(player.x()) <= 1
+                && position.z().abs_diff(player.z()) <= 1
+        };
+        for current in &next.kobolds {
+            let previous_defender = self
+                .kobolds
+                .iter()
+                .any(|old| old.role() == current.role() && old.is_defending());
+            if current.is_defending() && !previous_defender {
+                return Some("A nearby resident has taken a defensive posture.");
+            }
+            let previous_nearby = self
+                .kobolds
+                .iter()
+                .any(|old| old.role() == current.role() && near(old));
+            if near(current) && !previous_nearby {
+                return Some("A resident has approached your immediate position.");
+            }
+        }
+        None
     }
 }
 
@@ -478,6 +511,14 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
                 let _ = writeln!(output, "Pointing unavailable: {error}");
             }
         }
+        if state.logistics().active_selection()
+            == Some(PlayerActiveSelection::material(CommodityKey::new(
+                MATERIAL_WOOD,
+                FORM_BOARD,
+            )))
+        {
+            output.push_str(&timber_cover_preview(registries, state, aim));
+        }
     }
     if let Ok(options) = player_surface_gathering_options(registries, state)
         && !options.is_empty()
@@ -498,6 +539,54 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
             "Without heat, time until cold warning: {}; cover: {:?}",
             runway_label(runway.current().map(|span| span.value())),
             runway.overhead_cover()
+        );
+    }
+    output
+}
+
+/// Show the production target before the player spends timber boards. A
+/// standing-space hint is deliberately not a general pathfinding guarantee.
+fn timber_cover_preview(registries: &Registries, state: &AppState, aim: ViewDirection) -> String {
+    let target = match project_pointed_timber_cover_target(registries, state, aim) {
+        Ok(Some(position)) => position,
+        Ok(None) => {
+            return "Cover preview: no load-bearing member at this aim. Raise framing above standing height, then aim toward open space beside it.\n".to_owned();
+        }
+        Err(_) => {
+            return "Cover preview: the intended position is obstructed or unavailable; no panel can be placed here.\n".to_owned();
+        }
+    };
+    let mut output = format!("Cover preview: panel would occupy {}. ", pos(target));
+    let Some(standing_y) = target.y().checked_sub(2) else {
+        output.push_str("No standing-height space can be projected below it.\n");
+        return output;
+    };
+    let beneath = VoxelCoord::new(target.x(), standing_y, target.z());
+    let head = VoxelCoord::new(target.x(), standing_y + 1, target.z());
+    let footing = standing_y
+        .checked_sub(1)
+        .map(|y| VoxelCoord::new(target.x(), y, target.z()));
+    let clear = [beneath, head].iter().all(|cell| {
+        state.world().block_at(*cell) == Some(BlockStateId::AIR)
+            && !state.structures().has_materialized_member_at(*cell)
+    });
+    let grounded = footing.is_some_and(|floor| {
+        state
+            .world()
+            .block_at(floor)
+            .is_some_and(|block| block != BlockStateId::AIR)
+    });
+    if !clear || !grounded {
+        let _ = writeln!(
+            output,
+            "No clear, grounded standing-height space at {} underneath it; this panel would not provide an accessible refuge there.",
+            pos(beneath),
+        );
+    } else {
+        let _ = writeln!(
+            output,
+            "Potential standing space at {} below the panel; verify a walkable approach before building.",
+            pos(beneath),
         );
     }
     output
