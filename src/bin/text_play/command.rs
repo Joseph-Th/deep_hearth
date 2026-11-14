@@ -18,6 +18,10 @@ enum Direction {
     SouthDown,
     EastDown,
     WestDown,
+    NorthShallow,
+    SouthShallow,
+    EastShallow,
+    WestShallow,
 }
 
 impl Direction {
@@ -33,8 +37,12 @@ impl Direction {
             "s-down" => Ok(Self::SouthDown),
             "e-down" => Ok(Self::EastDown),
             "w-down" => Ok(Self::WestDown),
+            "n-shallow" => Ok(Self::NorthShallow),
+            "s-shallow" => Ok(Self::SouthShallow),
+            "e-shallow" => Ok(Self::EastShallow),
+            "w-shallow" => Ok(Self::WestShallow),
             _ => Err(format!(
-                "unknown direction {text}; use n, s, e, w, up, down, or cardinal-down"
+                "unknown direction {text}; use n, s, e, w, up, down, cardinal-down, or cardinal-shallow"
             )),
         }
     }
@@ -51,6 +59,10 @@ impl Direction {
             Self::SouthDown => (0, -800_000, 600_000),
             Self::EastDown => (600_000, -800_000, 0),
             Self::WestDown => (-600_000, -800_000, 0),
+            Self::NorthShallow => (0, -500_000, -866_025),
+            Self::SouthShallow => (0, -500_000, 866_025),
+            Self::EastShallow => (866_025, -500_000, 0),
+            Self::WestShallow => (-866_025, -500_000, 0),
         };
         ViewDirection::new(x, y, z)
             .unwrap_or_else(|error| panic!("axis direction must be normalized: {error}"))
@@ -67,10 +79,12 @@ impl Direction {
             | Self::NorthDown
             | Self::SouthDown
             | Self::EastDown
-            | Self::WestDown => {
-                return Err(
-                    "vertical or diagonal-down direction is for aiming, not walking".to_owned(),
-                );
+            | Self::WestDown
+            | Self::NorthShallow
+            | Self::SouthShallow
+            | Self::EastShallow
+            | Self::WestShallow => {
+                return Err("vertical or angled direction is for aiming, not walking".to_owned());
             }
         };
         let vector = HorizontalControlInput::new(x, z).map_err(|error| error.to_string())?;
@@ -99,6 +113,9 @@ impl Session {
                 view::inventory(&self.registries, &self.state)?
             }
             "gather" if args.len() <= 2 => self.gather(args)?,
+            "gather" if matches!(args, [_, "repeat", _] | [_, _, "repeat", _]) => {
+                self.gather_repeated(args)?
+            }
             "eat" if args.len() == 1 => self.eat(args[0])?,
             "drink" if args.is_empty() => view::drink_options(&self.registries, &self.state),
             "drink" if args.len() == 1 => self.drink(args[0])?,

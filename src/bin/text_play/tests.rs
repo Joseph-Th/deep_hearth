@@ -10,6 +10,173 @@ fn snapshot(session: &Session) -> Vec<u8> {
 }
 
 #[test]
+fn repeated_gathering_matches_explicit_authoritative_batches() {
+    let mut repeated = Session::new(24318).unwrap();
+    let mut manual = Session::new(24318).unwrap();
+    for command in ["e 20", "wait 10"] {
+        repeated.command(command).unwrap();
+        manual.command(command).unwrap();
+    }
+    let (output, _) = repeated.command("gather 1 100 repeat 3").unwrap();
+    assert!(
+        output.contains("Gather repeat: 3 batches completed."),
+        "{output}"
+    );
+    assert_eq!(
+        output.matches("Gathered: 100 g collected").count(),
+        3,
+        "{output}"
+    );
+    assert_eq!(
+        output.matches("Visible surface resources").count(),
+        1,
+        "repeating an ordinary batch must not print a full look for every batch"
+    );
+    for _ in 0..3 {
+        manual.command("gather 1 100").unwrap();
+        manual.command("wait work").unwrap();
+    }
+    assert_eq!(snapshot(&repeated), snapshot(&manual));
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&repeated.registries, &repeated.state),
+        Ok(())
+    );
+}
+
+#[test]
+fn repeated_gathering_stops_without_retargeting_a_depleted_source() {
+    let mut session = Session::new(24318).unwrap();
+    for command in ["e 20", "wait 10", "e 20", "wait 10"] {
+        session.command(command).unwrap();
+    }
+    let options = player_surface_gathering_options(&session.registries, &session.state).unwrap();
+    let original = options[0];
+    let (output, _) = session.command("gather 1 repeat 32").unwrap();
+    assert!(
+        output.contains("Gather repeat: source depleted after "),
+        "{output}"
+    );
+    let current = player_surface_gathering_options(&session.registries, &session.state).unwrap();
+    assert!(
+        current
+            .iter()
+            .all(|option| option.resource() != original.resource()),
+        "repeat must stop on the original source rather than using a new row"
+    );
+}
+
+#[test]
+fn repeated_gathering_stops_on_a_cold_warning_with_work_still_active() {
+    let mut session = Session::new(24318).unwrap();
+    for command in ["e 20", "wait 10"] {
+        session.command(command).unwrap();
+    }
+    let (output, _) = session.command("gather 1 500 repeat 32").unwrap();
+    assert!(
+        output.contains("Gather repeat: interrupted after")
+            && output.contains("Warnings: cold exposure"),
+        "{output}"
+    );
+    assert!(matches!(
+        session.state.player_work().active(),
+        Some(PlayerWork::SurfaceGathering { .. })
+    ));
+}
+
+#[test]
+fn shallow_aim_completes_an_overhead_timber_cover_on_the_played_seed() {
+    use deep_hearth::core::state::validate_loaded_state;
+    use deep_hearth::matter::calculate_matter_accounting;
+
+    let mut session = Session::new(80705).unwrap();
+    let original_matter = calculate_matter_accounting(&session.state).unwrap().total();
+    for command in [
+        "s 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "w 20",
+        "wait 10",
+        "gather 1 1000 repeat 14",
+        "e 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "gather 1 1000",
+        "wait work",
+        "build-fire",
+        "feed-fire 1 1",
+        "select 1",
+        "use e-down",
+        "wait boundary",
+        "wait work",
+        "craft 14 9",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    for _ in 0..8 {
+        if session.state.player_work().active().is_none() {
+            break;
+        }
+        session.command("wait work").unwrap();
+    }
+    assert!(session.state.player_work().active().is_none());
+    let (inventory, _) = session.command("inventory").unwrap();
+    assert!(inventory.contains("timber board | 7200 g"), "{inventory}");
+    session.command("select 3").unwrap();
+    let (started, _) = session.command("use e-shallow").unwrap();
+    assert!(started.contains("Action queued"), "{started}");
+    let (building, _) = session.command("wait boundary").unwrap();
+    assert!(
+        building.contains("Structural construction started"),
+        "{building}"
+    );
+    assert!(
+        building.contains("Nearby panel: axial compression at (9,0,11) | Planned | 6500 g"),
+        "{building}"
+    );
+    let (finished, _) = session.command("wait work").unwrap();
+    assert!(finished.contains("Construction finished"), "{finished}");
+    let (look, _) = session.command("look").unwrap();
+    assert!(
+        look.contains("Nearby panel: axial compression at (9,0,11) | Active | 6500 g"),
+        "{look}"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&session.state).unwrap().total(),
+        original_matter
+    );
+    assert_eq!(
+        validate_loaded_state(&session.registries, &session.state),
+        Ok(())
+    );
+}
+
+#[test]
+fn directional_jump_can_regain_a_one_voxel_ledge_on_the_played_seed() {
+    let mut session = Session::new(80705).unwrap();
+    for command in [
+        "s 20", "wait 10", "w 20", "wait 10", "w 20", "wait 10", "w 20", "wait 10",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    assert_eq!(
+        session.player_position().unwrap(),
+        VoxelCoord::new(5, -2, 9)
+    );
+    let (jump, _) = session.command("jump e 40").unwrap();
+    assert_eq!(
+        session.player_position().unwrap(),
+        VoxelCoord::new(6, -1, 9),
+        "directional jump should clear the one-voxel rise toward the flint outcrop: {jump}"
+    );
+}
+
+#[test]
 fn fire_command_consumes_the_exact_gathered_stack_and_conserves_matter() {
     use deep_hearth::content::{FORM_LOG, MATERIAL_WOOD};
     use deep_hearth::core::quantity::Mass;

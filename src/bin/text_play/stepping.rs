@@ -37,10 +37,37 @@ impl Session {
         walking: bool,
         work_wait: bool,
     ) -> Result<String, String> {
+        self.advance_many_with_report(input, limit, walking, work_wait, true)
+    }
+
+    /// The repeated-gathering adapter reports each physical completion without
+    /// flooding the transcript with an identical local look after every batch.
+    pub(super) fn advance_many_compact(
+        &mut self,
+        input: PlayerDirectControlInput,
+        limit: u64,
+        work_wait: bool,
+    ) -> Result<String, String> {
+        self.advance_many_with_report(input, limit, false, work_wait, false)
+    }
+
+    fn advance_many_with_report(
+        &mut self,
+        input: PlayerDirectControlInput,
+        limit: u64,
+        walking: bool,
+        work_wait: bool,
+        show_look: bool,
+    ) -> Result<String, String> {
         let mut output = String::new();
         let starting_position = self.player_position()?;
         let before = view::urgency(&self.registries, &self.state);
         let visible_before = view::local_cues(&self.registries, &self.state);
+        // A directional jump is one short continuous maneuver. A changed
+        // spring/track at the next slow boundary must not release horizontal
+        // input while the character is still clearing a ledge. Direct injury,
+        // explicit events and survival warning transitions still interrupt it.
+        let directional_jump = walking && input.movement().jump();
         let mut actual = 0;
         for _ in 0..limit {
             let slow_tick_before = self.state.tick();
@@ -49,7 +76,8 @@ impl Session {
             if noteworthy || view::urgency(&self.registries, &self.state) != before {
                 break;
             }
-            if self.state.tick() != slow_tick_before
+            if !directional_jump
+                && self.state.tick() != slow_tick_before
                 && let Some((description, requires_attention)) =
                     visible_before.changed(&view::local_cues(&self.registries, &self.state))
                 && (requires_attention || !work_wait)
@@ -79,7 +107,9 @@ impl Session {
             "Advanced {actual} control ticks ({} ms).",
             actual * 50
         );
-        output.push_str(&view::look(&self.registries, &self.state, None));
+        if show_look {
+            output.push_str(&view::look(&self.registries, &self.state, None));
+        }
         Ok(output)
     }
 

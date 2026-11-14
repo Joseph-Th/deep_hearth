@@ -18,6 +18,7 @@ fn usage() -> &'static str {
     "Deep Hearth text play\n\
      cargo run --locked --bin text-play -- [--seed NUMBER | --load SLOT] [--script FILE]\n\
      Commands: help, look [direction], status, inventory, gather, gather N [decimal grams],\n\
+     gather N [decimal grams] repeat COUNT (up to 32 batches; stops at interruptions),\n\
      eat STACK, drink, drink SOURCE,\n\
      recipes [all], craft PROCESS_ID [batches] [from STACK] [with TOOL],\n\
      surveys [width], prospect MATERIAL METHOD [width] [with TOOL], knowledge [width],\n\
@@ -29,7 +30,8 @@ fn usage() -> &'static str {
      jump [direction] [ticks], wait [ticks|work|boundary], use [direction], break [direction],\n\
      shove|strike|prepare|release [direction], cancel, slot N, select N,\n\
      empty, drop, respawn, save SLOT, quit.\n\
-     Directions for pointing: n, s, e, w, up, down, n-down, s-down, e-down, w-down.\n\
+     Directions for pointing: n, s, e, w, up, down, n-down, s-down, e-down, w-down,\n\
+     n-shallow, s-shallow, e-shallow, w-shallow (aim at the top of neighboring posts).\n\
      Text play uses real 20 Hz control steps, never simulated turns."
 }
 

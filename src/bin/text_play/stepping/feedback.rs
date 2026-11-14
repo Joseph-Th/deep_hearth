@@ -221,15 +221,18 @@ pub(super) fn secondary(registries: &Registries, outcome: &SecondaryActionOutcom
         | Action::StructuralPlacementLocationOccupied { .. } => {
             "The target location is occupied.".to_owned()
         }
-        Action::StoragePlacementIntersectsPlayer { .. }
-        | Action::StructuralPlacementIntersectsPlayer { .. } => {
-            "The construction would intersect the player.".to_owned()
+        Action::StoragePlacementIntersectsPlayer { .. } => {
+            "The storage enclosure would intersect the player; choose a clear placement cell."
+                .to_owned()
+        }
+        Action::StructuralPlacementIntersectsPlayer { .. } => {
+            "The construction would intersect the player. Stand outside the destination cell; for timber covers, aim shallowly downward at the top of a neighboring post (for example, 'use e-shallow').".to_owned()
         }
         Action::StoragePlacementUnsupported { .. } => {
             "Storage needs stable ground support.".to_owned()
         }
         Action::NoStructuralPlacementTarget => {
-            "No structural placement target under the aim.".to_owned()
+            "No built structural support under the aim. Boards need a load-bearing post or member; from beside a post, try 'use e-shallow' to target its top.".to_owned()
         }
         Action::StructuralPlacementRequiresTopFace { .. } => {
             "Aim at the top face of the supporting block.".to_owned()

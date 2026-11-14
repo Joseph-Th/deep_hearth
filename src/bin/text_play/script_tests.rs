@@ -64,6 +64,9 @@ fn control_command_dispatch_preserves_clock_and_rejects_bad_arguments_atomically
         "wait 1 2",
         "slot 10",
         "prepare n extra",
+        "gather 1 repeat 0",
+        "gather 1 repeat 33",
+        "gather 1 1000 repeat wrong",
     ] {
         assert!(
             session.command(invalid).is_err(),
@@ -85,6 +88,24 @@ fn control_command_dispatch_preserves_clock_and_rejects_bad_arguments_atomically
     let (to_boundary, _) = session.command("wait boundary").unwrap();
     assert!(to_boundary.contains("Advanced 71 control ticks"));
     assert!(status(&mut session).contains("control 72 | simulation 1"));
+}
+
+#[test]
+fn shallow_aim_directions_are_valid_for_pointing_but_not_walking() {
+    let mut session = Session::new(24318).unwrap();
+    for direction in ["n-shallow", "s-shallow", "e-shallow", "w-shallow"] {
+        let (look, _) = session.command(&format!("look {direction}")).unwrap();
+        assert!(look.contains("At ("), "{look}");
+        assert!(session.command(&format!("sprint {direction} 20")).is_err());
+        assert!(session.command(&format!("jump {direction} 20")).is_err());
+    }
+    assert!(
+        session
+            .command("status")
+            .unwrap()
+            .0
+            .contains("control 0 | simulation 0")
+    );
 }
 
 /// Drives the maintained opening script through the same `play_script` path `--script` uses.

@@ -22,6 +22,7 @@ mod tests;
 use std::fmt::Write as _;
 
 use deep_hearth::content::BLOCK_STATE_STONE;
+use deep_hearth::labor::PlayerWork;
 use deep_hearth::logistics::{
     PlayerActiveSelection, project_player_inventory, validate_set_active_selection,
 };
@@ -246,6 +247,117 @@ impl Session {
             PlayerDirectControlInput::NEUTRAL
                 .with_secondary(SecondaryControlIntent::gather_surface_option(option, mass)),
         )
+    }
+
+    /// Repeat exact-local hand gathering without skipping any authoritative work
+    /// or retargeting an indexed choice when a source is exhausted. A visible
+    /// interruption leaves the active job for the player to resume explicitly.
+    fn gather_repeated(&mut self, args: &[&str]) -> Result<String, String> {
+        let (index_text, mass_text, repetitions_text) = match args {
+            [index, "repeat", count] => (*index, None, *count),
+            [index, mass, "repeat", count] => (*index, Some(*mass), *count),
+            _ => return Err("use gather N [grams] repeat COUNT".to_owned()),
+        };
+        let count = repetitions_text
+            .parse::<usize>()
+            .map_err(|_| "repeat count must be a whole number")?;
+        if !(1..=32).contains(&count) {
+            return Err("repeat count must be between 1 and 32".to_owned());
+        }
+        let requested_mass = mass_text
+            .map(|grams| parse_decimal_grams(grams, "gather quantity"))
+            .transpose()?;
+        if requested_mass.is_some_and(|mass| mass.is_zero()) {
+            return Err("gather quantity must be positive".to_owned());
+        }
+        if self.state.player_work().active().is_some() {
+            return Err("finish the current work before starting repeated gathering".to_owned());
+        }
+        let options = player_surface_gathering_options(&self.registries, &self.state)
+            .map_err(|error| error.to_string())?;
+        let index = parse_index(index_text, options.len())?;
+        let original = options[index - 1];
+        let mut output = String::new();
+        let mut completed = 0;
+        for _ in 0..count {
+            let current = player_surface_gathering_options(&self.registries, &self.state)
+                .map_err(|error| error.to_string())?;
+            let mut same_source = current.into_iter().filter(|option| {
+                option.resource() == original.resource()
+                    && option.commodity() == original.commodity()
+                    && option.maximum_batch_mass() == original.maximum_batch_mass()
+                    && option.direct_batch_mass() == original.direct_batch_mass()
+                    && option.exertion() == original.exertion()
+            });
+            let Some(option) = same_source.next() else {
+                let _ = writeln!(
+                    output,
+                    "Gather repeat: source depleted after {completed} batches."
+                );
+                break;
+            };
+            if same_source.next().is_some() {
+                let _ = writeln!(
+                    output,
+                    "Gather repeat: method became ambiguous after {completed} batches."
+                );
+                break;
+            }
+            let mass =
+                requested_mass.unwrap_or_else(|| view::default_gather_mass(&self.state, option));
+            if mass.is_zero()
+                || mass > option.source_mass()
+                || mass > option.maximum_batch_mass()
+                || mass > option.direct_batch_mass()
+                || mass > view::default_gather_mass(&self.state, option)
+            {
+                if completed == 0 {
+                    return Err(
+                        "gather quantity exceeds the available source, method, or carrying space"
+                            .to_owned(),
+                    );
+                }
+                let _ = writeln!(
+                    output,
+                    "Gather repeat: insufficient remaining source or carrying space after {completed} batches."
+                );
+                break;
+            }
+            let _ = self.step(
+                PlayerDirectControlInput::NEUTRAL
+                    .with_secondary(SecondaryControlIntent::gather_surface_option(option, mass)),
+                &mut output,
+            )?;
+            if !matches!(
+                self.state.player_work().active(),
+                Some(PlayerWork::SurfaceGathering { .. })
+            ) {
+                let _ = writeln!(
+                    output,
+                    "Gather repeat: admission rejected after {completed} completed batches."
+                );
+                break;
+            }
+            let wait = activity::remaining_work_control_ticks(&self.state)
+                .ok_or("gathering started without a scheduled completion")?
+                .min(7_200);
+            output.push_str(&self.advance_many_compact(
+                PlayerDirectControlInput::NEUTRAL,
+                wait,
+                true,
+            )?);
+            if self.state.player_work().active().is_some() {
+                let _ = writeln!(
+                    output,
+                    "Gather repeat: interrupted after {completed} completed batches; finish the active work before repeating."
+                );
+                break;
+            }
+            completed += 1;
+        }
+        let _ = writeln!(output, "Gather repeat: {completed} batches completed.");
+        output.push_str(&view::look(&self.registries, &self.state, None));
+        Ok(output)
     }
 
     fn eat(&mut self, index: &str) -> Result<String, String> {
