@@ -36,3 +36,45 @@ fn cached_chunk_heights_match_independent_world_height_at_every_column() {
         }
     }
 }
+
+#[test]
+fn independent_seeds_create_real_valleys_and_hills_without_chunk_edge_cliffs() {
+    let mut regional_signatures = std::collections::BTreeSet::new();
+    for number in 0..16 {
+        let seed = WorldGenerationSeed::new(number);
+        let mut lowest = i64::MAX;
+        let mut highest = i64::MIN;
+        let mut heights = Vec::new();
+        for z in (-192..=192).step_by(8) {
+            for x in (-192..=192).step_by(8) {
+                let height = terrain_height(seed, x, z);
+                lowest = lowest.min(height);
+                highest = highest.max(height);
+                assert!((-25..=25).contains(&height));
+                heights.push(height);
+            }
+        }
+        assert!(
+            highest - lowest >= 24,
+            "seed {number} lacks meaningful regional travel relief: {lowest}..{highest}"
+        );
+        regional_signatures.insert((lowest, highest, heights));
+        for x in [
+            -65, -64, -33, -32, -17, -16, -9, -8, -1, 0, 7, 8, 15, 16, 31, 32, 63, 64,
+        ] {
+            for z in [-65, -64, -33, -32, -17, -16, -1, 0, 15, 16, 31, 32, 63, 64] {
+                let here = terrain_height(seed, x, z);
+                assert!(
+                    (here - terrain_height(seed, x + 1, z)).abs() <= 4
+                        && (here - terrain_height(seed, x, z + 1)).abs() <= 4,
+                    "seed {number} has an artificial discontinuity at ({x},{z})"
+                );
+            }
+        }
+    }
+    assert_eq!(
+        regional_signatures.len(),
+        16,
+        "different seeds must change the topology, not just terrain orientation"
+    );
+}

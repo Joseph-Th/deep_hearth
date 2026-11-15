@@ -19,7 +19,7 @@ Progression:
 | Power | Hand crank, treadle, flywheels and buffers. Straight built timber shafts couple opposed mechanical stores at up to 50 W, losing 20% per roller. No gearboxes or electric networks. |
 | Processing | Ore dressing, local crusher batch choices and unattended work; casting, PbS+Fe smelting, kiln firing and finite cooling. No general reduction or passive cooling. |
 | Opening wilderness acquisition | Scouts forage, drink, steal and warn; thirst limits raids. Firelight/boxes deter theft, loot persists and can be recovered. Tracks, sounds and club staggers are simulated; tool injuries are scenario-only. |
-| Natural starts | Text play supports replayable random starts in dry/mixed/damp habitats. Seeded terrain, trees, forage, springs, ore and ruins; no guaranteed supplies or residents. |
+| Natural starts | Replayable random dry/mixed/damp starts; regional hills/valleys, scattered stone/flint/clay/deadwood, ecology, ore, ruins; no guaranteed supplies. |
 | Structures | Timed carried-stack posts, framing and a 6.5 kg cover panel; activation on completion. |
 
 ## Current integration frontier
@@ -54,7 +54,7 @@ These canonical owners may lack ordinary acquisition.
 | Energy and fluids | Finite energy/losses, shafts, campfire, drinking; exact local/downhill pouring forbids bare-hand fluid >353.15 K at touched ends. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; timed posts, framing, cover and grounded timber roller; timed primary-break recovery. |
-| Block world | Seeded ore, habitats, forage, trees, springs, temples and excavation. Crops expire before discovery; shade/moisture enable regrowth. Water remains finite. No renderer or full ecology. |
+| Block world | Multiscale terrain, seeded ore, habitats, forage, trees, springs, temples and excavation. Crop expiry and regrowth; finite water. No renderer or full ecology. |
 | Spatial and presentation | Checked coords/shaders; text play: motion, crafting, tools, copper surveys/mining/dressing, boxes, fire, saves. |
 
 ## Capability-only evaluation

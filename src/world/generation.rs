@@ -5,6 +5,7 @@ pub use errors::{ChunkGenerationCommitError, ChunkGenerationError};
 mod forage;
 pub(crate) use forage::seeded_perennial_matches;
 mod habitat;
+mod loose_materials;
 mod minerals;
 mod occupancy;
 mod springs;
@@ -233,7 +234,7 @@ pub struct ValidatedPlayerChunkDemand {
     next_revision: u64,
     profile: WorldGenerationProfile,
     chunks: Vec<WorldChunk>,
-    forage: Option<ValidatedSurfaceResourceCreation>,
+    surface: Option<ValidatedSurfaceResourceCreation>,
     springs: Option<(ValidatedFluidGenerationBatch, Vec<VoxelCoord>, u64)>,
 }
 
@@ -270,8 +271,8 @@ impl ValidatedPlayerChunkDemand {
         // The common terrain guard already binds surface, world and structure
         // revisions. These source parcels are dated to tick zero, so a distant
         // clock advance cannot stale their physical generation identity.
-        if let Some(forage) = self.forage {
-            forage.apply(state);
+        if let Some(surface) = self.surface {
+            surface.apply(state);
         }
         if let Some((generation, positions, next_logistics_revision)) = self.springs {
             let locations = generation.store_ids().zip(positions).collect::<Vec<_>>();
@@ -380,11 +381,12 @@ pub fn validate_generate_player_neighborhood(
         return Ok(None);
     }
     chunks.sort_unstable_by_key(WorldChunk::coord);
-    // Plan each seeded forage site once. Springs must use exactly the sites
-    // authorized for this expansion, not a separate regeneration of the same
-    // candidate choices with potentially diverging occupancy assumptions.
-    let (forage, forage_sites) = validate_forage_for_chunks(registries, state, profile, &chunks)?;
-    let springs = validate_springs_for_chunks(registries, state, profile, &chunks, &forage_sites)?;
+    // Plan all seeded surface matter together. Springs must use the exact
+    // sites authorized for this expansion rather than separately rerolling
+    // candidate positions and overlapping real loose resources or plants.
+    let (surface, blocked_sites) =
+        validate_natural_surface_for_chunks(registries, state, profile, &chunks)?;
+    let springs = validate_springs_for_chunks(registries, state, profile, &chunks, &blocked_sites)?;
     if !state.can_spend_world_revisions(1) {
         return Err(ChunkGenerationError::WorldRevisionExhausted);
     }
@@ -397,7 +399,7 @@ pub fn validate_generate_player_neighborhood(
         next_revision,
         profile,
         chunks,
-        forage,
+        surface,
         springs,
     }))
 }
@@ -407,15 +409,12 @@ fn validate_springs_for_chunks(
     state: &AppState,
     profile: WorldGenerationProfile,
     chunks: &[WorldChunk],
-    forage_sites: &[Option<VoxelCoord>],
+    blocked_sites: &[Vec<VoxelCoord>],
 ) -> Result<Option<(ValidatedFluidGenerationBatch, Vec<VoxelCoord>, u64)>, ChunkGenerationError> {
     let sources = chunks
         .iter()
-        .zip(forage_sites)
-        .filter_map(|(chunk, forage_site)| {
-            let blocked = forage_site.as_ref().map_or(&[][..], std::slice::from_ref);
-            springs::seeded_spring_spec(state, profile, chunk, blocked)
-        })
+        .zip(blocked_sites)
+        .filter_map(|(chunk, blocked)| springs::seeded_spring_spec(state, profile, chunk, blocked))
         .collect::<Vec<_>>();
     if sources.is_empty() {
         return Ok(None);
@@ -447,10 +446,10 @@ fn validate_springs_for_chunks(
     Ok(Some((batch, positions, next_logistics_revision)))
 }
 
-/// One surface-owner admission for all newly generated natural food patches.
-/// The biological source existed at world creation, even if a distant column
-/// only becomes persistent later; exploration does not refresh its shelf age.
-fn validate_forage_for_chunks(
+/// One surface-owner admission for seeded food and finite natural raw materials.
+/// They existed at world creation, even if a distant chunk is only discovered
+/// later; exploration cannot refresh fruit or material stock.
+fn validate_natural_surface_for_chunks(
     registries: &Registries,
     state: &AppState,
     profile: WorldGenerationProfile,
@@ -458,36 +457,49 @@ fn validate_forage_for_chunks(
 ) -> Result<
     (
         Option<ValidatedSurfaceResourceCreation>,
-        Vec<Option<VoxelCoord>>,
+        Vec<Vec<VoxelCoord>>,
     ),
     ChunkGenerationError,
 > {
-    let specs = chunks
-        .iter()
-        .map(|chunk| forage::seeded_forage_spec(registries, state, profile, chunk))
-        .collect::<Vec<_>>();
-    let sites = specs
-        .iter()
-        .map(|spec| spec.as_ref().map(SurfaceResourceSpec::position))
-        .collect::<Vec<_>>();
-    if specs.iter().all(Option::is_none) {
-        return Ok((None, sites));
+    let mut specs = Vec::new();
+    let mut blocked_sites = Vec::with_capacity(chunks.len());
+    for chunk in chunks {
+        let forage = forage::seeded_forage_spec(registries, state, profile, chunk);
+        let forage_position = forage.as_ref().map(SurfaceResourceSpec::position);
+        let loose = loose_materials::seeded_loose_material_spec(
+            registries,
+            state,
+            profile,
+            chunk,
+            forage_position,
+        );
+        let mut sites = Vec::new();
+        for spec in [forage, loose].into_iter().flatten() {
+            sites.push(spec.position());
+            specs.push(spec);
+        }
+        blocked_sites.push(sites);
+    }
+    if specs.is_empty() {
+        return Ok((None, blocked_sites));
     }
     crate::surface::validate_create_surface_resources_at(
         registries,
         state,
-        specs.into_iter().flatten(),
+        specs,
         SimulationTick::ZERO,
     )
-    .map(|forage| (Some(forage), sites))
+    .map(|surface| (Some(surface), blocked_sites))
     .map_err(|error| match error {
-        SurfaceResourceCreationError::Empty => unreachable!("forage generation has nonempty specs"),
-        SurfaceResourceCreationError::IdExhausted => ChunkGenerationError::ForageIdExhausted,
+        SurfaceResourceCreationError::Empty => {
+            unreachable!("natural generation has nonempty specs")
+        }
+        SurfaceResourceCreationError::IdExhausted => ChunkGenerationError::SurfaceIdExhausted,
         SurfaceResourceCreationError::RevisionExhausted => {
-            ChunkGenerationError::ForageRevisionExhausted
+            ChunkGenerationError::SurfaceRevisionExhausted
         }
         SurfaceResourceCreationError::InvalidResource(error) => {
-            ChunkGenerationError::InvalidForageResource(error)
+            ChunkGenerationError::InvalidGeneratedSurfaceResource(error)
         }
     })
 }

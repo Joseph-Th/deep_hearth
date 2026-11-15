@@ -33,9 +33,9 @@ pub enum ChunkGenerationError {
     TreePlacementObstructed { voxel: VoxelCoord },
     PlayerDemandCoordinateOverflow { center: ChunkCoord },
     WorldRevisionExhausted,
-    ForageIdExhausted,
-    ForageRevisionExhausted,
-    InvalidForageResource(crate::surface::SurfaceResourceValidationError),
+    SurfaceIdExhausted,
+    SurfaceRevisionExhausted,
+    InvalidGeneratedSurfaceResource(crate::surface::SurfaceResourceValidationError),
     SpringIdExhausted,
     SpringRevisionExhausted,
     InvalidSpringWater,
@@ -182,9 +182,9 @@ impl Display for ChunkGenerationError {
             Self::WorldRevisionExhausted => {
                 formatter.write_str("terrain generation exhausted world revision capacity")
             }
-            Self::ForageIdExhausted => formatter.write_str("terrain forage exhausted resource identifiers"),
-            Self::ForageRevisionExhausted => formatter.write_str("terrain forage exhausted surface revisions"),
-            Self::InvalidForageResource(error) => write!(formatter, "terrain forage is invalid: {error}"),
+            Self::SurfaceIdExhausted => formatter.write_str("natural terrain exhausted surface resource identifiers"),
+            Self::SurfaceRevisionExhausted => formatter.write_str("natural terrain exhausted surface revisions"),
+            Self::InvalidGeneratedSurfaceResource(error) => write!(formatter, "natural surface matter is invalid: {error}"),
             Self::SpringIdExhausted => formatter.write_str("natural water exhausted store identifiers"),
             Self::SpringRevisionExhausted => formatter.write_str("natural water exhausted fluid revisions"),
             Self::InvalidSpringWater => formatter.write_str("natural water has invalid authored fluid properties"),

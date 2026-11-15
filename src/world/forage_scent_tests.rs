@@ -510,7 +510,17 @@ fn indexed_scent_absence_preserves_envelope_edges_and_excludes_drops() {
 #[test]
 fn scent_crossing_a_weather_front_follows_the_source_wind_not_the_observers() {
     let registries = build_registries();
-    let seed = WorldGenerationSeed::new(0x5343_454E_545F_4652);
+    let (seed, z, height) = (0..128_u64)
+        .find_map(|number| {
+            let seed = WorldGenerationSeed::new(0x5343_454E_545F_4652 ^ number);
+            (0..16).find_map(|z| {
+                let height = super::super::generation::terrain_height(seed, 127, z);
+                (128..=130)
+                    .all(|x| super::super::generation::terrain_height(seed, x, z) == height)
+                    .then_some((seed, z, height + 1))
+            })
+        })
+        .expect("seeded terrain includes an open walking crossing of a weather front");
     let mut original = AppState::new();
     for coord in [ChunkCoord::new(7, 0), ChunkCoord::new(8, 0)] {
         validate_generate_chunk(&registries, &original, seed, coord, BLOCK_STATE_STONE)
@@ -519,12 +529,14 @@ fn scent_crossing_a_weather_front_follows_the_source_wind_not_the_observers() {
             .unwrap();
     }
     // Both points are in real generated air, three open steps apart, but on
-    // opposite sides of the 128-voxel regional wind boundary.
-    let source = VoxelCoord::new(127, 6, 8);
-    let observer = VoxelCoord::new(130, 6, 8);
+    // opposite sides of the 128-voxel regional wind boundary. Derive the
+    // shared real walking surface instead of assuming a uniform 6 m height
+    // after introducing larger seeded ridges and valleys.
+    let source = VoxelCoord::new(127, height, z);
+    let observer = VoxelCoord::new(130, height, z);
     for x in source.x()..=observer.x() {
         assert_eq!(
-            original.world().block_at(VoxelCoord::new(x, 6, 8)),
+            original.world().block_at(VoxelCoord::new(x, height, z)),
             Some(BlockStateId::AIR)
         );
     }
