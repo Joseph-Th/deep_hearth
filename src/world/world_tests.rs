@@ -2677,13 +2677,19 @@ fn terrain_generation_is_deterministic_compact_and_seed_sensitive() {
     .unwrap_or_else(|error| panic!("alternate terrain generation failed: {error}"));
     assert_ne!(first.chunk(), different.chunk());
 
-    let homogeneous = first
+    let deep = first
         .chunk()
         .sections()
         .find(|section| section.non_air_count() == SECTION_CELL_COUNT as u16)
-        .unwrap_or_else(|| panic!("generated terrain lost its homogeneous deep section"));
-    assert_eq!(homogeneous.palette(), &[BLOCK_STATE_STONE]);
-    assert_eq!(homogeneous.packed_word_count(), 0);
+        .unwrap_or_else(|| panic!("generated terrain lost its solid deep section"));
+    assert!(
+        deep.palette().contains(&BLOCK_STATE_STONE),
+        "deep sections must retain their principal rock substrate",
+    );
+    assert!(
+        deep.packed_word_count() < SECTION_CELL_COUNT / 8,
+        "sparse deep mineral lenses must remain compactly palette-packed",
+    );
 }
 
 #[test]

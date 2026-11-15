@@ -1,4 +1,8 @@
-//! Deterministic seeded mineral lenses and grade selection inside generated rock.
+//! Seeded geological provinces with sparse outcrops and mineral lenses.
+//!
+//! One 128 m province biases the nearby 32 m outcrop districts and the
+//! underground 4 m lens cells toward a shared geology. Prospecting can find
+//! productive belts or nearly barren rock; no explored district is owed ore.
 
 use super::terrain::mix64;
 use super::{BlockStateId, ChunkCoord, VoxelCoord, WorldGenerationSeed, WorldRegistry};
@@ -9,6 +13,8 @@ const LENS_SIDE: usize = 4;
 const LENS_COLUMNS: usize = super::CHUNK_SIDE / LENS_SIDE;
 const LENS_MIN_Y: i64 = MINERAL_MIN_Y.div_euclid(LENS_SIDE as i64);
 const LENS_LEVELS: usize = (MINERAL_MAX_Y.div_euclid(LENS_SIDE as i64) - LENS_MIN_Y + 1) as usize;
+const PROVINCE_SIDE: i64 = 128;
+const PROVINCE_SALT: u64 = 0x4745_4F4C_4F47_5950;
 const _: () = assert!(
     super::CHUNK_SIDE.is_multiple_of(LENS_SIDE),
     "chunk mineral sampling requires whole lens cells"
@@ -20,6 +26,67 @@ const _: () = assert!(
 /// mineral identity without repeating thousands of hashes for the same lens.
 pub(super) struct ChunkMineralLenses {
     cells: [[[Option<BlockStateId>; LENS_LEVELS]; LENS_COLUMNS]; LENS_COLUMNS],
+}
+
+/// Regional rock context, not a new inventory material or a player-visible
+/// survey result. All contained blocks remain independently real and finite.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GeologicalProvince {
+    IronBelt,
+    TinUplands,
+    SulfideBasin,
+    PoorBasement,
+}
+
+fn geological_province(seed: WorldGenerationSeed, x: i64, z: i64) -> GeologicalProvince {
+    geological_province_cell(
+        seed,
+        x.div_euclid(PROVINCE_SIDE),
+        z.div_euclid(PROVINCE_SIDE),
+    )
+}
+
+fn geological_province_cell(
+    seed: WorldGenerationSeed,
+    cell_x: i64,
+    cell_z: i64,
+) -> GeologicalProvince {
+    let hash = mix64(
+        seed.value()
+            ^ (cell_x as u64).wrapping_mul(0xB529_7A4D_0FCF_0B5D)
+            ^ (cell_z as u64).wrapping_mul(0x68E3_1DA4_8B27_51A9)
+            ^ PROVINCE_SALT,
+    );
+    match hash & 3 {
+        0 => GeologicalProvince::IronBelt,
+        1 => GeologicalProvince::TinUplands,
+        2 => GeologicalProvince::SulfideBasin,
+        _ => GeologicalProvince::PoorBasement,
+    }
+}
+
+fn outcrop_present(province: GeologicalProvince, hash: u64) -> bool {
+    let roll = (hash >> 48) & 63;
+    roll < match province {
+        GeologicalProvince::IronBelt => 48,
+        GeologicalProvince::TinUplands => 32,
+        GeologicalProvince::SulfideBasin => 24,
+        GeologicalProvince::PoorBasement => 2,
+    }
+}
+
+fn mineral_index(province: GeologicalProvince, choice: usize, upper: bool) -> usize {
+    let choices = match (province, upper) {
+        (GeologicalProvince::IronBelt, true) => [0, 0, 0, 3, 3, 6, 7, 7],
+        (GeologicalProvince::IronBelt, false) => [0, 0, 3, 3, 5, 5, 0, 3],
+        (GeologicalProvince::TinUplands, true) => [1, 1, 1, 1, 7, 7, 2, 0],
+        (GeologicalProvince::TinUplands, false) => [1, 1, 1, 5, 5, 3, 0, 3],
+        (GeologicalProvince::SulfideBasin, true) => [2, 2, 4, 4, 5, 5, 7, 1],
+        (GeologicalProvince::SulfideBasin, false) => [2, 4, 4, 5, 5, 3, 3, 0],
+        (GeologicalProvince::PoorBasement, true) => [6, 6, 7, 7, 7, 7, 0, 1],
+        (GeologicalProvince::PoorBasement, false) => [0, 0, 3, 3, 3, 0, 5, 1],
+    };
+    choices[choice]
 }
 
 /// One district's two-by-two shallow outcrop, if this chunk owns its site.
@@ -54,6 +121,10 @@ pub(super) fn seeded_surface_lode_for_chunk(
             ^ (chunk.z().div_euclid(2) as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F)
             ^ 0x5355_5246_4143_454F,
     );
+    let province = geological_province_cell(seed, chunk.x().div_euclid(8), chunk.z().div_euclid(8));
+    if !outcrop_present(province, hash) {
+        return None;
+    }
     if chunk.x().rem_euclid(2) as u64 != hash & 1
         || chunk.z().rem_euclid(2) as u64 != (hash >> 1) & 1
     {
@@ -62,7 +133,7 @@ pub(super) fn seeded_surface_lode_for_chunk(
     Some(ChunkSurfaceLode {
         local_x: 3 + ((hash >> 8) % 10) as usize,
         local_z: 3 + ((hash >> 20) % 10) as usize,
-        ore: states[((hash >> 36) % states.len() as u64) as usize],
+        ore: states[mineral_index(province, ((hash >> 36) % 8) as usize, true)],
     })
 }
 
@@ -76,6 +147,7 @@ impl ChunkMineralLenses {
     ) -> Self {
         debug_assert_eq!(min_x.rem_euclid(super::CHUNK_SIDE as i64), 0);
         debug_assert_eq!(min_z.rem_euclid(super::CHUNK_SIDE as i64), 0);
+        let province = geological_province(seed, min_x, min_z);
         Self {
             cells: std::array::from_fn(|z| {
                 std::array::from_fn(|x| {
@@ -89,7 +161,7 @@ impl ChunkMineralLenses {
                             y,
                             min_z + (z * LENS_SIDE) as i64,
                         );
-                        seeded_mineral_state(seed, position, states)
+                        seeded_mineral_state_in_province(seed, position, states, province)
                             .map(|ore| select_mineral_grade(registry, seed, position, ore))
                     })
                 })
@@ -109,8 +181,8 @@ impl ChunkMineralLenses {
 
 /// Sparse surface expressions of finite shallow mineral bodies. The two-by-two
 /// outcrop and the rock immediately below it have the same seeded identity.
-/// Each 32 m district has one site in a seed-chosen 16 m chunk, so exploration
-/// cannot leave entire neighboring districts barren by unlucky random rolls.
+/// Each 32 m district has at most one site in a seed-chosen 16 m chunk.
+/// The 128 m geological province biases its presence and mineral species.
 /// No neighbor-chunk generation or per-visit discovery roll moves the ore.
 #[cfg(test)]
 pub(super) fn seeded_surface_lode_state(
@@ -137,10 +209,25 @@ mod tests;
 /// 4 m mineral lenses at bounded deep elevations. This is seeded terrain
 /// identity: no virtual deposits, no metal extracted from chemically bound ore,
 /// and no repeated discovery rolls when the same chunk is reloaded.
+#[cfg(test)]
 pub(in crate::world) fn seeded_mineral_state(
     seed: WorldGenerationSeed,
     position: VoxelCoord,
     states: [BlockStateId; 8],
+) -> Option<BlockStateId> {
+    seeded_mineral_state_in_province(
+        seed,
+        position,
+        states,
+        geological_province(seed, position.x(), position.z()),
+    )
+}
+
+fn seeded_mineral_state_in_province(
+    seed: WorldGenerationSeed,
+    position: VoxelCoord,
+    states: [BlockStateId; 8],
+    province: GeologicalProvince,
 ) -> Option<BlockStateId> {
     if !(MINERAL_MIN_Y..=MINERAL_MAX_Y).contains(&position.y()) {
         return None;
@@ -152,21 +239,19 @@ pub(in crate::world) fn seeded_mineral_state(
             ^ (position.z().div_euclid(4) as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F)
             ^ 0x4D49_4E45_5241_4C53,
     );
-    // 4 m lenses are sparse, and unlike a global mineral uniform roll,
-    // their types reflect shallow vs deep host-rock position. Lattice hash
-    // remains invariant under chunk and generation-order changes.
-    hash.is_multiple_of(89).then(|| {
+    // Broad provinces change mineral frequency and chemistry. Individual
+    // lenses remain 4 m bodies, not an ore reward for digging any location.
+    let chance = match province {
+        GeologicalProvince::IronBelt => 55,
+        GeologicalProvince::TinUplands => 67,
+        GeologicalProvince::SulfideBasin => 43,
+        GeologicalProvince::PoorBasement => 293,
+    };
+    hash.is_multiple_of(chance).then(|| {
         let choice = ((hash >> 13) % 8) as usize;
         // Select strata using the lattice cell, not individual voxel elevation;
         // otherwise one 4 m lens crossing -40 splits into unrelated ores.
-        let index = if position.y().div_euclid(4) >= -10 {
-            // Upper deep rock: tin/zinc/lead/graphite/quartz plus iron oxide.
-            [0, 1, 2, 4, 5, 6, 7, 7][choice]
-        } else {
-            // Lower deep rock: magnetite and sulfides dominate the rare lenses.
-            [0, 0, 1, 2, 3, 3, 5, 5][choice]
-        };
-        states[index]
+        states[mineral_index(province, choice, position.y().div_euclid(4) >= -10)]
     })
 }
 
