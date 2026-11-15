@@ -10,9 +10,8 @@ mod opening;
 pub use errors::{InitialWildernessGenerationCommitError, InitialWildernessGenerationError};
 
 use crate::content::{
-    FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, FORM_ORE, MATERIAL_BERRIES,
-    MATERIAL_CLAY, MATERIAL_COPPER, MATERIAL_FLINT, MATERIAL_STONE, MATERIAL_WILD_NUTS,
-    MATERIAL_WOOD,
+    FLUID_WATER, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_ORE, MATERIAL_BERRIES, MATERIAL_CLAY,
+    MATERIAL_COPPER, MATERIAL_FLINT, MATERIAL_STONE, MATERIAL_WILD_NUTS, MATERIAL_WOOD,
 };
 use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::AppState;
@@ -51,17 +50,15 @@ const STONE_VARIATION_MG: u64 = 3_000_000;
 // facings, and stays finite rather than refilling when visited.
 const CLAY_BASE_MASS_MG: u64 = 8_000_000;
 const CLAY_VARIATION_MG: u64 = 4_000_000;
-// A small native-copper float at the exposed clay spur gives cold-working
-// an early useful result, not enough metal to build a foundry.
-const COPPER_FLOAT_BASE_MG: u64 = 80_000;
-const COPPER_FLOAT_VARIATION_MG: u64 = 40_000;
 const FLINT_BASE_MASS_MG: u64 = 900_000;
 const FLINT_VARIATION_MG: u64 = 600_000;
-// The source of the native-metal float is a finite, hard-rock outcrop seam.
-// A stone pick cannot extract it; a copper-reinforced pick can.
+// The first copper is bound in weathered, stone-workable ore rather than lying
+// ready for cold-working beside starting flint. Stone tools, a field survey,
+// excavation and finite hand dressing precede the first copper reinforcement.
 const COPPER_SEAM_BASE_MG: u64 = 24_000_000;
 const COPPER_SEAM_VARIATION_MG: u64 = 12_000_000;
-const COPPER_SEAM_HARDNESS: Pressure = Pressure::from_pascals(650_000_000);
+const COPPER_SEAM_HARDNESS: Pressure = Pressure::from_pascals(450_000_000);
+const COPPER_SEAM_GRADE_PPM: u32 = 100_000;
 // One local fallen-timber opportunity should be a reserve, not a pocket-sized pickup. The player
 // can still harvest only the amount current work justifies, but even the smallest discovered stand
 // exceeds the unaided body-carrying envelope so storage, repeated hauling, and later woodworking
@@ -287,7 +284,7 @@ fn opening_resident_has_physical_clearance(
 ///
 /// This establishes one short connected horizontal opening graph. Forage is one step from spawn;
 /// from there the actor may branch to finite non-refilling drinkable water (with a distinct
-/// clay outcrop and small native-copper float one further leg away), or continue to a work
+/// clay outcrop and flint one further leg away), or continue to a work
 /// junction with optional wild-nut forage;
 /// its two adjacent leaves hold loose stone/timber in seed-selected order. Persisted
 /// traversal edges authorize only that graph. This does not generate terrain geometry, pathfinding,
@@ -425,17 +422,6 @@ pub fn validate_generate_initial_wilderness(
         ),
         generated_spec(
             layout.clay,
-            CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL),
-            generated_mass(
-                seed,
-                spawn,
-                0x434F_5050_4552_464C,
-                COPPER_FLOAT_BASE_MG,
-                COPPER_FLOAT_VARIATION_MG,
-            ),
-        ),
-        generated_spec(
-            layout.clay,
             CommodityKey::new(MATERIAL_FLINT, FORM_LUMP),
             generated_mass(
                 seed,
@@ -455,7 +441,7 @@ pub fn validate_generate_initial_wilderness(
     let surface_generation = validate_create_surface_resources(registries, state, specs).map_err(
         |error| match error {
             SurfaceResourceCreationError::Empty => {
-                unreachable!("built-in wilderness generation always emits seven resources")
+                unreachable!("built-in wilderness generation always emits six resources")
             }
             SurfaceResourceCreationError::IdExhausted => {
                 InitialWildernessGenerationError::SurfaceIdExhausted
@@ -468,13 +454,13 @@ pub fn validate_generate_initial_wilderness(
             }
         },
     )?;
-    // The float is a clue, not the entire ore supply. The geological claim
-    // occupies the physical working voxel at the outcrop so a standing player
-    // can survey and mine it. The region is a target footprint, not a
-    // generated solid block requiring an inaccessible underground body pose.
+    // The weathered deposit occupies the physical working voxel at the outcrop
+    // so a stone-equipped standing player can survey and mine it. The region is
+    // a target footprint, not an inaccessible underground body pose. Recovering
+    // native copper requires physical dressing instead of hand-picking free metal.
     let seam_composition = MaterialComposition::new(vec![
-        CompositionComponent::new(MATERIAL_COPPER, 500_000),
-        CompositionComponent::new(MATERIAL_STONE, 500_000),
+        CompositionComponent::new(MATERIAL_COPPER, COPPER_SEAM_GRADE_PPM),
+        CompositionComponent::new(MATERIAL_STONE, 1_000_000 - COPPER_SEAM_GRADE_PPM),
     ])
     .expect("natural copper ore and rock composition is complete");
     let geological_generation = validate_generate_geological_deposit(

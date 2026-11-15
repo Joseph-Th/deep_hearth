@@ -30,13 +30,19 @@ fn mined_copper_ore_can_be_broken_and_sorted_into_finite_native_metal() {
     let mut session = equipped_for_copper_survey_and_mining();
     run(&mut session, "prospect copper 1");
     finish_work(&mut session);
-    run(&mut session, "mine copper 300 with 2");
+    assert!(
+        session.command("mine copper 200 with 2").is_err(),
+        "coarse evidence alone must not resolve low-grade copper"
+    );
+    run(&mut session, "prospect copper 2 with 1");
+    finish_work(&mut session);
+    run(&mut session, "mine copper 200 with 2");
     finish_work(&mut session);
     let inventory = run(&mut session, "inventory");
-    assert!(inventory.contains("copper ore | 300 g"));
+    assert!(inventory.contains("copper ore | 200 g"));
     assert!(
         inventory.lines().any(|line| {
-            line.contains("copper ore | 300 g |") && line.ends_with("mixed material")
+            line.contains("copper ore | 200 g |") && line.ends_with("mixed material")
         }),
         "mined mixed ore should be distinguishable without exposing its exact assay: {inventory}"
     );
@@ -85,7 +91,7 @@ fn mined_copper_ore_can_be_broken_and_sorted_into_finite_native_metal() {
     assert!(done.contains("Received 100 g crushed copper ore"));
 
     let inventory = run(&mut session, "inventory");
-    assert!(inventory.contains("copper ore | 200 g"));
+    assert!(inventory.contains("copper ore | 100 g"));
     assert!(inventory.contains("crushed copper ore | 100 g"));
     let crushed = carried_stack(&session, "crushed copper ore");
     let started = run(&mut session, &format!("dress 13 {crushed} 100"));
@@ -117,19 +123,43 @@ fn mined_copper_ore_can_be_broken_and_sorted_into_finite_native_metal() {
                 == Some("native copper")
         })
         .expect("hand sorting must return physically recovered native copper");
-    assert_eq!(native.mass().milligrams(), 32_500);
-    assert!(run(&mut session, "inventory").contains("native copper | 32.5 g"));
+    assert_eq!(native.mass().milligrams(), 6_500);
+    assert!(run(&mut session, "inventory").contains("native copper | 6.5 g"));
     assert_eq!(
         calculate_matter_accounting(&session.state).unwrap().total(),
         conserved
     );
+    assert!(
+        session.command("craft 10").is_err(),
+        "one hand-sorted ore batch cannot yield a ready copper reinforcement"
+    );
+    // Stone mining is limited to 200 g per batch. Four ore-breaking and
+    // sorting batches are needed to recover the first 20 g of native metal.
+    let unworked = carried_stack(&session, "copper ore");
+    run(&mut session, &format!("dress 15 {unworked} 100"));
+    finish_work(&mut session);
+    let crushed = carried_stack(&session, "crushed copper ore");
+    run(&mut session, &format!("dress 13 {crushed} 100"));
+    finish_work(&mut session);
+    assert!(session.command("craft 10").is_err());
+    run(&mut session, "mine copper 200 with 2");
+    finish_work(&mut session);
+    for _ in 0..2 {
+        let unworked = carried_stack(&session, "copper ore");
+        run(&mut session, &format!("dress 15 {unworked} 100"));
+        finish_work(&mut session);
+        let crushed = carried_stack(&session, "crushed copper ore");
+        run(&mut session, &format!("dress 13 {crushed} 100"));
+        finish_work(&mut session);
+    }
+    assert!(run(&mut session, "inventory").contains("native copper | 26 g"));
     let crafted = run(&mut session, "craft 10");
     assert!(crafted.contains("Started cold-work native copper reinforcement"));
     let finished = finish_work(&mut session);
     assert!(finished.contains("Craft completed: cold-work native copper reinforcement"));
     let after = run(&mut session, "inventory");
     assert!(after.contains("copper reinforcement | 20 g"));
-    assert!(after.contains("native copper | 12.5 g"));
+    assert!(after.contains("native copper | 6 g"));
     assert_eq!(
         calculate_matter_accounting(&session.state).unwrap().total(),
         conserved
@@ -140,6 +170,8 @@ fn mined_copper_ore_can_be_broken_and_sorted_into_finite_native_metal() {
 fn fractional_mining_and_hand_dressing_preserve_subgram_matter_and_save_replay() {
     let mut session = equipped_for_copper_survey_and_mining();
     run(&mut session, "prospect copper 1");
+    finish_work(&mut session);
+    run(&mut session, "prospect copper 2 with 1");
     finish_work(&mut session);
     let before = snapshot(&session);
     for command in [
@@ -186,7 +218,7 @@ fn fractional_mining_and_hand_dressing_preserve_subgram_matter_and_save_replay()
     assert!(started.contains("0.125 g from stack"), "{started}");
     let completed = finish_work(&mut session);
     assert!(completed.contains("Ore processing completed: hand sort native copper"));
-    assert!(run(&mut session, "inventory").contains("native copper | 0.04 g"));
+    assert!(run(&mut session, "inventory").contains("native copper | 0.008 g"));
     assert_eq!(
         calculate_matter_accounting(&session.state).unwrap().total(),
         conserved
@@ -227,22 +259,10 @@ fn move_along(session: &mut Session, controls: &[&str]) {
 
 fn equipped_for_copper_survey_and_mining() -> Session {
     let mut session = Session::new(24318).unwrap();
-    // Visit the finite float first. The reinforcement is made, not conjured.
+    // Stone tools, acquired evidence and hand dressing precede first copper.
     move_along(
         &mut session,
-        &["e 20", "wait 10", "s 20", "wait 10", "s 20", "wait 10"],
-    );
-    run(&mut session, "gather 2 20");
-    finish_work(&mut session);
-    run(&mut session, "craft 10");
-    finish_work(&mut session);
-
-    // Knapped tool heads and the two wood handles use physical gathered supply.
-    move_along(
-        &mut session,
-        &[
-            "n 20", "wait 10", "e 20", "wait 10", "n 20", "wait 10", "e 20", "wait 10",
-        ],
+        &["e 20", "wait 10", "e 20", "wait 10", "e 20", "wait 10"],
     );
     run(&mut session, "gather 1 2000");
     finish_work(&mut session);
@@ -256,11 +276,11 @@ fn equipped_for_copper_survey_and_mining() -> Session {
 
     assert!(run(&mut session, "assemble 21").contains("stone geological sampling hammer"));
     run(&mut session, "take 1");
-    assert!(run(&mut session, "assemble 8").contains("copper-reinforced stone pick"));
+    assert!(run(&mut session, "assemble 6").contains("knapped stone pick"));
     run(&mut session, "take 1");
     let inventory = run(&mut session, "inventory");
     assert!(inventory.contains("Carried equipment 1: stone geological sampling hammer"));
-    assert!(inventory.contains("Carried equipment 2: copper-reinforced stone pick"));
+    assert!(inventory.contains("Carried equipment 2: knapped stone pick"));
     move_along(&mut session, &["w 20", "wait 10", "s 20", "wait 10"]);
     assert!(run(&mut session, "status").contains("At (9,2,10)"));
     run(&mut session, "wait boundary");
@@ -344,7 +364,7 @@ fn field_prospecting_uses_acquired_evidence_and_cannot_invent_locality() {
 }
 
 #[test]
-fn ordinary_wilderness_survey_to_reinforced_pick_ore_conserves_matter_and_replays() {
+fn ordinary_wilderness_stone_pick_survey_and_ore_conserves_matter_and_replays() {
     let mut session = equipped_for_copper_survey_and_mining();
     let before = snapshot(&session);
     assert!(session.command("mine copper 300 with 2").is_err());
@@ -366,8 +386,8 @@ fn ordinary_wilderness_survey_to_reinforced_pick_ore_conserves_matter_and_replay
             &session.state,
             MiningTargetRequest::new(exact, MATERIAL_COPPER)
         )
-        .is_ok(),
-        "one-voxel acquired exposure can authorize a target even before the optional hardness survey"
+        .is_err(),
+        "coarse exposure cannot resolve the sparse weathered copper; a precise stone-hammer survey is required"
     );
 
     run(&mut session, "prospect copper 2 with 1");
@@ -395,7 +415,7 @@ fn ordinary_wilderness_survey_to_reinforced_pick_ore_conserves_matter_and_replay
     );
     assert_eq!(local.matches("Sample #1:").count(), 1);
     assert_eq!(local.matches("Sample #2:").count(), 1);
-    assert!(local.contains("hardness 600..650 MPa"));
+    assert!(local.contains("hardness 400..450 MPa"));
     assert!(local.contains("surveyed mass 25000..30000 g"));
     assert!(local.contains("historical acquired measurements"));
     let read_snapshot = snapshot(&session);
@@ -413,8 +433,8 @@ fn ordinary_wilderness_survey_to_reinforced_pick_ore_conserves_matter_and_replay
     assert_eq!(snapshot(&session), read_snapshot);
 
     let conserved = calculate_matter_accounting(&session.state).unwrap().total();
-    let started = run(&mut session, "mine copper 300 with 2");
-    assert!(started.contains("Started 300 g copper extraction"));
+    let started = run(&mut session, "mine copper 200 with 2");
+    assert!(started.contains("Started 200 g copper extraction"));
     assert!(started.contains("Work: hand pick mining; scheduled completion in"));
     let mining_saved = snapshot(&session);
     let mut restored = Session {
@@ -432,8 +452,8 @@ fn ordinary_wilderness_survey_to_reinforced_pick_ore_conserves_matter_and_replay
     assert_eq!(snapshot(&session), snapshot(&restored));
     assert!(mined.contains("Mining produced"));
     let inventory = run(&mut session, "inventory");
-    assert!(inventory.contains("copper ore | 300 g"));
-    assert!(inventory.contains("copper-reinforced stone pick | 1020 g | condition 99%"));
+    assert!(inventory.contains("copper ore | 200 g"));
+    assert!(inventory.contains("knapped stone pick | 1000 g | condition 99%"));
     assert_eq!(
         calculate_matter_accounting(&session.state).unwrap().total(),
         conserved

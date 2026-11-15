@@ -55,14 +55,6 @@ pub(super) fn generated_outcrop_supports_earned_flint_knife_copper_saw_and_chise
         Mass::from_milligrams(300_000),
         "flint knife stock",
     );
-    let copper_resource = local_surface_resource(&state, native);
-    gather_in_batches(
-        &registries,
-        &mut state,
-        copper_resource,
-        Mass::from_milligrams(80_000),
-        "saw and chisel metal",
-    );
     walk_continuous_body_adjacent_and_settle(&registries, &mut state, water, "flint return water");
     walk_continuous_body_adjacent_and_settle(&registries, &mut state, forage, "flint return fork");
     let junction = state
@@ -77,6 +69,8 @@ pub(super) fn generated_outcrop_supports_earned_flint_knife_copper_saw_and_chise
     );
     let stone = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
     let timber = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let stone_position = adjacent_surface_resource(&state, stone).position();
+    let timber_position = adjacent_surface_resource(&state, timber).position();
     for (commodity, mass, label) in [
         (
             stone,
@@ -121,6 +115,21 @@ pub(super) fn generated_outcrop_supports_earned_flint_knife_copper_saw_and_chise
         3,
         "shape field tool handles",
     );
+    let metal = first_copper::acquire(
+        &registries,
+        &mut state,
+        first_copper::Route {
+            junction,
+            forage,
+            water,
+            outcrop,
+            stone: stone_position,
+            timber: timber_position,
+            carried,
+        },
+        Mass::from_milligrams(80_000),
+    );
+    assert_eq!(metal.native_recovered, Mass::from_milligrams(84_500));
     craft_in_place(
         &registries,
         &mut state,
@@ -143,7 +152,7 @@ pub(super) fn generated_outcrop_supports_earned_flint_knife_copper_saw_and_chise
             .get_stockpile(carried)
             .unwrap()
             .get_mass(native),
-        Mass::ZERO,
+        Mass::from_milligrams(4_500),
     );
     let mut equipment = Vec::new();
     for definition in [
@@ -273,7 +282,7 @@ pub(super) fn generated_outcrop_supports_earned_flint_knife_copper_saw_and_chise
             .get_stockpile(carried)
             .unwrap()
             .get_mass(chips),
-        Mass::from_milligrams(2_500_000),
+        Mass::from_milligrams(4_100_000),
     );
     assert!(saw_duration > 0);
     for (branch, label) in [
@@ -299,7 +308,7 @@ pub(super) fn generated_outcrop_supports_earned_flint_knife_copper_saw_and_chise
         Mass::from_milligrams(220_000),
     );
     std::println!(
-        "PLAYER FIELD TOOLS evidence=separate-generated-opening actual=[flint:300g copper:80g timber:5kg stone:6kg] tools=[flint-knife:true copper-hand-saw:true copper-chisel:true] knife=[work:{}t hand:{}t yield:800g] chisel=[specialist:{}t hand:{}t] boards=[saw:900g hand:800g] worn-tools=repairable conservation=true persistence=validated",
+        "PLAYER FIELD TOOLS evidence=separate-generated-opening actual=[flint:300g copper:84.5g-from-surveyed-ore timber:5kg stone:6kg] tools=[flint-knife:true copper-hand-saw:true copper-chisel:true] knife=[work:{}t hand:{}t yield:800g] chisel=[specialist:{}t hand:{}t] boards=[saw:900g hand:800g] worn-tools=repairable conservation=true persistence=validated",
         knife_ticks,
         rough_ticks,
         chisel_duration,

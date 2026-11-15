@@ -1,4 +1,4 @@
-//! First usable metal from a finite generated surface float, without a furnished workshop.
+//! First usable metal from a finite, surveyed and hand-dressed weathered copper seam.
 
 use super::*;
 use deep_hearth::content::{
@@ -14,12 +14,12 @@ pub(super) struct CopperRoute {
     pub(super) water: VoxelCoord,
     pub(super) outcrop: VoxelCoord,
     pub(super) stone: VoxelCoord,
+    pub(super) timber: VoxelCoord,
     pub(super) carried: StockpileId,
 }
 
 pub(super) struct CopperPayoff {
-    pub(super) copper_source_before: Mass,
-    pub(super) copper_source_after: Mass,
+    pub(super) ore_mined: Mass,
     pub(super) copper_collected: Mass,
     pub(super) project_ticks: u64,
     pub(super) preservation_ppm: u32,
@@ -46,75 +46,39 @@ pub(super) fn exercise_native_copper_preservation(
     let crock_body = CommodityKey::new(MATERIAL_STONE, FORM_STONE_CROCK_BODY);
     let berries = CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD);
     let wild_nuts = CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD);
-    let copper_collected = Mass::from_milligrams(40_000);
-    for (step, label) in [
-        (route.forage, "native-copper outcrop fork"),
-        (route.water, "native-copper outcrop water branch"),
-        (route.outcrop, "native-copper outcrop"),
-    ] {
-        walk_continuous_body_adjacent_and_settle(registries, &mut built, step, label);
-    }
-    let copper_source = local_surface_resource(&built, copper);
-    let copper_source_before = built
-        .available_surface_resources()
-        .find(|record| record.id() == copper_source)
-        .unwrap_or_else(|| panic!("finite native-copper outcrop disappeared"))
-        .remaining_mass();
-    assert!(
-        copper_source_before >= copper_collected,
-        "the player must see enough exposed copper before committing to the metal upgrade"
-    );
-    assert!(
-        built
-            .available_surface_resources()
-            .any(|record| record.commodity() == CommodityKey::new(MATERIAL_CLAY, FORM_LUMP)),
-        "clay and copper must be co-located but independently selectable natural resources"
-    );
-    // With clay and copper co-located, the player selects the visible copper
-    // identity and amount. Admission occurs immediately; harvesting is timed.
-    let chosen = advance_control_tick_with_direct_input(
+    let acquired = first_copper::acquire(
         registries,
         &mut built,
-        PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::gather_surface(
-            copper_source,
-            copper_collected,
-        )),
-    )
-    .unwrap();
-    let work = match chosen.secondary_action() {
-        Some(SecondaryActionOutcome::SurfaceGatheringStarted(work)) => *work,
-        other => panic!("direct copper choice did not begin immediately: {other:?}"),
-    };
-    assert_eq!(chosen.queued_action_wait_control_ticks(), None);
-    assert_eq!(work.resource(), copper_source);
-    assert_eq!(work.gathered_mass(), copper_collected);
-    advance_to(
-        registries,
-        &mut built,
-        work.completes_at(),
-        TickEventAllowance {
-            surface_resources: &[copper_source],
-            ..TickEventAllowance::default()
+        first_copper::Route {
+            junction: route.junction,
+            forage: route.forage,
+            water: route.water,
+            outcrop: route.outcrop,
+            stone: route.stone,
+            timber: route.timber,
+            carried: route.carried,
         },
-        "explicit native copper harvest",
+        Mass::from_milligrams(40_000),
     );
-    let copper_source_after = built
-        .available_surface_resources()
-        .find(|record| record.id() == copper_source)
-        .unwrap_or_else(|| panic!("copper source identity changed after hand collection"))
-        .remaining_mass();
-    assert_eq!(
-        copper_source_before.checked_sub(copper_collected),
-        Some(copper_source_after)
+    let copper_collected = acquired.native_recovered;
+    assert!(copper_collected >= Mass::from_milligrams(40_000));
+    assert!(
+        acquired.survey_ticks > 0
+            && acquired.tooling_ticks > 0
+            && acquired.mining_ticks > 0
+            && acquired.dressing_ticks > 0,
+        "first metal must incur real stone-tool, survey, mining, and ore-dressing work"
     );
-    for (step, label) in [
-        (route.water, "copper return to water"),
-        (route.forage, "copper return to fork"),
-        (route.junction, "copper return to camp"),
-        (route.stone, "stone crock raw material"),
-    ] {
-        walk_continuous_body_adjacent_and_settle(registries, &mut built, step, label);
-    }
+    assert!(
+        acquired.hardness_upper_pa <= 500_000_000,
+        "the stone-era entry deposit must not deadlock behind the copper pick"
+    );
+    walk_continuous_body_adjacent_and_settle(
+        registries,
+        &mut built,
+        route.stone,
+        "stone crock raw material",
+    );
     let stone_source = local_surface_resource(&built, stone);
     gather_in_batches(
         registries,
@@ -235,8 +199,7 @@ pub(super) fn exercise_native_copper_preservation(
     .unwrap();
     assert_eq!(replay.into_state(registries), Ok(built));
     CopperPayoff {
-        copper_source_before,
-        copper_source_after,
+        ore_mined: acquired.ore_mined,
         copper_collected,
         project_ticks: observation.value() - started.value() - 120,
         preservation_ppm,

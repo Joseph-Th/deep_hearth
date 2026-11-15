@@ -106,6 +106,8 @@ mod ceramics;
 mod clay_progression;
 #[path = "wilderness_field_tools.rs"]
 mod field_tools;
+#[path = "wilderness_first_copper.rs"]
+mod first_copper;
 #[path = "wilderness_kobold_bulk.rs"]
 mod kobold_bulk;
 #[path = "wilderness_kobold_den.rs"]
@@ -4375,7 +4377,7 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
             adaptation.warm_comfort_ppm,
         );
         std::println!(
-            "PLAYER JOURNEY seed=0x{:016X} episode={sample}/{}/{} phase=unattended-camp-reconnaissance decision=[use-safe-forecast-window for-visible-copper-clay-outcrop] action=[body-route:spawn>forage>water>outcrop>water>forage>spawn field-inspection:{}t sample:{}g] feedback=[positive-local-copper-evidence:true carried-new-metal:true reload:exact] pacing=[active-recon:{}t idle-after:{}t vs-reactive-idle:{}t] comparison=[fire-only-scout-deterrence:matched same-source-custody:true] scope=same-generated-world-branch",
+            "PLAYER JOURNEY seed=0x{:016X} episode={sample}/{}/{} phase=unattended-camp-reconnaissance decision=[use-safe-forecast-window to-investigate-visible-clay-outcrop] action=[body-route:spawn>forage>water>outcrop>water>forage>spawn field-inspection:{}t extracted-metal:{}g] feedback=[coarse-copper-evidence:uncertain carried-new-metal:false reload:exact] pacing=[active-recon:{}t idle-after:{}t vs-reactive-idle:{}t] comparison=[fire-only-scout-deterrence:matched same-source-custody:true] scope=same-generated-world-branch",
             review.seed,
             review.start_profile.label(),
             review.camp_goal.label(),

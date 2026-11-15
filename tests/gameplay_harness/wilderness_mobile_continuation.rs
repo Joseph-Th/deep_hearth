@@ -43,7 +43,7 @@ pub(crate) struct MobileColdResponse {
 }
 
 /// Uses genuinely observed routes and a live field-inspection catalog while the campfire
-/// works unattended. The metal is carried back; geological evidence remains acquired in the
+/// works unattended. The field evidence is carried back without magically granting metal in the
 /// same root. No pre-generated deposit position or scout schedule enters the actor's plan.
 fn investigate_unattended_outcrop(
     registries: &Registries,
@@ -70,15 +70,20 @@ fn investigate_unattended_outcrop(
         water,
         "reconnaissance through water branch",
     );
-    let outcrop = adjacent_surface_resource(state, copper).position();
+    let outcrop = adjacent_surface_resource(state, clay).position();
     walk_continuous_body_adjacent_and_settle(
         registries,
         state,
         outcrop,
-        "reconnaissance toward newly seen copper",
+        "reconnaissance toward the clay spur for geological sampling",
     );
     let _ = local_surface_resource(state, clay);
-    let copper_source = local_surface_resource(state, copper);
+    assert!(
+        state
+            .available_surface_resources()
+            .all(|source| source.commodity() != copper),
+        "the first copper must not be available as a hand-pickable surface float"
+    );
     let region = VoxelBounds::new(
         outcrop,
         VoxelCoord::new(outcrop.x() + 1, outcrop.y() + 1, outcrop.z() + 1),
@@ -124,29 +129,8 @@ fn investigate_unattended_outcrop(
     assert!(
         observation
             .finding(MATERIAL_COPPER)
-            .is_some_and(|finding| finding.lower_ppm() > 0),
-        "the visible native-copper float should give the player actionable local evidence"
-    );
-    let sample = Mass::from_milligrams(20_000);
-    let copper_before = state
-        .available_surface_resources()
-        .find(|resource| resource.id() == copper_source)
-        .unwrap_or_else(|| panic!("observed copper source disappeared"))
-        .remaining_mass();
-    assert!(copper_before >= sample);
-    gather(
-        registries,
-        state,
-        copper_source,
-        sample,
-        "reconnaissance finite copper sample",
-    );
-    assert_eq!(
-        state
-            .available_surface_resources()
-            .find(|resource| resource.id() == copper_source)
-            .map(|resource| resource.remaining_mass()),
-        copper_before.checked_sub(sample)
+            .is_some_and(|finding| finding.lower_ppm() == 0 && finding.upper_ppm() > 0),
+        "coarse reconnaissance must report possible buried copper, not a ready metal pickup"
     );
     for (position, label) in [
         (water, "reconnaissance return through water"),
@@ -162,20 +146,16 @@ fn investigate_unattended_outcrop(
             .get_stockpile(carried)
             .unwrap()
             .get_mass(copper),
-        sample
+        Mass::ZERO
     );
     let save = serde_json::to_vec(&SaveEnvelope::new(registries, state)).unwrap();
     let restored: LoadedSaveEnvelope = serde_json::from_slice(&save).unwrap();
     assert_eq!(
         restored.into_state(registries),
         Ok(state.clone()),
-        "acquired mineral evidence and the finite sample must survive reload"
+        "acquired mineral evidence must survive reload without granting a free metal sample"
     );
-    (
-        state.tick().value() - started.value(),
-        survey_ticks,
-        sample.milligrams(),
-    )
+    (state.tick().value() - started.value(), survey_ticks, 0)
 }
 
 fn settle_direct_action_control_interval(

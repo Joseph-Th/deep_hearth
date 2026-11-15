@@ -164,28 +164,21 @@ pub(super) fn exercise_reinforced_adze_investment(
         batches,
         "base adze boards",
     );
-    for (to, label) in [
-        (route.forage, "adze copper fork"),
-        (route.water, "adze copper water"),
-        (route.outcrop, "adze copper outcrop"),
-    ] {
-        walk_continuous_body_adjacent_and_settle(registries, &mut copper_branch, to, label);
-    }
-    let native_source = local_surface_resource(&copper_branch, native);
-    gather_in_batches(
+    let first_metal = first_copper::acquire(
         registries,
         &mut copper_branch,
-        native_source,
+        first_copper::Route {
+            junction: route.junction,
+            forage: route.forage,
+            water: route.water,
+            outcrop: route.outcrop,
+            stone: route.stone,
+            timber: route.timber,
+            carried: route.carried,
+        },
         Mass::from_milligrams(20_000),
-        "adze reinforcement from finite copper float",
     );
-    for (to, label) in [
-        (route.water, "adze copper return water"),
-        (route.forage, "adze copper return fork"),
-        (route.junction, "adze copper return to worksite"),
-    ] {
-        walk_continuous_body_adjacent_and_settle(registries, &mut copper_branch, to, label);
-    }
+    assert_eq!(first_metal.native_recovered, Mass::from_milligrams(26_000));
     craft_in_place(
         registries,
         &mut copper_branch,
@@ -219,8 +212,8 @@ pub(super) fn exercise_reinforced_adze_investment(
     let stone_total_ticks = stone_branch.tick().value() - decision_at.value();
     let copper_total_ticks = copper_branch.tick().value() - decision_at.value();
     assert!(
-        copper_total_ticks < stone_total_ticks,
-        "first-metal adze must repay its entire extra copper expedition and cold-working before this roof-stock order finishes"
+        copper_total_ticks > stone_total_ticks && copper_board_ticks < stone_board_ticks,
+        "copper must improve woodworking throughput, but first-metal tooling and dressing must not repay themselves on the first roof-stock order"
     );
     let board_mass = Mass::from_milligrams(7_200_000);
     let roof_panel_mass = calculate_prismatic_material_mass_ceiling(

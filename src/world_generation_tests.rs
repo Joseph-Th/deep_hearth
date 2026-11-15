@@ -1392,7 +1392,7 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
 
     let layout = generated_opening_layout(seed, spawn);
     let profile = generated_profile(&first);
-    assert_eq!(profile.len(), 7);
+    assert_eq!(profile.len(), 6);
     assert_eq!(
         first.logistics().traversable_edges().count(),
         INITIAL_WILDERNESS_ACCESS_EDGES
@@ -1456,13 +1456,11 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
             .contains(&mass_for(CommodityKey::new(MATERIAL_CLAY, FORM_LUMP)))
     );
     assert!(
-        (Mass::from_milligrams(COPPER_FLOAT_BASE_MG)
-            ..=Mass::from_milligrams(COPPER_FLOAT_BASE_MG + COPPER_FLOAT_VARIATION_MG))
-            .contains(&mass_for(CommodityKey::new(
-                MATERIAL_COPPER,
-                FORM_NATIVE_METAL
-            ))),
-        "first native copper must be a finite, smaller-than-foundry natural float"
+        !profile
+            .iter()
+            .any(|(commodity, _, _)| *commodity
+                == CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL)),
+        "the opening must not grant ready-to-craft copper before stone tools and ore dressing"
     );
     assert!(
         (Mass::from_milligrams(FLINT_BASE_MASS_MG)
@@ -1507,20 +1505,14 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
         "clay-rich earth is one separate opening leg beyond the water source"
     );
     assert_eq!(
-        position_for(CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL)),
-        layout.clay,
-        "the copper find shares a visible outcrop with clay, but must keep its own resource identity"
-    );
-    assert_eq!(
         position_for(CommodityKey::new(MATERIAL_FLINT, FORM_LUMP)),
         layout.clay,
         "flint should be an independent resource at the visited outcrop, not starting stock"
     );
-    let seam = first
-        .geology()
-        .deposits()
-        .next()
-        .expect("built-in generated world must own the physical copper vein under its float");
+    let seam =
+        first.geology().deposits().next().expect(
+            "built-in generated world must own an initially mineable weathered copper vein",
+        );
     assert_eq!(first.geology().deposits().count(), 1);
     assert_eq!(
         seam.commodity(),
@@ -1533,13 +1525,12 @@ fn initial_wilderness_generation_is_deterministic_and_seed_sensitive() {
     );
     assert_eq!(seam.excavation_hardness(), COPPER_SEAM_HARDNESS);
     assert!(
-        seam.excavation_hardness() > Pressure::from_pascals(500_000_000)
-            && seam.excavation_hardness() <= Pressure::from_pascals(750_000_000),
-        "the first buried ore must require the earlier copper-pick investment"
+        seam.excavation_hardness() <= Pressure::from_pascals(500_000_000),
+        "first copper ore must be reachable with a primitive stone pick, avoiding a metal-tool deadlock"
     );
     assert_eq!(
         seam.composition().parts_per_million(MATERIAL_COPPER),
-        500_000
+        COPPER_SEAM_GRADE_PPM
     );
     assert_eq!(
         seam.bounds(),

@@ -836,6 +836,7 @@ fn exercise_generated_clay_casting_bed_for_seed(seed: WorldGenerationSeed, repor
             water: water_position,
             outcrop: outcrop.position(),
             stone: adjacent_surface_resource(&food_first, stone).position(),
+            timber: adjacent_surface_resource(&food_first, timber).position(),
             carried,
         },
         selected_nuts,
@@ -979,12 +980,11 @@ fn exercise_generated_clay_casting_bed_for_seed(seed: WorldGenerationSeed, repor
             workshop_food_elapsed - first_food_elapsed,
         );
         std::println!(
-            "PLAYER FIRST METAL seed=0x{:016X} episode=coverage/rested/clay-worksite origin=finite-native-copper-float action=[visit-clay-spur>collect-copper>cold-work>carve-stone>band-crock>forage>recover-food] cost=[metal:{}mg stone:3000000mg security-elapsed:{}t] discovery=[float-before:{}mg float-after:{}mg] payoff=[recovered-berries:{}mg preservation:{}ppm saved-age:{}t-per-120t] comparison=[timber-box:{}ppm security-elapsed:{}t extra-copper-route:{}t] smelted-metal=0 matter=conserved replay=exact",
+            "PLAYER FIRST METAL seed=0x{:016X} episode=coverage/rested/clay-worksite origin=finite-weathered-copper-ore action=[knap-stone>survey>mine>hand-dress>cold-work>carve-stone>band-crock>forage>recover-food] cost=[metal:{}mg stone:3000000mg security-elapsed:{}t] physical-ore-mined:{}mg payoff=[recovered-berries:{}mg preservation:{}ppm saved-age:{}t-per-120t] comparison=[timber-box:{}ppm security-elapsed:{}t extra-copper-route:{}t] smelted-metal=0 matter=conserved replay=exact",
             seed.value(),
             copper_result.copper_collected.milligrams(),
             copper_result.project_ticks,
-            copper_result.copper_source_before.milligrams(),
-            copper_result.copper_source_after.milligrams(),
+            copper_result.ore_mined.milligrams(),
             copper_result.recovered_berries.milligrams(),
             copper_result.preservation_ppm,
             copper_result.avoided_age_ticks,
@@ -993,7 +993,7 @@ fn exercise_generated_clay_casting_bed_for_seed(seed: WorldGenerationSeed, repor
             copper_result.project_ticks - basic_security_ticks,
         );
         std::println!(
-            "PLAYER COPPER TOOL seed=0x{:016X} episode=coverage/rested/clay-worksite alternative=same-opening-before-copper goal=prepare-roof-panel-stock allocation=metal-tool-not-crock source=[native-copper:20000mg] investment=[extra-acquisition:{}t] matched=[boards:{}mg roof-demand:{}mg batches:{} stone-work:{}t copper-work:{}t] realized=[stone-complete:{}t copper-complete:{}t] wear=[stone:{}ppm copper:{}ppm] matter=conserved replay=exact",
+            "PLAYER COPPER TOOL seed=0x{:016X} episode=coverage/rested/clay-worksite alternative=same-opening-before-copper goal=prepare-roof-panel-stock allocation=metal-tool-not-crock source=[mined-and-dressed-copper:26000mg] investment=[extra-acquisition:{}t] matched=[boards:{}mg roof-demand:{}mg batches:{} stone-work:{}t copper-work:{}t] realized=[stone-complete:{}t copper-complete:{}t] wear=[stone:{}ppm copper:{}ppm] matter=conserved replay=exact",
             seed.value(),
             woodworking.copper_acquisition_ticks,
             woodworking.board_mass.milligrams(),
@@ -1007,7 +1007,7 @@ fn exercise_generated_clay_casting_bed_for_seed(seed: WorldGenerationSeed, repor
             woodworking.copper_condition_ppm,
         );
         std::println!(
-            "PLAYER FIRST SEAM seed=0x{:016X} episode=coverage/rested/clay-worksite world=ordinary-generated-opening action=[follow-native-copper-float>field-inspect>craft-sampling-hammer-and-stone-pick>survey-hardness>reject-stone-pick>reinforce-with-collected-copper>mine-and-return] work=[surveys:{}t tools:{}t mine:{}t] evidence=[acquired-upper-hardness:{}Pa stone-limit:500000000Pa copper-limit:750000000Pa] outcome=[ore-delivered:{}mg followup-resolves:{}] fixture-ore=none matter=conserved replay=exact",
+            "PLAYER FIRST SEAM seed=0x{:016X} episode=coverage/rested/clay-worksite world=ordinary-generated-opening action=[field-inspect-inconclusive>craft-stone-tools>survey-hardness>mine-weathered-ore>hand-sort] work=[surveys:{}t tools:{}t mine:{}t] evidence=[acquired-upper-hardness:{}Pa stone-limit:500000000Pa copper-limit:750000000Pa] outcome=[ore-delivered:{}mg followup-resolves:{}] fixture-ore=none matter=conserved replay=exact",
             seed.value(),
             seam.survey_ticks,
             seam.acquisition_ticks,
@@ -1017,7 +1017,7 @@ fn exercise_generated_clay_casting_bed_for_seed(seed: WorldGenerationSeed, repor
             seam.followup_still_resolvable,
         );
         std::println!(
-            "PLAYER FIRST ORE DRESSING seed=0x{:016X} episode=coverage/rested/clay-worksite provenance=generated-mined-ore method=[select-owned-ore>hand-break>hand-sort>retain-gangue-and-unworked-ore] route=[carried-custody:unchanged physical-work:timed] batch=[feed:{}mg native:{}mg rejected:{}mg unworked:{}mg] attention={}t immediate-alternative=[finite-float:{}mg return-work:{}t source-left:{}mg] decision=[immediate-supply:float future-scale:ore] downstream=[cold-workable-native:true molten-metal:false] matter=conserved replay=exact",
+            "PLAYER FIRST ORE DRESSING seed=0x{:016X} episode=coverage/rested/clay-worksite provenance=generated-mined-ore method=[select-owned-ore>hand-break>hand-sort>retain-gangue-and-unworked-ore] route=[carried-custody:unchanged physical-work:timed] batch=[feed:{}mg native:{}mg rejected:{}mg unworked:{}mg] attention={}t immediate-alternative=[surface-native-copper:absent] decision=[must-mine-and-dress] downstream=[cold-workable-native:true molten-metal:false] matter=conserved replay=exact",
             seed.value(),
             seam.dressed_feed.milligrams(),
             seam.native_recovered.milligrams(),
@@ -1027,9 +1027,6 @@ fn exercise_generated_clay_casting_bed_for_seed(seed: WorldGenerationSeed, repor
                 .unwrap()
                 .milligrams(),
             seam.dressed_ticks,
-            seam.alternate_float_gathered.milligrams(),
-            seam.alternate_float_ticks,
-            seam.alternate_float_remaining.milligrams(),
         );
     }
 }

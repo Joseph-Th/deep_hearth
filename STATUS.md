@@ -14,7 +14,7 @@ Progression:
 | --- | --- |
 | Survival and labor | Metabolism, hydration, vitality, diet, spoilage, timed intake, exertion, exclusive work, weather cooling/rewarming, roofs and windbreaks. |
 | Materials and inventory | Exact lots, finite storage/reservations, conservation, preservation, classified residues and waste-only spoil bays. |
-| Prospecting and mining | Opening hard-copper seam requires acquired survey evidence and a reinforced pick. Ore is finite and must be hauled; reserves stay private. |
+| Prospecting and mining | The opening exposes no native copper float. A weathered 10%-copper deposit requires a stone pick, a geological hammer for precise survey evidence, and finite ore mining and hand dressing before metal reinforcement. Ore must be hauled; reserves stay private. |
 | Crafting and equipment | Flint/copper tools, kiln, cooling bed, fired ceramic casting mold, maintenance and upgrades; finite waste storage. |
 | Power | Hand crank, treadle, flywheels and buffers. Straight built timber shafts couple opposed mechanical stores at up to 50 W, losing 20% per roller. No gearboxes or electric networks. |
 | Processing | Ore dressing, local crusher batch choices and unattended work; casting, PbS+Fe smelting, kiln firing and finite cooling. No general reduction or passive cooling. |

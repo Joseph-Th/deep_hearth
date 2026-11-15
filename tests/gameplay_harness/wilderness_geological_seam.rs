@@ -1,23 +1,20 @@
-//! The generated wilderness copper float points to a *real* mineable seam.
+//! The generated wilderness has only low-grade ore, requiring stone tools and acquired evidence.
 //! No injected ore, pre-owned tools, knowledge records, or special fixture access.
 
 use super::*;
 use deep_hearth::content::{
-    EQUIPMENT_COPPER_REINFORCED_PICK, EQUIPMENT_STONE_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_PICK,
-    FORM_CRUSHED, FORM_NATIVE_METAL, FORM_ORE, FORM_REINFORCEMENT, FORM_TOOL, MATERIAL_COPPER,
-    MINING_METHOD_HAND_PICK, PROCESS_HAND_BREAK_ORE, PROCESS_HAND_SORT_NATIVE_COPPER,
-    PROSPECTING_DETAILED_FIELD_SURVEY, PROSPECTING_FIELD_INSPECTION,
+    EQUIPMENT_STONE_GEOLOGICAL_HAMMER, EQUIPMENT_STONE_PICK, FORM_CRUSHED, FORM_NATIVE_METAL,
+    FORM_ORE, FORM_TOOL, MATERIAL_COPPER, MINING_METHOD_HAND_PICK, PROCESS_HAND_BREAK_ORE,
+    PROCESS_HAND_SORT_NATIVE_COPPER, PROSPECTING_DETAILED_FIELD_SURVEY,
+    PROSPECTING_FIELD_INSPECTION,
 };
-use deep_hearth::equipment::validate_upgrade_equipment;
 use deep_hearth::geology::{
     FieldProspectingRequest, GeologicalEvidenceKind, player_prospecting_options,
     validate_start_field_prospecting,
 };
 use deep_hearth::inventory::{MaterialStackProjectionError, project_material_stacks};
-use deep_hearth::logistics::{validate_drop_equipment, validate_pickup_equipment};
-use deep_hearth::mining::{
-    MiningStartError, MiningTargetRequest, resolve_mining_target, validate_start_mining,
-};
+use deep_hearth::logistics::validate_pickup_equipment;
+use deep_hearth::mining::{MiningTargetRequest, resolve_mining_target, validate_start_mining};
 use deep_hearth::ore_processing::{
     ManualComminutionResolutionError, resolve_manual_comminution_from_stack,
     resolve_manual_constituent_separation_from_stack, validate_start_manual_comminution,
@@ -45,71 +42,6 @@ pub(super) struct SeamPayoff {
     pub(super) native_recovered: Mass,
     pub(super) crushed_residue: Mass,
     pub(super) dressed_ticks: u64,
-    pub(super) alternate_float_gathered: Mass,
-    pub(super) alternate_float_remaining: Mass,
-    pub(super) alternate_float_ticks: u64,
-}
-
-/// The freshly mined ore does not automatically justify hand dressing while
-/// a shorter, finite surface-float trip can still supply the immediate need.
-/// Compare the actual walk and gathering work from the *same* post-mine state.
-fn gather_remaining_float_instead(
-    registries: &Registries,
-    after_mining: &AppState,
-    route: &SeamRoute,
-    conserved: deep_hearth::core::quantity::AggregateMass,
-) -> (Mass, Mass, u64) {
-    let mut alternative = after_mining.clone();
-    let started_at = alternative.tick();
-    let copper = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
-    visit_outcrop(registries, &mut alternative, route, false);
-    let source = local_surface_resource(&alternative, copper);
-    let before = alternative
-        .available_surface_resources()
-        .find(|record| record.id() == source)
-        .unwrap_or_else(|| panic!("finite copper float is no longer locally observable"))
-        .remaining_mass();
-    let selected = Mass::from_milligrams(40_000);
-    assert!(
-        before >= selected,
-        "the immediate float alternative must still be genuinely available on every opening seed"
-    );
-    gather_in_batches(
-        registries,
-        &mut alternative,
-        source,
-        selected,
-        "remaining native float instead of mineral dressing",
-    );
-    let remaining = alternative
-        .available_surface_resources()
-        .find(|record| record.id() == source)
-        .unwrap_or_else(|| panic!("the selected surface float lost its persistent identity"))
-        .remaining_mass();
-    assert_eq!(before.checked_sub(selected), Some(remaining));
-    visit_outcrop(registries, &mut alternative, route, true);
-    assert_eq!(
-        alternative
-            .inventory()
-            .get_stockpile(route.carried)
-            .unwrap()
-            .get_mass(copper),
-        selected,
-        "the cheaper float route must physically deliver its selected copper to the worksite"
-    );
-    assert_eq!(
-        calculate_matter_accounting(&alternative).unwrap().total(),
-        conserved
-    );
-    assert_eq!(validate_loaded_state(registries, &alternative), Ok(()));
-    let saved = serde_json::to_vec(&SaveEnvelope::new(registries, &alternative)).unwrap();
-    let replay: LoadedSaveEnvelope = serde_json::from_slice(&saved).unwrap();
-    assert_eq!(replay.into_state(registries), Ok(alternative.clone()));
-    (
-        selected,
-        remaining,
-        alternative.tick().value() - started_at.value(),
-    )
 }
 
 /// Process only explicitly selected ore from this player's carried custody.
@@ -342,9 +274,7 @@ pub(super) fn exercise_generated_copper_seam(
     let mut state = source.clone();
     let stone = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
     let timber = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
-    let native = CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL);
     let ore = CommodityKey::new(MATERIAL_COPPER, FORM_ORE);
-    let reinforcement = CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT);
     let region = VoxelBounds::new(
         route.outcrop,
         VoxelCoord::new(
@@ -378,16 +308,12 @@ pub(super) fn exercise_generated_copper_seam(
     assert!(
         inspection
             .finding(MATERIAL_COPPER)
-            .is_some_and(|finding| finding.lower_ppm() > 0),
-        "the first geological investment must respond to acquired copper evidence"
+            .is_some_and(|finding| finding.upper_ppm() > 0 && finding.lower_ppm() == 0),
+        "the first geological inspection must remain uncertain before stone-hammer sampling"
     );
-    let copper_source = local_surface_resource(&state, native);
-    gather_in_batches(
-        registries,
-        &mut state,
-        copper_source,
-        Mass::from_milligrams(20_000),
-        "seam prospecting cold-work float",
+    assert!(
+        resolve_mining_target(&state, MiningTargetRequest::new(region, MATERIAL_COPPER)).is_err(),
+        "the coarse surface inspection must not authorize the low-grade seam"
     );
     visit_outcrop(registries, &mut state, &route, true);
     let acquisition_started = state.tick();
@@ -475,67 +401,31 @@ pub(super) fn exercise_generated_copper_seam(
         .unwrap_or_else(|error| panic!("actor-acquired evidence cannot authorize a seam: {error}"));
     let requested = Mass::from_milligrams(200_000);
     assert!(
-        matches!(
-            validate_start_mining(
-                registries,
-                &state,
-                MINING_METHOD_HAND_PICK,
-                target,
-                route.carried,
-                pick,
-                requested
-            ),
-            Err(MiningStartError::ExcavationHardnessEvidenceExceedsCapability { .. })
-        ),
-        "the player must actually encounter the harder-seam limit before reinforcing their stone pick"
+        validate_start_mining(
+            registries,
+            &state,
+            MINING_METHOD_HAND_PICK,
+            target,
+            route.carried,
+            pick,
+            requested
+        )
+        .is_ok(),
+        "the first surveyed weathered seam must be mineable with a stone pick"
     );
-    visit_outcrop(registries, &mut state, &route, true);
-    craft_in_place(
-        registries,
-        &mut state,
-        native,
-        reinforcement,
-        1,
-        "reinforcement after discovered hard-seam limit",
-    );
-    validate_drop_equipment(registries, &state, pick)
-        .unwrap_or_else(|error| panic!("reinforced pick worksite drop rejected: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("reinforced pick worksite drop failed: {error}"));
-    let upgraded = validate_upgrade_equipment(
-        registries,
-        &state,
-        pick,
-        EQUIPMENT_COPPER_REINFORCED_PICK,
-        route.carried,
-    )
-    .unwrap_or_else(|error| panic!("acquired copper pick upgrade was rejected: {error}"))
-    .commit(&mut state)
-    .unwrap_or_else(|error| panic!("acquired copper pick upgrade failed: {error}"));
-    assert_eq!(upgraded, pick);
-    validate_pickup_equipment(registries, &state, pick)
-        .unwrap_or_else(|error| panic!("reinforced pick return-to-field pickup rejected: {error}"))
-        .commit(&mut state)
-        .unwrap_or_else(|error| panic!("reinforced pick return-to-field pickup failed: {error}"));
-    visit_outcrop(registries, &mut state, &route, false);
-    let upgraded_target =
-        resolve_mining_target(&state, MiningTargetRequest::new(region, MATERIAL_COPPER))
-            .unwrap_or_else(|error| {
-                panic!("surveyed seam target disappeared after return: {error}")
-            });
     let begin = state.tick();
     let job = validate_start_mining(
         registries,
         &state,
         MINING_METHOD_HAND_PICK,
-        upgraded_target,
+        target,
         route.carried,
         pick,
         requested,
     )
-    .unwrap_or_else(|error| panic!("reinforced pick cannot mine the acquired seam: {error}"))
+    .unwrap_or_else(|error| panic!("stone pick cannot mine the acquired weathered seam: {error}"))
     .commit(&mut state)
-    .unwrap_or_else(|error| panic!("reinforced pick mining start failed: {error}"));
+    .unwrap_or_else(|error| panic!("stone pick mining start failed: {error}"));
     let completed_at = state.mining().get_job(job).unwrap().completes_at();
     advance_to(
         registries,
@@ -545,7 +435,7 @@ pub(super) fn exercise_generated_copper_seam(
             mining_jobs: &[job],
             ..TickEventAllowance::default()
         },
-        "first hard-seam copper ore extraction",
+        "first weathered-seam copper ore extraction",
     );
     let mining_ticks = state.tick().value() - begin.value();
     assert_eq!(
@@ -566,13 +456,11 @@ pub(super) fn exercise_generated_copper_seam(
         requested,
         "mined ore must physically return to the worksite in the player's carried inventory"
     );
-    let (alternate_float_gathered, alternate_float_remaining, alternate_float_ticks) =
-        gather_remaining_float_instead(registries, &state, &route, conserved);
     let (dressed_feed, native_recovered, crushed_residue, dressed_ticks) =
         hand_dress_first_copper(registries, &mut state, route.carried);
     assert!(
-        alternate_float_ticks < dressed_ticks && alternate_float_gathered > native_recovered,
-        "while finite exposed copper remains, the player must not mistake slower ore dressing for the cheapest immediate native-metal supply"
+        native_recovered < Mass::from_milligrams(20_000),
+        "one dressed batch must not provide enough native copper for immediate reinforcement"
     );
     assert_eq!(
         calculate_matter_accounting(&state).unwrap().total(),
@@ -599,8 +487,5 @@ pub(super) fn exercise_generated_copper_seam(
         native_recovered,
         crushed_residue,
         dressed_ticks,
-        alternate_float_gathered,
-        alternate_float_remaining,
-        alternate_float_ticks,
     }
 }
