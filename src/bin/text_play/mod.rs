@@ -32,9 +32,8 @@ use deep_hearth::simulation::{PlayerDirectControlInput, SecondaryControlIntent};
 use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::surface::{PlayerSurfaceGatheringOption, player_surface_gathering_options};
 use deep_hearth::world::{
-    BlockStateId, CHUNK_SIDE, ChunkCoord, HabitatKind, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y,
-    WorldGenerationSeed, assess_player_habitat, validate_generate_chunk,
-    validate_generate_player_neighborhood,
+    BlockStateId, ChunkCoord, HabitatKind, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
+    select_natural_world_spawn, validate_generate_chunk, validate_generate_player_neighborhood,
 };
 use deep_hearth::world_generation::validate_generate_initial_wilderness;
 use deep_hearth::{AppState, Registries, build_registries};
@@ -79,46 +78,14 @@ impl Session {
             .map_err(|error| format!("natural terrain generation failed: {error}"))?
             .commit(&mut state)
             .map_err(|error| format!("natural terrain commit failed: {error}"))?;
-            let min_x = chunk
-                .world_min_x()
-                .ok_or("natural world x coordinate overflow")?;
-            let min_z = chunk
-                .world_min_z()
-                .ok_or("natural world z coordinate overflow")?;
-            // The odd stride checks every physical chunk column once. Trees,
-            // ruins, and steep terrain can reject candidates, not conjure a
-            // cleared spawn site or erase terrain.
             let position_hash = natural_site_hash(seed ^ 0x4E41_5455_5241_4C50 ^ site_salt);
-            let start = (position_hash & 255) as usize;
-            let stride = (((position_hash >> 8) & 127) as usize) * 2 + 1;
-            let mut spawn = None;
-            'columns: for n in 0..CHUNK_SIDE * CHUNK_SIDE {
-                let index = (start + n * stride) % (CHUNK_SIDE * CHUNK_SIDE);
-                let x = min_x + (index % CHUNK_SIDE) as i64;
-                let z = min_z + (index / CHUNK_SIDE) as i64;
-                for y in (WORLD_MIN_Y + 1..WORLD_MAX_Y_EXCLUSIVE - 2).rev() {
-                    let foot = VoxelCoord::new(x, y, z);
-                    if state.world().block_at(foot) != Some(BlockStateId::AIR)
-                        || state.world().block_at(VoxelCoord::new(x, y + 1, z))
-                            != Some(BlockStateId::AIR)
-                        || state.world().block_at(VoxelCoord::new(x, y - 1, z))
-                            != Some(BLOCK_STATE_STONE)
-                        || validate_admit_player(&registries, &state, foot).is_err()
-                    {
-                        continue;
-                    }
-                    spawn = Some(foot);
-                    break 'columns;
-                }
-            }
+            let spawn =
+                select_natural_world_spawn(&registries, &state, chunk, position_hash, desired);
             let Some(spawn) = spawn else { continue };
             validate_admit_player(&registries, &state, spawn)
                 .map_err(|error| format!("natural player admission failed: {error}"))?
                 .commit(&mut state)
                 .map_err(|error| format!("natural player admission commit failed: {error}"))?;
-            if desired.is_some_and(|habitat| assess_player_habitat(&state) != Some(habitat)) {
-                continue;
-            }
             Self::expand_neighborhood(&registries, &mut state)?;
             return Ok(Self {
                 registries,
