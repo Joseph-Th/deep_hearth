@@ -3,7 +3,6 @@
 mod errors;
 pub use errors::{ChunkGenerationCommitError, ChunkGenerationError};
 mod forage;
-pub(crate) use forage::seeded_perennial_matches;
 mod habitat;
 mod loose_materials;
 mod minerals;
@@ -33,12 +32,14 @@ pub(super) use terrain::terrain_height;
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::fluid::{
     FluidGenerationCommitError, FluidGenerationError, ValidatedFluidGenerationBatch,
     validate_generate_fluid_stores,
 };
+use crate::material::CommodityKey;
 use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -49,6 +50,18 @@ use crate::surface::{
 use super::{BlockStateId, CHUNK_SIDE, ChunkCoord, WORLD_MIN_Y, WorldChunk, WorldRegistry};
 
 const PLAYER_CHUNK_DEMAND_RADIUS: i64 = 1;
+
+/// Auditable perennial identity covers both rooted shrubs and finite
+/// fungus-bearing mycelia. Neither can be forged by editing a saved resource.
+pub(crate) fn seeded_perennial_matches(
+    profile: WorldGenerationProfile,
+    position: VoxelCoord,
+    commodity: CommodityKey,
+    original_fruit: Mass,
+) -> bool {
+    forage::seeded_perennial_matches(profile, position, commodity, original_fruit)
+        || understory::seeded_fungal_colony_matches(profile, position, commodity, original_fruit)
+}
 
 /// Deterministic seed that identifies one generated terrain world.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

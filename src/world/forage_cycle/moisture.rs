@@ -1,4 +1,4 @@
-//! Local natural-spring moisture observations for finite perennial regrowth.
+//! Local natural-spring moisture observations for rooted plants and mycelium.
 
 use std::collections::BTreeMap;
 

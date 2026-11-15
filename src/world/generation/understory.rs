@@ -2,13 +2,14 @@
 //!
 //! Dry scrub supports buried starchy tubers; damp groves support edible fungal
 //! fruiting bodies. Mixed woodland supports both in seed-varying patches.
-//! These one-time finite plant sources do not inherit the renewable shrub
-//! schedule: taking the whole tuber kills it, and a picked fruiting body does
-//! not silently regenerate through an unmodelled mycelium.
+//! Digging tubers removes finite one-time plant matter. Fungal fruiting bodies
+//! instead have an explicitly owned finite mycelium reserve, so subsequent
+//! seasonal crops must draw down the same real organic material.
 
 use crate::content::{BLOCK_STATE_STONE, FORM_FOOD, MATERIAL_EDIBLE_FUNGI, MATERIAL_WILD_TUBERS};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -69,6 +70,35 @@ fn understory_crop(habitat: HabitatKind, hash: u64) -> Option<(CommodityKey, Mas
     ))
 }
 
+/// Trusted-load validation checks the original seed and species without
+/// trusting harvest history, elapsed seasons, or changed physical occupancy.
+pub(crate) fn seeded_fungal_colony_matches(
+    profile: WorldGenerationProfile,
+    position: VoxelCoord,
+    commodity: CommodityKey,
+    original_fruit: Mass,
+) -> bool {
+    if commodity != CommodityKey::new(MATERIAL_EDIBLE_FUNGI, FORM_FOOD) {
+        return false;
+    }
+    let coord = ChunkCoord::containing(position);
+    let Some((hash, base_x, base_z)) = site_origin(profile, coord) else {
+        return false;
+    };
+    [(0, 0), (2, 0), (0, 2), (-2, 0), (0, -2)]
+        .into_iter()
+        .filter_map(|(dx, dz)| {
+            let x = base_x.checked_add(dx)?;
+            let z = base_z.checked_add(dz)?;
+            let y = terrain_height(profile.seed(), x, z).checked_add(1)?;
+            let (food, mass) = understory_crop(super::habitat_at(profile.seed(), x, z), hash)?;
+            Some((VoxelCoord::new(x, y, z), food, mass))
+        })
+        .any(|(candidate, food, mass)| {
+            candidate == position && food == commodity && mass == original_fruit
+        })
+}
+
 /// The same deterministic candidate geometry is used for generation and
 /// negative terrain-coordinate coverage. No generated plant occupies a trunk,
 /// standing spring, existing shrub or independently placed raw material.
@@ -113,17 +143,26 @@ pub(super) fn seeded_understory_spec(
         if !registries.materials().has_commodity(commodity) {
             return None;
         }
-        return Some(
-            SurfaceResourceSpec::new(
-                SurfaceResourceKind::Opportunity,
-                position,
-                commodity,
-                mass,
-                AMBIENT_TEMPERATURE,
-                MaterialComposition::pure(commodity.material()),
-            )
-            .expect("seeded edible understory has positive physical biomass"),
-        );
+        let spec = SurfaceResourceSpec::new(
+            SurfaceResourceKind::Opportunity,
+            position,
+            commodity,
+            mass,
+            AMBIENT_TEMPERATURE,
+            MaterialComposition::pure(commodity.material()),
+        )
+        .expect("seeded edible understory has positive physical biomass");
+        if commodity.material() == MATERIAL_EDIBLE_FUNGI {
+            let spec = spec.with_perennial_reserve(Mass::from_milligrams(mass.milligrams() / 2));
+            let first_senescence =
+                SimulationTick::new(super::super::forage_cycle::FRUIT_SENESCENCE_TICKS);
+            return Some(if state.tick() >= first_senescence {
+                spec.with_elapsed_perennial_senescence(first_senescence)
+            } else {
+                spec
+            });
+        }
+        return Some(spec);
     }
     None
 }

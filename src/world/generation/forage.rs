@@ -124,8 +124,12 @@ pub(super) fn seeded_forage_spec(
     if state
         .surface()
         .perennial_resources_in_chunk(coord)
-        .next()
-        .is_some()
+        .any(|source| {
+            matches!(
+                source.commodity().material(),
+                MATERIAL_BERRIES | MATERIAL_WILD_NUTS
+            )
+        })
     {
         return None;
     }

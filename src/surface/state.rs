@@ -42,7 +42,7 @@ pub enum SurfaceResourceKind {
     Drop,
 }
 
-/// Finite underground plant biomass not available for immediate gathering.
+/// Finite underground shrub roots or fungal mycelium, not directly gatherable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct PerennialForage {

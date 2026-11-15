@@ -952,7 +952,13 @@ fn shaded_perennial() -> (
                 resource.position(),
                 summer,
             );
-            if shade == 0 || resource.perennial.is_none() {
+            if shade == 0
+                || resource.perennial.is_none()
+                || !matches!(
+                    resource.commodity().material(),
+                    crate::content::MATERIAL_BERRIES | crate::content::MATERIAL_WILD_NUTS
+                )
+            {
                 return None;
             }
             let root = state

@@ -95,7 +95,7 @@ fn validate_resource_identity_and_mass(
     Ok(())
 }
 
-/// Perennial root, fruit and ripening clocks form one finite material budget.
+/// Perennial shrub roots or fungal mycelium, fruit and clocks share a finite budget.
 fn validate_perennial_budget(
     key: SurfaceResourceId,
     record: &SurfaceResourceRecord,
@@ -108,7 +108,9 @@ fn validate_perennial_budget(
             || record.commodity().form() != crate::content::FORM_FOOD
             || !matches!(
                 record.commodity().material(),
-                crate::content::MATERIAL_BERRIES | crate::content::MATERIAL_WILD_NUTS
+                crate::content::MATERIAL_BERRIES
+                    | crate::content::MATERIAL_WILD_NUTS
+                    | crate::content::MATERIAL_EDIBLE_FUNGI
             )
             || record.created_at() != SimulationTick::ZERO
             || original == 0
@@ -335,10 +337,10 @@ pub(crate) fn validate_loaded_surface_resources(
             highest,
         });
     }
-    // The world generator admits at most one perennial patch per selected
-    // two-by-two district. Candidate provenance is not sufficient by itself:
-    // two individually seed-plausible alternate sites must not both be loaded.
-    let mut perennial_by_chunk = BTreeMap::<ChunkCoord, SurfaceResourceId>::new();
+    // Each selected 32 m district independently permits one shrub and one
+    // fungus colony. Two alternate candidate sites of the *same* family
+    // cannot both be loaded, even when each is individually seed-plausible.
+    let mut perennial_by_chunk = BTreeMap::<(ChunkCoord, bool), SurfaceResourceId>::new();
     for (key, record) in &state.resources {
         validate_surface_resource_record(materials, *key, record, current, current_control)?;
         if let Some(plant) = record.perennial {
@@ -364,7 +366,8 @@ pub(crate) fn validate_loaded_surface_resources(
                 });
             }
             let chunk = ChunkCoord::containing(record.position());
-            if let Some(previous) = perennial_by_chunk.insert(chunk, *key) {
+            let fungal = record.commodity().material() == crate::content::MATERIAL_EDIBLE_FUNGI;
+            if let Some(previous) = perennial_by_chunk.insert((chunk, fungal), *key) {
                 return Err(SurfaceResourceValidationError::DuplicateSeededPerennial {
                     resource: *key,
                     previous,

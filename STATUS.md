@@ -19,7 +19,7 @@ Progression:
 | Power | Hand crank, treadle, flywheels and buffers. Straight built timber shafts couple opposed mechanical stores at up to 50 W, losing 20% per roller. No gearboxes or electric networks. |
 | Processing | Ore dressing, local crusher batch choices and unattended work; casting, PbS+Fe smelting, kiln firing and finite cooling. No general reduction or passive cooling. |
 | Opening wilderness acquisition | Scouts forage, drink, steal and warn; thirst limits raids. Firelight/boxes deter theft, loot persists and can be recovered. Tracks, sounds and club staggers are simulated; tool injuries are scenario-only. |
-| Natural starts | Random dry/mixed/damp hills, ore and raw matter, varied trees and four wild foods; no guaranteed supplies. |
+| Natural starts | Random dry/mixed/damp hills, ore and raw matter, varied trees, four wild foods and seasonal fungal mycelia; no guaranteed supplies. |
 | Structures | Timed carried-stack posts, framing and a 6.5 kg cover panel; activation on completion. |
 
 ## Current integration frontier
@@ -54,7 +54,7 @@ These canonical owners may lack ordinary acquisition.
 | Energy and fluids | Finite energy/losses, shafts, campfire, drinking; exact local/downhill pouring forbids bare-hand fluid >353.15 K at touched ends. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; timed posts, framing, cover and grounded timber roller; timed primary-break recovery. |
-| Block world | Terrain, mineral provinces, biome-specific trees, berries/nuts/tubers/fungi, springs, ruins and excavation; finite water. |
+| Block world | Terrain, mineral provinces, biome trees, shrubs, finite tubers and seasonal fungal fruiting, springs, ruins, excavation; finite water. |
 | Spatial and presentation | Checked coords/shaders; text play: motion, crafting, tools, copper surveys/mining/dressing, boxes, fire, saves. |
 
 ## Capability-only evaluation

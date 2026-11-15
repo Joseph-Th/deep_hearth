@@ -1,17 +1,17 @@
-//! Sparse regrowth of previously stripped perennial berry and nut patches.
+//! Conserved seasonal regrowth of rooted shrubs and fungal colonies.
 //!
-//! Harvesting exhausts the current fruit; after a growing interval, the
-//! rooted plant converts some of its *existing* finite underground biomass
-//! into another fresh, locally gatherable crop. This is transfer, not a
-//! photosynthetic source or loot respawn.
+//! Harvesting exhausts the current fruit; after a growing interval, an
+//! established root or mycelium converts some of its *existing* finite
+//! underground biomass into another fresh, locally gatherable crop. This is
+//! transfer, not a photosynthetic source or loot respawn.
 
-use crate::content::BLOCK_STATE_STONE;
+use crate::content::{BLOCK_STATE_STONE, MATERIAL_EDIBLE_FUNGI};
 use crate::core::arithmetic::checked_mul_div_with_remainder;
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::{CalendarDefinition, Season, SimulationTick};
 use crate::registry::Registries;
-use crate::surface::SurfaceResourceLifecycle;
+use crate::surface::{SurfaceResourceLifecycle, SurfaceResourceRecord};
 
 use super::generation::{HabitatKind, habitat_at};
 use super::sky::{daylight_exposure_after_canopy, has_open_sky, living_canopy_shade_at};
@@ -47,9 +47,9 @@ pub(crate) fn forage_cycle_deferred_for_surface_reservation(state: &AppState) ->
         && !state.can_spend_surface_revisions(1)
 }
 
-/// Fraction of the otherwise available fruit biomass that one rooted shrub
-/// may transfer at this weather front. These ratios never consume fluid or
-/// add material: the source is a fixed, previously present underground reserve.
+/// Fraction of otherwise available fruit biomass transferred from rooted
+/// shrubs or mycelium at this front. These ratios never consume fluid or
+/// add material: the source is a finite, previously present underground reserve.
 fn moisture_adjusted_crop(open_crop: u64, moisture: RootMoisture) -> u64 {
     match moisture {
         RootMoisture::NoBasin => open_crop,
@@ -91,6 +91,26 @@ fn ripened_crop(
     Mass::from_milligrams(root_reserve.milligrams().min(lit_batch))
 }
 
+/// Mycelium fruits in cool, moist seasons using only its stored organic
+/// reserve. Canopy shade increases the yield, unlike leaf photosynthesis.
+/// Neither shade nor nearby standing water contributes any new mass.
+fn ripened_fungal_crop(
+    root_reserve: Mass,
+    original_fruit: Mass,
+    moisture: RootMoisture,
+    shade: u8,
+) -> Mass {
+    let wet_crop = moisture_adjusted_crop((original_fruit.milligrams() / 4).max(1), moisture);
+    let shade_multiplier_ppm = match shade {
+        0 => 600_000_u128,
+        1..=3 => 1_000_000,
+        _ => 1_250_000,
+    };
+    let fruit = u64::try_from(u128::from(wet_crop) * shade_multiplier_ppm / 1_000_000)
+        .expect("bounded fungal yield fits u64");
+    Mass::from_milligrams(root_reserve.milligrams().min(fruit))
+}
+
 /// A stripped plant needs real elapsed growth time; drought-tolerant scrub
 /// has a longer cycle than the sheltered, moist grove.
 fn recovery_ticks(habitat: HabitatKind) -> u64 {
@@ -99,6 +119,69 @@ fn recovery_ticks(habitat: HabitatKind) -> u64 {
         HabitatKind::MixedWoodland => 1_200,
         HabitatKind::DryScrub => 2_400,
     }
+}
+
+/// Resolve the real ecological gates before surveying nearby finite water.
+/// Mushrooms may fruit below a canopy or roof, but still require rooted
+/// substrate, cool temperatures, an appropriate season and an intact site.
+fn ripening_site_shade(
+    registries: &Registries,
+    state: &AppState,
+    source: &SurfaceResourceRecord,
+    seed: super::WorldGenerationSeed,
+    season: Season,
+    at: SimulationTick,
+) -> Option<u8> {
+    let fungal = source.commodity().material() == MATERIAL_EDIBLE_FUNGI;
+    let season_allows = if fungal {
+        matches!(season, Season::Spring | Season::Autumn)
+    } else {
+        matches!(season, Season::Spring | Season::Summer)
+    };
+    if source.lifecycle() != SurfaceResourceLifecycle::Depleted
+        || !season_allows
+        || !state.world().has_generated_terrain_at(source.position())
+    {
+        return None;
+    }
+    let habitat = habitat_at(seed, source.position().x(), source.position().z());
+    let recovery = if fungal {
+        match habitat {
+            HabitatKind::DampGrove => 800,
+            HabitatKind::MixedWoodland => 1_400,
+            HabitatKind::DryScrub => 2_400,
+        }
+    } else {
+        recovery_ticks(habitat)
+    };
+    if at.value().checked_sub(source.depleted_at()?.value())? < recovery {
+        return None;
+    }
+    let temperature = weather_at(registries, seed.value(), source.position(), at)
+        .ambient_temperature()
+        .millikelvin();
+    if !(if fungal {
+        (280_150..=299_150).contains(&temperature)
+    } else {
+        (283_150..=303_150).contains(&temperature)
+    }) {
+        return None;
+    }
+    let at_floor = crate::spatial::VoxelCoord::new(
+        source.position().x(),
+        source.position().y().checked_sub(1)?,
+        source.position().z(),
+    );
+    if state.world().block_at(at_floor) != Some(BLOCK_STATE_STONE)
+        || state.structures().blocks_full_cell(source.position())
+        || state.has_enclosed_stockpile_at(source.position())
+        || (!fungal && !has_open_sky(registries, state, source.position()))
+    {
+        return None;
+    }
+    let shade = living_canopy_shade_at(registries, state, source.position(), at);
+    (fungal || daylight_exposure_after_canopy(registries.core().calendar(), shade) > 0)
+        .then_some(shade)
 }
 
 pub(crate) fn apply_natural_forage_cycle(
@@ -117,10 +200,7 @@ pub(crate) fn apply_natural_forage_cycle(
     if forage_cycle_deferred_for_surface_reservation(state) {
         return Ok(());
     }
-    let growing_season = matches!(
-        registries.core().calendar().season_at(at),
-        Season::Spring | Season::Summer
-    );
+    let season = registries.core().calendar().season_at(at);
     let Some(profile) = state.world().generation_profile() else {
         return Ok(());
     };
@@ -133,6 +213,7 @@ pub(crate) fn apply_natural_forage_cycle(
         .perennial_resources()
         .filter_map(|source| {
             let mut plant = source.perennial?;
+            let fungal = source.commodity().material() == MATERIAL_EDIBLE_FUNGI;
             if source.lifecycle() == SurfaceResourceLifecycle::Available {
                 let being_gathered = state
                     .player_work()
@@ -153,63 +234,29 @@ pub(crate) fn apply_natural_forage_cycle(
                     Some(at),
                 ));
             }
-            if source.lifecycle() != SurfaceResourceLifecycle::Depleted
-                || !growing_season
-                || plant.root_reserve.is_zero()
-                || !state.world().has_generated_terrain_at(source.position())
-            {
+            if plant.root_reserve.is_zero() {
                 return None;
             }
-            // Age and temperature are cheap, independent admission facts.
-            // A depleted plant may spend many fronts recovering; do not trace
-            // an entire sky column and inspect constructed custody until it
-            // could actually ripen on this front.
-            let habitat = habitat_at(profile.seed(), source.position().x(), source.position().z());
-            if at.value().checked_sub(source.depleted_at()?.value())? < recovery_ticks(habitat) {
-                return None;
-            }
-            let weather = weather_at(registries, profile.seed().value(), source.position(), at);
-            // Frozen roots do not fruit; prolonged scorching also arrests
-            // this temperate shrub. The actual local weather controls yield.
-            if !(283_150..=303_150).contains(&weather.ambient_temperature().millikelvin()) {
-                return None;
-            }
-            let floor = source.position().y().checked_sub(1)?;
-            if state.world().block_at(crate::spatial::VoxelCoord::new(
-                source.position().x(),
-                floor,
-                source.position().z(),
-            )) != Some(BLOCK_STATE_STONE)
-            {
-                // Mining the rooted stone footing is a durable way to kill
-                // the patch's recovery without erasing its old matter. Check
-                // this cheap world cell before tracing a full sky column.
-                return None;
-            }
-            if state.structures().blocks_full_cell(source.position())
-                // An enclosure is inventory-owned physical volume, not a structural
-                // member. It cannot hide a rooted patch and still admit fresh fruit.
-                || state.has_enclosed_stockpile_at(source.position())
-                || !has_open_sky(registries, state, source.position())
-            {
-                return None;
-            }
-            // The physical crown of an older neighboring tree intercepts
-            // direct sunlight from the understory shrub. Smaller crops
-            // leave their unspent mass in its actual root reserve; no water,
-            // organic matter or food is silently removed or manufactured.
-            let shade = living_canopy_shade_at(registries, state, source.position(), at);
-            if daylight_exposure_after_canopy(registries.core().calendar(), shade) == 0 {
-                return None;
-            }
+            // Region, soil, weather, roof and real canopy constraints are
+            // checked before any regional spring-moisture survey is allocated.
+            let shade = ripening_site_shade(registries, state, source, profile.seed(), season, at)?;
             let moisture = moisture.get_or_init(|| RootMoistureSurvey::observe(state));
-            let batch = ripened_crop(
-                registries.core().calendar(),
-                plant.root_reserve,
-                plant.original_fruit,
-                moisture.at(source.position()),
-                shade,
-            );
+            let batch = if fungal {
+                ripened_fungal_crop(
+                    plant.root_reserve,
+                    plant.original_fruit,
+                    moisture.at(source.position()),
+                    shade,
+                )
+            } else {
+                ripened_crop(
+                    registries.core().calendar(),
+                    plant.root_reserve,
+                    plant.original_fruit,
+                    moisture.at(source.position()),
+                    shade,
+                )
+            };
             if batch.is_zero() {
                 return None;
             }
@@ -248,3 +295,7 @@ mod moisture_tests;
 #[cfg(test)]
 #[path = "forage_daylight_tests.rs"]
 mod daylight_tests;
+
+#[cfg(test)]
+#[path = "fungal_cycle_tests.rs"]
+mod fungal_tests;
