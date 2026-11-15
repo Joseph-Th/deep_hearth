@@ -9,7 +9,7 @@ mod sensory;
 use actor_inventory::hand_status;
 pub use actor_inventory::{hand_label, inventory};
 use deep_hearth::content::{FORM_BOARD, MATERIAL_WOOD};
-use deep_hearth::core::quantity::{Mass, Volume};
+use deep_hearth::core::quantity::{Mass, Temperature, Volume};
 use deep_hearth::core::time::{CONTROL_TICK_DURATION, CONTROL_TICKS_PER_SIMULATION_TICK, Season};
 use deep_hearth::energy::project_player_nearby_warmth_sources;
 use deep_hearth::kobolds::{
@@ -190,6 +190,17 @@ fn bearing(from: VoxelCoord, toward: VoxelCoord) -> String {
     }
 }
 
+/// Stable observable weather, excluding the front countdown which changes
+/// every tick without implying a change in actual conditions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LocalWeatherCue {
+    season: Season,
+    phase: DayPhase,
+    ambient_temperature: Temperature,
+    wind: WindCondition,
+    wind_direction: Option<WindDirection>,
+}
+
 /// Player-visible cues only. Routine patrol traces can interrupt ordinary short
 /// waits without repeatedly disrupting a requested work completion.
 #[derive(Clone, PartialEq, Eq)]
@@ -200,26 +211,26 @@ pub struct LocalCues {
     footfalls: Vec<KoboldFootfall>,
     tracks: Vec<KoboldTrack>,
     scents: Vec<ForageScent>,
-    weather: Option<(Season, DayPhase, WindCondition, Option<WindDirection>)>,
+    weather: Option<LocalWeatherCue>,
 }
 
 impl LocalCues {
-    /// Returns the most actionable changed cue and whether it should stop a work wait.
-    pub fn changed(&self, next: &Self) -> Option<(&'static str, bool)> {
+    /// Returns the most actionable changed cue for a passive local observation.
+    pub fn changed(&self, next: &Self) -> Option<&'static str> {
         if self.kobolds != next.kobolds {
-            Some(("A nearby kobold moved or changed behavior.", true))
+            Some("A nearby kobold moved or changed behavior.")
         } else if self.footfalls != next.footfalls {
-            Some(("Nearby footsteps have changed.", true))
+            Some("Nearby footsteps have changed.")
         } else if self.tracks != next.tracks {
-            Some(("Nearby tracks have changed.", true))
+            Some("Nearby tracks have changed.")
         } else if self.resources != next.resources {
-            Some(("Nearby loose resources have changed.", true))
+            Some("Nearby loose resources have changed.")
         } else if self.water != next.water {
-            Some(("Nearby water has changed.", true))
+            Some("Nearby water has changed.")
         } else if self.scents != next.scents {
-            Some(("Scents in the area have shifted.", true))
+            Some("Scents in the area have shifted.")
         } else if self.weather != next.weather {
-            Some(("The wind or weather has shifted.", false))
+            Some("The wind or weather has shifted.")
         } else {
             None
         }
@@ -230,51 +241,7 @@ impl LocalCues {
     /// warnings separately; only a new close approach or defensive posture
     /// requires attention from the otherwise passive local observations.
     pub fn watch_attention(&self, next: &Self, player: VoxelCoord) -> Option<&'static str> {
-        let near = |sighting: &KoboldSighting| {
-            let position = sighting.position();
-            position.y().abs_diff(player.y()) <= 1
-                && position.x().abs_diff(player.x()) <= 1
-                && position.z().abs_diff(player.z()) <= 1
-        };
-        // Role names are not resident identities. Multiple temples can have
-        // residents of the same caste in sight, so one already-close or
-        // defending resident must not conceal a second one's approach.
-        for (index, current) in next.kobolds.iter().enumerate() {
-            let role = current.role();
-            if next.kobolds[..index]
-                .iter()
-                .any(|earlier| earlier.role() == role)
-            {
-                continue;
-            }
-            let before = self
-                .kobolds
-                .iter()
-                .filter(|old| old.role() == role && old.is_defending())
-                .count();
-            let after = next
-                .kobolds
-                .iter()
-                .filter(|seen| seen.role() == role && seen.is_defending())
-                .count();
-            if after > before {
-                return Some("A nearby resident has taken a defensive posture.");
-            }
-            let before = self
-                .kobolds
-                .iter()
-                .filter(|old| old.role() == role && near(old))
-                .count();
-            let after = next
-                .kobolds
-                .iter()
-                .filter(|seen| seen.role() == role && near(seen))
-                .count();
-            if after > before {
-                return Some("A resident has approached your immediate position.");
-            }
-        }
-        None
+        resident_watch_attention(&self.kobolds, &next.kobolds, player)
     }
 
     /// During hand work, ignore passive patrol motion, traces, and drifting
@@ -294,22 +261,73 @@ impl LocalCues {
     }
 }
 
+/// Passive daylight watches only need visible resident behavior. Avoid a full
+/// food, water, track, scent, and weather survey at every slow boundary.
+pub fn local_resident_sightings(registries: &Registries, state: &AppState) -> Vec<KoboldSighting> {
+    available_nearby_kobold_scouts(registries, state).collect()
+}
+
+/// Compare the same authoritative resident observations used by work waits.
+pub fn resident_watch_attention(
+    previous: &[KoboldSighting],
+    next: &[KoboldSighting],
+    player: VoxelCoord,
+) -> Option<&'static str> {
+    let near = |sighting: &KoboldSighting| {
+        let position = sighting.position();
+        position.y().abs_diff(player.y()) <= 1
+            && position.x().abs_diff(player.x()) <= 1
+            && position.z().abs_diff(player.z()) <= 1
+    };
+    // Role names are not resident identities. Multiple temples can have
+    // residents of the same caste in sight, so one already-close or
+    // defending resident must not conceal a second one's approach.
+    for (index, current) in next.iter().enumerate() {
+        let role = current.role();
+        if next[..index].iter().any(|earlier| earlier.role() == role) {
+            continue;
+        }
+        let before = previous
+            .iter()
+            .filter(|old| old.role() == role && old.is_defending())
+            .count();
+        let after = next
+            .iter()
+            .filter(|seen| seen.role() == role && seen.is_defending())
+            .count();
+        if after > before {
+            return Some("A nearby resident has taken a defensive posture.");
+        }
+        let before = previous
+            .iter()
+            .filter(|old| old.role() == role && near(old))
+            .count();
+        let after = next
+            .iter()
+            .filter(|seen| seen.role() == role && near(seen))
+            .count();
+        if after > before {
+            return Some("A resident has approached your immediate position.");
+        }
+    }
+    None
+}
+
 /// Do not inspect private geology, colony schedules, or all generated blocks to stop a wait.
 pub fn local_cues(registries: &Registries, state: &AppState) -> LocalCues {
     LocalCues {
         resources: AdjacentSurfaceResource::visible_in_generated_world(registries, state).collect(),
         water: available_visible_generated_water(registries, state),
-        kobolds: available_nearby_kobold_scouts(registries, state).collect(),
+        kobolds: local_resident_sightings(registries, state),
         footfalls: available_nearby_kobold_footfalls(registries, state),
         tracks: available_nearby_kobold_tracks(registries, state).collect(),
         scents: assess_player_forage_scents(registries, state),
-        weather: assess_player_weather(registries, state).map(|weather| {
-            (
-                weather.season(),
-                weather.phase(),
-                weather.wind(),
-                weather.wind_direction(),
-            )
+        weather: assess_player_weather(registries, state).map(|weather| LocalWeatherCue {
+            season: weather.season(),
+            phase: weather.phase(),
+            ambient_temperature: weather.ambient_temperature(),
+            wind: weather.wind(),
+            wind_direction: weather.wind_direction(),
         }),
     }
 }

@@ -46,6 +46,11 @@ fn daylight_watch_tolerates_passive_footprints_but_not_a_new_close_resident() {
     session.command("wait 10").unwrap();
     let player = session.player_position().unwrap();
     let initial = super::local_cues(&session.registries, &session.state);
+    assert_eq!(
+        super::local_resident_sightings(&session.registries, &session.state),
+        initial.kobolds,
+        "a daylight watch and ordinary observation must share actual resident sightlines"
+    );
     assert!(
         !initial.kobolds.is_empty(),
         "the seeded clearing must contain a visible resident"
@@ -68,6 +73,11 @@ fn daylight_watch_tolerates_passive_footprints_but_not_a_new_close_resident() {
     assert_eq!(
         unseen.watch_attention(&initial, resident_position),
         Some("A resident has approached your immediate position.")
+    );
+    assert_eq!(
+        super::resident_watch_attention(&[], &initial.kobolds, resident_position),
+        unseen.watch_attention(&initial, resident_position),
+        "daylight watches must use the same attention policy without surveying unrelated cues"
     );
     assert_eq!(
         unseen.work_attention(&initial, resident_position),
@@ -512,7 +522,7 @@ fn observable_changes_are_named_and_weather_is_not_a_work_interruption() {
     };
     assert_eq!(
         initial.changed(&weather_shift),
-        Some(("The wind or weather has shifted.", false)),
+        Some("The wind or weather has shifted."),
     );
     let scent_shift = super::LocalCues {
         scents: Vec::new(),
@@ -520,9 +530,31 @@ fn observable_changes_are_named_and_weather_is_not_a_work_interruption() {
     };
     assert_eq!(
         initial.changed(&scent_shift),
-        Some(("Scents in the area have shifted.", true)),
+        Some("Scents in the area have shifted."),
     );
     assert_eq!(initial.changed(&initial), None);
+}
+
+#[test]
+fn temperature_only_weather_front_is_observable_even_when_wind_is_unchanged() {
+    use deep_hearth::core::quantity::Temperature;
+
+    let session = super::super::Session::new(24318).unwrap();
+    let initial = super::local_cues(&session.registries, &session.state);
+    let old_weather = initial.weather.expect("generated world has local weather");
+    let mut colder = initial.clone();
+    colder.weather = Some(super::LocalWeatherCue {
+        ambient_temperature: Temperature::from_millikelvin(
+            old_weather.ambient_temperature.millikelvin() - 1_000,
+        ),
+        ..old_weather
+    });
+    assert_ne!(colder.weather, initial.weather);
+    assert_eq!(
+        initial.changed(&colder),
+        Some("The wind or weather has shifted."),
+        "a changed ambient temperature affects cold exposure and must be visible to the player"
+    );
 }
 
 #[test]
