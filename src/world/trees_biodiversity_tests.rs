@@ -321,3 +321,73 @@ fn nearby_tree_species_are_visible_only_through_a_real_open_trunk_face() {
         "an opaque face on the only local sightline must conceal the tree",
     );
 }
+
+#[test]
+fn distant_tree_trunks_are_real_daylight_landmarks_not_remote_resource_oracles() {
+    use crate::player::validate_admit_player;
+
+    let registries = build_registries();
+    let mut witness = None;
+    'seeds: for value in 0..192 {
+        let seed = WorldGenerationSeed::new(value);
+        let mut state = AppState::new();
+        validate_generate_chunk(
+            &registries,
+            &state,
+            seed,
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+        let Some(root) = state.world().trees().next().map(|tree| tree.root()) else {
+            continue;
+        };
+        for (dx, dz) in [(-5, 0), (5, 0), (0, -5), (0, 5)] {
+            let at = VoxelCoord::new(root.x() + dx, root.y(), root.z() + dz);
+            if ChunkCoord::containing(at) != ChunkCoord::new(0, 0) {
+                continue;
+            }
+            let Ok(plan) = validate_admit_player(&registries, &state, at) else {
+                continue;
+            };
+            let mut admitted = state.clone();
+            plan.commit(&mut admitted).unwrap();
+            if available_visible_generated_trees(&registries, &admitted)
+                .any(|tree| tree.root() == root)
+            {
+                witness = Some((admitted, root, at));
+                break 'seeds;
+            }
+        }
+    }
+    let (mut state, root, at) =
+        witness.expect("an unobstructed living trunk must be visible beyond two cells");
+    assert_eq!(at.x().abs_diff(root.x()) + at.z().abs_diff(root.z()), 5);
+
+    let mut night = state.clone();
+    crate::core::state::apply_clock_advance(
+        &mut night,
+        crate::core::time::SimulationTick::new(18_000),
+    );
+    assert!(
+        available_visible_generated_trees(&registries, &night).all(|tree| tree.root() != root),
+        "a distant unlit trunk must not remain visible at night"
+    );
+
+    let (step_x, step_z) = ((root.x() - at.x()).signum(), (root.z() - at.z()).signum());
+    let wall = VoxelCoord::new(at.x() + step_x * 2, root.y(), at.z() + step_z * 2);
+    for y in [wall.y(), wall.y() + 1, wall.y() + 2] {
+        super::super::set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(wall.x(), y, wall.z()),
+            BLOCK_STATE_STONE,
+        );
+    }
+    assert!(
+        available_visible_generated_trees(&registries, &state).all(|tree| tree.root() != root),
+        "a real opaque wall must block the long tree sightline"
+    );
+}

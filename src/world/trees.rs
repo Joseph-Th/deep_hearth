@@ -114,26 +114,33 @@ pub fn available_visible_generated_trees(
     registries: &Registries,
     state: &AppState,
 ) -> impl Iterator<Item = VisibleTree> {
+    const LANDMARK_REACH: i64 = 12;
     let mut nearby = Vec::new();
     if let Some(from) = state.player_observation_position()
         && state.world().has_generated_terrain_at(from)
     {
-        for tree in state.world().trees_near_horizontal(from, 2) {
+        for tree in state.world().trees_near_horizontal(from, LANDMARK_REACH) {
             let root = tree.root();
-            if root.y().abs_diff(from.y()) > 2 {
+            if root.y().abs_diff(from.y()) > 6 {
                 continue;
             }
-            let visible = [(-1_i64, 0_i64), (1, 0), (0, -1), (0, 1)]
-                .into_iter()
-                .any(|(dx, dz)| {
-                    let (Some(x), Some(z)) = (root.x().checked_add(dx), root.z().checked_add(dz))
-                    else {
-                        return false;
-                    };
-                    let face = VoxelCoord::new(x, root.y(), z);
-                    state.world().block_at(face) == Some(BlockStateId::AIR)
-                        && super::player_can_see_from_eye(registries, state, from, face)
-                });
+            let close = root.x().abs_diff(from.x()).max(root.z().abs_diff(from.z())) <= 2;
+            let visible = if close {
+                [(-1_i64, 0_i64), (1, 0), (0, -1), (0, 1)]
+                    .into_iter()
+                    .any(|(dx, dz)| {
+                        let (Some(x), Some(z)) =
+                            (root.x().checked_add(dx), root.z().checked_add(dz))
+                        else {
+                            return false;
+                        };
+                        let face = VoxelCoord::new(x, root.y(), z);
+                        state.world().block_at(face) == Some(BlockStateId::AIR)
+                            && super::player_can_see_from_eye(registries, state, from, face)
+                    })
+            } else {
+                super::targeting::player_can_see_distant_tree_trunk(registries, state, root)
+            };
             if visible {
                 nearby.push(VisibleTree {
                     root,

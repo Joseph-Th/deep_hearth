@@ -14,6 +14,100 @@ use super::BlockStateId;
 mod traversal;
 use traversal::{VoxelTraceStep, targetable_full_cube, trace_generated_voxels};
 
+/// Observe a living trunk at landscape scale without granting interaction range.
+///
+/// A long tree sightline uses the same exact voxel traversal as block targeting:
+/// rock, trunks, built walls, and missing chunks stop the ray. This is an
+/// observation only; chopping continues to require standing beside the tree.
+pub(crate) fn player_can_see_distant_tree_trunk(
+    registries: &Registries,
+    state: &AppState,
+    root: VoxelCoord,
+) -> bool {
+    let Some(player) = state.logistics().player().copied() else {
+        return false;
+    };
+    let Ok(eye) = player_eye_origin(
+        player.body().foot_position(),
+        player.body().stance(),
+        registries.survival().physiology().locomotion(),
+    ) else {
+        return false;
+    };
+    if state.world().tree_at(root).is_none() {
+        return false;
+    }
+    let Some(above) = root.y().checked_add(2) else {
+        return false;
+    };
+    let illuminated = VoxelCoord::new(root.x(), above, root.z());
+    if super::sky::assess_generated_skylight_at(registries, state, illuminated, state.tick()) == 0
+        && crate::energy::assess_local_illumination(registries, state, illuminated).level() == 0
+    {
+        return false;
+    }
+    [root.y().checked_add(1), Some(root.y())]
+        .into_iter()
+        .flatten()
+        .any(|y| {
+            let target = VoxelCoord::new(root.x(), y, root.z());
+            let Some(floor) = WorldPoint::centered_on_voxel_floor(target) else {
+                return false;
+            };
+            let Some(center_y) = floor.y_nanometers().checked_add(500_000_000) else {
+                return false;
+            };
+            let delta = [
+                i128::from(floor.x_nanometers()) - i128::from(eye.x_nanometers()),
+                i128::from(center_y) - i128::from(eye.y_nanometers()),
+                i128::from(floor.z_nanometers()) - i128::from(eye.z_nanometers()),
+            ];
+            let squared = delta
+                .iter()
+                .map(|&axis| (axis * axis) as u128)
+                .sum::<u128>();
+            let length = squared.isqrt();
+            if length == 0 {
+                return false;
+            }
+            let [Some(x), Some(y), Some(z)] =
+                delta.map(|axis| i32::try_from(axis * 1_000_000 / length as i128).ok())
+            else {
+                return false;
+            };
+            let Ok(direction) = ViewDirection::new(x, y, z) else {
+                return false;
+            };
+            let Some(reach) = i64::try_from(length)
+                .ok()
+                .and_then(|distance| distance.checked_add(1_000_000))
+            else {
+                return false;
+            };
+            trace_generated_voxels(
+                registries,
+                state,
+                eye,
+                direction,
+                reach,
+                |voxel, block, _| {
+                    if voxel == target {
+                        VoxelTraceStep::Hit(())
+                    } else if targetable_full_cube(registries, block)
+                        || state.structures().blocks_full_cell(voxel)
+                        || state.world().tree_trunk_at(voxel).is_some()
+                    {
+                        VoxelTraceStep::Blocked
+                    } else {
+                        VoxelTraceStep::Continue
+                    }
+                },
+            )
+            .ok()
+                == Some(Some(()))
+        })
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerBlockTargetError {
     PlayerNotAdmitted,

@@ -24,8 +24,8 @@ const COLD_EXPOSURE_MINIMUM_COOLING_PPM: u32 = 400_000;
 const MAXIMUM_COOLING_PPM: u32 = 2_500_000;
 /// Hot outdoor air can restore warmth without a fire. Blend the cold demand
 /// down through the comfortable range rather than imposing summer hypothermia.
-const WARM_TRANSITION_START_CELSIUS: i32 = 20;
-const NEUTRAL_AMBIENT_CELSIUS: i32 = 26;
+const WARM_TRANSITION_START_CELSIUS: i32 = 14;
+const NEUTRAL_AMBIENT_CELSIUS: i32 = 22;
 
 fn wind_cooling_ppm(wind: WindCondition) -> u32 {
     match wind {

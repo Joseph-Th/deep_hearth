@@ -10,6 +10,24 @@ use crate::spatial::VoxelCoord;
 use crate::survival::{ThermalExposure, assess_player_unheated_comfort_runway};
 use crate::world::{ChunkCoord, WorldGenerationSeed, validate_generate_chunk};
 
+#[test]
+fn mild_afternoon_air_buys_work_time_without_erasing_cold_nights() {
+    let calm = wind_cooling_ppm(WindCondition::Calm);
+    let cold = air_cooling_multiplier_ppm(8, calm);
+    let mild = air_cooling_multiplier_ppm(18, calm);
+    assert!(
+        mild * 2 < cold,
+        "18 C afternoons should allow substantially more work than 8 C nights"
+    );
+    assert!(air_cooling_multiplier_ppm(15, calm) < air_cooling_multiplier_ppm(12, calm));
+    assert_eq!(air_cooling_multiplier_ppm(22, calm), 0);
+    assert!(
+        air_cooling_multiplier_ppm(12, wind_cooling_ppm(WindCondition::Gusting))
+            > air_cooling_multiplier_ppm(12, calm),
+        "wind must remain consequential in cold conditions"
+    );
+}
+
 fn generated_player() -> (Registries, AppState, WorldGenerationSeed) {
     let registries = build_registries();
     let seed = WorldGenerationSeed::new(0x5745_4154_4845_5253);
@@ -674,9 +692,9 @@ fn outdoor_cooling_tapers_monotonically_into_neutral_summer_air() {
         WindCondition::Gusting,
     ] {
         let surcharge = wind_cooling_ppm(wind);
-        let mut previous = air_cooling_multiplier_ppm(19, surcharge);
+        let mut previous = air_cooling_multiplier_ppm(13, surcharge);
         assert!(previous >= COLD_EXPOSURE_MINIMUM_COOLING_PPM);
-        for temperature in 20..=30 {
+        for temperature in 14..=30 {
             let current = air_cooling_multiplier_ppm(temperature, surcharge);
             assert!(
                 current <= previous,
@@ -684,8 +702,8 @@ fn outdoor_cooling_tapers_monotonically_into_neutral_summer_air() {
             );
             previous = current;
         }
-        assert!(air_cooling_multiplier_ppm(25, surcharge) > 0);
-        assert_eq!(air_cooling_multiplier_ppm(26, surcharge), 0);
+        assert!(air_cooling_multiplier_ppm(21, surcharge) > 0);
+        assert_eq!(air_cooling_multiplier_ppm(22, surcharge), 0);
         assert_eq!(air_cooling_multiplier_ppm(30, surcharge), 0);
     }
 }
