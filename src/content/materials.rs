@@ -37,6 +37,10 @@ pub const MATERIAL_LEAD: MaterialId = MaterialId::new(24);
 pub const MATERIAL_IRON_SULFIDE: MaterialId = MaterialId::new(25);
 /// Siliceous knappable nodules, distinct from undifferentiated construction stone.
 pub const MATERIAL_FLINT: MaterialId = MaterialId::new(26);
+/// Starchy wild underground storage organs, hand-dug and finite.
+pub const MATERIAL_WILD_TUBERS: MaterialId = MaterialId::new(27);
+/// Edible woodland fruiting bodies, separate from the rooted shrub crop.
+pub const MATERIAL_EDIBLE_FUNGI: MaterialId = MaterialId::new(28);
 pub(crate) const COPPER_MELTING_POINT: Temperature = Temperature::from_millikelvin(1_357_770);
 pub(crate) const IRON_MELTING_POINT: Temperature = Temperature::from_millikelvin(1_811_000);
 pub(crate) const TIN_MELTING_POINT: Temperature = Temperature::from_millikelvin(505_080);
@@ -450,6 +454,16 @@ fn register_materials(registry: &mut MaterialRegistry) {
             "wild nuts",
             MaterialProperties::new(650, ThermalProperties::new(1_800, None), None),
         ),
+        MaterialDefinition::new(
+            MATERIAL_WILD_TUBERS,
+            "wild tubers",
+            MaterialProperties::new(1_030, ThermalProperties::new(3_300, None), None),
+        ),
+        MaterialDefinition::new(
+            MATERIAL_EDIBLE_FUNGI,
+            "edible woodland fungi",
+            MaterialProperties::new(980, ThermalProperties::new(3_700, None), None),
+        ),
     ] {
         registry.register_material(definition);
     }
@@ -675,6 +689,14 @@ fn register_commodities(registry: &mut MaterialRegistry) {
         (
             CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
             "wild nuts",
+        ),
+        (
+            CommodityKey::new(MATERIAL_WILD_TUBERS, FORM_FOOD),
+            "wild tubers",
+        ),
+        (
+            CommodityKey::new(MATERIAL_EDIBLE_FUNGI, FORM_FOOD),
+            "edible woodland fungi",
         ),
         (
             CommodityKey::new(MATERIAL_LEGUMES, FORM_FOOD),

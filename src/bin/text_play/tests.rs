@@ -1135,6 +1135,26 @@ fn sprint_sneak_crouch_and_jump_use_authoritative_body_motion() {
 }
 
 #[test]
+fn natural_look_identifies_only_actually_visible_tree_species() {
+    let first = Session::new_natural(4).unwrap();
+    let second = Session::new_natural(4).unwrap();
+    let look = first.opening();
+    assert!(
+        look.contains("Visible juniper"),
+        "real seed 4 has an illuminated, unobstructed nearby juniper: {look}",
+    );
+    assert_eq!(
+        look,
+        second.opening(),
+        "the observed species must replay from the seed"
+    );
+    assert!(
+        !look.contains("TreeRecord"),
+        "the player should see species names rather than debug identities",
+    );
+}
+
+#[test]
 fn natural_worlds_replay_across_seeds_without_a_scripted_starter_trail() {
     use deep_hearth::content::{FORM_NATIVE_METAL, MATERIAL_COPPER};
     use deep_hearth::material::CommodityKey;

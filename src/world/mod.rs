@@ -83,7 +83,9 @@ pub use transplant::{
     ValidatedSaplingTransplant, validate_transplant_juvenile,
 };
 pub(crate) use trees::generated_tree;
-pub use trees::{BIOLOGICAL_YEAR_TICKS, TreeRecord};
+pub use trees::{
+    BIOLOGICAL_YEAR_TICKS, TreeRecord, TreeSpecies, VisibleTree, available_visible_generated_trees,
+};
 pub(crate) use trees::{FelledTreeRecord, TransplantedTreeRecord};
 pub use validation::{WorldValidationError, validate_loaded_world};
 pub(crate) use weather::assess_player_weather_at;

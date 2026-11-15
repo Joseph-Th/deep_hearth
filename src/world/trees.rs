@@ -6,7 +6,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::Mass;
+use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
+use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
 use super::{BlockStateId, CHUNK_SIDE, WorldChunk, WorldGenerationProfile};
@@ -38,7 +40,98 @@ const _: () = {
     }
 };
 
-/// One rooted, living temperate broadleaf. Standing wood is owned by the world until felled.
+/// Observable seed-derived woodland form, stable after a juvenile transplant.
+/// Species uses original terrain-grown biomass and original seed-selected
+/// coordinates, so no extra persisted identity or save migration is needed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum TreeSpecies {
+    Alder,
+    Willow,
+    Oak,
+    Birch,
+    Pinyon,
+    Juniper,
+    Pioneer,
+}
+
+impl TreeSpecies {
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Alder => "alder",
+            Self::Willow => "willow",
+            Self::Oak => "oak",
+            Self::Birch => "birch",
+            Self::Pinyon => "pinyon pine",
+            Self::Juniper => "juniper",
+            Self::Pioneer => "young pioneer tree",
+        }
+    }
+
+    #[must_use]
+    pub const fn evergreen(self) -> bool {
+        matches!(self, Self::Pinyon | Self::Juniper)
+    }
+}
+
+/// Local standing-tree evidence, not a remote vegetation registry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VisibleTree {
+    root: VoxelCoord,
+    species: TreeSpecies,
+}
+
+impl VisibleTree {
+    #[must_use]
+    pub const fn root(self) -> VoxelCoord {
+        self.root
+    }
+
+    #[must_use]
+    pub const fn species(self) -> TreeSpecies {
+        self.species
+    }
+}
+
+/// A bounded spatial-index query checks a visible empty face beside each
+/// physical trunk. Trees behind rock or outside local eye reach stay unknown.
+pub fn available_visible_generated_trees(
+    registries: &Registries,
+    state: &AppState,
+) -> impl Iterator<Item = VisibleTree> {
+    let mut nearby = Vec::new();
+    if let Some(from) = state.player_observation_position()
+        && state.world().has_generated_terrain_at(from)
+    {
+        for tree in state.world().trees_near_horizontal(from, 2) {
+            let root = tree.root();
+            if root.y().abs_diff(from.y()) > 2 {
+                continue;
+            }
+            let visible = [(-1_i64, 0_i64), (1, 0), (0, -1), (0, 1)]
+                .into_iter()
+                .any(|(dx, dz)| {
+                    let (Some(x), Some(z)) = (root.x().checked_add(dx), root.z().checked_add(dz))
+                    else {
+                        return false;
+                    };
+                    let face = VoxelCoord::new(x, root.y(), z);
+                    state.world().block_at(face) == Some(BlockStateId::AIR)
+                        && super::player_can_see_from_eye(registries, state, from, face)
+                });
+            if visible {
+                nearby.push(VisibleTree {
+                    root,
+                    species: tree.species(),
+                });
+            }
+        }
+    }
+    nearby.sort_unstable_by_key(|tree| tree.root);
+    nearby.into_iter()
+}
+
+/// One rooted, living tree. Standing wood remains owned by the world until felled.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TreeRecord {
@@ -159,6 +252,26 @@ impl TreeRecord {
         self.initial_wood
     }
 
+    /// Initial mature-wood classes identify the wet, mixed, and dry seed
+    /// forests. Entropy tied to the immutable origin splits each class into
+    /// two species; juvenile pioneer trees retain a common early growth form.
+    #[must_use]
+    pub fn species(self) -> TreeSpecies {
+        let entropy = super::generation::terrain::mix64(
+            (self.origin.x() as u64).wrapping_mul(0xEA4F_3AF5_C71E_169B)
+                ^ (self.origin.z() as u64).wrapping_mul(0xB1DB_2B4E_C5AB_2F39),
+        );
+        match (self.initial_wood.milligrams(), entropy & 1 == 0) {
+            (480_000_000.., true) => TreeSpecies::Alder,
+            (480_000_000.., false) => TreeSpecies::Willow,
+            (280_000_000.., true) => TreeSpecies::Oak,
+            (280_000_000.., false) => TreeSpecies::Birch,
+            (150_000_000.., true) => TreeSpecies::Pinyon,
+            (150_000_000.., false) => TreeSpecies::Juniper,
+            _ => TreeSpecies::Pioneer,
+        }
+    }
+
     /// Exact whole-milligram wood accumulation across four biological phases.
     /// Age is resolved analytically in constant time; no per-tree scheduled updates.
     #[must_use]
@@ -202,11 +315,18 @@ impl TreeRecord {
 
     #[must_use]
     pub fn canopy_radius_voxels(self, now: SimulationTick) -> u8 {
-        match self.wood_at(now).milligrams() {
+        let radius: u8 = match self.wood_at(now).milligrams() {
             0..10_000_000 => 0,
             10_000_000..150_000_000 => 1,
             150_000_000..600_000_000 => 2,
             _ => 3,
+        };
+        match self.species() {
+            TreeSpecies::Willow => radius.saturating_add(1).min(3),
+            TreeSpecies::Birch | TreeSpecies::Juniper => radius.saturating_sub(1),
+            TreeSpecies::Alder | TreeSpecies::Oak | TreeSpecies::Pinyon | TreeSpecies::Pioneer => {
+                radius
+            }
         }
     }
 
@@ -301,3 +421,7 @@ pub(super) fn seeded_tree_column(
         .checked_add(3 + ((mixed >> 12) % (CHUNK_SIDE as u64 - 6)) as i64)?;
     Some((x, z))
 }
+
+#[cfg(test)]
+#[path = "trees_biodiversity_tests.rs"]
+mod biodiversity_tests;

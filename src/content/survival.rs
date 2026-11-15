@@ -15,8 +15,8 @@ use crate::survival::{
 };
 
 use super::{
-    DEFAULT_TICKS_PER_DAY, FLUID_WATER, FORM_FOOD, MATERIAL_BERRIES, MATERIAL_GRAIN,
-    MATERIAL_LEGUMES, MATERIAL_MEAT, MATERIAL_WILD_NUTS,
+    DEFAULT_TICKS_PER_DAY, FLUID_WATER, FORM_FOOD, MATERIAL_BERRIES, MATERIAL_EDIBLE_FUNGI,
+    MATERIAL_GRAIN, MATERIAL_LEGUMES, MATERIAL_MEAT, MATERIAL_WILD_NUTS, MATERIAL_WILD_TUBERS,
 };
 
 const MINIMUM_CONSUMPTION_TEMPERATURE_MK: u32 = 273_150;
@@ -138,7 +138,7 @@ fn physiology() -> PhysiologyDefinition {
     )
 }
 
-fn foods() -> [FoodDefinition; 5] {
+fn foods() -> [FoodDefinition; 7] {
     [
         FoodDefinition::new(
             CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
@@ -180,6 +180,24 @@ fn foods() -> [FoodDefinition; 5] {
             MassSpecificEnergy::from_nanojoules_per_milligram(7_000_000_000),
             0,
             TickSpan::new(DEFAULT_TICKS_PER_DAY * 10),
+            direct_consumption_temperature(),
+        ),
+        // Diggable tubers are a slower but longer-lived energy source than
+        // fragile wet-woodland fungi. Both remain finite food material.
+        FoodDefinition::new(
+            CommodityKey::new(MATERIAL_WILD_TUBERS, FORM_FOOD),
+            FoodCategory::Grain,
+            MassSpecificEnergy::from_nanojoules_per_milligram(3_300_000_000),
+            690_000,
+            TickSpan::new(DEFAULT_TICKS_PER_DAY * 8),
+            direct_consumption_temperature(),
+        ),
+        FoodDefinition::new(
+            CommodityKey::new(MATERIAL_EDIBLE_FUNGI, FORM_FOOD),
+            FoodCategory::Protein,
+            MassSpecificEnergy::from_nanojoules_per_milligram(1_100_000_000),
+            900_000,
+            TickSpan::new(DEFAULT_TICKS_PER_DAY * 2),
             direct_consumption_temperature(),
         ),
     ]

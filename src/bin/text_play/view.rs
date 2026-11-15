@@ -38,7 +38,7 @@ use deep_hearth::survival::{
 use deep_hearth::world::{
     DayPhase, ForageScent, HabitatKind, VisibleWaterSource, WindCondition, WindDirection,
     assess_player_forage_scents, assess_player_habitat, assess_player_weather,
-    available_visible_generated_water, raycast_player_block,
+    available_visible_generated_trees, available_visible_generated_water, raycast_player_block,
 };
 use deep_hearth::{AppState, Registries};
 
@@ -525,6 +525,15 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
                 |from| bearing(from, water.position())
             ),
             pos(water.position())
+        );
+    }
+    for tree in available_visible_generated_trees(registries, state) {
+        let _ = writeln!(
+            output,
+            "Visible {} {} at {}",
+            tree.species().name(),
+            from.map_or_else(|| "unlocated".to_owned(), |from| bearing(from, tree.root())),
+            pos(tree.root()),
         );
     }
     for sighting in available_nearby_kobold_scouts(registries, state) {

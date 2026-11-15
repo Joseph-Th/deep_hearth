@@ -48,8 +48,8 @@ fn crown_shade_at_distance(radius: u8, horizontal: u64) -> u8 {
 }
 
 /// Grown crowns cast cumulative diffuse shade, not solid-block shadows.
-/// Trunk opacity remains separate. A deciduous crown has little
-/// leaf area in winter, and spring/autumn attenuate less than summer. Multiple
+/// Trunk opacity remains separate. Deciduous crowns shed leaves in winter,
+/// but pinyon and juniper retain partial winter shade. Multiple
 /// overlapping crowns can block substantially more daylight than one crown.
 /// Open ground downhill from a tree remains in the crown's shadow column:
 /// only a position above the crown escapes its interception of direct sky.
@@ -60,13 +60,13 @@ pub(crate) fn living_canopy_shade_at(
     at: SimulationTick,
 ) -> u8 {
     let season = registries.core().calendar().date_at(at).season();
-    if season == Season::Winter {
-        return 0;
-    }
     state
         .world()
         .trees_near_horizontal(position, MAX_CANOPY_RADIUS)
         .filter_map(|tree| {
+            if season == Season::Winter && !tree.species().evergreen() {
+                return None;
+            }
             let root = tree.root();
             let radius = tree.canopy_radius_voxels(at);
             let horizontal = root

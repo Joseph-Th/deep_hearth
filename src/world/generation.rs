@@ -12,6 +12,7 @@ mod springs;
 pub(super) mod temple;
 mod temple_presence;
 pub(in crate::world) mod terrain;
+mod understory;
 
 pub(super) use habitat::habitat_at;
 pub use habitat::{HabitatKind, assess_player_habitat};
@@ -473,8 +474,17 @@ fn validate_natural_surface_for_chunks(
             chunk,
             forage_position,
         );
+        let reserved = [
+            forage_position,
+            loose.as_ref().map(SurfaceResourceSpec::position),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+        let understory =
+            understory::seeded_understory_spec(registries, state, profile, chunk, &reserved);
         let mut sites = Vec::new();
-        for spec in [forage, loose].into_iter().flatten() {
+        for spec in [forage, loose, understory].into_iter().flatten() {
             sites.push(spec.position());
             specs.push(spec);
         }

@@ -23,7 +23,8 @@ use super::equipment::{
 };
 use super::{
     FORM_CHIP, FORM_FOOD, FORM_LOG, FORM_LUMP, FORM_NATIVE_METAL, MATERIAL_BERRIES, MATERIAL_CLAY,
-    MATERIAL_COPPER, MATERIAL_FLINT, MATERIAL_STONE, MATERIAL_WILD_NUTS, MATERIAL_WOOD,
+    MATERIAL_COPPER, MATERIAL_EDIBLE_FUNGI, MATERIAL_FLINT, MATERIAL_STONE, MATERIAL_WILD_NUTS,
+    MATERIAL_WILD_TUBERS, MATERIAL_WOOD,
 };
 
 pub const MANUAL_POWER_HAND_CRANK: ManualPowerMethodId = ManualPowerMethodId::new(1);
@@ -43,6 +44,10 @@ pub const SURFACE_GATHERING_HAND_COLLECT_NATIVE_COPPER: SurfaceGatheringMethodId
     SurfaceGatheringMethodId::new(7);
 pub const SURFACE_GATHERING_HAND_COLLECT_FLINT: SurfaceGatheringMethodId =
     SurfaceGatheringMethodId::new(8);
+pub const SURFACE_GATHERING_HAND_DIG_TUBERS: SurfaceGatheringMethodId =
+    SurfaceGatheringMethodId::new(9);
+pub const SURFACE_GATHERING_HAND_PICK_FUNGI: SurfaceGatheringMethodId =
+    SurfaceGatheringMethodId::new(10);
 pub const MANUAL_POWER_FOOT_TREADLE: ManualPowerMethodId = ManualPowerMethodId::new(2);
 pub const MANUAL_POWER_WALKING_WHEEL: ManualPowerMethodId = ManualPowerMethodId::new(3);
 pub const MANUAL_POWER_TREADLE_DYNAMO: ManualPowerMethodId = ManualPowerMethodId::new(4);
@@ -160,6 +165,30 @@ pub(crate) fn build_labor_registry() -> LaborRegistry {
                 SurvivalExertion::new(
                     Energy::from_nanojoules(900_000_000_000),
                     Volume::from_microliters(220),
+                ),
+            ),
+            // Tubers have to be dug out of their rooted pockets: slow,
+            // strenuous harvest, but much more durable food than fungi.
+            SurfaceGatheringDefinition::new(
+                SURFACE_GATHERING_HAND_DIG_TUBERS,
+                CommodityKey::new(MATERIAL_WILD_TUBERS, FORM_FOOD),
+                Mass::from_milligrams(750_000),
+                Mass::from_milligrams(250_000),
+                TickSpan::new(80),
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(1_500_000_000_000),
+                    Volume::from_microliters(380),
+                ),
+            ),
+            SurfaceGatheringDefinition::new(
+                SURFACE_GATHERING_HAND_PICK_FUNGI,
+                CommodityKey::new(MATERIAL_EDIBLE_FUNGI, FORM_FOOD),
+                Mass::from_milligrams(500_000),
+                Mass::from_milligrams(200_000),
+                TickSpan::new(32),
+                SurvivalExertion::new(
+                    Energy::from_nanojoules(700_000_000_000),
+                    Volume::from_microliters(180),
                 ),
             ),
         ],
