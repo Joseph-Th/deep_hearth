@@ -221,11 +221,15 @@ that would intersect an admitted actor or any embodied structural member, includ
 narrow posts that do not block an entire movement cell.
 Inert structural plans do not occupy a trunk cell. The same physical-material clearance
 applies to sapling relocation and trusted-load validation.
-Standing wood grows as a four-stage lazy elapsed-time projection: 4 kg/year for juveniles,
-18 kg/year for saplings, 40 kg/year for pole trees and 22 kg/year approaching maturity,
-up to 1,600 kg dry wood. Stage boundaries retain exact sub-tick time in a common integer
-clock, so crossing a stage never drops part of that tick's growth. Growth is
-computed without per-tick updates, scheduled random checks or leaf-block churn.
+Standing wood grows as a four-stage lazy elapsed-time projection: baseline rates
+of 4 kg/year for juveniles, 18 kg/year for saplings, 40 kg/year for pole trees
+and 22 kg/year approaching maturity, up to 1,600 kg dry wood. Species scale
+those rates with exact rational clocks: willow 1.5x, alder/birch 1.25x,
+oak 0.75x, pinyon 0.5x and juniper 0.4x; young pioneer trees use 1x.
+Stage boundaries retain exact sub-tick time in one common integer scale,
+so species-dependent growth never discards fractional time at phase transitions.
+Growth is derived from immutable identity and elapsed time, without per-tick
+updates, scheduled random checks or leaf-block churn.
 A biological year is 365 physical days.
 Seed-derived moisture and elevation create damp groves, mixed woodland and dry scrub.
 Living woodland includes alder/willow in damp groves, oak/birch in mixed woods,
@@ -233,7 +237,9 @@ and pinyon/juniper in scrub, plus young pioneer trees. Species are derived from
 immutable origin and original seed-grown biomass, so transplants and trusted
 saves retain identity without an additional persisted field. Crown widths differ;
 pinyon and juniper retain partial winter shade while deciduous trees lose it.
-The four-stage wood-growth clock remains shared across species. Seeded berries
+All species retain the same four growth stages, but reach them at different
+ages, changing canopy development and the wood yield of physical felling.
+Seeded berries
 and nuts retain finite, conserved perennial roots. Independent understory sites
 introduce one-time starchy wild tubers and seasonal edible fungi in biome-
 specific proportions. Both use ordinary hand gathering, distinct nutrition,

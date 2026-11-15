@@ -19,7 +19,7 @@ Progression:
 | Power | Hand crank, treadle, flywheels and buffers. Straight built timber shafts couple opposed mechanical stores at up to 50 W, losing 20% per roller. No gearboxes or electric networks. |
 | Processing | Ore dressing, local crusher batch choices and unattended work; casting, PbS+Fe smelting, kiln firing and finite cooling. No general reduction or passive cooling. |
 | Opening wilderness acquisition | Scouts forage, drink, steal and warn; thirst limits raids. Firelight/boxes deter theft, loot persists and can be recovered. Tracks, sounds and club staggers are simulated; tool injuries are scenario-only. |
-| Natural starts | Random dry/mixed/damp hills, ore and raw matter, varied trees, four wild foods and seasonal fungal mycelia; no guaranteed supplies. |
+| Natural starts | Random dry/mixed/damp hills, ore and raw matter, species-specific tree growth, four wild foods and seasonal fungal mycelia; no guaranteed supplies. |
 | Structures | Timed carried-stack posts, framing and a 6.5 kg cover panel; activation on completion. |
 
 ## Current integration frontier

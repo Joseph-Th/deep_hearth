@@ -72,6 +72,21 @@ impl TreeSpecies {
     pub const fn evergreen(self) -> bool {
         matches!(self, Self::Pinyon | Self::Juniper)
     }
+
+    /// Whole biological time-scale ratios, not changing the persisted wood
+    /// budget or introducing per-tick growth events. Damp pioneer woods grow
+    /// faster than slow dry-land conifers; oak matures more slowly than birch.
+    #[must_use]
+    const fn growth_clock_ratio(self) -> (u64, u64) {
+        match self {
+            Self::Alder | Self::Birch => (5, 4),
+            Self::Willow => (3, 2),
+            Self::Oak => (3, 4),
+            Self::Pinyon => (1, 2),
+            Self::Juniper => (2, 5),
+            Self::Pioneer => (1, 1),
+        }
+    }
 }
 
 /// Local standing-tree evidence, not a remote vegetation registry.
@@ -276,8 +291,13 @@ impl TreeRecord {
     /// Age is resolved analytically in constant time; no per-tree scheduled updates.
     #[must_use]
     pub fn wood_at(self, now: SimulationTick) -> Mass {
+        let (numerator, denominator) = self.species().growth_clock_ratio();
+        // The fixed point scale is divisible by every species ratio's
+        // denominator. Stage-crossing fractional ticks remain exact; the
+        // long-lived tree never loses or duplicates fractional growth.
         let mut remaining_time = u128::from(now.value().saturating_sub(self.sprouted_at.value()))
-            * GROWTH_TIME_UNITS_PER_TICK;
+            * (GROWTH_TIME_UNITS_PER_TICK / u128::from(denominator))
+            * u128::from(numerator);
         let mut mass = u128::from(self.initial_wood.milligrams());
         for (ceiling, annual_growth) in GROWTH_STAGES {
             let ceiling = u128::from(ceiling);

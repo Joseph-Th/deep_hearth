@@ -411,14 +411,16 @@ fn woodland_stage_growth_crosses_thresholds_continuously_and_slows_with_maturity
         1
     );
     let pole = TreeRecord::new(origin, Mass::from_milligrams(300_000_000));
+    assert_eq!(pole.species(), TreeSpecies::Oak);
     assert_eq!(
         pole.wood_at(SimulationTick::new(BIOLOGICAL_YEAR_TICKS)),
-        Mass::from_milligrams(340_000_000)
+        Mass::from_milligrams(330_000_000)
     );
     let near_mature = TreeRecord::new(origin, Mass::from_milligrams(599_999_999));
+    assert_eq!(near_mature.species(), TreeSpecies::Alder);
     let at = SimulationTick::new(BIOLOGICAL_YEAR_TICKS);
-    assert!(near_mature.wood_at(at).milligrams() >= 621_999_980);
-    assert!(near_mature.wood_at(at).milligrams() <= 622_000_010);
+    assert!(near_mature.wood_at(at).milligrams() >= 627_499_980);
+    assert!(near_mature.wood_at(at).milligrams() <= 627_500_010);
     for candidate in [sapling, pole, near_mature] {
         let checkpoints = [
             0,

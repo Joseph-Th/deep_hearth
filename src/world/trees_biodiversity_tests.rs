@@ -5,7 +5,7 @@ use crate::content::{BLOCK_STATE_STONE, build_registries};
 use crate::core::state::{AppState, validate_loaded_state};
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::world::{ChunkCoord, WorldGenerationSeed, validate_generate_chunk};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[test]
 fn each_seeded_habitat_supports_two_mature_tree_species_and_pioneers() {
@@ -60,6 +60,139 @@ fn each_seeded_habitat_supports_two_mature_tree_species_and_pioneers() {
             TreeSpecies::Pioneer,
         ])
     );
+}
+
+#[test]
+fn native_species_accumulate_different_real_timber_at_exact_year_boundaries() {
+    // Pick trees from real seeded terrain rather than constructing identities
+    // disconnected from the generated ecosystem. Keep mature samples below
+    // the next stage ceiling to measure one full year of species growth.
+    let mut examples = BTreeMap::<TreeSpecies, TreeRecord>::new();
+    for seed_value in 0..4 {
+        let seed = WorldGenerationSeed::new(seed_value);
+        let profile = WorldGenerationProfile::new(seed, BLOCK_STATE_STONE);
+        for x in -24..=24 {
+            for z in -24..=24 {
+                let tree = seeded_tree_identity(profile, ChunkCoord::new(x, z)).unwrap();
+                let suitable = tree.species() == TreeSpecies::Pioneer
+                    || tree.initial_wood().milligrams() < 530_000_000;
+                if suitable {
+                    examples.entry(tree.species()).or_insert(tree);
+                }
+            }
+        }
+    }
+    let expected_annual_gain_mg = [
+        (TreeSpecies::Alder, 50_000_000),
+        (TreeSpecies::Willow, 60_000_000),
+        (TreeSpecies::Oak, 30_000_000),
+        (TreeSpecies::Birch, 50_000_000),
+        (TreeSpecies::Pinyon, 20_000_000),
+        (TreeSpecies::Juniper, 16_000_000),
+        (TreeSpecies::Pioneer, 11_000_000),
+    ];
+    for (species, gain) in expected_annual_gain_mg {
+        let tree = *examples
+            .get(&species)
+            .unwrap_or_else(|| panic!("real generated world lacks a suitable {species:?}"));
+        let grown = tree.wood_at(SimulationTick::new(BIOLOGICAL_YEAR_TICKS));
+        assert_eq!(
+            grown.checked_sub(tree.initial_wood()),
+            Some(Mass::from_milligrams(gain)),
+            "{species:?} must use its own distinct biological growth rate"
+        );
+        assert_eq!(tree.wood_at(SimulationTick::ZERO), tree.initial_wood());
+        assert_eq!(
+            tree.wood_at(SimulationTick::new(u64::MAX)),
+            Mass::from_milligrams(1_600_000_000),
+            "all species must respect the finite standing-wood ceiling"
+        );
+        let transplanted = tree.transplanted_to(VoxelCoord::new(
+            tree.root().x() + 1,
+            tree.root().y(),
+            tree.root().z() + 1,
+        ));
+        assert_eq!(transplanted.species(), species);
+        assert_eq!(
+            transplanted.wood_at(SimulationTick::new(BIOLOGICAL_YEAR_TICKS)),
+            grown
+        );
+    }
+}
+
+#[test]
+fn mature_willow_oak_and_juniper_felling_conserves_species_specific_growth() {
+    use crate::content::{FORM_LOG, MATERIAL_WOOD};
+    use crate::core::state::apply_clock_advance;
+    use crate::material::CommodityKey;
+    use crate::matter::calculate_matter_accounting;
+    use crate::player::validate_admit_player;
+
+    let registries = build_registries();
+    for species in [TreeSpecies::Willow, TreeSpecies::Oak, TreeSpecies::Juniper] {
+        let (seed, tree, player_position) = (0..1_024_u64)
+            .find_map(|value| {
+                let seed = WorldGenerationSeed::new(value);
+                let profile = WorldGenerationProfile::new(seed, BLOCK_STATE_STONE);
+                let tree = seeded_tree_identity(profile, ChunkCoord::new(0, 0))?;
+                if tree.species() != species {
+                    return None;
+                }
+                let root = tree.root();
+                [(-1_i64, 0_i64), (1, 0), (0, -1), (0, 1)]
+                    .into_iter()
+                    .find_map(|(dx, dz)| {
+                        let x = root.x() + dx;
+                        let z = root.z() + dz;
+                        (super::super::generation::terrain_height(seed, x, z) == root.y() - 1)
+                            .then_some((seed, tree, VoxelCoord::new(x, root.y(), z)))
+                    })
+            })
+            .unwrap_or_else(|| panic!("must find a grounded, reachable native {species:?}"));
+        let mut state = AppState::new();
+        validate_admit_player(&registries, &state, player_position)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        validate_generate_chunk(
+            &registries,
+            &state,
+            seed,
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+        assert_eq!(state.world().tree_at(tree.root()), Some(&tree));
+
+        let at = SimulationTick::new(BIOLOGICAL_YEAR_TICKS * 8);
+        apply_clock_advance(&mut state, at);
+        let grown = tree.wood_at(at);
+        assert!(grown > tree.initial_wood(), "old {species:?} must grow");
+        let before = calculate_matter_accounting(&state).unwrap().total();
+        let felled = super::super::felling::validate_fell_tree(&registries, &state, tree.root())
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        assert_eq!(felled.wood(), grown);
+        assert_eq!(
+            state.surface().get(felled.drop()).unwrap().commodity(),
+            CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        );
+        assert_eq!(
+            state.surface().get(felled.drop()).unwrap().remaining_mass(),
+            grown,
+        );
+        assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        assert_eq!(loaded, state);
+    }
 }
 
 #[test]
