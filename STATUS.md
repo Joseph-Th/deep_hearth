@@ -14,11 +14,12 @@ Progression:
 | --- | --- |
 | Survival and labor | Metabolism, hydration, vitality, diet, spoilage, timed intake, exertion, exclusive work, weather cooling/rewarming, roofs and windbreaks. |
 | Materials and inventory | Exact lots, finite storage/reservations, conservation, preservation, classified residues and waste-only spoil bays. |
-| Prospecting and mining | The opening exposes no native copper float. A weathered 10%-copper deposit requires a stone pick, a geological hammer for precise survey evidence, and finite ore mining and hand dressing before metal reinforcement. Ore must be hauled; reserves stay private. |
+| Prospecting and mining | Starter copper is 10%-grade weathered ore, not loose metal. A stone pick, precise hammer survey, mining and hand dressing precede reinforcement; reserves stay private. |
 | Crafting and equipment | Flint/copper tools, kiln, cooling bed, fired ceramic casting mold, maintenance and upgrades; finite waste storage. |
 | Power | Hand crank, treadle, flywheels and buffers. Straight built timber shafts couple opposed mechanical stores at up to 50 W, losing 20% per roller. No gearboxes or electric networks. |
 | Processing | Ore dressing, local crusher batch choices and unattended work; casting, PbS+Fe smelting, kiln firing and finite cooling. No general reduction or passive cooling. |
-| Opening wilderness acquisition | Scouts forage, drink finite water, steal and warn; partial rations persist until a full drink. Thirst limits raids. Light/boxes deter theft; rooted patches bar storage. Loot is recoverable. Footsteps/alarms sound; clubs stagger; tool injuries are scenario-only. |
+| Opening wilderness acquisition | Scouts forage, drink, steal and warn; thirst limits raids. Firelight/boxes deter theft, loot persists and can be recovered. Tracks, sounds and club staggers are simulated; tool injuries are scenario-only. |
+| Natural starts | Text play supports replayable random starts in dry/mixed/damp habitats. Seeded terrain, trees, forage, springs, ore and ruins; no guaranteed supplies or residents. |
 | Structures | Timed carried-stack posts, framing and a 6.5 kg cover panel; activation on completion. |
 
 ## Current integration frontier
@@ -70,11 +71,11 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 
 | Area | Boundary |
 | --- | --- |
-| Wilderness opening | Maintained open-ended journey, precipitation, pathfinding, flowing hydrology, propagated lighting, general enclosures, and complete first-day loop. Generated terrain already has travel, weather and springs. |
+| Wilderness opening | Full open-ended journey, precipitation, pathfinding, flowing water, propagated lighting, general enclosures and complete first-day loop. Terrain, weather and springs exist. |
 | Engine/platform | Graphics backend, window/input/audio integration, ECS, networking, and general engine shell. |
 | World representation | Residency, general terrain placement, partial shapes, regional geology/biomes and discovery beyond local clues. |
 | Logistics | General access generation, routing/haulage/transport, remote acquisition, graphical inventory UI, fluid transport, and mounted-production geometry. |
-| Advanced geology/mining | Mixed-grade world ore, regional generation, voxel ore topology, laboratory/geophysical surveys, mechanized mining, drainage, ground control and tailings transport. |
+| Advanced geology/mining | Mixed-grade world ore, regional topology, laboratory surveys, mechanized mining, drainage, ground control and tailings transport. |
 | Thermal/chemical industry | Environmental heat, vaporization, general combustion/emissions, alloy phases, reduction/smelting, alloying, forging, machining and recycling. Campfire is not an atmospheric model. |
 | Maintenance/structures | Maintenance tools, broader panels/shapes, cascade salvage, bending/shear/torsion/buckling, and terrain support. |
 | Power networks | Shaft branches, belts, gearing, electrical distribution/protection, steam and transmission beyond straight contiguous timber roller runs. |

@@ -13,10 +13,16 @@ From the Deep Hearth directory:
 ~~~text
 cargo run --locked --bin text-play -- --seed 24318
 cargo run --locked --bin text-play -- --seed 24318 --script path/to/commands.txt
+cargo run --locked --bin text-play -- --random
+cargo run --locked --bin text-play -- --random --habitat dry
+cargo run --locked --bin text-play -- --natural --seed 1837596006 --habitat damp
+cargo run --locked --bin text-play -- --natural --seed 1837596006 --script path/to/commands.txt
 cargo run --locked --bin text-play -- --load campaign_01
 ~~~
 
-The default seed is 24318. Other seeds produce reproducible openings. The seeded opening uses canonical generated terrain and the authoritative finite wilderness trail, admits a normal survival player, and generates surrounding chunks on demand. The opening may include berries, nuts, water, timber, stone, and real kobold residents. Unobserved resources remain hidden. Each startup option (`--seed`, `--load`, `--script`) may occur only once; repeated options and mutually exclusive campaign sources are rejected before the session begins.
+**World variety and reproducibility:** `--random` takes an unpredictable seed from operating-system-seeded randomness, prints the seed, and creates an unguided natural wilderness. `--natural --seed NUMBER` recreates that exact world, position, generated resources, and subsequent environmental changes for the same player commands. `--natural` without a seed also selects an unpredictable seed. `--habitat dry|mixed|damp` on either natural start deterministically selects a physically occupiable site from the actual seed-derived dry scrub, mixed woodland, or damp grove. It never repaints terrain or creates a guaranteed resource at the player. Seed-specific starts vary in position, terrain, local weather, woodland, wild food, finite springs, minerals, and proximity to ancient sites. Unassisted natural worlds may have no food, water, loose timber, flint, copper deposit, or opening kobold colony immediately at spawn; these are exploration scenarios, **not** a guaranteed end-to-end technology bootstrap. The current generated-world owners still limit terrain and ecology complexity.
+
+Without `--natural` or `--random`, `--seed NUMBER` continues to use the controlled seven-position opening with physically placed berries, nuts, water, timber, stone, clay/flint and a stone-era copper ore deposit. The default seed remains 24318. This maintained starter exists for exact command-script regression, not as evidence of how diverse the natural world is. Both starts admit the same ordinary player, use the same terrain/chunk/biome/resource/simulation owners, and save/load normally. Starting mode is not a persistent gameplay flag: after saving, use `--load SLOT`. World-source arguments are mutually exclusive with `--load`; `--random` cannot be combined with `--seed` or `--natural`. A seed is not secret world knowledge: it is a reproducibility identifier, while in-world observation stays restricted to the player's actual view. `status` and `look` identify the local habitat, not the coordinates of undiscovered resources.
 
 ## Commands
 

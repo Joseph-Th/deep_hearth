@@ -36,9 +36,9 @@ use deep_hearth::survival::{
     available_local_drink_sources,
 };
 use deep_hearth::world::{
-    DayPhase, ForageScent, VisibleWaterSource, WindCondition, WindDirection,
-    assess_player_forage_scents, assess_player_weather, available_visible_generated_water,
-    raycast_player_block,
+    DayPhase, ForageScent, HabitatKind, VisibleWaterSource, WindCondition, WindDirection,
+    assess_player_forage_scents, assess_player_habitat, assess_player_weather,
+    available_visible_generated_water, raycast_player_block,
 };
 use deep_hearth::{AppState, Registries};
 
@@ -411,6 +411,14 @@ pub fn status(registries: &Registries, state: &AppState) -> String {
     }
     if let Some(weather) = assess_player_weather(registries, state) {
         let _ = writeln!(output, "Weather: {}", sensory::weather(weather));
+    }
+    if let Some(habitat) = assess_player_habitat(state) {
+        let name = match habitat {
+            HabitatKind::DampGrove => "damp grove",
+            HabitatKind::MixedWoodland => "mixed woodland",
+            HabitatKind::DryScrub => "dry scrub",
+        };
+        let _ = writeln!(output, "Habitat: {name}");
     }
     for source in project_player_nearby_warmth_sources(registries, state) {
         let definition = registries

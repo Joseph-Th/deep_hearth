@@ -36,6 +36,54 @@ fn one_startup_source_and_script_remain_independently_selectable() {
 }
 
 #[test]
+fn natural_world_arguments_select_replayable_or_unpredictable_starts() {
+    let seeded = parse_arguments_from(
+        [
+            "--natural",
+            "--seed",
+            "1837596006",
+            "--habitat",
+            "dry",
+            "--script",
+            "route.script",
+        ]
+        .map(str::to_owned),
+    )
+    .unwrap();
+    assert_eq!(seeded.seed, Some(1_837_596_006));
+    assert!(seeded.natural && !seeded.random);
+    assert_eq!(
+        seeded.habitat,
+        Some(deep_hearth::world::HabitatKind::DryScrub)
+    );
+    assert_eq!(seeded.script, Some(PathBuf::from("route.script")));
+    let random =
+        parse_arguments_from(["--random", "--habitat", "damp"].map(str::to_owned)).unwrap();
+    assert!(random.random && !random.natural);
+    assert_eq!(random.seed, None);
+    assert_eq!(
+        random.habitat,
+        Some(deep_hearth::world::HabitatKind::DampGrove)
+    );
+    for flags in [
+        vec!["--random", "--seed", "42"],
+        vec!["--natural", "--load", "old"],
+        vec!["--random", "--load", "old"],
+        vec!["--natural", "--random"],
+        vec!["--natural", "--natural"],
+        vec!["--random", "--random"],
+        vec!["--habitat", "dry"],
+        vec!["--natural", "--habitat", "plains"],
+        vec!["--natural", "--habitat", "dry", "--habitat", "damp"],
+    ] {
+        assert!(
+            parse_arguments_from(flags.iter().map(|flag| (*flag).to_owned())).is_err(),
+            "invalid natural world flags accepted: {flags:?}"
+        );
+    }
+}
+
+#[test]
 fn blocked_walking_stops_at_the_physical_collision_instead_of_consuming_twelve_seconds() {
     let mut session = Session::new(24318).unwrap();
     for _ in 0..7 {

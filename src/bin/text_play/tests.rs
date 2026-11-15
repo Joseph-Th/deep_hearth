@@ -822,8 +822,8 @@ fn finite_campfire_fuel_warms_player_and_preserves_terminal_matter() {
     let mut session = stone_campfire_from_wilderness();
     let (catalog, _) = session.command("fire").unwrap();
     assert!(catalog.contains("stone-ring campfire | 0.000 MJ stored"));
-    assert!(catalog.contains("Fuel: 1000 g timber log per charge"));
-    assert!(catalog.contains("Fuel: 500 g wood chips per charge"));
+    assert!(catalog.contains("Fuel: up to 1000 g timber log per charge"));
+    assert!(catalog.contains("Fuel: up to 500 g wood chips per charge"));
     assert!(catalog.contains("feed-fire 1 1"));
     let before_invalid = snapshot(&session);
     let bad_fuel = session.command("feed-fire 1 2").unwrap_err();
@@ -929,9 +929,20 @@ fn campfire_accepts_woodworking_byproduct_as_distinct_finite_fuel() {
     assert!(result.contains("5.000 MJ"));
     let (inventory, _) = session.command("inventory").unwrap();
     assert!(inventory.contains("wood chips | 300 g"));
-    let after_one_charge = snapshot(&session);
+    // The combustion owner accepts a bounded partial fuel charge, so the
+    // remaining 300 g of conserved chips can be burned rather than discarded.
+    assert!(
+        session
+            .command("fire")
+            .unwrap()
+            .0
+            .contains("5.000 MJ stored")
+    );
+    let (second, _) = session.command("feed-fire 1 1").unwrap();
+    assert!(second.contains("Burned 300 g wood chips"), "{second}");
+    let after_two_charges = snapshot(&session);
     assert!(session.command("feed-fire 1 1").is_err());
-    assert_eq!(snapshot(&session), after_one_charge);
+    assert_eq!(snapshot(&session), after_two_charges);
     assert_eq!(
         deep_hearth::matter::calculate_matter_accounting(&session.state)
             .unwrap()
@@ -943,7 +954,7 @@ fn campfire_accepts_woodworking_byproduct_as_distinct_finite_fuel() {
             .command("fire")
             .unwrap()
             .0
-            .contains("5.000 MJ stored")
+            .contains("8.000 MJ stored")
     );
 }
 
@@ -1124,6 +1135,103 @@ fn sprint_sneak_crouch_and_jump_use_authoritative_body_motion() {
 }
 
 #[test]
+fn natural_worlds_replay_across_seeds_without_a_scripted_starter_trail() {
+    use deep_hearth::content::{FORM_NATIVE_METAL, MATERIAL_COPPER};
+    use deep_hearth::material::CommodityKey;
+    use deep_hearth::matter::calculate_matter_accounting;
+    use deep_hearth::world::{HabitatKind, assess_player_habitat};
+
+    let mut habitats = [false; 3];
+    let mut sites = std::collections::BTreeSet::new();
+    let mut negative = false;
+    let mut positive = false;
+    for seed in 0..32_u64 {
+        let first = Session::new_natural(seed).unwrap();
+        let second = Session::new_natural(seed).unwrap();
+        assert_eq!(
+            snapshot(&first),
+            snapshot(&second),
+            "seed {seed} must fully replay"
+        );
+        assert_eq!(
+            first
+                .state
+                .available_adjacent_traversal_destinations()
+                .count(),
+            0,
+            "natural world must not inject the seven-cell tutorial graph"
+        );
+        assert!(first.state.world().chunks().count() >= 9);
+        assert!(
+            first.state.available_surface_resources().all(|source| {
+                source.commodity() != CommodityKey::new(MATERIAL_COPPER, FORM_NATIVE_METAL)
+            }),
+            "natural start must not inject free metal"
+        );
+        let at = first.player_position().unwrap();
+        sites.insert((at.x(), at.y(), at.z()));
+        negative |= at.x() < 0 || at.z() < 0;
+        positive |= at.x() > 0 || at.z() > 0;
+        let kind = assess_player_habitat(&first.state).expect("generated ground has habitat");
+        habitats[match kind {
+            HabitatKind::DampGrove => 0,
+            HabitatKind::MixedWoodland => 1,
+            HabitatKind::DryScrub => 2,
+        }] = true;
+        assert_eq!(
+            deep_hearth::core::state::validate_loaded_state(&first.registries, &first.state),
+            Ok(())
+        );
+        assert!(calculate_matter_accounting(&first.state).is_ok());
+    }
+    assert_eq!(
+        habitats, [true; 3],
+        "32 natural starts must span all three ecological pressures"
+    );
+    assert!(
+        negative && positive,
+        "seeded spawns must exercise signed-world coordinates"
+    );
+    assert!(
+        sites.len() >= 24,
+        "seeds must not merely rotate one authored clearing"
+    );
+}
+
+#[test]
+fn requested_habitats_select_real_standing_ground_and_survive_save_replay() {
+    use deep_hearth::world::{HabitatKind, assess_player_habitat};
+    for habitat in [
+        HabitatKind::DryScrub,
+        HabitatKind::MixedWoodland,
+        HabitatKind::DampGrove,
+    ] {
+        let first = Session::new_natural_in_habitat(1_837_596_006, Some(habitat)).unwrap();
+        let second = Session::new_natural_in_habitat(1_837_596_006, Some(habitat)).unwrap();
+        assert_eq!(snapshot(&first), snapshot(&second));
+        assert_eq!(assess_player_habitat(&first.state), Some(habitat));
+        let body = first.player_position().unwrap();
+        assert_eq!(first.state.world().block_at(body), Some(BlockStateId::AIR));
+        assert_eq!(
+            first
+                .state
+                .world()
+                .block_at(VoxelCoord::new(body.x(), body.y() - 1, body.z())),
+            Some(BLOCK_STATE_STONE)
+        );
+        let bytes = snapshot(&first);
+        let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+            .unwrap()
+            .into_state(&first.registries)
+            .unwrap();
+        assert_eq!(
+            serde_json::to_vec(&SaveEnvelope::new(&first.registries, &restored)).unwrap(),
+            bytes
+        );
+    }
+}
+
+#[test]
 fn seeded_opening_is_replayable_and_uses_authoritative_admission() {
     let first = Session::new(24318).unwrap();
     let second = Session::new(24318).unwrap();
@@ -1203,8 +1311,8 @@ fn gathered_flint_can_be_crafted_through_ordinary_carried_recipe() {
         session.command(command).unwrap();
     }
     let (available, _) = session.command("gather").unwrap();
-    assert!(available.contains("3. flint nodule"));
-    let (started, _) = session.command("gather 3 300").unwrap();
+    assert!(available.contains("2. flint nodule"));
+    let (started, _) = session.command("gather 2 300").unwrap();
     assert!(started.contains("Gathering started"));
     let (gathered, _) = session.command("wait work").unwrap();
     assert!(gathered.contains("Gathered:"));
@@ -1238,7 +1346,7 @@ fn manual_crafting_continues_deterministically_after_trusted_save_load() {
         "wait 10",
         "s 20",
         "wait 10",
-        "gather 3 300",
+        "gather 2 300",
         "wait work",
         "craft 99",
     ] {
@@ -1278,7 +1386,7 @@ fn prepared_flint_and_handle() -> Session {
         "wait 10",
         "s 20",
         "wait 10",
-        "gather 3 300",
+        "gather 2 300",
         "wait work",
         "craft 99",
         "wait work",
@@ -1601,7 +1709,7 @@ fn work_boundary_rejection_explains_the_required_player_action() {
         "wait 10",
         "s 20",
         "wait 10",
-        "gather 3 300",
+        "gather 2 300",
         "wait work",
     ] {
         session
