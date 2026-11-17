@@ -204,7 +204,7 @@ pub(crate) fn apply_natural_forage_cycle(
     let Some(profile) = state.world().generation_profile() else {
         return Ok(());
     };
-    // Only survey springs if a depleted shrub actually reaches a viable
+    // Only survey springs if a depleted rooted crop actually reaches a viable
     // ripening decision. Senescence, winter, and barren districts need no
     // moisture scan or allocation at this weather front.
     let moisture = std::cell::OnceCell::new();

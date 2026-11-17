@@ -104,7 +104,6 @@ pub(super) fn seeded_loose_material_spec(
             || forage_site == Some(position)
             || state.structures().blocks_full_cell(position)
             || state.logistics().has_stationary_occupant_at(position)
-            || state.logistics().fluid_stores_at(position).next().is_some()
             || state
                 .surface()
                 .available_resources_at(Some(position))
