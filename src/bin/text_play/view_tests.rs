@@ -1,6 +1,54 @@
 //! Regression tests for player-local text projection formatting.
 
 #[test]
+fn cold_forecast_warns_when_weather_can_change_before_or_at_the_estimated_warning() {
+    use deep_hearth::core::time::TickSpan;
+
+    let until_front = Some(TickSpan::new(20));
+    assert_eq!(
+        super::weather_forecast_notice(Some(TickSpan::new(21)), until_front),
+        "; weather may change in 1m 12s (reassess then)"
+    );
+    assert_eq!(
+        super::weather_forecast_notice(Some(TickSpan::new(20)), until_front),
+        "; weather may change in 1m 12s (reassess then)",
+        "a new weather front changes the cooling rate on its first tick"
+    );
+    assert_eq!(
+        super::weather_forecast_notice(None, until_front),
+        "; weather may change in 1m 12s (reassess then)"
+    );
+    assert_eq!(
+        super::weather_forecast_notice(Some(TickSpan::new(19)), until_front),
+        "",
+        "a warning before the front does not need a conditional-weather caveat"
+    );
+    assert_eq!(
+        super::weather_forecast_notice(Some(TickSpan::new(21)), None),
+        ""
+    );
+}
+
+#[test]
+fn cold_forecast_in_play_uses_the_survival_owners_weather_horizon() {
+    use deep_hearth::survival::assess_player_unheated_comfort_runway;
+
+    let session = super::super::Session::new(24318).unwrap();
+    let forecast =
+        assess_player_unheated_comfort_runway(&session.registries, &session.state).unwrap();
+    let rendered = super::look(&session.registries, &session.state, None);
+    assert!(
+        rendered.contains("Without heat at current exposure, cold warning in"),
+        "{rendered}"
+    );
+    let notice = super::weather_forecast_notice(forecast.current(), forecast.weather_changes_in());
+    assert!(
+        rendered.contains(&format!("cover: {:?}{notice}", forecast.overhead_cover())),
+        "the visible forecast must use the authoritative weather horizon: {rendered}"
+    );
+}
+
+#[test]
 fn repeated_patrol_impressions_are_collapsed_without_erasing_distinct_routes() {
     let grouped = super::group_track_descriptions([
         "scout footprints at (0,-3,8), heading 1 east".to_owned(),
@@ -142,7 +190,8 @@ fn watch_attention_includes_residents_on_an_adjacent_vertical_ledge() {
 }
 
 #[test]
-fn shelter_preview_treats_living_trunks_as_solid_body_cells_and_support() {
+fn shelter_preview_uses_the_same_standing_clearance_and_grounding_as_player_motion() {
+    use deep_hearth::logistics::project_player_standing_space;
     use deep_hearth::world::BlockStateId;
 
     let session = super::super::Session::new(24318).unwrap();
@@ -153,31 +202,25 @@ fn shelter_preview_treats_living_trunks_as_solid_body_cells_and_support() {
         .next()
         .expect("generated opening has a living tree")
         .root();
-    let upper = deep_hearth::spatial::VoxelCoord::new(root.x(), root.y() + 1, root.z());
     assert_eq!(
         session.state.world().block_at(root),
         Some(BlockStateId::AIR)
     );
     assert!(session.state.world().tree_trunk_at(root).is_some());
     assert!(
-        !super::preview_standing_space_is_clear(&session.registries, &session.state, [root, upper]),
+        !project_player_standing_space(&session.registries, &session.state, root),
         "air terrain cannot turn an embodied living trunk into open shelter space"
     );
-    assert!(
-        super::preview_floor_is_solid(&session.registries, &session.state, root),
-        "the same living trunk is real standing support from above"
-    );
-
     let player = session.player_position().unwrap();
-    let head = deep_hearth::spatial::VoxelCoord::new(player.x(), player.y() + 1, player.z());
-    assert!(super::preview_standing_space_is_clear(
+    assert!(project_player_standing_space(
         &session.registries,
         &session.state,
-        [player, head]
+        player
     ));
+    let unsupported = deep_hearth::spatial::VoxelCoord::new(player.x(), player.y() + 3, player.z());
     assert!(
-        !super::preview_floor_is_solid(&session.registries, &session.state, player),
-        "an air cell cannot serve as footing"
+        !project_player_standing_space(&session.registries, &session.state, unsupported),
+        "empty air above an otherwise valid standing spot has no standing support"
     );
 }
 

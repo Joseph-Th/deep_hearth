@@ -218,7 +218,7 @@ fn evergreen_crowns_keep_real_winter_shade_and_broadleaf_trees_lose_it() {
                 TreeSpecies::Alder | TreeSpecies::Willow => {
                     deciduous.get_or_insert((chunk, tree));
                 }
-                _ => {}
+                TreeSpecies::Oak | TreeSpecies::Birch | TreeSpecies::Pioneer => {}
             }
             if evergreen.is_some() && deciduous.is_some() {
                 break;

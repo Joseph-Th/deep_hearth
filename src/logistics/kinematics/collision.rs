@@ -20,6 +20,28 @@ pub(crate) fn player_body_uses_generated_world(
     })
 }
 
+/// Read-only standing-space projection using the same complete body footprint,
+/// supporting floors, structures, living trunks, and resident occupancy as movement.
+/// This reports current physical feasibility, not a route to the position.
+#[must_use]
+pub fn project_player_standing_space(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+) -> bool {
+    let Some(body) = PlayerBodyState::centered_on_voxel_floor(position) else {
+        return false;
+    };
+    let locomotion = registries.survival().physiology().locomotion();
+    state.world().has_generated_terrain_at(position)
+        && player_body_fits_continuous_world(body, locomotion)
+        && first_player_body_collision(registries.world(), state.world(), body, locomotion)
+            .is_none()
+        && first_player_structure_collision(registries, state, body).is_none()
+        && first_player_temple_caste_collision(registries, state, body).is_none()
+        && player_body_is_grounded_at(registries, state, body)
+}
+
 pub(crate) fn player_body_fits_continuous_world(
     body: PlayerBodyState,
     locomotion: LocomotionDefinition,

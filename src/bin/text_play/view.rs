@@ -10,7 +10,9 @@ use actor_inventory::hand_status;
 pub use actor_inventory::{hand_label, inventory};
 use deep_hearth::content::{FORM_BOARD, MATERIAL_WOOD};
 use deep_hearth::core::quantity::{Mass, Temperature, Volume};
-use deep_hearth::core::time::{CONTROL_TICK_DURATION, CONTROL_TICKS_PER_SIMULATION_TICK, Season};
+use deep_hearth::core::time::{
+    CONTROL_TICK_DURATION, CONTROL_TICKS_PER_SIMULATION_TICK, Season, TickSpan,
+};
 use deep_hearth::energy::project_player_nearby_warmth_sources;
 use deep_hearth::kobolds::{
     KoboldFootfall, KoboldSighting, KoboldTrack, available_nearby_kobold_footfalls,
@@ -18,6 +20,7 @@ use deep_hearth::kobolds::{
 };
 use deep_hearth::logistics::{
     PlayerActiveSelection, PlayerOverheadCoverAssessment, assess_player_overhead_cover,
+    project_player_standing_space,
 };
 use deep_hearth::material::CommodityKey;
 use deep_hearth::simulation::{
@@ -637,12 +640,29 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
     if let Some(runway) = assess_player_unheated_comfort_runway(registries, state) {
         let _ = writeln!(
             output,
-            "Without heat, time until cold warning: {}; cover: {:?}",
+            "Without heat at current exposure, cold warning in {}; cover: {:?}{}",
             runway_label(runway.current().map(|span| span.value())),
-            runway.overhead_cover()
+            runway.overhead_cover(),
+            weather_forecast_notice(runway.current(), runway.weather_changes_in()),
         );
     }
     output
+}
+
+/// The unheated forecast assumes the current weather and airflow persist.
+/// A new weather front or daylight phase can change the cooling rate on its
+/// first authoritative tick; do not present a longer estimate as a promise.
+fn weather_forecast_notice(cold_in: Option<TickSpan>, changes_in: Option<TickSpan>) -> String {
+    let Some(change) = changes_in else {
+        return String::new();
+    };
+    if cold_in.is_some_and(|cold| cold.value() < change.value()) {
+        return String::new();
+    }
+    format!(
+        "; weather may change in {} (reassess then)",
+        runway_label(Some(change.value()))
+    )
 }
 
 /// Combine identical physical traces while retaining first-observed route order.
@@ -702,16 +722,10 @@ fn timber_cover_preview(registries: &Registries, state: &AppState, aim: ViewDire
         return output;
     };
     let beneath = VoxelCoord::new(target.x(), standing_y, target.z());
-    let head = VoxelCoord::new(target.x(), standing_y + 1, target.z());
-    let footing = standing_y
-        .checked_sub(1)
-        .map(|y| VoxelCoord::new(target.x(), y, target.z()));
-    let clear = preview_standing_space_is_clear(registries, state, [beneath, head]);
-    let grounded = footing.is_some_and(|floor| preview_floor_is_solid(registries, state, floor));
-    if !clear || !grounded {
+    if !project_player_standing_space(registries, state, beneath) {
         let _ = writeln!(
             output,
-            "No clear, grounded standing-height space at {} underneath it; this panel would not provide an accessible refuge there.",
+            "No currently clear, grounded standing-height space at {} underneath it; this panel would not provide an accessible refuge there.",
             pos(beneath),
         );
     } else {
@@ -722,30 +736,6 @@ fn timber_cover_preview(registries: &Registries, state: &AppState, aim: ViewDire
         );
     }
     output
-}
-
-/// Use the generated world's physical collision classification. A living
-/// trunk is solid even when its terrain block is air; embodied construction
-/// can also prevent a reliably clear standing-height preview.
-fn preview_standing_space_is_clear(
-    registries: &Registries,
-    state: &AppState,
-    cells: [VoxelCoord; 2],
-) -> bool {
-    cells.into_iter().all(|cell| {
-        state
-            .world()
-            .full_cell_collision_at(registries.world(), cell)
-            == Some(false)
-            && !state.structures().has_materialized_member_at(cell)
-    })
-}
-
-fn preview_floor_is_solid(registries: &Registries, state: &AppState, floor: VoxelCoord) -> bool {
-    state
-        .world()
-        .full_cell_collision_at(registries.world(), floor)
-        == Some(true)
 }
 
 fn runway_label(slow_ticks: Option<u64>) -> String {

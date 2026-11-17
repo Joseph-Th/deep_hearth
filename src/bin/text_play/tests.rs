@@ -221,6 +221,14 @@ fn shallow_aim_completes_an_overhead_timber_cover_on_the_played_seed() {
         look.contains("Nearby roof does not cover your standing position"),
         "the completed panel must not be mistaken for usable shelter: {look}"
     );
+    assert!(
+        deep_hearth::logistics::project_player_standing_space(
+            &session.registries,
+            &session.state,
+            VoxelCoord::new(9, 1, 11),
+        ),
+        "the completed panel is a physical floor above which the player can stand"
+    );
     assert_eq!(
         calculate_matter_accounting(&session.state).unwrap().total(),
         original_matter

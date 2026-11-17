@@ -23,6 +23,7 @@ use super::{
     CONTROL_INPUT_PARTS_PER_MILLION, HorizontalControlInput, PlayerBodyState, PlayerControlInput,
     PlayerLogisticsRecord, PlayerStance, assess_player_carrying,
 };
+pub use collision::project_player_standing_space;
 use collision::{
     body_height, horizontal_chunks_generated, horizontal_voxel_bounds, length_nanometers,
     player_cell_blocks_motion, player_cell_has_fixed_support,

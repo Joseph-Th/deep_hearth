@@ -18,7 +18,7 @@ use crate::world::{WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y};
 use super::{
     PlayerBodyState, PlayerLogisticsRecord, first_player_body_collision,
     first_player_structure_collision, first_player_temple_caste_collision,
-    player_body_fits_continuous_world, player_body_is_grounded_at,
+    player_body_fits_continuous_world, player_body_is_grounded_at, project_player_standing_space,
 };
 
 /// A destroyed spawn floor or an airborne corpse should not force a revived
@@ -51,10 +51,11 @@ fn grounded_respawn_body_at(
     position: VoxelCoord,
 ) -> Option<PlayerBodyState> {
     let body = PlayerBodyState::centered_on_voxel_floor(position)?;
-    (respawn_body_is_clear(registries, state, body)
-        && (!state.world().has_generated_terrain_at(position)
-            || player_body_is_grounded_at(registries, state, body)))
-    .then_some(body)
+    if state.world().has_generated_terrain_at(position) {
+        project_player_standing_space(registries, state, position).then_some(body)
+    } else {
+        respawn_body_is_clear(registries, state, body).then_some(body)
+    }
 }
 
 /// Ground formerly carried matter on the first physical floor in its death
