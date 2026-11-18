@@ -4,6 +4,8 @@ use std::fmt::Write as _;
 
 use super::{Session, activity, crafting, view};
 mod feedback;
+#[path = "stepping/travel.rs"]
+mod travel;
 use deep_hearth::energy::project_player_nearby_warmth_sources;
 use deep_hearth::labor::PlayerWork;
 use deep_hearth::logistics::{
@@ -26,6 +28,7 @@ pub(super) enum BatchReceipt {
 
 pub(super) struct StepReport {
     noteworthy: bool,
+    travel_interrupt: bool,
     other_event: bool,
     batch_receipt: Option<BatchReceipt>,
     pub(super) stale_gathering_option: bool,
@@ -191,7 +194,15 @@ impl Session {
             return Err("finish active work with 'wait work' before a daylight watch".to_owned());
         }
         let urgency = view::urgency(&self.registries, &self.state);
-        if urgency != (false, false, false, false) {
+        if urgency.0
+            || urgency.1
+            || urgency.3
+            || self
+                .state
+                .survival()
+                .player()
+                .is_none_or(|player| player.vitality() == Vitality::ZERO)
+        {
             return Err(
                 "resolve current survival warnings before a long daylight watch".to_owned(),
             );
@@ -235,7 +246,7 @@ impl Session {
                 break;
             }
             if view::urgency(&self.registries, &self.state) != urgency {
-                output.push_str("Daylight watch interrupted by a survival warning.\n");
+                output.push_str("Daylight watch interrupted by a changed survival condition.\n");
                 break;
             }
             if self.state.tick() != previous_tick {
@@ -480,14 +491,10 @@ impl Session {
             "Excavated",
             outcome.block_excavation().map(feedback::excavation),
         );
-        interrupt |= note_text(
-            output,
-            "Fall impact",
-            outcome
-                .body_motion()
-                .and_then(|motion| motion.fall_impact())
-                .map(feedback::landing),
-        );
+        let fall = outcome
+            .body_motion()
+            .and_then(|motion| motion.fall_impact());
+        let landed = note_text(output, "Fall impact", fall.map(feedback::landing));
         interrupt |= note_text(
             output,
             "Picked up",
@@ -619,6 +626,7 @@ impl Session {
             }
         }
         if !interrupt
+            && !landed
             && batch_receipt.is_none()
             && let Some(work) = previous_work
             && self.state.player_work().active().is_none()
@@ -634,8 +642,11 @@ impl Session {
             Self::expand_neighborhood(&self.registries, &mut self.state)?;
         }
         Ok(StepReport {
-            noteworthy: interrupt || batch_receipt.is_some(),
-            other_event: interrupt,
+            noteworthy: interrupt || landed || batch_receipt.is_some(),
+            travel_interrupt: interrupt
+                || batch_receipt.is_some()
+                || fall.is_some_and(|impact| impact.vitality_loss_ppm() > 0),
+            other_event: interrupt || landed,
             batch_receipt,
             stale_gathering_option,
         })

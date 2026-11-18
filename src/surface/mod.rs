@@ -41,7 +41,10 @@ pub use material_drop::{
     PlayerMaterialDropCommitError, PlayerMaterialDropError, PlayerMaterialDropOutcome,
     ValidatedPlayerMaterialDrop, validate_drop_player_material,
 };
-pub use observation::{AdjacentSurfaceResource, available_adjacent_surface_resources};
+pub use observation::{
+    AdjacentSurfaceResource, SurfaceResourceLandmark, available_adjacent_surface_resources,
+    available_visible_surface_landmarks,
+};
 pub use pickup::SurfaceDropPickupOutcome;
 pub(crate) use pickup::{
     apply_automatic_surface_drop_pickup, automatic_surface_pickup_requires_control_stepping,

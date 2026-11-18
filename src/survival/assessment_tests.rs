@@ -4,6 +4,58 @@ use super::{reserve_percent, warning_runway, warning_runway_with_pending_exertio
 use crate::core::time::TickSpan;
 
 #[test]
+fn injury_recovery_forecast_uses_the_same_fractional_accumulator_as_physiology() {
+    use crate::content::build_registries;
+    use crate::core::state::AppState;
+    use crate::player::validate_admit_player;
+    use crate::spatial::VoxelCoord;
+    use crate::survival::{Vitality, player_record_with_thermal_comfort};
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let full = *state.survival().player().unwrap();
+    let injured = player_record_with_thermal_comfort(
+        full.metabolic_energy(),
+        full.hydration(),
+        Vitality::from_parts_per_million_unchecked(999_900),
+        full.nutrition(),
+        543_210,
+        full.thermal_comfort_ppm(),
+    );
+    let projected = super::assess_record(&registries, injured);
+    let duration = projected
+        .recovery_duration_at_current_diet(&registries)
+        .unwrap()
+        .value();
+    let mut remainder = injured.vitality_recovery_remainder();
+    let mut recovered = 0;
+    let physiology = registries.survival().physiology();
+    for _ in 0..duration - 1 {
+        let (gain, next) = super::accumulate_diet_supported_vitality_recovery(
+            physiology,
+            injured.nutrition(),
+            remainder,
+        );
+        recovered += gain;
+        remainder = next;
+    }
+    assert!(recovered < 100);
+    let (last, _) = super::accumulate_diet_supported_vitality_recovery(
+        physiology,
+        injured.nutrition(),
+        remainder,
+    );
+    assert!(recovered + last >= 100);
+    assert_eq!(
+        super::assess_record(&registries, full).recovery_duration_at_current_diet(&registries),
+        Some(TickSpan::ZERO)
+    );
+}
+
+#[test]
 fn reserve_percentage_is_exact_at_full_width_and_never_overflows_valid_energy() {
     assert_eq!(reserve_percent(u128::MAX, u128::MAX), 100);
     assert_eq!(reserve_percent(u128::MAX / 2, u128::MAX), 49);

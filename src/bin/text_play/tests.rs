@@ -1526,6 +1526,102 @@ fn sprint_sneak_crouch_and_jump_use_authoritative_body_motion() {
 }
 
 #[test]
+fn natural_campaign_trek_reaches_finite_wood_and_stone_without_injury() {
+    let mut session = Session::new_natural(4_909_227_005_684_505_656).unwrap();
+    assert!(
+        session
+            .opening()
+            .contains("Distant visible resource: timber log")
+    );
+    let before = snapshot(&session);
+    for invalid in ["trek up", "trek e 0", "trek n 33"] {
+        assert!(session.command(invalid).is_err(), "{invalid}");
+    }
+    assert_eq!(snapshot(&session), before);
+    let mut north = Session::new_natural(4_909_227_005_684_505_656).unwrap();
+    let (cliff, _) = north.command("trek n 8").unwrap();
+    assert!(cliff.contains("Trekked 5 of 8 cells"), "{cliff}");
+    assert!(
+        cliff.contains("no clear level or one-metre foothold"),
+        "{cliff}"
+    );
+    let stopped = snapshot(&north);
+    assert!(
+        north
+            .command("trek n 8")
+            .unwrap()
+            .0
+            .contains("Trekked 0 of 8 cells in 0 control ticks")
+    );
+    assert_eq!(snapshot(&north), stopped);
+    let (frame, _) = session.command("trek s 6").unwrap();
+    assert!(frame.contains("Trekked 6 of 6 cells"), "{frame}");
+    for command in ["trek w 1", "trek s 1", "gather 1 3000", "wait work"] {
+        session.command(command).unwrap();
+    }
+    let (pack, _) = session.command("inventory").unwrap();
+    assert!(pack.contains("timber log | 3000 g"), "{pack}");
+    for command in ["trek e 1", "trek s 2", "trek s 4", "trek s 3", "trek w 1"] {
+        session.command(command).unwrap();
+    }
+    let (frame, _) = session.command("look").unwrap();
+    assert!(frame.contains("stone here at (-363,8,-197)"), "{frame}");
+    assert!(frame.contains("available 2770.529 g"), "{frame}");
+    let replay_bytes = snapshot(&session);
+    let mut replay = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&replay_bytes)
+            .unwrap()
+            .into_state(&session.registries)
+            .unwrap(),
+        seed: None,
+    };
+    for command in ["gather 1 2000", "wait work", "inventory", "fire"] {
+        let live = session.command(command).unwrap();
+        assert_eq!(live, replay.command(command).unwrap());
+    }
+    assert_eq!(snapshot(&session), snapshot(&replay));
+    let (pack, _) = session.command("inventory").unwrap();
+    assert!(pack.contains("stone | 2000 g"), "{pack}");
+    assert!(
+        session
+            .command("fire")
+            .unwrap()
+            .0
+            .contains("Campfire construction (build-fire): ready")
+    );
+    for command in [
+        "build-fire",
+        "craft 7",
+        "wait finish",
+        "craft 8",
+        "wait finish",
+        "assemble 6",
+        "take 1",
+        "feed-fire 1 1",
+    ] {
+        let live = session.command(command).unwrap();
+        assert_eq!(live, replay.command(command).unwrap());
+    }
+    assert_eq!(snapshot(&session), snapshot(&replay));
+    let pack = session.command("inventory").unwrap().0;
+    assert!(
+        pack.contains("Carried equipment 1: knapped stone pick | 1000 g"),
+        "{pack}"
+    );
+    let fire = session.command("fire").unwrap().0;
+    assert!(fire.contains("12.000 MJ stored"), "{fire}");
+    assert_eq!(
+        session.state.survival().player().unwrap().vitality(),
+        deep_hearth::survival::Vitality::MAXIMUM
+    );
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
+        Ok(())
+    );
+}
+
+#[test]
 fn natural_look_identifies_only_actually_visible_tree_species() {
     let first = Session::new_natural(4).unwrap();
     let second = Session::new_natural(4).unwrap();

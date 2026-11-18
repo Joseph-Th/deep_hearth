@@ -32,10 +32,10 @@ use deep_hearth::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord};
 use deep_hearth::structural::StructuralLifecycle;
 use deep_hearth::surface::{
     AdjacentSurfaceResource, PlayerSurfaceGatheringOption, SurfaceResourceKind,
-    player_surface_gathering_options,
+    available_visible_surface_landmarks, player_surface_gathering_options,
 };
 use deep_hearth::survival::{
-    FoodFreshness, HungerState, HydrationState, ThermalComfortState, Vitality,
+    FoodFreshness, HungerState, HydrationState, SurvivalAssessment, ThermalComfortState, Vitality,
     assess_player_resting_provision_runway, assess_player_unheated_comfort_runway, assess_survival,
     available_local_drink_sources,
 };
@@ -371,25 +371,52 @@ fn survival_status(registries: &Registries, state: &AppState) -> String {
             let thirsty = survival.hydration_state() != HydrationState::Hydrated;
             let injured = survival.vitality() < Vitality::MAXIMUM;
             let cold = survival.thermal_comfort_state() != ThermalComfortState::Comfortable;
-            if hungry || thirsty || injured || cold {
-                let mut warnings = Vec::new();
-                if hungry {
-                    warnings.push("hunger");
-                }
-                if thirsty {
-                    warnings.push("thirst");
-                }
-                if injured {
-                    warnings.push("injury");
-                }
-                if cold {
-                    warnings.push("cold exposure");
-                }
+            let warnings = [
+                (hungry, "hunger"),
+                (thirsty, "thirst"),
+                (injured, "injury"),
+                (cold, "cold exposure"),
+            ]
+            .into_iter()
+            .filter_map(|(active, label)| active.then_some(label))
+            .collect::<Vec<_>>();
+            if !warnings.is_empty() {
                 let _ = writeln!(output, "Warnings: {}", warnings.join(", "));
+            }
+            if injured {
+                injury_recovery_report(registries, survival, &mut output);
             }
         }
     }
     output
+}
+
+fn injury_recovery_report(
+    registries: &Registries,
+    survival: SurvivalAssessment,
+    output: &mut String,
+) {
+    let ppm = survival.vitality().parts_per_million();
+    let _ = writeln!(
+        output,
+        "Vitality: {}.{:02}%",
+        ppm / 10_000,
+        (ppm % 10_000) / 100
+    );
+    if survival.hunger() != HungerState::Fed
+        || survival.hydration_state() != HydrationState::Hydrated
+        || survival.thermal_comfort_state() != ThermalComfortState::Comfortable
+    {
+        output.push_str("Injury recovery paused: maintain food, water and warmth above their warning thresholds.\n");
+    } else if let Some(duration) = survival.recovery_duration_at_current_diet(registries) {
+        let _ = writeln!(
+            output,
+            "Injury recovery: {} to full vitality at unchanged diet quality, if fed, hydrated and warm without further injury.",
+            runway_label(Some(duration.value())),
+        );
+    } else {
+        output.push_str("Injury recovery paused: replenish dietary reserves with varied food.\n");
+    }
 }
 
 pub fn status(registries: &Registries, state: &AppState) -> String {
@@ -576,9 +603,7 @@ fn adjacent_footing_report(registries: &Registries, state: &AppState) -> String 
     )
 }
 
-pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection>) -> String {
-    let mut output = status(registries, state);
-    output.push_str(&adjacent_footing_report(registries, state));
+fn surface_sight_report(registries: &Registries, state: &AppState, output: &mut String) {
     let from = state.logistics().player().map(|player| player.position());
     let nearby =
         AdjacentSurfaceResource::visible_in_generated_world(registries, state).collect::<Vec<_>>();
@@ -603,6 +628,25 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
             );
         }
     }
+    for source in available_visible_surface_landmarks(registries, state) {
+        let _ = writeln!(
+            output,
+            "Distant visible resource: {} {} at {}",
+            name(registries, source.commodity()),
+            from.map_or_else(
+                || "unlocated".to_owned(),
+                |from| bearing(from, source.position())
+            ),
+            pos(source.position()),
+        );
+    }
+}
+
+pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection>) -> String {
+    let mut output = status(registries, state);
+    output.push_str(&adjacent_footing_report(registries, state));
+    surface_sight_report(registries, state, &mut output);
+    let from = state.logistics().player().map(|player| player.position());
     // The world visibility query includes placed water vessels as well as
     // natural springs. Sight alone does not establish a natural source.
     let local_water = available_visible_generated_water(registries, state)

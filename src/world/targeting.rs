@@ -56,7 +56,7 @@ pub(crate) fn player_can_see_distant_tree_trunk(
 }
 
 /// Observe a lit cell using the same physical eye ray as distant tree sightings.
-pub(super) fn player_can_see_distant_cell(
+pub(crate) fn player_can_see_distant_cell(
     registries: &Registries,
     state: &AppState,
     target: VoxelCoord,

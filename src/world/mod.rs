@@ -58,8 +58,9 @@ pub(crate) use generation::temple_residents_at;
 pub(crate) use generation::temple_warden_route_at;
 pub use generation::{
     ChunkGenerationCommitError, ChunkGenerationError, HabitatKind, ValidatedChunkGeneration,
-    ValidatedPlayerChunkDemand, WorldGenerationSeed, assess_player_habitat,
-    select_natural_world_spawn, validate_generate_chunk, validate_generate_player_neighborhood,
+    ValidatedNaturalChunkGeneration, WorldGenerationSeed, assess_player_habitat,
+    select_natural_world_spawn, validate_generate_chunk, validate_generate_natural_chunk,
+    validate_generate_player_neighborhood,
 };
 pub(crate) use local_visibility::{
     has_clear_two_step_sightline, nearby_two_step_cells, player_can_see_from_eye,
@@ -77,10 +78,10 @@ pub use state::{
     CHUNK_SIDE, ChunkCoord, SECTION_CELL_COUNT, SECTION_SIDE, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y,
     WorldChunk, WorldSection, WorldState,
 };
-pub(crate) use targeting::player_eye_voxel;
 pub use targeting::{
     PlayerBlockTarget, PlayerBlockTargetError, aim_player_at_voxel, raycast_player_block,
 };
+pub(crate) use targeting::{player_can_see_distant_cell, player_eye_voxel};
 pub(crate) use targeting::{raycast_player_air_voxel, raycast_player_air_voxel_with_reach};
 pub use transplant::{
     SaplingTransplantCommitError, SaplingTransplantError, SaplingTransplantOutcome,

@@ -242,10 +242,10 @@ impl ValidatedChunkGeneration {
     }
 }
 
-/// One atomic generated-neighborhood expansion around the admitted player.
+/// Atomic generation of natural terrain, surface resources and springs.
 #[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ValidatedPlayerChunkDemand {
+pub struct ValidatedNaturalChunkGeneration {
     guard: ChunkGenerationCommitGuard,
     next_revision: u64,
     profile: WorldGenerationProfile,
@@ -254,7 +254,7 @@ pub struct ValidatedPlayerChunkDemand {
     springs: Option<(ValidatedFluidGenerationBatch, Vec<VoxelCoord>, u64)>,
 }
 
-impl ValidatedPlayerChunkDemand {
+impl ValidatedNaturalChunkGeneration {
     pub fn chunks(&self) -> impl ExactSizeIterator<Item = &WorldChunk> {
         self.chunks.iter()
     }
@@ -358,7 +358,7 @@ pub fn validate_generate_chunk(
 pub fn validate_generate_player_neighborhood(
     registries: &Registries,
     state: &AppState,
-) -> Result<Option<ValidatedPlayerChunkDemand>, ChunkGenerationError> {
+) -> Result<Option<ValidatedNaturalChunkGeneration>, ChunkGenerationError> {
     if player_admission_state(state) != PlayerAdmissionState::Admitted {
         return Err(ChunkGenerationError::PlayerNotAdmitted);
     }
@@ -396,6 +396,28 @@ pub fn validate_generate_player_neighborhood(
     if chunks.is_empty() {
         return Ok(None);
     }
+    validate_natural_chunks(registries, state, profile, chunks).map(Some)
+}
+
+/// Natural starting terrain uses the same resource admission as streamed terrain.
+/// Explicit terrain-only generation remains available for authored scenarios.
+pub fn validate_generate_natural_chunk(
+    registries: &Registries,
+    state: &AppState,
+    seed: WorldGenerationSeed,
+    coord: ChunkCoord,
+    solid_state: BlockStateId,
+) -> Result<ValidatedNaturalChunkGeneration, ChunkGenerationError> {
+    let terrain = validate_generate_chunk(registries, state, seed, coord, solid_state)?;
+    validate_natural_chunks(registries, state, terrain.profile, vec![terrain.chunk])
+}
+
+fn validate_natural_chunks(
+    registries: &Registries,
+    state: &AppState,
+    profile: WorldGenerationProfile,
+    mut chunks: Vec<WorldChunk>,
+) -> Result<ValidatedNaturalChunkGeneration, ChunkGenerationError> {
     chunks.sort_unstable_by_key(WorldChunk::coord);
     // Plan all seeded surface matter together. Springs must use the exact
     // sites authorized for this expansion rather than separately rerolling
@@ -410,14 +432,14 @@ pub fn validate_generate_player_neighborhood(
     let next_revision = expected_revision
         .checked_add(1)
         .unwrap_or_else(|| unreachable!("world headroom check includes player chunk demand"));
-    Ok(Some(ValidatedPlayerChunkDemand {
+    Ok(ValidatedNaturalChunkGeneration {
         guard: ChunkGenerationCommitGuard::capture(state),
         next_revision,
         profile,
         chunks,
         surface,
         springs,
-    }))
+    })
 }
 
 fn validate_springs_for_chunks(
@@ -482,27 +504,23 @@ fn validate_natural_surface_for_chunks(
     for chunk in chunks {
         let forage = forage::seeded_forage_spec(registries, state, profile, chunk);
         let forage_position = forage.as_ref().map(SurfaceResourceSpec::position);
-        let loose = loose_materials::seeded_loose_material_spec(
+        let loose = loose_materials::seeded_loose_material_specs(
             registries,
             state,
             profile,
             chunk,
             forage_position,
         );
-        let reserved = [
-            forage_position,
-            loose.as_ref().map(SurfaceResourceSpec::position),
-        ]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
+        let mut sites = forage_position
+            .into_iter()
+            .chain(loose.iter().map(SurfaceResourceSpec::position))
+            .collect::<Vec<_>>();
         let understory =
-            understory::seeded_understory_spec(registries, state, profile, chunk, &reserved);
-        let mut sites = Vec::new();
-        for spec in [forage, loose, understory].into_iter().flatten() {
+            understory::seeded_understory_spec(registries, state, profile, chunk, &sites);
+        if let Some(spec) = understory.as_ref() {
             sites.push(spec.position());
-            specs.push(spec);
         }
+        specs.extend(forage.into_iter().chain(loose).chain(understory));
         blocked_sites.push(sites);
     }
     if specs.is_empty() {

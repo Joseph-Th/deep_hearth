@@ -258,6 +258,7 @@ pub struct SurvivalAssessment {
     nutrition: NutritionReserves,
     diet_quality_ppm: u32,
     diet_supported_vitality_recovery_ppm_per_tick: u32,
+    recovery_remainder: u32,
     hunger: HungerState,
     hydration_state: HydrationState,
     thermal_comfort_ppm: u32,
@@ -318,6 +319,26 @@ impl SurvivalAssessment {
     #[must_use]
     pub const fn diet_supported_vitality_recovery_ppm_per_tick(self) -> u32 {
         self.diet_supported_vitality_recovery_ppm_per_tick
+    }
+
+    /// Conditional time to full vitality at unchanged dietary balance, with
+    /// adequate food, water and warmth and no additional harm.
+    #[must_use]
+    pub fn recovery_duration_at_current_diet(self, registries: &Registries) -> Option<TickSpan> {
+        if self.vitality == Vitality::ZERO {
+            return None;
+        }
+        let missing = Vitality::MAXIMUM.parts_per_million() - self.vitality.parts_per_million();
+        if missing == 0 {
+            return Some(TickSpan::ZERO);
+        }
+        let numerator = diet_recovery_numerator(registries.survival().physiology(), self.nutrition);
+        if numerator == 0 {
+            return None;
+        }
+        let needed = u64::from(missing) * u64::from(NUTRITION_PARTS_PER_MILLION)
+            - u64::from(self.recovery_remainder);
+        Some(TickSpan::new(needed.div_ceil(numerator)))
     }
 
     #[must_use]
@@ -392,6 +413,7 @@ pub(super) fn assess_record(
         diet_quality_ppm: player.nutrition().quality_ppm(),
         diet_supported_vitality_recovery_ppm_per_tick:
             diet_supported_vitality_recovery_ppm_per_tick(physiology, player.nutrition()),
+        recovery_remainder: player.vitality_recovery_remainder(),
         hunger,
         hydration_state,
         thermal_comfort_ppm: player.thermal_comfort_ppm(),

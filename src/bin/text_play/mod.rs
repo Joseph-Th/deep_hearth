@@ -33,7 +33,8 @@ use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::surface::{PlayerSurfaceGatheringOption, player_surface_gathering_options};
 use deep_hearth::world::{
     BlockStateId, ChunkCoord, HabitatKind, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
-    select_natural_world_spawn, validate_generate_chunk, validate_generate_player_neighborhood,
+    select_natural_world_spawn, validate_generate_chunk, validate_generate_natural_chunk,
+    validate_generate_player_neighborhood,
 };
 use deep_hearth::world_generation::validate_generate_initial_wilderness;
 use deep_hearth::{AppState, Registries, build_registries};
@@ -68,7 +69,7 @@ impl Session {
             let z_hash = natural_site_hash(seed ^ 0x4E41_5455_5241_4C5A ^ site_salt);
             let chunk = ChunkCoord::new((x_hash % 49) as i64 - 24, (z_hash % 49) as i64 - 24);
             let mut state = AppState::new();
-            validate_generate_chunk(
+            validate_generate_natural_chunk(
                 &registries,
                 &state,
                 WorldGenerationSeed::new(seed),

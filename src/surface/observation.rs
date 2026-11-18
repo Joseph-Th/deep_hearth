@@ -1,4 +1,8 @@
-//! Actor-safe immediate-neighbor observation for finite surface material.
+//! Actor-safe local and bounded landscape observation for finite surface material.
+
+#[cfg(test)]
+#[path = "observation_tests.rs"]
+mod tests;
 
 use crate::core::state::AppState;
 use crate::material::CommodityKey;
@@ -83,6 +87,80 @@ impl AdjacentSurfaceResource {
         nearby.sort_unstable_by_key(|resource| resource.resource);
         nearby.into_iter()
     }
+}
+
+/// A distant sighting identifies a material and place, not a gatherable choice
+/// or its quantity. It never confers interaction rights.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SurfaceResourceLandmark {
+    position: VoxelCoord,
+    commodity: CommodityKey,
+}
+
+impl SurfaceResourceLandmark {
+    #[must_use]
+    pub const fn position(self) -> VoxelCoord {
+        self.position
+    }
+
+    #[must_use]
+    pub const fn commodity(self) -> CommodityKey {
+        self.commodity
+    }
+}
+
+/// Observe live surface resources beyond immediate reach, in the same
+/// landscape envelope as water. Only generated, lit, unobstructed cells
+/// reached by the real player-eye ray can be seen.
+#[must_use]
+pub fn available_visible_surface_landmarks(
+    registries: &crate::registry::Registries,
+    state: &AppState,
+) -> Vec<SurfaceResourceLandmark> {
+    if !state
+        .survival()
+        .player()
+        .is_some_and(|player| player.vitality() != Vitality::ZERO)
+    {
+        return Vec::new();
+    }
+    let Some(from) = state.player_observation_position() else {
+        return Vec::new();
+    };
+    if !state.world().has_generated_terrain_at(from) {
+        return Vec::new();
+    }
+    let Some(bounds) = crate::spatial::VoxelBounds::new(
+        VoxelCoord::new(
+            from.x().saturating_sub(12),
+            from.y().saturating_sub(6),
+            from.z().saturating_sub(12),
+        ),
+        VoxelCoord::new(
+            from.x().saturating_add(13),
+            from.y().saturating_add(7),
+            from.z().saturating_add(13),
+        ),
+    )
+    .ok() else {
+        return Vec::new();
+    };
+    let mut visible = state
+        .surface()
+        .available_resources_in_bounds(bounds)
+        .filter(|resource| {
+            let to = resource.position();
+            from.x().abs_diff(to.x()) + from.y().abs_diff(to.y()) + from.z().abs_diff(to.z()) > 2
+                && crate::world::player_can_see_distant_cell(registries, state, to)
+        })
+        .map(|resource| SurfaceResourceLandmark {
+            position: resource.position(),
+            commodity: resource.commodity(),
+        })
+        .collect::<Vec<_>>();
+    visible.sort_unstable();
+    visible.dedup();
+    visible
 }
 
 /// Iterates available loose resources on traversal-authorized face-neighbors of the player.

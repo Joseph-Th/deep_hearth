@@ -30,6 +30,11 @@ impl Session {
                     true,
                 )?
             }
+            "trek" if (1..=2).contains(&args.len()) => {
+                let direction = Direction::parse(args[0])?;
+                let cells = parse_count(args.get(1).copied(), 8, 32)?;
+                self.trek(direction.movement()?, cells)?
+            }
             "sprint" | "sneak" if (1..=2).contains(&args.len()) => {
                 let direction = Direction::parse(args[0])?;
                 let count = parse_count(args.get(1).copied(), 20, MAX_MOVEMENT_TICKS)?;
