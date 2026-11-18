@@ -158,6 +158,9 @@ validators. Valid actions immediately hold player attention and reserve or
 withdraw actual matter; subsequent eating, drinking, and gathering installments
 still settle on the slow simulation clock. Invalid or already-satisfied use
 reports its outcome immediately, without buffering an unnecessary request.
+Explicit resource, gathering-method, food-stack and drinking-source choices
+retain their canonical admission outcomes during active work. Repeated held
+contextual use remains silent until the current work releases.
 A catalog-selected surface gathering option retains the source, the privately
 authored method and its surface revision through the direct-control frame.
 The gathering owner revalidates that exact choice before reserving work;

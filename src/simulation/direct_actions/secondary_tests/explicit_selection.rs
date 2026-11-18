@@ -138,3 +138,86 @@ fn explicit_drinking_resolves_co_located_water_and_gathering_without_spilling() 
     assert_eq!(calculate_fluid_volume_accounting(&state).unwrap(), total);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
+
+#[test]
+fn explicit_secondary_requests_during_work_report_owner_rejections() {
+    use crate::labor::PlayerWorkStartError;
+    use crate::survival::{DrinkError, DrinkStoreToTargetError, EatError, EatStackToTargetError};
+
+    let minimum = build_registries()
+        .survival()
+        .physiology()
+        .direct_consumption()
+        .minimum_drink_volume();
+    let (registries, mut state, stores) = water_and_gathering_context(&[minimum], true, true);
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(250_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let option = player_surface_gathering_options(&registries, &state).unwrap()[0];
+    let mass = option.direct_batch_mass().min(option.source_mass());
+    let gather = SecondaryControlIntent::gather_surface_option(option, mass);
+    let started = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL.with_secondary(gather),
+    )
+    .unwrap();
+    assert!(matches!(
+        started.secondary_action(),
+        Some(SecondaryActionOutcome::SurfaceGatheringStarted(_))
+    ));
+    let active = state.player_work().active().unwrap();
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap()
+        .remove(0);
+    let busy = Box::new(active);
+    let gather_rejected = SecondaryActionOutcome::SurfaceGatheringRejected(
+        SurfaceGatheringError::PlayerWork(PlayerWorkStartError::Busy {
+            active: busy.clone(),
+        }),
+    );
+    let requests = [
+        (gather, gather_rejected.clone()),
+        (
+            SecondaryControlIntent::gather_surface(option.resource(), mass),
+            gather_rejected,
+        ),
+        (
+            SecondaryControlIntent::eat_stack(stack.choice()),
+            SecondaryActionOutcome::EatingRejected(EatStackToTargetError::Eat(
+                EatError::PlayerBusy {
+                    active: busy.clone(),
+                },
+            )),
+        ),
+        (
+            SecondaryControlIntent::drink_source(stores[0]),
+            SecondaryActionOutcome::DrinkingRejected(DrinkStoreToTargetError::Drink(
+                DrinkError::PlayerBusy { active: busy },
+            )),
+        ),
+    ];
+    for (intent, rejection) in requests {
+        let mut neutral = state.clone();
+        let _ = crate::simulation::advance_control_tick(&registries, &mut neutral).unwrap();
+        let outcome = advance_control_tick_with_direct_input(
+            &registries,
+            &mut state,
+            PlayerDirectControlInput::NEUTRAL.with_secondary(intent),
+        )
+        .unwrap();
+        assert_eq!(outcome.secondary_action(), Some(&rejection));
+        assert_eq!(
+            state, neutral,
+            "rejected explicit request must not change custody or work"
+        );
+    }
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}

@@ -9,6 +9,8 @@ use deep_hearth::simulation::{
     ActiveSelectionDropOutcome, PrimaryActionOutcome, QuickAccessSelectionOutcome,
     SecondaryActionOutcome,
 };
+use deep_hearth::surface::SurfaceGatheringError;
+use deep_hearth::survival::{DrinkError, DrinkStoreToTargetError, EatError, EatStackToTargetError};
 use deep_hearth::world::{BlockExcavationError, TreeFellingError, TreeFellingStartError};
 use deep_hearth::{AppState, Registries};
 
@@ -117,7 +119,7 @@ fn work_blocker(error: &PlayerWorkStartError) -> String {
         Work::PlayerAirborne => "Stand on fixed ground before starting work.",
         Work::PlayerMoving => "Stop moving before starting work; use 'wait 10' to settle.",
         Work::PreparedStrikeActive => "Cancel the prepared strike before starting work.",
-        Work::Busy { .. } => "Finish or cancel the current task before starting another.",
+        Work::Busy { .. } => "Finish the current task with 'wait work' before starting another.",
         Work::MetabolicCostOverflow { .. } | Work::HydrationCostOverflow { .. } => {
             "The requested work exceeds the supported exertion range."
         }
@@ -289,6 +291,13 @@ pub(super) fn secondary(registries: &Registries, outcome: &SecondaryActionOutcom
             "{drink_sources} drink sources and {surface_resources} gathering sources are available. Use 'drink' or 'gather'."
         ),
         Action::MaterialNotContextual => "The held material has no contextual use here.".to_owned(),
+        Action::EatingRejected(EatStackToTargetError::Eat(EatError::PlayerBusy { .. }))
+        | Action::DrinkingRejected(DrinkStoreToTargetError::Drink(DrinkError::PlayerBusy {
+            ..
+        })) => "Finish the current task with 'wait work' before starting another.".to_owned(),
+        Action::SurfaceGatheringRejected(SurfaceGatheringError::PlayerWork(error)) => {
+            work_blocker(error)
+        }
         Action::EatingRejected(error) => error.to_string(),
         Action::DrinkingRejected(error) => error.to_string(),
         Action::SurfaceGatheringRejected(error) => error.to_string(),

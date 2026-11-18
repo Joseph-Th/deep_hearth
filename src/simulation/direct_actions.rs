@@ -130,14 +130,9 @@ pub(super) fn attempt_direct_actions_after_quick_access(
                 })
             }
             // A held contextual use is one-shot and stays quiet while work is active.
-            Some(
-                SecondaryControlIntent::UseActive { .. }
-                | SecondaryControlIntent::GatherSurface { .. }
-                | SecondaryControlIntent::GatherSurfaceOption { .. }
-                | SecondaryControlIntent::EatStack { .. }
-                | SecondaryControlIntent::DrinkSource { .. },
-            )
-            | None => None,
+            Some(SecondaryControlIntent::UseActive { .. }) | None => None,
+            // Explicit choices retain the ordinary owner admission result.
+            Some(intent) => attempt_secondary_action(registries, state, Some(intent)),
         })
     } else {
         attempt_secondary_action(registries, state, input.secondary()).or(pending_secondary)
