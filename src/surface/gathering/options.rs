@@ -82,6 +82,41 @@ impl PlayerSurfaceFoodValue {
 }
 
 impl PlayerSurfaceGatheringOption {
+    /// Reobserve this exact source and authored technique without granting
+    /// admission or substituting a method with similar physical parameters.
+    pub fn refresh(
+        self,
+        registries: &Registries,
+        state: &AppState,
+    ) -> Result<Option<Self>, SurfaceGatheringError> {
+        Ok(player_surface_gathering_options(registries, state)?
+            .into_iter()
+            .find(|option| {
+                option.resource == self.resource && option.definition.id() == self.definition.id()
+            }))
+    }
+
+    /// Physical batch ceiling given the observed source and current unreserved
+    /// carrying capacity. Canonical admission must still revalidate the option.
+    #[must_use]
+    pub fn maximum_mass_at(self, state: &AppState) -> Mass {
+        let capacity = state
+            .logistics()
+            .player()
+            .and_then(|player| state.inventory().get_stockpile(player.carried_stockpile()))
+            .map_or(Mass::ZERO, |stockpile| stockpile.available_capacity());
+        self.source_mass
+            .min(self.definition.maximum_batch_mass())
+            .min(capacity)
+    }
+
+    /// Default direct-action portion, not the limit for an explicit batch.
+    #[must_use]
+    pub fn suggested_mass_at(self, state: &AppState) -> Mass {
+        self.maximum_mass_at(state)
+            .min(self.definition.direct_batch_mass())
+    }
+
     /// Current physical temperature of the observed local source.
     #[must_use]
     pub const fn temperature(self) -> Temperature {

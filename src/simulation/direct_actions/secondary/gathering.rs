@@ -158,26 +158,13 @@ pub(in crate::simulation::direct_actions) fn attempt_empty_hand_secondary_action
 }
 
 fn direct_gathering_request_mass(state: &AppState, option: PlayerSurfaceGatheringOption) -> Mass {
-    let carried = state
-        .logistics()
-        .player()
-        .map(|player| player.carried_stockpile())
-        .unwrap_or_else(|| {
-            panic!("runtime invariant broken: local surface resource requires player")
-        });
-    let available_capacity = state
-        .inventory()
-        .get_stockpile(carried)
-        .map(|stockpile| stockpile.available_capacity())
-        .unwrap_or_else(|| {
-            panic!("runtime invariant broken: admitted player lost carried stockpile")
-        });
-    let desired = option.source_mass().min(option.direct_batch_mass());
-    let gathered_mass = desired.min(available_capacity);
-    if gathered_mass.is_zero() {
-        desired
+    let suggested = option.suggested_mass_at(state);
+    if suggested.is_zero() {
+        // Retain a positive request so the inventory owner reports the
+        // actual capacity rejection instead of a misleading zero-mass error.
+        option.source_mass().min(option.direct_batch_mass())
     } else {
-        gathered_mass
+        suggested
     }
 }
 

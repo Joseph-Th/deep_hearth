@@ -228,6 +228,32 @@ fn explicit_gathering_selects_only_method_feasible_for_requested_mass() {
         ))
     ));
     assert_eq!(selected.player_work().active(), None);
+    let refreshed = chosen_option
+        .refresh(&registries, &selected)
+        .unwrap()
+        .unwrap();
+    assert_eq!(refreshed.resource(), resource);
+    assert_eq!(refreshed.source_mass(), Mass::from_milligrams(950_000));
+    assert_eq!(
+        refreshed.maximum_batch_mass(),
+        chosen_option.maximum_batch_mass()
+    );
+    let refreshed_result = crate::simulation::advance_control_tick_with_direct_input(
+        &registries,
+        &mut selected,
+        crate::simulation::PlayerDirectControlInput::NEUTRAL.with_secondary(
+            crate::simulation::SecondaryControlIntent::gather_surface_option(
+                refreshed,
+                chosen_amount,
+            ),
+        ),
+    )
+    .unwrap();
+    assert!(matches!(
+        refreshed_result.secondary_action(),
+        Some(SecondaryActionOutcome::SurfaceGatheringStarted(work))
+            if work.method() == narrow_method && work.gathered_mass() == chosen_amount
+    ));
 
     let conserved = calculate_matter_accounting(&state).unwrap().total();
     let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();

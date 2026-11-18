@@ -355,7 +355,6 @@ fn celsius_safety_labels_retain_sign_and_millidegrees_at_the_limit() {
 
 #[test]
 fn gathering_suggestion_respects_unreserved_capacity_and_matches_action() {
-    use deep_hearth::core::quantity::Mass;
     use deep_hearth::surface::player_surface_gathering_options;
 
     let mut session = super::super::Session::new(24318).unwrap();
@@ -381,12 +380,7 @@ fn gathering_suggestion_respects_unreserved_capacity_and_matches_action() {
         .min(option.maximum_batch_mass())
         .min(option.direct_batch_mass())
         .min(headroom);
-    assert_eq!(super::default_gather_mass(&session.state, option), expected);
-    assert_eq!(super::bounded_gather_mass(option, Mass::ZERO), Mass::ZERO);
-    assert_eq!(
-        super::bounded_gather_mass(option, Mass::from_milligrams(125)),
-        Mass::from_milligrams(125),
-    );
+    assert_eq!(option.suggested_mass_at(&session.state), expected);
     let catalog = super::gather_options(&session.registries, &session.state, &options);
     assert!(
         catalog.contains(&format!("default {} g", super::grams(expected))),

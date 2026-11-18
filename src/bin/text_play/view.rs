@@ -876,7 +876,7 @@ pub fn gather_options(
     }
     output.push_str("Gather here (gather N, optional grams to 0.001 g):\n");
     for (index, option) in options.iter().copied().enumerate() {
-        let mass = default_gather_mass(state, option);
+        let mass = option.suggested_mass_at(state);
         let duration = option
             .duration_for_mass(mass)
             .map(|span| activity::gathering_duration(span.value()))
@@ -903,25 +903,6 @@ pub fn gather_options(
         }
     }
     output
-}
-
-/// A suggested mass fits both the gathering method and the current unreserved
-/// carried capacity. It does not replace the inventory owner's admission proof.
-pub(super) fn default_gather_mass(state: &AppState, option: PlayerSurfaceGatheringOption) -> Mass {
-    let capacity = state
-        .logistics()
-        .player()
-        .and_then(|player| state.inventory().get_stockpile(player.carried_stockpile()))
-        .map_or(Mass::ZERO, |stockpile| stockpile.available_capacity());
-    bounded_gather_mass(option, capacity)
-}
-
-fn bounded_gather_mass(option: PlayerSurfaceGatheringOption, capacity: Mass) -> Mass {
-    option
-        .source_mass()
-        .min(option.maximum_batch_mass())
-        .min(option.direct_batch_mass())
-        .min(capacity)
 }
 
 #[cfg(test)]

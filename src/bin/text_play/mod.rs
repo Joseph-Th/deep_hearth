@@ -279,7 +279,7 @@ impl Session {
         let mass = if let Some(grams) = args.get(1) {
             parse_decimal_grams(grams, "gather quantity")?
         } else {
-            view::default_gather_mass(&self.state, option)
+            option.suggested_mass_at(&self.state)
         };
         if args.len() == 1 && mass.is_zero() {
             return Err("no carrying space for the suggested gathering batch".to_owned());
@@ -323,17 +323,11 @@ impl Session {
             for line in frame.lines().filter(|line| !line.starts_with("Use: ")) {
                 let _ = writeln!(output, "{line}");
             }
-            let current = player_surface_gathering_options(&self.registries, &self.state)
+            let refreshed = original
+                .refresh(&self.registries, &self.state)
                 .map_err(|error| error.to_string())?;
-            let mut matches = current.into_iter().filter(|next| {
-                next.resource() == original.resource()
-                    && next.commodity() == original.commodity()
-                    && next.maximum_batch_mass() == original.maximum_batch_mass()
-                    && next.direct_batch_mass() == original.direct_batch_mass()
-                    && next.exertion() == original.exertion()
-            });
-            match (matches.next(), matches.next()) {
-                (Some(next), None) if mass <= view::default_gather_mass(&self.state, next) => {
+            match refreshed {
+                Some(next) if mass <= next.maximum_mass_at(&self.state) => {
                     option = next;
                 }
                 _ => {
@@ -379,37 +373,18 @@ impl Session {
         let mut output = String::new();
         let mut completed = 0;
         for _ in 0..count {
-            let current = player_surface_gathering_options(&self.registries, &self.state)
-                .map_err(|error| error.to_string())?;
-            let mut same_source = current.into_iter().filter(|option| {
-                option.resource() == original.resource()
-                    && option.commodity() == original.commodity()
-                    && option.maximum_batch_mass() == original.maximum_batch_mass()
-                    && option.direct_batch_mass() == original.direct_batch_mass()
-                    && option.exertion() == original.exertion()
-            });
-            let Some(option) = same_source.next() else {
+            let Some(option) = original
+                .refresh(&self.registries, &self.state)
+                .map_err(|error| error.to_string())?
+            else {
                 let _ = writeln!(
                     output,
                     "Gather repeat: source depleted after {completed} batches."
                 );
                 break;
             };
-            if same_source.next().is_some() {
-                let _ = writeln!(
-                    output,
-                    "Gather repeat: method became ambiguous after {completed} batches."
-                );
-                break;
-            }
-            let mass =
-                requested_mass.unwrap_or_else(|| view::default_gather_mass(&self.state, option));
-            if mass.is_zero()
-                || mass > option.source_mass()
-                || mass > option.maximum_batch_mass()
-                || mass > option.direct_batch_mass()
-                || mass > view::default_gather_mass(&self.state, option)
-            {
+            let mass = requested_mass.unwrap_or_else(|| option.suggested_mass_at(&self.state));
+            if mass.is_zero() || mass > option.maximum_mass_at(&self.state) {
                 if completed == 0 {
                     return Err(
                         "gather quantity exceeds the available source, method, or carrying space"

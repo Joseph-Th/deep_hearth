@@ -82,6 +82,36 @@ fn repeated_gathering_matches_explicit_authoritative_batches() {
 }
 
 #[test]
+fn explicit_gathering_above_default_matches_repeated_batches() {
+    let mut repeated = Session::new(24318).unwrap();
+    let mut manual = Session::new(24318).unwrap();
+    for command in ["e 20", "wait 10", "e 20", "wait 10", "e 20", "wait 10"] {
+        repeated.command(command).unwrap();
+        manual.command(command).unwrap();
+    }
+    let option =
+        player_surface_gathering_options(&repeated.registries, &repeated.state).unwrap()[0];
+    let mass = option
+        .direct_batch_mass()
+        .checked_add(option.direct_batch_mass())
+        .unwrap();
+    assert!(mass <= option.maximum_mass_at(&repeated.state));
+    let grams = view::grams(mass);
+    let (output, _) = repeated
+        .command(&format!("gather 1 {grams} repeat 2"))
+        .unwrap();
+    assert!(
+        output.contains("Gather repeat: 2 batches completed."),
+        "{output}"
+    );
+    for _ in 0..2 {
+        manual.command(&format!("gather 1 {grams}")).unwrap();
+        manual.command("wait work").unwrap();
+    }
+    assert_eq!(snapshot(&repeated), snapshot(&manual));
+}
+
+#[test]
 fn repeated_gathering_stops_without_retargeting_a_depleted_source() {
     let mut session = Session::new(24318).unwrap();
     for command in ["e 20", "wait 10", "e 20", "wait 10"] {
@@ -154,11 +184,18 @@ fn gathering_reprojects_the_same_rooted_source_after_automatic_loose_pickup() {
         .unwrap_or_else(|| panic!("rooted berries disappeared after the drop"))
         + 1;
     let matter_before = calculate_matter_accounting(&session.state).unwrap().total();
+    let original = options[original_index - 1];
+    let mass = original.maximum_batch_mass();
+    assert!(mass > original.direct_batch_mass());
+    let grams = view::grams(mass);
     let (begun, _) = session
-        .command(&format!("gather {original_index} 100"))
+        .command(&format!("gather {original_index} {grams}"))
         .unwrap();
     assert!(begun.contains("Picked up: 0.125 g berries"), "{begun}");
-    assert!(begun.contains("Gathering started: 100 g"), "{begun}");
+    assert!(
+        begun.contains(&format!("Gathering started: {grams} g")),
+        "{begun}"
+    );
     assert!(!begun.contains("surface revision"), "{begun}");
     for _ in 0..20 {
         if session.state.player_work().active().is_none() {
