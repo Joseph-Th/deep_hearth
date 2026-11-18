@@ -28,6 +28,37 @@ fn mild_afternoon_air_buys_work_time_without_erasing_cold_nights() {
     );
 }
 
+#[test]
+fn resting_regulation_distinguishes_mild_weather_from_severe_exposure() {
+    let registries = build_registries();
+    let thermal = registries.survival().physiology().thermal_comfort();
+    let exposure = |celsius, wind| ThermalExposure::GeneratedOpen {
+        cooling_multiplier_ppm: air_cooling_multiplier_ppm(celsius, wind_cooling_ppm(wind)),
+    };
+    let calm_spring = exposure(15, WindCondition::Calm);
+    assert_eq!(
+        thermal.ticks_until_unheated_discomfort(1_000_000, calm_spring),
+        None
+    );
+    let cool_spring = exposure(8, WindCondition::Breeze);
+    let spring_loss = thermal.exposure_loss_ppm_per_tick(cool_spring);
+    assert!(
+        thermal
+            .ticks_until_unheated_discomfort(1_000_000, cool_spring)
+            .is_some()
+    );
+    assert!(
+        thermal.resting_warmth_gain_ppm_per_tick(cool_spring, 0) > spring_loss,
+        "ordinary cool weather must not inevitably exhaust comfort"
+    );
+    let winter = exposure(-10, WindCondition::Gusting);
+    assert!(
+        thermal.exposure_loss_ppm_per_tick(winter)
+            > thermal.resting_warmth_gain_ppm_per_tick(winter, 0),
+        "severe winter exposure must still overwhelm resting regulation"
+    );
+}
+
 fn generated_player() -> (Registries, AppState, WorldGenerationSeed) {
     let registries = build_registries();
     let seed = WorldGenerationSeed::new(0x5745_4154_4845_5253);
@@ -232,7 +263,9 @@ fn the_exposed_player_loses_exactly_the_weather_adjusted_warmth_projected_before
     let forecast = assess_player_unheated_comfort_runway(&registries, &state).unwrap();
     assert_eq!(forecast.weather_changes_in(), Some(current.changes_in()));
     assert!(
-        forecast.if_covered().unwrap() > forecast.if_open().unwrap(),
+        forecast
+            .if_open()
+            .is_some_and(|open| forecast.if_covered().is_none_or(|covered| covered > open)),
         "an actual roof must reduce exposure"
     );
 
@@ -431,12 +464,16 @@ fn upwind_terrain_reduces_actual_cooling_and_the_player_forecast_without_changin
             "the actual next survival tick must use the same windbreak as the forecast"
         );
         assert_eq!(validate_loaded_state(&registries, &actor), Ok(()));
-        outcomes.push((cooling, expected_loss, forecast.current().unwrap()));
+        outcomes.push((
+            cooling,
+            expected_loss,
+            forecast.current().map_or(u64::MAX, TickSpan::value),
+        ));
     }
     assert_eq!(outcomes[0].0, weather.cooling_multiplier_ppm());
     assert!(outcomes[0].0 > outcomes[1].0 && outcomes[1].0 > outcomes[2].0);
     assert!(outcomes[0].1 > outcomes[1].1 && outcomes[1].1 > outcomes[2].1);
-    assert!(outcomes[0].2 < outcomes[1].2 && outcomes[1].2 < outcomes[2].2);
+    assert!(outcomes[0].2 <= outcomes[1].2 && outcomes[1].2 <= outcomes[2].2);
 }
 
 #[test]

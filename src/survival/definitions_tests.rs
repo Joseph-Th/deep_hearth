@@ -271,30 +271,67 @@ fn zero_fixed_point_cooling_has_no_discomfort_horizon_and_never_divides_by_zero(
 }
 
 #[test]
-fn only_truly_neutral_generated_weather_can_passively_restore_comfort() {
-    let thermal = ThermalComfortDefinition::new(500_000, 2, 1, 10, Energy::from_nanojoules(1), 1);
-    for exposure in [
-        ThermalExposure::Open,
-        ThermalExposure::OverheadCover,
-        ThermalExposure::GeneratedOpen {
-            cooling_multiplier_ppm: 400_000,
-        },
-        ThermalExposure::GeneratedOverheadCover {
-            cooling_multiplier_ppm: 400_000,
-        },
+fn resting_regulation_is_bounded_and_responds_to_lost_comfort() {
+    let thermal =
+        ThermalComfortDefinition::new(800_000, 1_000, 300, 10, Energy::from_nanojoules(1), 1);
+    let exposure = ThermalExposure::GeneratedOpen {
+        cooling_multiplier_ppm: 150_000,
+    };
+    let gain = |comfort| thermal.resting_warmth_gain_ppm_per_tick(exposure, comfort);
+    let loss = thermal.exposure_loss_ppm_per_tick(exposure);
+    assert_eq!(gain(1_000_000), 0);
+    assert_eq!(gain(850_000), loss);
+    assert!(gain(800_000) > loss);
+    assert_eq!(gain(0), thermal.unsheltered_loss_ppm_per_tick());
+    assert_eq!(
+        thermal.resting_warmth_gain_ppm_per_tick(ThermalExposure::Open, 0),
+        0
+    );
+    assert_eq!(
+        thermal.ticks_until_unheated_discomfort(1_000_000, exposure),
+        None
+    );
+}
+
+#[test]
+fn equilibrium_warning_runway_matches_every_integer_resting_step() {
+    let thermal =
+        ThermalComfortDefinition::new(800_000, 1_000, 300, 10, Energy::from_nanojoules(1), 1);
+    // Include the exact sustainable warning boundary and the slowest
+    // unsustainable rate, along with much harsher weather and real cover.
+    for multiplier in [
+        0, 199_000, 200_000, 201_000, 400_000, 670_000, 1_000_000, 2_500_000,
     ] {
-        assert_eq!(thermal.ambient_warmth_gain_ppm_per_tick(exposure), 0);
-    }
-    for exposure in [
-        ThermalExposure::GeneratedOpen {
-            cooling_multiplier_ppm: 0,
-        },
-        ThermalExposure::GeneratedOverheadCover {
-            cooling_multiplier_ppm: 0,
-        },
-    ] {
-        assert_eq!(thermal.exposure_loss_ppm_per_tick(exposure), 0);
-        assert_eq!(thermal.ambient_warmth_gain_ppm_per_tick(exposure), 2);
+        for exposure in [
+            ThermalExposure::GeneratedOpen {
+                cooling_multiplier_ppm: multiplier,
+            },
+            ThermalExposure::GeneratedOverheadCover {
+                cooling_multiplier_ppm: multiplier,
+            },
+        ] {
+            for initial in [799_999, 800_000, 850_357, 999_999, 1_000_000] {
+                let mut comfort = initial;
+                let mut elapsed = 0;
+                let loss = thermal.exposure_loss_ppm_per_tick(exposure);
+                let expected = loop {
+                    if comfort < thermal.warning_below_ppm() {
+                        break Some(TickSpan::new(elapsed));
+                    }
+                    let gain = thermal.resting_warmth_gain_ppm_per_tick(exposure, comfort);
+                    if gain >= loss {
+                        break None;
+                    }
+                    comfort = comfort.saturating_sub(loss - gain);
+                    elapsed += 1;
+                };
+                assert_eq!(
+                    thermal.ticks_until_unheated_discomfort(initial, exposure),
+                    expected,
+                    "{initial} {exposure:?}"
+                );
+            }
+        }
     }
 }
 

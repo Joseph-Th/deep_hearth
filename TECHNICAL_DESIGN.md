@@ -536,10 +536,15 @@ Resident water eligibility uses the same authored drink temperature range as pla
 drinking, while finite withdrawal and its structural load remain owned by the
 fluid system.
 
-The survival owner's thermal comfort is a finite short-horizon reserve. Open-air or
-overhead-covered exposure spends comfort on each slow tick, and local dissipated heat
-can restore it. Exactly spending the last reserve has one tick of deficit grace;
-once the player is already at zero comfort, merely balancing ongoing exposure
+The survival owner's thermal comfort is a finite reserve. Generated air and overhead
+cover determine cooling demand on each slow tick. Bounded resting thermoregulation
+retains more basal metabolic heat as comfort falls; when demand is sustainable,
+comfort settles at an equilibrium rather than inevitably exhausting. Ordinary spring
+conditions are survivable, moderate work improves warmth, and freezing or windy
+severe exposure can overwhelm resting regulation. Local dissipated heat and charged
+physical exertion can restore comfort. Exactly spending the last reserve has one
+tick of deficit grace; once the player is already at zero comfort, merely balancing
+ongoing exposure
 does not prevent cold vitality loss. Net warming must restore positive comfort
 to stop that injury. Regional wind increases convective cooling only at body
 levels it can reach. Outdoors, an upwind wall or trunk shelters the obstructed
@@ -547,8 +552,8 @@ level; under a roof, the same direct sky or unobstructed upwind sky inlet used b
 local sound and scent must exist. A sealed covered space retains regional ambient
 temperature but has no outdoor wind surcharge. The survival tick and conditional
 unheated-comfort forecast use the identical physical exposure test.
-The conditional unheated-comfort forecast uses the same
-integer cooling per tick as survival: a zero rate has no finite discomfort
+The conditional unheated-comfort forecast advances the same integer cooling and
+resting regulation as survival: a comfortable equilibrium has no finite discomfort
 horizon (`None`), while an already chilly or cold player has an immediate
 zero-tick warning even when the current weather entails no additional cooling.
 Its alternative open/covered rates hold current wind-inlet geometry fixed;

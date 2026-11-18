@@ -1785,7 +1785,11 @@ fn extend_worksite_with_shelter(
         "finished physical cover should immediately change the actor's actual warmth runway"
     );
     assert!(
-        completed_forecast.if_covered().unwrap() > completed_forecast.if_open().unwrap(),
+        completed_forecast.if_covered().is_none()
+            || completed_forecast
+                .if_open()
+                .zip(completed_forecast.if_covered())
+                .is_some_and(|(open, covered)| covered > open),
         "the roof should buy more unheated time from the same current survival reserves"
     );
 
@@ -4356,7 +4360,7 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
             .unwrap_or_else(|| panic!("wilderness passive-share numerator overflowed"))
             / u128::from(observed_elapsed);
         std::println!(
-            "PLAYER TEMPO seed=0x{:016X} episode={sample}/{}/{} opening-elapsed:{} self-chosen-provisions:{} reactive-passive-until-next-pressure:{} ({}% of elapsed-to-warning) proactive-passive-after-fire-and-recon:{} next-problem=chilly actionable-at-opening=[storage-deferred material-deferred warmth-forecast:{}t roof-if-built:{}t]",
+            "PLAYER TEMPO seed=0x{:016X} episode={sample}/{}/{} opening-elapsed:{} self-chosen-provisions:{} reactive-passive-until-next-pressure:{} ({}% of elapsed-to-warning) proactive-passive-after-fire-and-recon:{} next-problem=chilly actionable-at-opening=[storage-deferred material-deferred warmth-forecast:{}t roof-if-built:{}]",
             review.seed,
             review.start_profile.label(),
             review.camp_goal.label(),
@@ -4366,7 +4370,9 @@ pub(super) fn print_wilderness_experience(review: WildernessOpeningReview, sampl
             passive_share,
             physical_minutes_tenths(&registries, adaptation.prepared_passive_ticks),
             adaptation.projected_unheated_ticks,
-            adaptation.covered_unheated_ticks,
+            adaptation
+                .covered_unheated_ticks
+                .map_or_else(|| "stable".to_owned(), |ticks| format!("{ticks}t")),
         );
         std::println!(
             "PLAYER JOURNEY seed=0x{:016X} episode={sample}/{}/{} phase=self-directed-provisions decision=[scarce-nuts protein energy-dense longer-shelf-than-berries] execution=[gather:{}g energy:{}kJ return-to-spawn:true] return-observation=[unattended-source-lost:{}g recovered-visible-parcel:{}g chase-cost:{}t source-after:{}g prepared-fire-source-after:{}g] no-hidden-scout-forecast=true",
@@ -5083,12 +5089,8 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
                     .warning_below_ppm()
         );
         assert!(
-            shelter.postfire_open_comfort_ppm
-                < registries
-                    .survival()
-                    .physiology()
-                    .thermal_comfort()
-                    .warning_below_ppm()
+            shelter.postfire_open_comfort_ppm < shelter.postfire_covered_comfort_ppm,
+            "cover must improve comfort without requiring the exposed comparison to become chilly"
         );
         assert!(shelter.postfire_fuel_only_comfort_ppm >= shelter.postfire_covered_comfort_ppm);
         assert_eq!(long_stay.camp_logistics_legs, 8);

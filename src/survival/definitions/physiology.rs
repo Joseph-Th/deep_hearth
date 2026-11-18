@@ -410,23 +410,29 @@ impl ThermalComfortDefinition {
         }
     }
 
-    /// Hot generated air is an environmental heat source, not a finite energy-store
-    /// credit. A truly neutral weather multiplier restores comfort at the authored
-    /// unsheltered baseline rate. Rounded-zero cold loss and ungenerated openings
-    /// do not qualify for ambient rewarming.
+    /// Resting thermoregulation grows with the deficit in comfort and is bounded
+    /// by the authored open-air baseline. This represents retention of basal
+    /// metabolic heat, not an external energy-store credit. In generated weather
+    /// a sustainable demand settles at an equilibrium; extreme demand can still
+    /// exhaust comfort. Without generated environmental truth use the conservative
+    /// authored open/covered exposure directly.
     #[must_use]
-    pub(crate) const fn ambient_warmth_gain_ppm_per_tick(self, exposure: ThermalExposure) -> u32 {
+    pub(crate) fn resting_warmth_gain_ppm_per_tick(
+        self,
+        exposure: ThermalExposure,
+        comfort_ppm: u32,
+    ) -> u32 {
+        let deficit = NORMALIZED_PARTS_PER_MILLION - comfort_ppm;
+        let capacity = self.resting_regulation_capacity(exposure);
+        ((u64::from(deficit) * u64::from(capacity))
+            .div_ceil(u64::from(NORMALIZED_PARTS_PER_MILLION))) as u32
+    }
+
+    const fn resting_regulation_capacity(self, exposure: ThermalExposure) -> u32 {
         match exposure {
-            ThermalExposure::GeneratedOpen {
-                cooling_multiplier_ppm: 0,
-            }
-            | ThermalExposure::GeneratedOverheadCover {
-                cooling_multiplier_ppm: 0,
-            } => self.unsheltered_loss_ppm_per_tick,
-            ThermalExposure::Open
-            | ThermalExposure::OverheadCover
-            | ThermalExposure::GeneratedOpen { .. }
-            | ThermalExposure::GeneratedOverheadCover { .. } => 0,
+            ThermalExposure::GeneratedOpen { .. }
+            | ThermalExposure::GeneratedOverheadCover { .. } => self.unsheltered_loss_ppm_per_tick,
+            ThermalExposure::Open | ThermalExposure::OverheadCover => 0,
         }
     }
 
@@ -436,8 +442,7 @@ impl ThermalComfortDefinition {
     ///
     /// The threshold is strict: comfort exactly at the warning is still comfortable. When the
     /// authored warning is zero, the zero-comfort Cold band is the first adverse state.
-    /// `None` means the current exposure rounds to zero whole-unit loss per
-    /// tick, so discomfort cannot occur while that exposure persists.
+    /// `None` means that resting thermal equilibrium stays comfortable.
     #[must_use]
     pub fn ticks_until_unheated_discomfort(
         self,
@@ -453,11 +458,29 @@ impl ThermalComfortDefinition {
             return Some(TickSpan::ZERO);
         }
         let loss = self.exposure_loss_ppm_per_tick(exposure);
-        if loss == 0 {
+        if loss <= self.resting_warmth_gain_ppm_per_tick(exposure, comfortable_floor) {
             return None;
         }
-        let reserve_to_spend = current_comfort_ppm - comfortable_floor + 1;
-        Some(TickSpan::new(u64::from(reserve_to_spend.div_ceil(loss))))
+        let capacity = u64::from(self.resting_regulation_capacity(exposure));
+        let scale = u64::from(NORMALIZED_PARTS_PER_MILLION);
+        let mut deficit = scale - u64::from(current_comfort_ppm);
+        let target = scale - u64::from(comfortable_floor) + 1;
+        let mut ticks = 0;
+        // Advance entire runs with identical integer regulation, rather than
+        // simulate every resting tick or approximate the threshold crossing.
+        while deficit < target {
+            let gain = self.resting_warmth_gain_ppm_per_tick(exposure, (scale - deficit) as u32);
+            let step = u64::from(loss - gain);
+            let boundary = if capacity == 0 {
+                target
+            } else {
+                target.min(u64::from(gain) * scale / capacity + 1)
+            };
+            let count = (boundary - deficit).div_ceil(step);
+            deficit += count * step;
+            ticks += count;
+        }
+        Some(TickSpan::new(ticks))
     }
 
     #[must_use]

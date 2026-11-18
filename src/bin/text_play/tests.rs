@@ -1184,6 +1184,32 @@ fn finite_campfire_fuel_warms_player_and_preserves_terminal_matter() {
     assert!(bad_fuel.contains("no carried material at that stack index"));
     assert_eq!(snapshot(&session), before_invalid);
 
+    // In mild weather paid construction can leave the survivor fully warm.
+    // Observe real unfueled cooling before testing recovery from a fuel charge.
+    for _ in 0..12 {
+        if session
+            .state
+            .survival()
+            .player()
+            .unwrap()
+            .thermal_comfort_ppm()
+            < 990_000
+        {
+            break;
+        }
+        session.command("wait 7200").unwrap();
+    }
+    assert!(
+        session
+            .state
+            .survival()
+            .player()
+            .unwrap()
+            .thermal_comfort_ppm()
+            < 1_000_000,
+        "the unfueled worksite must lose some comfort before the recovery comparison"
+    );
+
     let total_before = deep_hearth::matter::calculate_matter_accounting(&session.state)
         .unwrap()
         .total();
@@ -1227,7 +1253,18 @@ fn finite_campfire_fuel_warms_player_and_preserves_terminal_matter() {
             > warmth_before
     );
     let (fire_after, _) = session.command("fire").unwrap();
-    assert!(fire_after.contains("10.") && fire_after.contains("MJ stored"));
+    let fire_stored = session
+        .state
+        .available_local_energy_stores()
+        .next()
+        .unwrap()
+        .stored();
+    assert!(fire_stored > deep_hearth::core::quantity::Energy::ZERO);
+    assert!(fire_stored < deep_hearth::content::CAMPFIRE_FUEL_THERMAL_ENERGY);
+    assert!(fire_after.contains(&format!(
+        "{} stored",
+        super::fire::energy_label(fire_stored)
+    )));
     assert_eq!(
         deep_hearth::matter::calculate_matter_accounting(&session.state)
             .unwrap()
@@ -2063,7 +2100,11 @@ fn food_selection_and_contextual_drinking_are_explained_and_authoritative() {
 
 #[test]
 fn text_warmth_warning_uses_authored_survival_threshold() {
-    let mut session = Session::new(24318).unwrap();
+    let mut session = Session::new_natural_in_habitat(
+        13_079_275_461_686_118_933,
+        Some(deep_hearth::world::HabitatKind::DampGrove),
+    )
+    .unwrap();
     let threshold = session
         .registries
         .survival()
@@ -2072,7 +2113,7 @@ fn text_warmth_warning_uses_authored_survival_threshold() {
         .warning_below_ppm();
     assert!(!view::urgency(&session.registries, &session.state).3);
     let mut reached = false;
-    for _ in 0..20_000 {
+    for _ in 0..120 {
         let assessment = assess_survival(&session.registries, &session.state).unwrap();
         if assessment.thermal_comfort_state() != ThermalComfortState::Comfortable {
             let comfort = assessment.thermal_comfort_ppm();
@@ -2085,9 +2126,7 @@ fn text_warmth_warning_uses_authored_survival_threshold() {
             reached = true;
             break;
         }
-        session
-            .step(PlayerDirectControlInput::NEUTRAL, &mut String::new())
-            .unwrap();
+        session.command("wait 7200").unwrap();
     }
     assert!(
         reached,

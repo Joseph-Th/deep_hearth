@@ -194,7 +194,10 @@ fn zero_cooling_weather_does_not_injure_an_already_cold_player() {
     ];
     for exposure in neutral_weather {
         assert_eq!(thermal.exposure_loss_ppm_per_tick(exposure), 0);
-        assert_eq!(thermal.ambient_warmth_gain_ppm_per_tick(exposure), 0);
+        assert_eq!(
+            thermal.resting_warmth_gain_ppm_per_tick(exposure, 0),
+            thermal.unsheltered_loss_ppm_per_tick()
+        );
         let plan = decide_survival_tick_with_local_heat(
             &registries,
             &state,
@@ -207,7 +210,7 @@ fn zero_cooling_weather_does_not_injure_an_already_cold_player() {
         .unwrap();
         let mut settled = state.clone();
         let result = apply_survival_tick(&mut settled, plan).unwrap();
-        assert_eq!(result.thermal_comfort_ppm(), 0);
+        assert!(result.thermal_comfort_ppm() > 0);
         assert_eq!(
             result.vitality(),
             initial_vitality,

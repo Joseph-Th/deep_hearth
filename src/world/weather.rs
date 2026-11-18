@@ -16,11 +16,13 @@ use super::{WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y};
 /// Physical time between changes in a regional wind/temperature front: twelve minutes.
 pub(crate) const WEATHER_FRONT_TICKS: u64 = 200;
 pub(super) const REGION_SIDE_VOXELS: i64 = 128;
-const COOLING_REFERENCE_CELSIUS: i32 = 12;
-const COOLING_PER_DEGREE_PPM: i32 = 30_000;
+// Gross cooling demand relative to the body's resting regulation capacity.
+// Calm air below freezing can overwhelm it; ordinary spring air need not.
+const COOLING_REFERENCE_CELSIUS: i32 = -2;
+const COOLING_PER_DEGREE_PPM: i32 = 50_000;
 const BREEZE_COOLING_PPM: u32 = 180_000;
 const GUST_COOLING_PPM: u32 = 400_000;
-const COLD_EXPOSURE_MINIMUM_COOLING_PPM: u32 = 400_000;
+const COLD_EXPOSURE_MINIMUM_COOLING_PPM: u32 = 200_000;
 const MAXIMUM_COOLING_PPM: u32 = 2_500_000;
 /// Hot outdoor air can restore warmth without a fire. Blend the cold demand
 /// down through the comfortable range rather than imposing summer hypothermia.

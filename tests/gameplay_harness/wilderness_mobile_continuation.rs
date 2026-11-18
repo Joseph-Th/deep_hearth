@@ -23,7 +23,7 @@ pub(crate) struct MobileColdResponse {
     pub(super) planned_nut_source_after_mg: u64,
     pub(super) secured_nut_energy_nj: u128,
     pub(super) projected_unheated_ticks: u64,
-    pub(super) covered_unheated_ticks: u64,
+    pub(super) covered_unheated_ticks: Option<u64>,
     pub(super) cold_comfort_ppm: u32,
     pub(super) first_fueled_tick: u64,
     pub(super) recovery_ticks: u64,
@@ -364,7 +364,9 @@ pub(super) fn evaluate_mobile_cold_response(
         .unwrap_or_else(|| panic!("generated wilderness has no current roof truth"));
     assert_eq!(forecast.if_open(), Some(predicted_discomfort));
     assert!(
-        forecast.if_covered().unwrap() > predicted_discomfort,
+        forecast
+            .if_covered()
+            .is_none_or(|covered| covered > predicted_discomfort),
         "the actual player-facing forecast should expose why overhead shelter is worth considering"
     );
     let warning = registries
@@ -464,11 +466,13 @@ pub(super) fn evaluate_mobile_cold_response(
         Some(secured)
     );
     let prepared_state = state.clone();
-    let prepared_discomfort = assess_player_unheated_comfort_runway(registries, &state)
-        .and_then(|runway| runway.current())
-        .unwrap_or_else(|| panic!("the prepared survivor lost the resting warmth forecast"));
+    let prepared_forecast = assess_player_unheated_comfort_runway(registries, &state)
+        .expect("the prepared survivor lost the resting warmth forecast");
     assert!(
-        prepared_discomfort.value() > predicted_discomfort.value() - preparation_ticks,
+        prepared_forecast.current().is_none_or(|span| span.value()
+            > predicted_discomfort
+                .value()
+                .saturating_sub(preparation_ticks)),
         "paid gathering work must preserve warmth compared with a fully resting forecast"
     );
 
@@ -493,11 +497,17 @@ pub(super) fn evaluate_mobile_cold_response(
     }
     let cold = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("mobile cold warning lost survival state"));
-    assert_eq!(
-        exposed_ticks,
-        prepared_discomfort.value(),
-        "the updated player-facing resting forecast must match subsequent unheated rest"
-    );
+    if let Some(discomfort) = prepared_forecast.current()
+        && prepared_forecast
+            .weather_changes_in()
+            .is_none_or(|change| discomfort < change)
+    {
+        assert_eq!(
+            exposed_ticks,
+            discomfort.value(),
+            "the unchanged weather resting forecast must match subsequent unheated rest"
+        );
+    }
     assert_eq!(cold.thermal_comfort_state(), ThermalComfortState::Chilly);
     assert!(cold.thermal_comfort_ppm() < warning);
     let cold_comfort = cold.thermal_comfort_ppm();
@@ -859,10 +869,7 @@ pub(super) fn evaluate_mobile_cold_response(
         planned_nut_source_after_mg,
         secured_nut_energy_nj,
         projected_unheated_ticks: predicted_discomfort.value(),
-        covered_unheated_ticks: forecast
-            .if_covered()
-            .unwrap_or_else(|| panic!("authored covered wilderness exposure has positive cooling"))
-            .value(),
+        covered_unheated_ticks: forecast.if_covered().map(TickSpan::value),
         cold_comfort_ppm: cold_comfort,
         first_fueled_tick: after_fuel
             .checked_duration_since(started)
@@ -887,9 +894,11 @@ pub(super) fn evaluate_mobile_cold_response(
 
 pub(super) fn print_mobile_cold_response(registries: &Registries, review: MobileColdResponse) {
     std::println!(
-        "PLAYER ADAPTATION opening=stay-mobile forecast=[unheated-open:{}t roof-if-built:{}t no-local-heat] self-chosen-provisions:{}t passive-exposure={} trigger=chilly/{}ppm after:{}t/{} reactive=[stone-ring:built fuel:{}g trips:2 light:{} recovered:{}t fueled:{}t comfort:{}ppm no-fire:{}ppm] planned=[start:{}t fueled:{}t comfort:{}ppm fire-runway:{}t vs-reactive:{}t] recon=[active:{}t survey:{}t copper:{}mg idle-after:{}t actual-evidence:true fire-only-control:matched] custody=[timber-left:{}g matter-conserved:true] mode=same-generated-world",
+        "PLAYER ADAPTATION opening=stay-mobile forecast=[unheated-open:{}t roof-if-built:{} no-local-heat] self-chosen-provisions:{}t passive-exposure={} trigger=chilly/{}ppm after:{}t/{} reactive=[stone-ring:built fuel:{}g trips:2 light:{} recovered:{}t fueled:{}t comfort:{}ppm no-fire:{}ppm] planned=[start:{}t fueled:{}t comfort:{}ppm fire-runway:{}t vs-reactive:{}t] recon=[active:{}t survey:{}t copper:{}mg idle-after:{}t actual-evidence:true fire-only-control:matched] custody=[timber-left:{}g matter-conserved:true] mode=same-generated-world",
         review.projected_unheated_ticks,
-        review.covered_unheated_ticks,
+        review
+            .covered_unheated_ticks
+            .map_or_else(|| "stable".to_owned(), |ticks| format!("{ticks}t")),
         review.preparation_ticks,
         physical_minutes_tenths(registries, review.exposed_ticks),
         review.cold_comfort_ppm,

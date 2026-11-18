@@ -141,8 +141,8 @@ impl PlayerUnheatedComfortRunway {
         self.wind_shelter
     }
 
-    /// Ticks until the first chilly/cold state if today's exposure and zero heat persist.
-    /// `None` means either unknown terrain/roof truth or zero ongoing cooling.
+    /// Ticks until the first chilly/cold state at rest without external heat.
+    /// `None` means either unknown terrain/roof truth or comfortable thermal equilibrium.
     /// `overhead_cover()` distinguishes unavailable world truth from a known
     /// exposure with no finite discomfort horizon.
     #[must_use]
@@ -151,13 +151,13 @@ impl PlayerUnheatedComfortRunway {
     }
 
     #[must_use]
-    /// `None` means open-air cooling rounds to zero for this exposure.
+    /// `None` means open-air resting equilibrium stays comfortable.
     pub const fn if_open(self) -> Option<TickSpan> {
         self.if_open
     }
 
     #[must_use]
-    /// `None` means covered cooling rounds to zero for this exposure.
+    /// `None` means covered resting equilibrium stays comfortable.
     pub const fn if_covered(self) -> Option<TickSpan> {
         self.if_covered
     }
@@ -170,7 +170,7 @@ impl PlayerUnheatedComfortRunway {
     }
 }
 
-/// Combines real current cover, live survival reserve and authored warmth loss.
+/// Combines real current cover, live survival reserve and resting thermal regulation.
 /// The projection is deliberately conditional on staying in place without a heat source.
 /// Alternative open/covered rates hold the current wind-inlet geometry fixed:
 /// they compare overhead insulation, not an unplanned roof demolition or construction
