@@ -328,7 +328,8 @@ fn explicit_direct_gathering_starts_named_food_source_and_replays_completion() {
         .unwrap()
         .reserved_inbound();
     assert_eq!(reserved, portion);
-    let held = advance_control_tick_with_direct_input(
+    let active = state.player_work().active().unwrap();
+    let retarget = advance_control_tick_with_direct_input(
         &registries,
         &mut state,
         PlayerDirectControlInput::NEUTRAL.with_secondary(SecondaryControlIntent::gather_surface(
@@ -338,10 +339,15 @@ fn explicit_direct_gathering_starts_named_food_source_and_replays_completion() {
     )
     .unwrap();
     assert_eq!(
-        held.secondary_action(),
-        None,
+        retarget.secondary_action(),
+        Some(&SecondaryActionOutcome::SurfaceGatheringRejected(
+            SurfaceGatheringError::PlayerWork(crate::labor::PlayerWorkStartError::Busy {
+                active: Box::new(active),
+            })
+        )),
         "active work cannot be retargeted by another press"
     );
+    assert_eq!(state.player_work().active(), Some(active));
 
     let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
     let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
