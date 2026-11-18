@@ -564,16 +564,21 @@ impl PhysiologyDefinition {
         exertion: crate::survival::SurvivalExertion,
     ) -> u32 {
         let maximum = self.thermal_comfort().unsheltered_loss_ppm_per_tick();
-        let reference = self
-            .basal_energy_cost_per_tick()
-            .nanojoules()
-            .saturating_mul(5);
+        let basal = self.basal_energy_cost_per_tick().nanojoules();
         let spent = exertion.energy_cost_per_tick().nanojoules();
-        if spent >= reference {
+        if basal
+            .checked_mul(5)
+            .is_some_and(|reference| spent >= reference)
+        {
             return maximum;
         }
-        let gain = spent.saturating_mul(u128::from(maximum)) / reference;
-        u32::try_from(gain).unwrap_or(maximum)
+        // Scale before dividing by five. The two floors are equivalent to
+        // floor(spent * maximum / (basal * 5)), even when that reference or
+        // the intermediate product exceeds u128. Saturation would fabricate
+        // warmth from insufficient work at the physical range boundary.
+        let (scaled, _) = checked_mul_div_with_remainder(spent, u128::from(maximum), basal, 0)
+            .expect("sub-threshold work heat is bounded by five times the cooling rate");
+        u32::try_from(scaled / 5).expect("bounded work heat fits u32")
     }
 
     #[must_use]

@@ -87,6 +87,54 @@ fn thermal_comfort_local_heat_scaling_remains_exact_at_full_width() {
 }
 
 #[test]
+fn active_work_warmth_is_exact_when_energy_products_exceed_u128() {
+    let template = physiology_with_carry(Mass::from_milligrams(1), 1, 1);
+    let with_basal = |basal| {
+        PhysiologyDefinition::new(
+            MetabolismDefinition::new(
+                Energy::from_nanojoules(u128::MAX),
+                Energy::ZERO,
+                Energy::from_nanojoules(basal),
+            ),
+            HydrationDefinition::new(
+                template.maximum_hydration(),
+                template.thirsty_below(),
+                template.hydration_loss_per_tick(),
+            ),
+            template.nutrition(),
+            template.direct_consumption(),
+            template.locomotion(),
+            template.carried_mass_capacity(),
+            SurvivalStressDefinition::new(
+                template.starvation_vitality_loss_ppm_per_tick(),
+                template.dehydration_vitality_loss_ppm_per_tick(),
+                ThermalComfortDefinition::new(
+                    500_000,
+                    1_000,
+                    300,
+                    1_000,
+                    Energy::from_nanojoules(3),
+                    4,
+                ),
+            ),
+        )
+    };
+    let warmth = |physiology: PhysiologyDefinition, spent| {
+        physiology.active_work_heat_gain_ppm_per_tick(SurvivalExertion::new(
+            Energy::from_nanojoules(spent),
+            Volume::ZERO,
+        ))
+    };
+
+    assert_eq!(warmth(with_basal(100), 0), 0);
+    assert_eq!(warmth(with_basal(100), 499), 998);
+    assert_eq!(warmth(with_basal(100), 500), 1_000);
+    let huge_basal = u128::MAX / 3;
+    assert_eq!(warmth(with_basal(huge_basal), huge_basal * 2), 400);
+    assert_eq!(warmth(with_basal(u128::MAX), u128::MAX), 200);
+}
+
+#[test]
 fn unheated_discomfort_projection_honors_strict_warning_and_roof_exposure() {
     let thermal =
         ThermalComfortDefinition::new(800_000, 1_000, 500, 10_000, Energy::from_nanojoules(1), 1);
