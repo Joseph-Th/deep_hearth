@@ -42,7 +42,8 @@ use deep_hearth::survival::{
 use deep_hearth::world::{
     DayPhase, ForageScent, HabitatKind, VisibleWaterSource, WindCondition, WindDirection,
     assess_player_forage_scents, assess_player_habitat, assess_player_weather,
-    available_visible_generated_trees, available_visible_generated_water, raycast_player_block,
+    available_visible_generated_trees, available_visible_generated_water,
+    available_visible_water_landmarks, raycast_player_block,
 };
 use deep_hearth::{AppState, Registries};
 
@@ -452,17 +453,19 @@ pub fn status(registries: &Registries, state: &AppState) -> String {
         if source.position() == player.position() {
             let _ = writeln!(
                 output,
-                "Local warmth: {} | {} stored",
+                "Local warmth: {} | {} stored | {}",
                 definition.name(),
                 super::fire::energy_label(source.stored()),
+                super::fire::burn_runway_label(registries, source.definition(), source.stored()),
             );
         } else {
             let _ = writeln!(
                 output,
-                "Adjacent warmth: {} at {} | {} stored",
+                "Adjacent warmth: {} at {} | {} stored | {}",
                 definition.name(),
                 pos(source.position()),
                 super::fire::energy_label(source.stored()),
+                super::fire::burn_runway_label(registries, source.definition(), source.stored()),
             );
         }
     }
@@ -504,7 +507,7 @@ fn nearby_structure_report(registries: &Registries, state: &AppState) -> String 
             == Some(PlayerOverheadCoverAssessment::Open)
     {
         output.push_str(
-            "Nearby roof does not cover your standing position. Shelter requires a reachable space directly beneath a panel, with clearance for your body.\n",
+            "Nearby roof does not cover your standing position. Shelter requires a reachable space directly beneath a panel, with clearance for your whole body footprint. Even inside its voxel, a body straddling the edge may be exposed; try a short 1-2 tick movement and settle with 'wait 10'.\n",
         );
     }
     output
@@ -591,10 +594,16 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
     }
     // The world visibility query includes placed water vessels as well as
     // natural springs. Sight alone does not establish a natural source.
-    for water in available_visible_generated_water(registries, state) {
+    let local_water = available_visible_generated_water(registries, state)
+        .into_iter()
+        .map(|water| ("Visible water", water));
+    let landmarks = available_visible_water_landmarks(registries, state)
+        .into_iter()
+        .map(|water| ("Distant visible water", water));
+    for (label, water) in local_water.chain(landmarks) {
         let _ = writeln!(
             output,
-            "Visible water {} at {}",
+            "{label} {} at {}",
             from.map_or_else(
                 || "unlocated".to_owned(),
                 |from| bearing(from, water.position())
@@ -813,7 +822,7 @@ fn timber_cover_preview(registries: &Registries, state: &AppState, aim: ViewDire
     output
 }
 
-fn runway_label(slow_ticks: Option<u64>) -> String {
+pub(super) fn runway_label(slow_ticks: Option<u64>) -> String {
     let Some(ticks) = slow_ticks else {
         return "not projected".to_owned();
     };

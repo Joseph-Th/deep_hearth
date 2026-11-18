@@ -73,6 +73,48 @@ pub fn available_visible_generated_water(
     nearby
 }
 
+/// Nonlocal water landmarks within the same bounded landscape sight radius as trees.
+/// No remote amounts, interaction rights, or undiscovered aquifers are disclosed.
+#[must_use]
+pub fn available_visible_water_landmarks(
+    registries: &Registries,
+    state: &AppState,
+) -> Vec<VisibleWaterSource> {
+    let Some(player) = state.logistics().player() else {
+        return Vec::new();
+    };
+    if state
+        .survival()
+        .player()
+        .is_none_or(|survival| survival.vitality() == Vitality::ZERO)
+    {
+        return Vec::new();
+    }
+    let from = player.position();
+    if !state.world().has_generated_terrain_at(from) {
+        return Vec::new();
+    }
+    let mut visible = state
+        .logistics()
+        .fluid_store_locations_near(from, 12)
+        .filter(|(_, to)| {
+            let dy = to.y().abs_diff(from.y());
+            dy <= 6 && to.x().abs_diff(from.x()) + dy + to.z().abs_diff(from.z()) > 2
+        })
+        .filter(|(store, to)| {
+            state
+                .fluid()
+                .get_store(*store)
+                .and_then(|record| record.contents())
+                .is_some_and(|contents| contents.fluid() == FLUID_WATER)
+                && super::targeting::player_can_see_distant_cell(registries, state, *to)
+        })
+        .map(|(store, position)| VisibleWaterSource { store, position })
+        .collect::<Vec<_>>();
+    visible.sort_unstable_by_key(|source| source.store);
+    visible
+}
+
 #[cfg(test)]
 #[path = "spring_sight_tests.rs"]
 mod tests;

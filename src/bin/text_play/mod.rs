@@ -460,11 +460,38 @@ impl Session {
             .map_err(|error| error.to_string())?;
         let stacks = inventory.carried().stacks();
         let index = parse_index(index, stacks.len())?;
-        let choice = stacks[index - 1].choice();
-        self.advance_one(
-            PlayerDirectControlInput::NEUTRAL
-                .with_secondary(SecondaryControlIntent::eat_stack(choice)),
-        )
+        let stack = &stacks[index - 1];
+        let mut output = String::new();
+        // A boundary frame settles the slow owners before consuming input.
+        // Advance that frame first, then reobserve the exact selected cohort.
+        // Never reinterpret its row number after other inventory changes.
+        let choice = if self
+            .state
+            .control_tick()
+            .checked_next()
+            .is_some_and(|tick| tick.is_simulation_boundary())
+        {
+            let _ = self.step(PlayerDirectControlInput::NEUTRAL, &mut output)?;
+            match stack.refreshed(&self.registries, &self.state) {
+                Ok(current) => current.choice(),
+                Err(error) => {
+                    let _ = writeln!(
+                        output,
+                        "Food selection changed: {error}. Inspect inventory and select again."
+                    );
+                    return Ok(output);
+                }
+            }
+        } else {
+            stack.choice()
+        };
+        output.push_str(
+            &self.advance_one(
+                PlayerDirectControlInput::NEUTRAL
+                    .with_secondary(SecondaryControlIntent::eat_stack(choice)),
+            )?,
+        );
+        Ok(output)
     }
 
     fn drink(&mut self, index: &str) -> Result<String, String> {

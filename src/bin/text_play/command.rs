@@ -22,6 +22,10 @@ enum Direction {
     SouthShallow,
     EastShallow,
     WestShallow,
+    NorthUp,
+    SouthUp,
+    EastUp,
+    WestUp,
 }
 
 impl Direction {
@@ -41,8 +45,12 @@ impl Direction {
             "s-shallow" => Ok(Self::SouthShallow),
             "e-shallow" => Ok(Self::EastShallow),
             "w-shallow" => Ok(Self::WestShallow),
+            "n-up" => Ok(Self::NorthUp),
+            "s-up" => Ok(Self::SouthUp),
+            "e-up" => Ok(Self::EastUp),
+            "w-up" => Ok(Self::WestUp),
             _ => Err(format!(
-                "unknown direction {text}; use n, s, e, w, up, down, cardinal-down, or cardinal-shallow"
+                "unknown direction {text}; use n, s, e, w, up, down, cardinal-down, cardinal-shallow, or cardinal-up"
             )),
         }
     }
@@ -63,6 +71,10 @@ impl Direction {
             Self::SouthShallow => (0, -500_000, 866_025),
             Self::EastShallow => (866_025, -500_000, 0),
             Self::WestShallow => (-866_025, -500_000, 0),
+            Self::NorthUp => (0, 500_000, -866_025),
+            Self::SouthUp => (0, 500_000, 866_025),
+            Self::EastUp => (866_025, 500_000, 0),
+            Self::WestUp => (-866_025, 500_000, 0),
         };
         ViewDirection::new(x, y, z)
             .unwrap_or_else(|error| panic!("axis direction must be normalized: {error}"))
@@ -83,7 +95,11 @@ impl Direction {
             | Self::NorthShallow
             | Self::SouthShallow
             | Self::EastShallow
-            | Self::WestShallow => {
+            | Self::WestShallow
+            | Self::NorthUp
+            | Self::SouthUp
+            | Self::EastUp
+            | Self::WestUp => {
                 return Err("vertical or angled direction is for aiming, not walking".to_owned());
             }
         };
@@ -178,7 +194,7 @@ impl Session {
                 let report = storage::place(&self.registries, &mut self.state, id)?;
                 report + &storage::catalog(&self.registries, &self.state, false)?
             }
-            "stash" | "withdraw" if args.len() == 2 => {
+            "stash" | "withdraw" if (2..=3).contains(&args.len()) => {
                 let container = parse_index(args[0], usize::MAX)?;
                 let stack = parse_index(args[1], usize::MAX)?;
                 let report = storage::move_stack(
@@ -187,6 +203,9 @@ impl Session {
                     container,
                     stack,
                     verb == "withdraw",
+                    args.get(2)
+                        .map(|value| super::quantity::parse_decimal_grams(value, "transfer mass"))
+                        .transpose()?,
                 )?;
                 report + &view::inventory(&self.registries, &self.state)?
             }

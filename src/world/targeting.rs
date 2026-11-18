@@ -51,61 +51,94 @@ pub(crate) fn player_can_see_distant_tree_trunk(
         .flatten()
         .any(|y| {
             let target = VoxelCoord::new(root.x(), y, root.z());
-            let Some(floor) = WorldPoint::centered_on_voxel_floor(target) else {
-                return false;
-            };
-            let Some(center_y) = floor.y_nanometers().checked_add(500_000_000) else {
-                return false;
-            };
-            let delta = [
-                i128::from(floor.x_nanometers()) - i128::from(eye.x_nanometers()),
-                i128::from(center_y) - i128::from(eye.y_nanometers()),
-                i128::from(floor.z_nanometers()) - i128::from(eye.z_nanometers()),
-            ];
-            let squared = delta
-                .iter()
-                .map(|&axis| (axis * axis) as u128)
-                .sum::<u128>();
-            let length = squared.isqrt();
-            if length == 0 {
-                return false;
-            }
-            let [Some(x), Some(y), Some(z)] =
-                delta.map(|axis| i32::try_from(axis * 1_000_000 / length as i128).ok())
-            else {
-                return false;
-            };
-            let Ok(direction) = ViewDirection::new(x, y, z) else {
-                return false;
-            };
-            let Some(reach) = i64::try_from(length)
-                .ok()
-                .and_then(|distance| distance.checked_add(1_000_000))
-            else {
-                return false;
-            };
-            trace_generated_voxels(
-                registries,
-                state,
-                eye,
-                direction,
-                reach,
-                |voxel, block, _| {
-                    if voxel == target {
-                        VoxelTraceStep::Hit(())
-                    } else if targetable_full_cube(registries, block)
-                        || state.structures().blocks_full_cell(voxel)
-                        || state.world().tree_trunk_at(voxel).is_some()
-                    {
-                        VoxelTraceStep::Blocked
-                    } else {
-                        VoxelTraceStep::Continue
-                    }
-                },
-            )
-            .ok()
-                == Some(Some(()))
+            clear_landmark_ray(registries, state, eye, target)
         })
+}
+
+/// Observe a lit cell using the same physical eye ray as distant tree sightings.
+pub(super) fn player_can_see_distant_cell(
+    registries: &Registries,
+    state: &AppState,
+    target: VoxelCoord,
+) -> bool {
+    let Some(player) = state.logistics().player().copied() else {
+        return false;
+    };
+    let Ok(eye) = player_eye_origin(
+        player.body().foot_position(),
+        player.body().stance(),
+        registries.survival().physiology().locomotion(),
+    ) else {
+        return false;
+    };
+    if super::sky::assess_generated_skylight_at(registries, state, target, state.tick()) == 0
+        && crate::energy::assess_local_illumination(registries, state, target).level() == 0
+    {
+        return false;
+    }
+    clear_landmark_ray(registries, state, eye, target)
+}
+
+fn clear_landmark_ray(
+    registries: &Registries,
+    state: &AppState,
+    eye: WorldPoint,
+    target: VoxelCoord,
+) -> bool {
+    let Some(floor) = WorldPoint::centered_on_voxel_floor(target) else {
+        return false;
+    };
+    let Some(center_y) = floor.y_nanometers().checked_add(500_000_000) else {
+        return false;
+    };
+    let delta = [
+        i128::from(floor.x_nanometers()) - i128::from(eye.x_nanometers()),
+        i128::from(center_y) - i128::from(eye.y_nanometers()),
+        i128::from(floor.z_nanometers()) - i128::from(eye.z_nanometers()),
+    ];
+    let squared = delta
+        .iter()
+        .map(|&axis| (axis * axis) as u128)
+        .sum::<u128>();
+    let length = squared.isqrt();
+    if length == 0 {
+        return false;
+    }
+    let [Some(x), Some(y), Some(z)] =
+        delta.map(|axis| i32::try_from(axis * 1_000_000 / length as i128).ok())
+    else {
+        return false;
+    };
+    let Ok(direction) = ViewDirection::new(x, y, z) else {
+        return false;
+    };
+    let Some(reach) = i64::try_from(length)
+        .ok()
+        .and_then(|distance| distance.checked_add(1_000_000))
+    else {
+        return false;
+    };
+    trace_generated_voxels(
+        registries,
+        state,
+        eye,
+        direction,
+        reach,
+        |voxel, block, _| {
+            if voxel == target {
+                VoxelTraceStep::Hit(())
+            } else if targetable_full_cube(registries, block)
+                || state.structures().blocks_full_cell(voxel)
+                || state.world().tree_trunk_at(voxel).is_some()
+            {
+                VoxelTraceStep::Blocked
+            } else {
+                VoxelTraceStep::Continue
+            }
+        },
+    )
+    .ok()
+        == Some(Some(()))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

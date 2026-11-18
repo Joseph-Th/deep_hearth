@@ -20,6 +20,22 @@ pub fn energy_label(stored: deep_hearth::core::quantity::Energy) -> String {
     )
 }
 
+pub(super) fn burn_runway_label(
+    registries: &Registries,
+    definition: deep_hearth::energy::EnergyStoreDefinitionId,
+    stored: deep_hearth::core::quantity::Energy,
+) -> String {
+    match deep_hearth::energy::passive_dissipation_ticks_until_empty(registries, definition, stored)
+    {
+        Ok(Some(ticks)) if ticks.value() == 0 => "extinguished".to_owned(),
+        Ok(Some(ticks)) => format!(
+            "passive burn remaining ~{}",
+            view::runway_label(Some(ticks.value()))
+        ),
+        _ => "burn duration not projected".to_owned(),
+    }
+}
+
 fn campfires(state: &AppState, registries: &Registries) -> Vec<EnergyStoreId> {
     state
         .available_local_energy_stores()
@@ -147,10 +163,11 @@ pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, Stri
             .ok_or("local fire has no authored definition")?;
         let _ = writeln!(
             output,
-            "  {count}. {} | {} stored / {} capacity",
+            "  {count}. {} | {} stored / {} capacity | {}",
             definition.name(),
             energy_label(record.stored()),
             energy_label(definition.capacity()),
+            burn_runway_label(registries, record.definition(), record.stored()),
         );
         for profile in definition.combustion_profiles() {
             let material = registries

@@ -10,6 +10,44 @@ fn snapshot(session: &Session) -> Vec<u8> {
 }
 
 #[test]
+fn eating_at_slow_boundary_refreshes_the_exact_selected_cohort() {
+    let mut session = Session::new(24318).unwrap();
+    for command in [
+        "e 20",
+        "wait 10",
+        "gather 1 500",
+        "wait work",
+        "wait boundary",
+    ] {
+        session.command(command).unwrap();
+    }
+    for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK - 1 {
+        session
+            .step(PlayerDirectControlInput::NEUTRAL, &mut String::new())
+            .unwrap();
+    }
+    assert!(
+        session
+            .state
+            .control_tick()
+            .checked_next()
+            .unwrap()
+            .is_simulation_boundary()
+    );
+    let (report, _) = session.command("eat 1").unwrap();
+    assert!(report.contains("Eating started:"), "{report}");
+    assert!(!report.contains("became stale"), "{report}");
+    assert!(matches!(
+        session.state.player_work().active(),
+        Some(PlayerWork::Eating { .. })
+    ));
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
+        Ok(())
+    );
+}
+
+#[test]
 fn repeated_gathering_matches_explicit_authoritative_batches() {
     let mut repeated = Session::new(24318).unwrap();
     let mut manual = Session::new(24318).unwrap();
@@ -247,6 +285,128 @@ fn shallow_aim_completes_an_overhead_timber_cover_on_the_played_seed() {
 }
 
 #[test]
+fn upward_aim_extends_a_real_walkable_shelter_over_lower_ground() {
+    use deep_hearth::logistics::{PlayerOverheadCoverAssessment, assess_player_overhead_cover};
+    use deep_hearth::matter::calculate_matter_accounting;
+
+    let mut session = Session::new(80705).unwrap();
+    let original_matter = calculate_matter_accounting(&session.state).unwrap().total();
+    // Build a post and a cap on the high side of the ledge, using ordinary
+    // finite gathering, crafting, fuel and construction, not fixture placement.
+    for command in [
+        "s 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "w 20",
+        "wait 10",
+        "gather 1 1000 repeat 22",
+        "e 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "gather 1 1000",
+        "wait work",
+        "build-fire",
+        "feed-fire 1 1",
+        "craft 14 17",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    for _ in 0..9 {
+        session.command("wait work").unwrap();
+    }
+    assert!(session.state.player_work().active().is_none());
+    for command in [
+        "n 20",
+        "wait 10",
+        "n 20",
+        "wait 10",
+        "select 1",
+        "use n-down",
+        "wait boundary",
+        "wait work",
+        "select 3",
+        "use n-shallow",
+        "wait boundary",
+        "wait work",
+        // Approach the far side of the ledge; retain actual continuous motion.
+        "w 20",
+        "wait 10",
+        "w 20",
+        "wait 10",
+        "n 20",
+        "wait 10",
+        "n 20",
+        "wait 10",
+        "n 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    assert_eq!(
+        session.player_position().unwrap(),
+        VoxelCoord::new(8, -2, 5)
+    );
+    let before = snapshot(&session);
+    let (preview, _) = session.command("look s-up").unwrap();
+    assert!(preview.contains("panel would occupy (8,0,7)"), "{preview}");
+    assert!(
+        preview.contains("Potential standing space at (8,-2,7)"),
+        "{preview}"
+    );
+    assert_eq!(snapshot(&session), before);
+    for command in [
+        "use s-up",
+        "wait boundary",
+        "wait work",
+        "s 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "s 2",
+        "wait 10",
+        "e 2",
+        "wait 10",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    assert_eq!(
+        session.player_position().unwrap(),
+        VoxelCoord::new(8, -2, 7)
+    );
+    assert_eq!(
+        assess_player_overhead_cover(&session.registries, &session.state),
+        Some(PlayerOverheadCoverAssessment::Covered)
+    );
+    assert!(
+        session
+            .command("look")
+            .unwrap()
+            .0
+            .contains("cover: Covered")
+    );
+    assert_eq!(
+        calculate_matter_accounting(&session.state).unwrap().total(),
+        original_matter
+    );
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
+        Ok(())
+    );
+}
+
+#[test]
 fn directional_jump_can_regain_a_one_voxel_ledge_on_the_played_seed() {
     let mut session = Session::new(80705).unwrap();
     for command in [
@@ -269,17 +429,25 @@ fn directional_jump_can_regain_a_one_voxel_ledge_on_the_played_seed() {
 }
 
 #[test]
-fn directional_jump_is_one_impulse_even_when_held_movement_outlasts_landing() {
+fn directional_jump_rebuilds_velocity_after_blocked_launch_and_matches_one_impulse() {
     let mut played = Session::new(24318).unwrap();
     let mut reference = Session::new(24318).unwrap();
     for _ in 0..7 {
         played.command("n 240").unwrap();
         reference.command("n 240").unwrap();
     }
+    let before = played.player_position().unwrap();
     let (report, _) = played.command("jump n 240").unwrap();
-    assert!(
-        report.contains("Fall impact:"),
-        "the blocked directional jump must report its real landing: {report}"
+    let after = played.player_position().unwrap();
+    assert_eq!(
+        after.z(),
+        before.z() - 1,
+        "the jump must cross the previously blocked ledge: {report}"
+    );
+    assert_eq!(
+        after.y(),
+        before.y() + 1,
+        "the ledge must really be cleared, not tunneled through: {report}"
     );
     let elapsed: u64 = report
         .lines()
@@ -289,17 +457,6 @@ fn directional_jump_is_one_impulse_even_when_held_movement_outlasts_landing() {
         .parse()
         .unwrap();
     assert!(elapsed > 1 && elapsed < 240, "{report}");
-    assert_eq!(
-        played
-            .state
-            .logistics()
-            .player()
-            .unwrap()
-            .body()
-            .vertical_velocity(),
-        deep_hearth::spatial::VerticalVelocity::ZERO,
-        "the blocked jump must end on a real landing, not a second impulse"
-    );
     let north = HorizontalControlInput::new(0, -1_000_000).unwrap();
     for step in 0..elapsed {
         reference
@@ -1624,6 +1781,28 @@ fn rough_field_box_placement_and_local_quick_moves_are_production_backed() {
         assert!(session.command(invalid).is_err(), "{invalid}");
     }
     assert_eq!(snapshot(&session), before_rejections);
+
+    assert!(session.command("stash 1 1 400.001").is_err());
+    assert_eq!(snapshot(&session), before_rejections);
+    let (partial, _) = session.command("stash 1 1 125.375").unwrap();
+    assert!(
+        partial.contains("Stashed 125.375 g wood chips"),
+        "{partial}"
+    );
+    let before_partial_rejection = snapshot(&session);
+    assert!(session.command("withdraw 1 1 125.376").is_err());
+    assert_eq!(snapshot(&session), before_partial_rejection);
+    let (partial, _) = session.command("withdraw 1 1 125.375").unwrap();
+    assert!(
+        partial.contains("Withdrew 125.375 g wood chips"),
+        "{partial}"
+    );
+    assert_eq!(
+        deep_hearth::matter::calculate_matter_accounting(&session.state)
+            .unwrap()
+            .total(),
+        before_placement
+    );
 
     let (stashed, _) = session.command("stash 1 1").unwrap();
     assert!(stashed.contains("Stashed 400 g wood chips in rough timber field box"));

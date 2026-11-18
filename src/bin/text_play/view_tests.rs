@@ -548,6 +548,20 @@ fn built_fire_is_reported_from_its_real_warmth_radius_without_remote_fuel_access
     assert_eq!(stored, deep_hearth::content::CAMPFIRE_FUEL_THERMAL_ENERGY);
     let charge = super::super::fire::energy_label(stored);
     let local = super::status(&session.registries, &session.state);
+    let projected = deep_hearth::energy::passive_dissipation_ticks_until_empty(
+        &session.registries,
+        deep_hearth::content::ENERGY_STONE_RING_CAMPFIRE,
+        stored,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(
+        local.contains(&format!(
+            "passive burn remaining ~{}",
+            super::runway_label(Some(projected.value()))
+        )),
+        "{local}"
+    );
     assert!(
         local.contains(&format!(
             "Local warmth: stone-ring campfire | {charge} stored"

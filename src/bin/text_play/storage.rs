@@ -3,11 +3,15 @@
 use std::fmt::Write as _;
 
 use super::view;
+use deep_hearth::core::quantity::Mass;
 use deep_hearth::inventory::{
     PlayerStoragePlacementError, StorageDefinitionId, StorageEnclosureConstructionError,
     validate_place_player_storage,
 };
-use deep_hearth::logistics::{project_player_inventory, validate_quick_move_player_stack};
+use deep_hearth::logistics::{
+    project_player_inventory, validate_drop_stack_to_ground, validate_pickup_stack_from_ground,
+    validate_quick_move_player_stack,
+};
 use deep_hearth::{AppState, Registries};
 
 fn local_storage_name<'a>(
@@ -89,7 +93,9 @@ pub fn catalog(registries: &Registries, state: &AppState, all: bool) -> Result<S
     if ready_count == 0 && !all {
         output.push_str("  None currently placeable. Use 'storage all' to inspect blockers.\n");
     }
-    output.push_str("Local containers (stash CONTAINER STACK / withdraw CONTAINER STACK):\n");
+    output.push_str(
+        "Local containers (stash CONTAINER STACK [grams] / withdraw CONTAINER STACK [grams]):\n",
+    );
     if projection.local_containers().is_empty() {
         output.push_str("  (none)\n");
     }
@@ -132,6 +138,7 @@ pub fn move_stack(
     container_index: usize,
     stack_index: usize,
     take_from_container: bool,
+    requested: Option<Mass>,
 ) -> Result<String, String> {
     let projection =
         project_player_inventory(registries, state).map_err(|error| error.to_string())?;
@@ -160,10 +167,22 @@ pub fn move_stack(
         .commodity_name(stack.commodity())
         .unwrap_or("unidentified material")
         .to_owned();
-    let moved = validate_quick_move_player_stack(registries, state, stack, destination)
-        .map_err(|error| error.to_string())?
-        .commit(state)
+    let moved_mass = if let Some(mass) = requested {
+        let transfer = if take_from_container {
+            validate_pickup_stack_from_ground(registries, state, container.stockpile(), stack, mass)
+        } else {
+            validate_drop_stack_to_ground(registries, state, destination, stack, mass)
+        }
         .map_err(|error| error.to_string())?;
+        transfer.commit(state).map_err(|error| error.to_string())?;
+        mass
+    } else {
+        validate_quick_move_player_stack(registries, state, stack, destination)
+            .map_err(|error| error.to_string())?
+            .commit(state)
+            .map_err(|error| error.to_string())?
+            .mass()
+    };
     Ok(format!(
         "{} {} g {commodity} {} {}.\n",
         if take_from_container {
@@ -171,7 +190,7 @@ pub fn move_stack(
         } else {
             "Stashed"
         },
-        view::grams(moved.mass()),
+        view::grams(moved_mass),
         if take_from_container { "from" } else { "in" },
         local_storage_name(registries, container.storage_definition()),
     ))

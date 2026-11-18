@@ -69,7 +69,7 @@ fn generated_water_sight_is_physical_even_when_the_water_is_not_drinkable() {
     let first_id = create(&mut state, first, cool);
     let _occluded_id = create(&mut state, occluded, cool);
     let second_id = create(&mut state, second, cool);
-    let _remote_id = create(&mut state, remote, cool);
+    let remote_id = create(&mut state, remote, cool);
     let hot_id = create(&mut state, scalding, Temperature::from_millikelvin(345_150));
     let observed = |state: &AppState| {
         available_visible_generated_water(&registries, state)
@@ -96,6 +96,32 @@ fn generated_water_sight_is_physical_even_when_the_water_is_not_drinkable() {
         expected,
         "hot water is still visible, but rock, distance, and missing graph edges do not disclose other sources"
     );
+    let landmarks = |state: &AppState| {
+        available_visible_water_landmarks(&registries, state)
+            .into_iter()
+            .map(|source| (source.store(), source.position()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(landmarks(&state), vec![(remote_id, remote)]);
+    let mut obstructed = state.clone();
+    for wall_y in [y, y + 1] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut obstructed,
+            VoxelCoord::new(5, wall_y, 2),
+            BLOCK_STATE_STONE,
+        );
+    }
+    assert!(landmarks(&obstructed).is_empty());
+    assert!(matches!(
+        validate_drink(
+            &registries,
+            &state,
+            remote_id,
+            Volume::from_microliters(250_000)
+        ),
+        Err(DrinkError::Access(_))
+    ));
     // A waist-high view from the player's feet would incorrectly disclose
     // water behind an opaque overhang. The physical eye and the low passage
     // must both have an open line to the source.
@@ -159,6 +185,7 @@ fn generated_water_sight_is_physical_even_when_the_water_is_not_drinkable() {
         ),
     );
     assert!(observed(&dead).is_empty());
+    assert!(landmarks(&dead).is_empty());
     assert_eq!(validate_loaded_state(&registries, &dead), Ok(()));
 
     let day_ticks = registries.core().calendar().ticks_per_day();
@@ -167,6 +194,7 @@ fn generated_water_sight_is_physical_even_when_the_water_is_not_drinkable() {
         observed(&state).is_empty(),
         "unlit water cannot be seen at night"
     );
+    assert!(landmarks(&state).is_empty());
     let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
     let restored = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
         .unwrap()

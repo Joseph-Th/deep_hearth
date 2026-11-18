@@ -1,4 +1,4 @@
-//! Grounded horizontal control, stance, ledge safety, and bounded acceleration.
+//! Horizontal control, stance, ledge safety, and bounded acceleration.
 //! This is the sole horizontal control decision used by live motion and walk replay.
 
 use crate::core::quantity::Mass;
@@ -90,10 +90,17 @@ fn resolve_desired_horizontal_velocity(
     input: PlayerControlInput,
     projected_load: Option<(Mass, Mass)>,
 ) -> Result<HorizontalVelocity, PlayerBodyMotionError> {
-    if !availability.grounded && !availability.busy {
+    // A jump against a ledge clips horizontal velocity on the rising frames.
+    // Held directional input must be able to rebuild it once the feet clear
+    // the edge. Neutral airborne input preserves momentum; no second launch
+    // or artificial step-up is introduced.
+    if !availability.grounded
+        && !availability.busy
+        && (!availability.alive || input.horizontal().is_neutral())
+    {
         return Ok(before.horizontal_velocity());
     }
-    if !availability.accepts_ground_control() {
+    if !availability.alive || availability.busy {
         return desired_horizontal_velocity(
             locomotion.walking_speed().nanometers_per_second(),
             HorizontalControlInput::NEUTRAL,
@@ -109,7 +116,7 @@ fn resolve_desired_horizontal_velocity(
     });
     let target_speed = match stance {
         PlayerStance::Crouching => locomotion.crouching_speed_for_load(carried, capacity),
-        PlayerStance::Standing if input.sprint() => {
+        PlayerStance::Standing if availability.grounded && input.sprint() => {
             locomotion.sprinting_speed_for_load(carried, capacity)
         }
         PlayerStance::Standing => locomotion.walking_speed_for_load(carried, capacity),

@@ -211,6 +211,24 @@ impl LogisticsState {
         nearby
     }
 
+    /// Bounded candidate lookup for physical water landmark sightlines.
+    pub(crate) fn fluid_store_locations_near(
+        &self,
+        position: VoxelCoord,
+        radius: u8,
+    ) -> impl Iterator<Item = (FluidStoreId, VoxelCoord)> + '_ {
+        let reach = i64::from(radius);
+        let low = VoxelCoord::new(position.x().saturating_sub(reach), i64::MIN, i64::MIN);
+        let high = VoxelCoord::new(position.x().saturating_add(reach), i64::MAX, i64::MAX);
+        self.fluid_stores_by_position
+            .range(low..=high)
+            .filter(move |(at, _)| {
+                at.y().abs_diff(position.y()) <= u64::from(radius)
+                    && at.z().abs_diff(position.z()) <= u64::from(radius)
+            })
+            .flat_map(|(at, stores)| stores.iter().map(move |id| (*id, *at)))
+    }
+
     #[must_use]
     pub(crate) fn has_stationary_occupant_at(&self, position: VoxelCoord) -> bool {
         self.stockpiles_by_position.contains_key(&position)

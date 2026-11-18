@@ -34,7 +34,7 @@ fn usage() -> &'static str {
      surveys [width], prospect MATERIAL METHOD [width] [with TOOL], knowledge [width],\n\
      mine MATERIAL GRAMS with TOOL [using METHOD], ore, dress PROCESS STACK GRAMS,\n\
      gear [all], assemble ID, take N, equip N, recover N,\n\
-     storage [all], place-store ID, stash CONTAINER STACK, withdraw CONTAINER STACK,\n\
+     storage [all], place-store ID, stash CONTAINER STACK [grams], withdraw CONTAINER STACK [grams],\n\
      fire, build-fire, feed-fire FIRE STACK,\n\
      n|s|e|w [ticks], sprint|sneak DIRECTION [ticks], crouch [ticks],\n\
      jump [direction] [ticks], wait [ticks|work|boundary|until PHASE],\n\
@@ -42,7 +42,8 @@ fn usage() -> &'static str {
      shove|strike|prepare|release [direction], cancel, slot N, select N,\n\
      empty, drop, respawn, save SLOT, quit.\n\
      Directions for pointing: n, s, e, w, up, down, n-down, s-down, e-down, w-down,\n\
-     n-shallow, s-shallow, e-shallow, w-shallow (aim at the top of neighboring posts).\n\
+     n-shallow, s-shallow, e-shallow, w-shallow (aim downward),\n\
+     n-up, s-up, e-up, w-up (aim at the side of raised framing).\n\
      Text play uses real 20 Hz control steps, never simulated turns."
 }
 

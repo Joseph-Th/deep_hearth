@@ -225,9 +225,18 @@ fn control_command_dispatch_preserves_clock_and_rejects_bad_arguments_atomically
 }
 
 #[test]
-fn shallow_aim_directions_are_valid_for_pointing_but_not_walking() {
+fn angled_aim_directions_are_valid_for_pointing_but_not_walking() {
     let mut session = Session::new(24318).unwrap();
-    for direction in ["n-shallow", "s-shallow", "e-shallow", "w-shallow"] {
+    for direction in [
+        "n-shallow",
+        "s-shallow",
+        "e-shallow",
+        "w-shallow",
+        "n-up",
+        "s-up",
+        "e-up",
+        "w-up",
+    ] {
         let (look, _) = session.command(&format!("look {direction}")).unwrap();
         assert!(look.contains("At ("), "{look}");
         assert!(session.command(&format!("sprint {direction} 20")).is_err());
