@@ -78,7 +78,9 @@ pub use state::{
     WorldChunk, WorldSection, WorldState,
 };
 pub(crate) use targeting::player_eye_voxel;
-pub use targeting::{PlayerBlockTarget, PlayerBlockTargetError, raycast_player_block};
+pub use targeting::{
+    PlayerBlockTarget, PlayerBlockTargetError, aim_player_at_voxel, raycast_player_block,
+};
 pub(crate) use targeting::{raycast_player_air_voxel, raycast_player_air_voxel_with_reach};
 pub use transplant::{
     SaplingTransplantCommitError, SaplingTransplantError, SaplingTransplantOutcome,

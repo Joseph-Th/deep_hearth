@@ -315,9 +315,25 @@ fn upward_aim_extends_a_real_walkable_shelter_over_lower_ground() {
             .command(command)
             .unwrap_or_else(|error| panic!("{command}: {error}"));
     }
+    let checkpoint = snapshot(&session);
+    let mut reference = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+            .unwrap()
+            .into_state(&session.registries)
+            .unwrap(),
+        seed: None,
+    };
+    let (finished, _) = session.command("wait finish").unwrap();
+    assert!(finished.contains("Craft completed"), "{finished}");
     for _ in 0..9 {
-        session.command("wait work").unwrap();
+        reference.command("wait work").unwrap();
     }
+    assert_eq!(
+        snapshot(&session),
+        snapshot(&reference),
+        "long wait must settle the same work and every physical tick"
+    );
     assert!(session.state.player_work().active().is_none());
     for command in [
         "n 20",
@@ -372,10 +388,7 @@ fn upward_aim_extends_a_real_walkable_shelter_over_lower_ground() {
         "wait 10",
         "s 20",
         "wait 10",
-        "s 2",
-        "wait 10",
-        "e 2",
-        "wait 10",
+        "center",
     ] {
         session
             .command(command)
@@ -404,6 +417,138 @@ fn upward_aim_extends_a_real_walkable_shelter_over_lower_ground() {
         deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
         Ok(())
     );
+}
+
+#[test]
+fn exact_supported_placement_builds_usable_shelter_on_level_ground() {
+    use deep_hearth::logistics::{PlayerOverheadCoverAssessment, assess_player_overhead_cover};
+    use deep_hearth::matter::calculate_matter_accounting;
+    let mut session = Session::new(80705).unwrap();
+    let original = calculate_matter_accounting(&session.state).unwrap().total();
+    for command in [
+        "s 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "w 20",
+        "wait 10",
+        "gather 1 1000 repeat 22",
+        "e 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "gather 1 1000",
+        "wait work",
+        "build-fire",
+        "feed-fire 1 1",
+        "select 1",
+        "use e-down",
+        "wait boundary",
+        "wait finish",
+        "craft 14 9",
+        "wait finish",
+        "center",
+        "wait boundary",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    let here = VoxelCoord::new(8, -1, 11);
+    assert_eq!(session.player_position().unwrap(), here);
+    let before = snapshot(&session);
+    for rejected in [
+        "build-at 1 7 1 11",
+        "build-at 1 8 -1 11",
+        "build-at 1 8 -2 11",
+        "build-at 1 8000 0 11",
+        "build-at 2 9 0 11",
+        "look at 9223372036854775807 0 0",
+    ] {
+        assert!(session.command(rejected).is_err(), "{rejected}");
+        assert_eq!(snapshot(&session), before);
+    }
+    for (plan, build) in [
+        ("plan-at 1 9 0 11", "build-at 1 9 0 11"),
+        ("plan-at 1 9 1 11", "build-at 1 9 1 11"),
+        ("plan-at 3 8 1 11", "build-at 3 8 1 11"),
+    ] {
+        let before = snapshot(&session);
+        assert!(session.command(plan).unwrap().0.contains("Ready:"));
+        assert_eq!(snapshot(&session), before, "preview is read-only");
+        assert!(
+            session
+                .command(build)
+                .unwrap()
+                .0
+                .contains("Structural construction started")
+        );
+        assert_eq!(
+            assess_player_overhead_cover(&session.registries, &session.state),
+            Some(PlayerOverheadCoverAssessment::Open),
+            "unfinished pieces grant no cover"
+        );
+        assert!(
+            session
+                .command("wait finish")
+                .unwrap()
+                .0
+                .contains("Construction finished")
+        );
+        assert_eq!(session.player_position().unwrap(), here);
+    }
+    assert_eq!(
+        assess_player_overhead_cover(&session.registries, &session.state),
+        Some(PlayerOverheadCoverAssessment::Covered)
+    );
+    let before = snapshot(&session);
+    let (pointed, _) = session.command("look at 8 1 11").unwrap();
+    assert!(
+        pointed.contains("Break target: panel at (8,1,11)"),
+        "{pointed}"
+    );
+    assert_eq!(snapshot(&session), before);
+    assert_eq!(
+        calculate_matter_accounting(&session.state).unwrap().total(),
+        original
+    );
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
+        Ok(())
+    );
+}
+
+#[test]
+fn centering_consumes_real_control_ticks_and_keeps_the_current_cell() {
+    use deep_hearth::spatial::{HorizontalVelocity, WorldPoint};
+    let mut session = Session::new(24318).unwrap();
+    for command in ["e 20", "wait 10"] {
+        session.command(command).unwrap();
+    }
+    let here = session.player_position().unwrap();
+    let target = WorldPoint::centered_on_voxel_floor(here).unwrap();
+    let before = session.state.control_tick();
+    let (report, _) = session.command("center").unwrap();
+    assert!(report.contains("Centred in the current cell"), "{report}");
+    assert!(session.state.control_tick() > before);
+    assert_eq!(session.player_position().unwrap(), here);
+    let body = session.state.logistics().player().unwrap().body();
+    assert!(
+        body.foot_position()
+            .x_nanometers()
+            .abs_diff(target.x_nanometers())
+            <= 30_000_000
+    );
+    assert!(
+        body.foot_position()
+            .z_nanometers()
+            .abs_diff(target.z_nanometers())
+            <= 30_000_000
+    );
+    assert_eq!(body.horizontal_velocity(), HorizontalVelocity::ZERO);
+    let settled = snapshot(&session);
+    session.command("center").unwrap();
+    assert_eq!(snapshot(&session), settled);
 }
 
 #[test]

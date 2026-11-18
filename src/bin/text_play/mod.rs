@@ -436,21 +436,57 @@ impl Session {
             let wait = activity::remaining_work_control_ticks(&self.state)
                 .ok_or("gathering started without a scheduled completion")?
                 .min(7_200);
-            output.push_str(&self.advance_many_compact(
-                PlayerDirectControlInput::NEUTRAL,
+            let (received, interrupted) = self.await_batch(
+                stepping::BatchReceipt::Gathered(original.resource()),
                 wait,
-                true,
-            )?);
-            if self.state.player_work().active().is_some() {
+                &mut output,
+            )?;
+            completed += usize::from(received);
+            if !received || interrupted {
                 let _ = writeln!(
                     output,
-                    "Gather repeat: interrupted after {completed} completed batches; finish the active work before repeating."
+                    "Gather repeat: interrupted after {completed} completed batches."
                 );
                 break;
             }
-            completed += 1;
         }
         let _ = writeln!(output, "Gather repeat: {completed} batches completed.");
+        output.push_str(&view::look(&self.registries, &self.state, None));
+        Ok(output)
+    }
+
+    fn mine_repeated(&mut self, args: &[&str], count: &str) -> Result<String, String> {
+        let count = count
+            .parse::<usize>()
+            .map_err(|_| "repeat count must be a whole number")?;
+        if !(1..=32).contains(&count) {
+            return Err("repeat count must be between 1 and 32".to_owned());
+        }
+        let order = geology::mining_order(&self.registries, &self.state, args)?;
+        let mut output = String::new();
+        let mut completed = 0;
+        for _ in 0..count {
+            let (job, started) = match order.start(&self.registries, &mut self.state) {
+                Ok(started) => started,
+                Err(error) if completed == 0 => return Err(error),
+                Err(error) => {
+                    let _ = writeln!(output, "Mining repeat stopped: {error}");
+                    break;
+                }
+            };
+            output.push_str(&started);
+            let wait = activity::remaining_work_control_ticks(&self.state)
+                .ok_or("mining started without a scheduled completion")?
+                .min(72_000);
+            let (received, interrupted) =
+                self.await_batch(stepping::BatchReceipt::Mined(job), wait, &mut output)?;
+            completed += usize::from(received);
+            if !received || interrupted {
+                output.push_str("Mining repeat interrupted by work or a condition change.\n");
+                break;
+            }
+        }
+        let _ = writeln!(output, "Mining repeat: {completed} batches completed.");
         output.push_str(&view::look(&self.registries, &self.state, None));
         Ok(output)
     }

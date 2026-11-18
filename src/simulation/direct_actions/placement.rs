@@ -18,6 +18,7 @@ use super::structural_target::{
 mod storage;
 mod timber;
 pub(super) use storage::{attempt_selected_storage_placement, attempt_storage_placement};
+pub(in crate::simulation) use timber::validate_supported_timber_at;
 pub(super) use timber::{
     attempt_selected_timber_cover_placement, attempt_selected_timber_placement,
 };

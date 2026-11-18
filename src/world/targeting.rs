@@ -85,31 +85,7 @@ fn clear_landmark_ray(
     eye: WorldPoint,
     target: VoxelCoord,
 ) -> bool {
-    let Some(floor) = WorldPoint::centered_on_voxel_floor(target) else {
-        return false;
-    };
-    let Some(center_y) = floor.y_nanometers().checked_add(500_000_000) else {
-        return false;
-    };
-    let delta = [
-        i128::from(floor.x_nanometers()) - i128::from(eye.x_nanometers()),
-        i128::from(center_y) - i128::from(eye.y_nanometers()),
-        i128::from(floor.z_nanometers()) - i128::from(eye.z_nanometers()),
-    ];
-    let squared = delta
-        .iter()
-        .map(|&axis| (axis * axis) as u128)
-        .sum::<u128>();
-    let length = squared.isqrt();
-    if length == 0 {
-        return false;
-    }
-    let [Some(x), Some(y), Some(z)] =
-        delta.map(|axis| i32::try_from(axis * 1_000_000 / length as i128).ok())
-    else {
-        return false;
-    };
-    let Ok(direction) = ViewDirection::new(x, y, z) else {
+    let Some((direction, length)) = direction_to_voxel_center(eye, target) else {
         return false;
     };
     let Some(reach) = i64::try_from(length)
@@ -141,11 +117,52 @@ fn clear_landmark_ray(
         == Some(Some(()))
 }
 
+/// Aim from the current physical eye toward a voxel centre. This is input
+/// geometry only: the regular action ray still resolves the first hit and
+/// enforces interaction reach, occlusion and all operation admission.
+pub fn aim_player_at_voxel(
+    registries: &Registries,
+    state: &AppState,
+    target: VoxelCoord,
+) -> Result<ViewDirection, PlayerBlockTargetError> {
+    let (eye, _) = player_view_origin_and_reach(registries, state)?;
+    direction_to_voxel_center(eye, target)
+        .map(|(direction, _)| direction)
+        .ok_or(PlayerBlockTargetError::InvalidAimPoint)
+}
+
+fn direction_to_voxel_center(eye: WorldPoint, target: VoxelCoord) -> Option<(ViewDirection, u128)> {
+    let floor = WorldPoint::centered_on_voxel_floor(target)?;
+    let center_y = floor.y_nanometers().checked_add(500_000_000)?;
+    let delta = [
+        i128::from(floor.x_nanometers()) - i128::from(eye.x_nanometers()),
+        i128::from(center_y) - i128::from(eye.y_nanometers()),
+        i128::from(floor.z_nanometers()) - i128::from(eye.z_nanometers()),
+    ];
+    // Normalization must also be safe for manually supplied coordinates at
+    // opposite ends of the represented continuous world.
+    let squared = delta.iter().try_fold(0_u128, |sum, axis| {
+        let magnitude = axis.unsigned_abs();
+        sum.checked_add(magnitude.checked_mul(magnitude)?)
+    })?;
+    let length = squared.isqrt();
+    if length == 0 {
+        return None;
+    }
+    let [Some(x), Some(y), Some(z)] =
+        delta.map(|axis| i32::try_from(axis * 1_000_000 / length as i128).ok())
+    else {
+        return None;
+    };
+    Some((ViewDirection::new(x, y, z).ok()?, length))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerBlockTargetError {
     PlayerNotAdmitted,
     PlayerDead,
     EyeCoordinateOverflow,
+    InvalidAimPoint,
     WorldAuthorityUnavailable { voxel: VoxelCoord },
     EyeInsideSolid { voxel: VoxelCoord },
 }
@@ -159,6 +176,9 @@ impl Display for PlayerBlockTargetError {
             Self::PlayerDead => formatter.write_str("dead player cannot target the world"),
             Self::EyeCoordinateOverflow => formatter
                 .write_str("player eye or interaction reach exceeded continuous world coordinates"),
+            Self::InvalidAimPoint => {
+                formatter.write_str("aim point cannot be represented from the current eye position")
+            }
             Self::WorldAuthorityUnavailable { voxel } => write!(
                 formatter,
                 "block targeting reached unavailable world truth at voxel ({},{},{})",

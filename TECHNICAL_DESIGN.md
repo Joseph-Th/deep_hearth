@@ -146,7 +146,12 @@ buffering. Invalid aims and missing materials reject immediately. Full-footprint
 cover panels also reject occupied loose-matter cells and living forage roots,
 including fruit-depleted shrubs. Narrow timber posts may share those cells under
 the canonical structural footprint rules. A feasible construction still waits
-for canonical slow-tick admission and revalidation.
+for canonical slow-tick admission and revalidation. Explicit supported-timber placement
+accepts an exact carried stack and reachable empty destination at a slow boundary.
+A bounded eye ray must reach that destination, and the same structural plan validator
+requires active face-adjacent support, valid occupancy, physical materials and attention.
+This admits upper framing and overhead panels on level terrain without a support-face
+pointing workaround; preview and commitment share the same read-only admission.
 Selected food, local drinking, and surface gathering now admit on the
 20 Hz input frame through their canonical inventory, fluid, and labor
 validators. Valid actions immediately hold player attention and reserve or

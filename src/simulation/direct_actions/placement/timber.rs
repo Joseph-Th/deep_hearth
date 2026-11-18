@@ -35,37 +35,96 @@ fn attempt_supported_timber_placement(
         Ok(None) => return None,
         Err(error) => return Some(error),
     };
-    let geometry = StructuralElementGeometry::new(
-        bounds,
-        BASIC_TIMBER_POST_LENGTH,
-        BASIC_TIMBER_POST_CROSS_SECTION,
-    )
-    .unwrap_or_else(|error| panic!("built-in supported timber geometry is invalid: {error}"));
+    Some(commit_supported_timber(
+        registries, state, stack, bounds, supports,
+    ))
+}
+
+fn validate_supported_timber(
+    registries: &Registries,
+    state: &AppState,
+    stack: &crate::inventory::MaterialStackProjection,
+    bounds: crate::spatial::VoxelBounds,
+    supports: Vec<crate::structural::StructuralElementId>,
+) -> Result<
+    crate::structural::ValidatedPlayerSupportedStructuralConstructionStart,
+    SecondaryActionOutcome,
+> {
+    let (length, area) = match stack.commodity() {
+        commodity if commodity == CommodityKey::new(MATERIAL_WOOD, FORM_LOG) => {
+            (BASIC_TIMBER_POST_LENGTH, BASIC_TIMBER_POST_CROSS_SECTION)
+        }
+        commodity if commodity == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD) => (
+            BASIC_TIMBER_COVER_PANEL_THICKNESS,
+            BASIC_TIMBER_COVER_PANEL_AREA,
+        ),
+        _ => return Err(SecondaryActionOutcome::MaterialNotContextual),
+    };
+    let geometry = StructuralElementGeometry::new(bounds, length, area)
+        .unwrap_or_else(|error| panic!("built-in timber geometry is invalid: {error}"));
     let plan = MultiSupportedStructuralElementPlan::new(
         STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
         MATERIAL_WOOD,
         geometry,
         supports,
     );
-    Some(
-        match validate_start_player_multi_supported_structural_construction_from_stack(
-            registries,
-            state,
-            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
-            plan,
-            stack,
-        ) {
-            Ok(validated) => {
-                let work = validated.commit(state).unwrap_or_else(|error| {
-                    panic!(
-                        "runtime invariant broken: synchronous supported timber placement became stale: {error}"
-                    )
-                });
-                SecondaryActionOutcome::StructuralConstructionStarted(work)
-            }
-            Err(error) => SecondaryActionOutcome::StructuralPlacementRejected(error),
-        },
+    validate_start_player_multi_supported_structural_construction_from_stack(
+        registries,
+        state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        plan,
+        stack,
     )
+    .map_err(SecondaryActionOutcome::StructuralPlacementRejected)
+}
+
+fn commit_supported_timber(
+    registries: &Registries,
+    state: &mut AppState,
+    stack: &crate::inventory::MaterialStackProjection,
+    bounds: crate::spatial::VoxelBounds,
+    supports: Vec<crate::structural::StructuralElementId>,
+) -> SecondaryActionOutcome {
+    match validate_supported_timber(registries, state, stack, bounds, supports) {
+        Ok(validated) => SecondaryActionOutcome::StructuralConstructionStarted(
+            validated.commit(state).unwrap_or_else(|error| {
+                panic!(
+                    "runtime invariant broken: synchronous timber placement became stale: {error}"
+                )
+            }),
+        ),
+        Err(error) => error,
+    }
+}
+
+/// Explicit destination placement is an alternative to selecting a support's
+/// struck face, not to physical reach, occupancy, support or work admission.
+pub(in crate::simulation) fn validate_supported_timber_at(
+    registries: &Registries,
+    state: &AppState,
+    stack: &crate::inventory::MaterialStackProjection,
+    position: crate::spatial::VoxelCoord,
+) -> Result<
+    crate::structural::ValidatedPlayerSupportedStructuralConstructionStart,
+    SecondaryActionOutcome,
+> {
+    let direction = crate::world::aim_player_at_voxel(registries, state, position)
+        .map_err(SecondaryActionOutcome::StructuralTargetRejected)?;
+    let reached =
+        crate::world::raycast_player_air_voxel(registries, state, direction, |voxel, _| {
+            (voxel == position).then_some(())
+        })
+        .map_err(SecondaryActionOutcome::StructuralTargetRejected)?;
+    if reached.is_none() {
+        return Err(SecondaryActionOutcome::NoStructuralPlacementTarget);
+    }
+    super::validate_direct_placement_position(registries, state, position)
+        .map_err(structural_placement_error)?;
+    validate_structural_placement_position(state, position).map_err(structural_placement_error)?;
+    let bounds = single_voxel_bounds(position)
+        .ok_or(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow)?;
+    let supports = super::local_active_face_supports(state, position, bounds);
+    validate_supported_timber(registries, state, stack, bounds, supports)
 }
 
 pub(in crate::simulation::direct_actions) fn attempt_selected_timber_cover_placement(
@@ -95,37 +154,9 @@ pub(in crate::simulation::direct_actions) fn attempt_selected_timber_cover_place
     if !state.control_tick().is_simulation_boundary() {
         return Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary);
     }
-    let geometry = StructuralElementGeometry::new(
-        bounds,
-        BASIC_TIMBER_COVER_PANEL_THICKNESS,
-        BASIC_TIMBER_COVER_PANEL_AREA,
-    )
-    .unwrap_or_else(|error| panic!("built-in timber cover-panel geometry is invalid: {error}"));
-    let plan = MultiSupportedStructuralElementPlan::new(
-        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
-        MATERIAL_WOOD,
-        geometry,
-        supports,
-    );
-    Some(
-        match validate_start_player_multi_supported_structural_construction_from_stack(
-            registries,
-            state,
-            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
-            plan,
-            stack,
-        ) {
-            Ok(validated) => {
-                let work = validated.commit(state).unwrap_or_else(|error| {
-                    panic!(
-                        "runtime invariant broken: synchronous timber cover placement became stale: {error}"
-                    )
-                });
-                SecondaryActionOutcome::StructuralConstructionStarted(work)
-            }
-            Err(error) => SecondaryActionOutcome::StructuralPlacementRejected(error),
-        },
-    )
+    Some(commit_supported_timber(
+        registries, state, stack, bounds, supports,
+    ))
 }
 
 /// Placement needs one physical material cohort, but an invalid pointed post

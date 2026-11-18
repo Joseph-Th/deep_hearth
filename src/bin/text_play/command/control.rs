@@ -7,7 +7,6 @@ use deep_hearth::logistics::{PlayerControlInput, PlayerQuickAccessSlot};
 use deep_hearth::simulation::{
     PlayerDirectControlInput, PrimaryControlIntent, SecondaryControlIntent,
 };
-use deep_hearth::spatial::ViewDirection;
 use deep_hearth::world::DayPhase;
 
 const MAX_MOVEMENT_TICKS: u64 = 240;
@@ -87,10 +86,15 @@ impl Session {
                 };
                 self.advance_until_phase(target)?
             }
-            "wait" if args == ["work"] => {
+            "center" if args.is_empty() => self.center_in_cell()?,
+            "wait" if args == ["work"] || args == ["finish"] => {
                 let count = activity::remaining_work_control_ticks(&self.state)
                     .ok_or("no active work with a scheduled completion; use wait [ticks]")?
-                    .min(MAX_WAIT_TICKS);
+                    .min(if args == ["finish"] {
+                        72_000
+                    } else {
+                        MAX_WAIT_TICKS
+                    });
                 self.advance_many_with_work_wait(
                     PlayerDirectControlInput::NEUTRAL,
                     count,
@@ -102,15 +106,15 @@ impl Session {
                 let count = parse_count(args.first().copied(), 72, MAX_WAIT_TICKS)?;
                 self.advance_many(PlayerDirectControlInput::NEUTRAL, count, false)?
             }
-            "use" if args.len() <= 1 => {
-                let aim = aim_or_default(args)?;
+            "use" => {
+                let aim = self.parse_aim(args)?;
                 self.advance_one(
                     PlayerDirectControlInput::NEUTRAL
                         .with_secondary(SecondaryControlIntent::use_active(aim)),
                 )?
             }
-            "break" | "shove" | "strike" | "prepare" | "release" if args.len() <= 1 => {
-                let aim = aim_or_default(args)?;
+            "break" | "shove" | "strike" | "prepare" | "release" => {
+                let aim = self.parse_aim(args)?;
                 let primary = match verb {
                     "break" => PrimaryControlIntent::break_target(aim),
                     "shove" => PrimaryControlIntent::shove(aim),
@@ -137,13 +141,6 @@ impl Session {
         };
         Ok(Some(output))
     }
-}
-
-fn aim_or_default(args: &[&str]) -> Result<ViewDirection, String> {
-    let direction = args
-        .first()
-        .map_or(Ok(Direction::Down), |arg| Direction::parse(arg))?;
-    Ok(direction.aim())
 }
 
 fn parse_count(text: Option<&str>, default: u64, max: u64) -> Result<u64, String> {

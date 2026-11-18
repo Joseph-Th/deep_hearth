@@ -32,15 +32,17 @@ fn usage() -> &'static str {
      eat STACK, drink, drink SOURCE,\n\
      recipes [all], craft PROCESS_ID [batches] [from STACK] [with TOOL],\n\
      surveys [width], prospect MATERIAL METHOD [width] [with TOOL], knowledge [width],\n\
-     mine MATERIAL GRAMS with TOOL [using METHOD], ore, dress PROCESS STACK GRAMS,\n\
+     mine MATERIAL GRAMS with TOOL [using METHOD] [repeat COUNT], ore, dress PROCESS STACK GRAMS,\n\
      gear [all], assemble ID, take N, equip N, recover N,\n\
      storage [all], place-store ID, stash CONTAINER STACK [grams], withdraw CONTAINER STACK [grams],\n\
+     plan-at STACK X Y Z, build-at STACK X Y Z (supported framing or panel),\n\
      fire, build-fire, feed-fire FIRE STACK,\n\
      n|s|e|w [ticks], sprint|sneak DIRECTION [ticks], crouch [ticks],\n\
-     jump [direction] [ticks], wait [ticks|work|boundary|until PHASE],\n\
-     use [direction], break [direction],\n\
+     jump [direction] [ticks], center, wait [ticks|work|finish|boundary|until PHASE],\n\
+     use [direction|at X Y Z], break [direction|at X Y Z],\n\
      shove|strike|prepare|release [direction], cancel, slot N, select N,\n\
      empty, drop, respawn, save SLOT, quit.\n\
+     Aim directly at a voxel centre with look/use/break at X Y Z; normal ray reach applies.\n\
      Directions for pointing: n, s, e, w, up, down, n-down, s-down, e-down, w-down,\n\
      n-shallow, s-shallow, e-shallow, w-shallow (aim downward),\n\
      n-up, s-up, e-up, w-up (aim at the side of raised framing).\n\

@@ -3,6 +3,7 @@
 use crate::core::state::AppState;
 use crate::equipment::equipment_occupancy;
 use crate::production::player_move_production_site_conflict;
+use crate::registry::Registries;
 use crate::spatial::{HorizontalVelocity, NANOMETERS_PER_VOXEL, VoxelCoord, WorldPoint};
 use crate::survival::LocomotionDefinition;
 
@@ -12,6 +13,62 @@ use super::{
     PlayerBodyMotionError, body_height, horizontal_voxel_bounds, integrate_velocity,
     length_nanometers,
 };
+
+/// Checks the straight standing-body sweep from the actual current foot
+/// position to a neighboring cell, preserving the perpendicular offset.
+/// This is geometric advice only, not a walk-time or permission guarantee.
+pub fn project_player_level_approach(
+    registries: &Registries,
+    state: &AppState,
+    destination: VoxelCoord,
+) -> bool {
+    let Some(player) = state.logistics().player() else {
+        return false;
+    };
+    let body = player
+        .body()
+        .with_stance(crate::logistics::PlayerStance::Standing);
+    let origin = body.voxel_position();
+    let dx = i128::from(destination.x()) - i128::from(origin.x());
+    let dz = i128::from(destination.z()) - i128::from(origin.z());
+    if destination.y() != origin.y() || dx.abs() + dz.abs() != 1 {
+        return false;
+    }
+    let Some(center) = WorldPoint::centered_on_voxel_floor(destination) else {
+        return false;
+    };
+    let locomotion = registries.survival().physiology().locomotion();
+    let foot = body.foot_position();
+    let (axis, proposed) = if dx != 0 {
+        (HorizontalAxis::X, center.x_nanometers())
+    } else {
+        (HorizontalAxis::Z, center.z_nanometers())
+    };
+    let blocked = |voxel| super::collision::player_cell_blocks_motion(registries, state, voxel);
+    if super::collision::first_player_body_collision_where(body, locomotion, &blocked).is_some() {
+        return false;
+    }
+    if !matches!(
+        sweep_horizontal_axis(body, locomotion, proposed, axis, &blocked),
+        Ok((_, false))
+    ) {
+        return false;
+    }
+    let endpoint = match axis {
+        HorizontalAxis::X => WorldPoint::new(proposed, foot.y_nanometers(), foot.z_nanometers()),
+        HorizontalAxis::Z => WorldPoint::new(foot.x_nanometers(), foot.y_nanometers(), proposed),
+    };
+    super::collision::player_body_is_grounded_at(
+        registries,
+        state,
+        body.with_motion(
+            endpoint,
+            crate::spatial::HorizontalVelocity::ZERO,
+            crate::spatial::VerticalVelocity::ZERO,
+            body.stance(),
+        ),
+    )
+}
 
 pub(super) fn resolve_horizontal_motion(
     body: PlayerBodyState,

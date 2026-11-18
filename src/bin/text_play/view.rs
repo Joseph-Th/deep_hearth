@@ -20,7 +20,7 @@ use deep_hearth::kobolds::{
 };
 use deep_hearth::logistics::{
     PlayerActiveSelection, PlayerOverheadCoverAssessment, assess_player_overhead_cover,
-    project_player_standing_space,
+    project_player_level_approach, project_player_standing_space,
 };
 use deep_hearth::material::CommodityKey;
 use deep_hearth::simulation::{
@@ -410,6 +410,13 @@ pub fn status(registries: &Registries, state: &AppState) -> String {
         player.body().stance(),
         meters_from_nanometers(player.body().foot_position().y_nanometers()),
     );
+    let foot = player.body().foot_position();
+    let _ = writeln!(
+        output,
+        "Within cell: x {} m, z {} m (centre 0.500, 0.500)",
+        meters_from_nanometers(foot.x_nanometers().rem_euclid(1_000_000_000)),
+        meters_from_nanometers(foot.z_nanometers().rem_euclid(1_000_000_000))
+    );
     output.push_str(&survival_status(registries, state));
     let active = state.logistics().active_selection();
     let (hand, material_carried) = hand_status(registries, state, active);
@@ -507,7 +514,7 @@ fn nearby_structure_report(registries: &Registries, state: &AppState) -> String 
             == Some(PlayerOverheadCoverAssessment::Open)
     {
         output.push_str(
-            "Nearby roof does not cover your standing position. Shelter requires a reachable space directly beneath a panel, with clearance for your whole body footprint. Even inside its voxel, a body straddling the edge may be exposed; try a short 1-2 tick movement and settle with 'wait 10'.\n",
+            "Nearby roof does not cover your standing position. Shelter requires a reachable space directly beneath a panel, with clearance for your whole body footprint. Even inside its voxel, a body straddling the edge may be exposed; use 'center' to move toward the centre without teleporting.\n",
         );
     }
     output
@@ -530,7 +537,11 @@ fn adjacent_footing(registries: &Registries, state: &AppState, dx: i64, dz: i64)
         return "unseen";
     }
     if project_player_standing_space(registries, state, next) {
-        return "level";
+        return if project_player_level_approach(registries, state, next) {
+            "level"
+        } else {
+            "level (approach obstructed)"
+        };
     }
     for (depth, label) in [(1, "down 1m"), (2, "drop 2m"), (3, "drop 3m")] {
         if let Some(y) = foot.y().checked_sub(depth)

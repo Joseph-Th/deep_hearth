@@ -6,7 +6,7 @@ mod primary;
 mod secondary;
 mod structural_target;
 
-pub(super) use placement::project_pointed_timber_cover_target;
+pub(super) use placement::{project_pointed_timber_cover_target, validate_supported_timber_at};
 
 /// Read-only structural break selection with the same standing-tree priority
 /// as the primary-action owner. Terrain and absent targets return None.

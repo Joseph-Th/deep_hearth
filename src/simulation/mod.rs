@@ -16,6 +16,20 @@ pub use outcome::{
     QuickAccessSelectionOutcome, SecondaryActionOutcome, TickOutcome,
 };
 
+/// Validate exact destination placement of a supported timber post or roof
+/// panel using a physical carried stack and the normal visible-air reach ray.
+pub fn validate_start_player_supported_timber_at(
+    registries: &crate::registry::Registries,
+    state: &crate::core::state::AppState,
+    stack: &crate::inventory::MaterialStackProjection,
+    position: crate::spatial::VoxelCoord,
+) -> Result<
+    crate::structural::ValidatedPlayerSupportedStructuralConstructionStart,
+    SecondaryActionOutcome,
+> {
+    direct_actions::validate_supported_timber_at(registries, state, stack, position)
+}
+
 /// Preview the physical destination of a pointed timber cover panel, without
 /// committing work or materials. Uses the placement owner's target resolution.
 pub fn project_pointed_timber_cover_target(

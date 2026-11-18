@@ -340,12 +340,22 @@ fn append_observation_details(
         );
     }
 }
+/// A repeated order retains the original opaque geological authorization and
+/// physical tool identity. Each batch still performs ordinary fresh admission.
+pub(super) struct MiningOrder {
+    target: deep_hearth::mining::MiningTargetResolution,
+    destination: deep_hearth::inventory::StockpileId,
+    tool: deep_hearth::equipment::EquipmentId,
+    method: MiningMethodId,
+    mass: deep_hearth::core::quantity::Mass,
+    equipment_index: usize,
+}
 
-pub fn mine(
+pub(super) fn mining_order(
     registries: &Registries,
-    state: &mut AppState,
+    state: &AppState,
     args: &[&str],
-) -> Result<String, String> {
+) -> Result<MiningOrder, String> {
     let [material, grams, "with", equipment, ..] = args else {
         return Err("usage: mine MATERIAL GRAMS with TOOL [using METHOD]".to_owned());
     };
@@ -380,14 +390,51 @@ pub fn mine(
         .player()
         .ok_or("no admitted player")?
         .carried_stockpile();
-    let work = validate_start_mining(registries, state, method, target, destination, tool, mass)
-        .map_err(super::errors::work_start_error)?;
-    let job = work.commit(state).map_err(|error| error.to_string())?;
-    Ok(format!(
-        "Started {} g {} extraction (job {:?}) with carried tool {}. Use 'wait work'.\n",
-        view::grams(mass),
-        material_name(registries, material),
-        job,
+    Ok(MiningOrder {
+        target,
+        destination,
+        tool,
+        method,
+        mass,
         equipment_index,
-    ))
+    })
+}
+
+impl MiningOrder {
+    pub(super) fn start(
+        self: &Self,
+        registries: &Registries,
+        state: &mut AppState,
+    ) -> Result<(deep_hearth::mining::MiningJobId, String), String> {
+        let work = validate_start_mining(
+            registries,
+            state,
+            self.method,
+            self.target,
+            self.destination,
+            self.tool,
+            self.mass,
+        )
+        .map_err(super::errors::work_start_error)?;
+        let job = work.commit(state).map_err(|error| error.to_string())?;
+        Ok((
+            job,
+            format!(
+                "Started {} g {} extraction (job {}) with carried tool {}. Use 'wait work'.\n",
+                view::grams(self.mass),
+                material_name(registries, self.target.material()),
+                job.value(),
+                self.equipment_index,
+            ),
+        ))
+    }
+}
+
+pub fn mine(
+    registries: &Registries,
+    state: &mut AppState,
+    args: &[&str],
+) -> Result<String, String> {
+    let order = mining_order(registries, state, args)?;
+    order.start(registries, state).map(|(_, report)| report)
 }

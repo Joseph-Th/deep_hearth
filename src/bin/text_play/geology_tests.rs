@@ -26,6 +26,59 @@ fn carried_stack(session: &Session, material_name: &str) -> usize {
 }
 
 #[test]
+fn repeated_mining_matches_explicit_batches_and_conserves_matter() {
+    let mut repeated = equipped_for_copper_survey_and_mining();
+    run(&mut repeated, "prospect copper 2 with 1");
+    finish_work(&mut repeated);
+    let before = snapshot(&repeated);
+    for invalid in [
+        "mine copper 200 with 2 repeat 0",
+        "mine copper 200 with 2 repeat 33",
+        "mine copper 200 with 99 repeat 3",
+    ] {
+        assert!(repeated.command(invalid).is_err(), "{invalid}");
+        assert_eq!(snapshot(&repeated), before);
+    }
+    let mut manual = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&before)
+            .unwrap()
+            .into_state(&repeated.registries)
+            .unwrap(),
+        seed: None,
+    };
+    let conserved = calculate_matter_accounting(&repeated.state)
+        .unwrap()
+        .total();
+    let report = run(&mut repeated, "mine copper 200 with 2 repeat 3");
+    assert!(
+        report.contains("Mining repeat: 3 batches completed"),
+        "{report}"
+    );
+    assert_eq!(
+        report.matches("Mining produced: 200 g").count(),
+        3,
+        "{report}"
+    );
+    for _ in 0..3 {
+        run(&mut manual, "mine copper 200 with 2");
+        finish_work(&mut manual);
+    }
+    assert_eq!(snapshot(&repeated), snapshot(&manual));
+    assert_eq!(
+        calculate_matter_accounting(&repeated.state)
+            .unwrap()
+            .total(),
+        conserved
+    );
+    assert!(run(&mut repeated, "inventory").contains("copper ore | 600 g"));
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&repeated.registries, &repeated.state),
+        Ok(())
+    );
+}
+
+#[test]
 fn mined_copper_ore_can_be_broken_and_sorted_into_finite_native_metal() {
     let mut session = equipped_for_copper_survey_and_mining();
     run(&mut session, "prospect copper 1");

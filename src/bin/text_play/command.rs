@@ -2,7 +2,8 @@
 
 use super::{Session, crafting, equipment, fire, geology, ore, storage, view};
 use deep_hearth::logistics::{HorizontalControlInput, PlayerControlInput};
-use deep_hearth::spatial::ViewDirection;
+use deep_hearth::spatial::{ViewDirection, VoxelCoord};
+use deep_hearth::world::aim_player_at_voxel;
 
 mod control;
 
@@ -109,6 +110,19 @@ impl Direction {
 }
 
 impl Session {
+    fn parse_aim(&self, args: &[&str]) -> Result<ViewDirection, String> {
+        match args {
+            [] => Ok(Direction::Down.aim()),
+            [direction] => Ok(Direction::parse(direction)?.aim()),
+            ["at", x, y, z] => {
+                let target = parse_voxel(x, y, z)?;
+                aim_player_at_voxel(&self.registries, &self.state, target)
+                    .map_err(|error| error.to_string())
+            }
+            _ => Err("use a direction or 'at X Y Z' to aim at a voxel centre".to_owned()),
+        }
+    }
+
     pub fn command(&mut self, line: &str) -> Result<(String, bool), String> {
         let tokens = line.split_ascii_whitespace().collect::<Vec<_>>();
         let Some(&verb) = tokens.first() else {
@@ -120,9 +134,13 @@ impl Session {
         }
         let output = match verb {
             "help" if args.is_empty() => super::super::usage().to_owned() + "\n",
-            "look" if args.len() <= 1 => {
-                let aim = args.first().map(|arg| Direction::parse(arg)).transpose()?;
-                view::look(&self.registries, &self.state, aim.map(Direction::aim))
+            "look" => {
+                let aim = if args.is_empty() {
+                    None
+                } else {
+                    Some(self.parse_aim(args)?)
+                };
+                view::look(&self.registries, &self.state, aim)
             }
             "status" if args.is_empty() => view::status(&self.registries, &self.state),
             "inventory" | "inv" if args.is_empty() => {
@@ -155,6 +173,9 @@ impl Session {
                 let result = geology::start(&self.registries, &mut self.state, args)?;
                 result + &view::status(&self.registries, &self.state)
             }
+            "mine" if let [order @ .., "repeat", count] = args => {
+                self.mine_repeated(order, count)?
+            }
             "mine" => {
                 let result = geology::mine(&self.registries, &mut self.state, args)?;
                 result + &view::status(&self.registries, &self.state)
@@ -183,6 +204,11 @@ impl Session {
                     _ => equipment::recover(&self.registries, &mut self.state, index),
                 }?;
                 report + &view::status(&self.registries, &self.state)
+            }
+            "plan-at" | "build-at" if args.len() == 4 => {
+                let stack = parse_index(args[0], usize::MAX)?;
+                let target = parse_voxel(args[1], args[2], args[3])?;
+                self.build_at(stack, target, verb == "plan-at")?
             }
             "storage" if args.is_empty() || args == ["all"] => {
                 storage::catalog(&self.registries, &self.state, args == ["all"])?
@@ -232,6 +258,19 @@ impl Session {
         };
         Ok((output, true))
     }
+}
+
+fn parse_voxel(x: &str, y: &str, z: &str) -> Result<VoxelCoord, String> {
+    let coordinate = |value: &str| {
+        value
+            .parse::<i64>()
+            .map_err(|_| "coordinates must be whole voxel coordinates".to_owned())
+    };
+    Ok(VoxelCoord::new(
+        coordinate(x)?,
+        coordinate(y)?,
+        coordinate(z)?,
+    ))
 }
 
 pub(super) fn parse_index(text: &str, maximum: usize) -> Result<usize, String> {

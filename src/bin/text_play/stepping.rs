@@ -6,20 +6,169 @@ use super::{Session, activity, crafting, view};
 mod feedback;
 use deep_hearth::energy::project_player_nearby_warmth_sources;
 use deep_hearth::labor::PlayerWork;
+use deep_hearth::logistics::{
+    HorizontalControlInput, PlayerControlInput, project_player_standing_space,
+};
+use deep_hearth::mining::MiningJobId;
 use deep_hearth::simulation::{
     PlayerDirectControlInput, SecondaryActionOutcome, advance_control_tick_with_direct_input,
 };
 use deep_hearth::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord};
-use deep_hearth::surface::SurfaceGatheringError;
+use deep_hearth::surface::{SurfaceGatheringError, SurfaceResourceId};
 use deep_hearth::survival::Vitality;
 use deep_hearth::world::{DayPhase, assess_player_weather};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum BatchReceipt {
+    Gathered(SurfaceResourceId),
+    Mined(MiningJobId),
+}
+
 pub(super) struct StepReport {
     noteworthy: bool,
+    other_event: bool,
+    batch_receipt: Option<BatchReceipt>,
     pub(super) stale_gathering_option: bool,
 }
 
 impl Session {
+    pub(super) fn build_at(
+        &mut self,
+        index: usize,
+        position: VoxelCoord,
+        preview: bool,
+    ) -> Result<String, String> {
+        let inventory =
+            deep_hearth::logistics::project_player_inventory(&self.registries, &self.state)
+                .map_err(|error| error.to_string())?;
+        let stack = inventory
+            .carried()
+            .stacks()
+            .get(index - 1)
+            .ok_or("no carried stack at that index")?;
+        let validated = deep_hearth::simulation::validate_start_player_supported_timber_at(
+            &self.registries,
+            &self.state,
+            stack,
+            position,
+        )
+        .map_err(|outcome| match outcome {
+            SecondaryActionOutcome::NoStructuralPlacementTarget => {
+                "destination is not a clear cell within pointing reach".to_owned()
+            }
+            SecondaryActionOutcome::MaterialNotContextual => {
+                "build-at requires a timber log or timber board stack".to_owned()
+            }
+            _ => feedback::secondary(&self.registries, &outcome),
+        })?;
+        if preview {
+            return Ok(format!(
+                "Ready: supported timber at ({},{},{}); current material, support and work admission passed.\n",
+                position.x(),
+                position.y(),
+                position.z()
+            ));
+        }
+        validated
+            .commit(&mut self.state)
+            .map_err(|error| error.to_string())?;
+        Ok(format!(
+            "Structural construction started at ({},{},{}).\n{}",
+            position.x(),
+            position.y(),
+            position.z(),
+            view::status(&self.registries, &self.state)
+        ))
+    }
+
+    /// Move toward the centre of the current grounded cell with sampled
+    /// low-amplitude input. Never snap, teleport, or bypass the motion owner.
+    pub(super) fn center_in_cell(&mut self) -> Result<String, String> {
+        if self
+            .state
+            .survival()
+            .player()
+            .is_none_or(|player| player.vitality() == Vitality::ZERO)
+        {
+            return Err("a living admitted player is required to center".to_owned());
+        }
+        let origin = self.player_position()?;
+        let body = self
+            .state
+            .logistics()
+            .player()
+            .ok_or("no player admitted")?
+            .body();
+        if self.state.player_work().active().is_some()
+            || body.horizontal_velocity() != HorizontalVelocity::ZERO
+            || body.vertical_velocity() != VerticalVelocity::ZERO
+        {
+            return Err("finish work and settle movement before centering".to_owned());
+        }
+        let center = deep_hearth::spatial::WorldPoint::centered_on_voxel_floor(origin)
+            .ok_or("cell centre is outside the continuous world")?;
+        if center.y_nanometers() != body.foot_position().y_nanometers()
+            || !project_player_standing_space(&self.registries, &self.state, origin)
+        {
+            return Err("no grounded standing space at the centre of this cell".to_owned());
+        }
+        let initial = view::urgency(&self.registries, &self.state);
+        let mut output = String::new();
+        for _ in 0..240 {
+            let body = self
+                .state
+                .logistics()
+                .player()
+                .ok_or("no player admitted")?
+                .body();
+            let foot = body.foot_position();
+            let dx = center.x_nanometers() - foot.x_nanometers();
+            let dz = center.z_nanometers() - foot.z_nanometers();
+            let settled = body.horizontal_velocity() == HorizontalVelocity::ZERO;
+            if dx.abs() <= 30_000_000 && dz.abs() <= 30_000_000 && settled {
+                output.push_str("Centred in the current cell (within 3 cm).\n");
+                output.push_str(&view::look(&self.registries, &self.state, None));
+                return Ok(output);
+            }
+            let component = |delta: i64| {
+                if delta.abs() <= 30_000_000 {
+                    0
+                } else {
+                    (delta / 1_000).clamp(-150_000, 150_000) as i32
+                }
+            };
+            let horizontal = HorizontalControlInput::new(component(dx), component(dz))
+                .map_err(|error| error.to_string())?;
+            let input = PlayerDirectControlInput::new(PlayerControlInput::new(horizontal));
+            let report = self.step(input, &mut output)?;
+            if report.noteworthy
+                || view::urgency(&self.registries, &self.state) != initial
+                || self.player_position()? != origin
+            {
+                output.push_str("Centering interrupted by a physical event or condition change.\n");
+                output.push_str(&view::look(&self.registries, &self.state, None));
+                return Ok(output);
+            }
+            let next = self
+                .state
+                .logistics()
+                .player()
+                .ok_or("no player admitted")?
+                .body();
+            if !horizontal.is_neutral()
+                && next.foot_position() == foot
+                && next.horizontal_velocity() == HorizontalVelocity::ZERO
+            {
+                break;
+            }
+        }
+        output.push_str(
+            "Centering stopped: could not reach the centre with the current clearance.\n",
+        );
+        output.push_str(&view::look(&self.registries, &self.state, None));
+        Ok(output)
+    }
+
     /// Wait awake for the next requested daylight phase, never skipping physical
     /// control steps. Events, changing local threats, expired heat and new
     /// survival warnings end the watch before its requested horizon.
@@ -153,18 +302,54 @@ impl Session {
         walking: bool,
         work_wait: bool,
     ) -> Result<String, String> {
-        self.advance_many_with_report(input, limit, walking, work_wait, true)
+        self.advance_many_with_report(input, limit, walking, work_wait)
     }
 
-    /// The repeated-gathering adapter reports each physical completion without
-    /// flooding the transcript with an identical local look after every batch.
-    pub(super) fn advance_many_compact(
+    /// Wait for the exact completion receipt. Work disappearing through
+    /// cancellation (including death) is not a successful batch. Other events
+    /// on the completion frame still prohibit automatic admission of another.
+    pub(super) fn await_batch(
         &mut self,
-        input: PlayerDirectControlInput,
+        expected: BatchReceipt,
         limit: u64,
-        work_wait: bool,
-    ) -> Result<String, String> {
-        self.advance_many_with_report(input, limit, false, work_wait, false)
+        output: &mut String,
+    ) -> Result<(bool, bool), String> {
+        let initial = view::urgency(&self.registries, &self.state);
+        let visible = view::local_cues(&self.registries, &self.state);
+        let mut actual = 0;
+        let mut completed = false;
+        let mut interrupted = false;
+        for _ in 0..limit {
+            let previous = self.state.tick();
+            let report = self.step(PlayerDirectControlInput::NEUTRAL, output)?;
+            actual += 1;
+            completed = report.batch_receipt == Some(expected);
+            interrupted =
+                report.other_event || view::urgency(&self.registries, &self.state) != initial;
+            // The expected receipt can itself change the local observation
+            // (e.g. consuming the final fruit). Re-admission checks the source.
+            if !completed
+                && !interrupted
+                && self.state.tick() != previous
+                && let Some(description) = self.wait_attention(&visible, true)?
+            {
+                let _ = writeln!(output, "{description}");
+                interrupted = true;
+            }
+            if completed
+                || interrupted
+                || report.noteworthy
+                || self.state.player_work().active().is_none()
+            {
+                break;
+            }
+        }
+        let _ = writeln!(
+            output,
+            "Advanced {actual} control ticks ({} ms).",
+            actual * 50
+        );
+        Ok((completed, interrupted))
     }
 
     fn advance_many_with_report(
@@ -173,7 +358,6 @@ impl Session {
         limit: u64,
         walking: bool,
         work_wait: bool,
-        show_look: bool,
     ) -> Result<String, String> {
         let mut output = String::new();
         let starting_position = self.player_position()?;
@@ -247,9 +431,7 @@ impl Session {
             "Advanced {actual} control ticks ({} ms).",
             actual * 50
         );
-        if show_look {
-            output.push_str(&view::look(&self.registries, &self.state, None));
-        }
+        output.push_str(&view::look(&self.registries, &self.state, None));
         Ok(output)
     }
 
@@ -333,6 +515,7 @@ impl Session {
                 .active_selection_drop()
                 .map(|event| feedback::drop(&self.registries, event)),
         );
+        let mut batch_receipt = None;
         if let Some(simulation) = outcome.simulation() {
             if let Some(gathered) = simulation.surface_gathering() {
                 let _ = writeln!(
@@ -341,7 +524,7 @@ impl Session {
                     view::grams(gathered.gathered_mass()),
                     view::grams(gathered.remaining_mass()),
                 );
-                interrupt = true;
+                batch_receipt = Some(BatchReceipt::Gathered(gathered.resource()));
             }
             interrupt |= note_text(
                 output,
@@ -412,7 +595,7 @@ impl Session {
                     "Mining produced: {} g {material} entered inventory.",
                     view::grams(mining.output().mass()),
                 );
-                interrupt = true;
+                batch_receipt = Some(BatchReceipt::Mined(mining.job()));
             }
             if let Some(deep_hearth::labor::PlayerWork::ManualProduction { job }) = previous_work {
                 for completion in simulation
@@ -436,6 +619,7 @@ impl Session {
             }
         }
         if !interrupt
+            && batch_receipt.is_none()
             && let Some(work) = previous_work
             && self.state.player_work().active().is_none()
         {
@@ -450,7 +634,9 @@ impl Session {
             Self::expand_neighborhood(&self.registries, &mut self.state)?;
         }
         Ok(StepReport {
-            noteworthy: interrupt,
+            noteworthy: interrupt || batch_receipt.is_some(),
+            other_event: interrupt,
+            batch_receipt,
             stale_gathering_option,
         })
     }
