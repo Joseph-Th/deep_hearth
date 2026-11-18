@@ -127,6 +127,25 @@ fn natural_spawn_offers_a_walkable_level_exit() {
 }
 
 #[test]
+fn damp_hillside_spawn_prefers_a_route_beyond_the_first_neighbor() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(7_405_532_088_482_206_663);
+    let chunk = ChunkCoord::new(-5, 23);
+    let mut state = AppState::new();
+    validate_generate_chunk(&registries, &state, seed, chunk, BLOCK_STATE_STONE)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let spawn =
+        select_natural_world_spawn(&registries, &state, chunk, 0, Some(HabitatKind::DampGrove))
+            .expect("the previously cramped damp district has physical starts");
+    assert!(
+        has_continuing_level_route(&registries, &state, chunk, spawn),
+        "a two-step walking start must win over a single-cell dead end: {spawn:?}"
+    );
+}
+
+#[test]
 fn natural_spawn_exits_through_real_control_motion_without_a_forced_jump() {
     use crate::logistics::{HorizontalControlInput, PlayerControlInput};
     use crate::simulation::advance_control_tick_with_input;

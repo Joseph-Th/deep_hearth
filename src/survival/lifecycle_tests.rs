@@ -60,6 +60,57 @@ fn work_exertion_adds_exactly_to_basal_survival_cost() {
 }
 
 #[test]
+fn active_work_turns_paid_metabolic_effort_into_bounded_warmth() {
+    let registries = build_registries();
+    let physiology = registries.survival().physiology();
+    let mut resting = AppState::new();
+    initialize_player_survival(&registries, &mut resting).unwrap();
+    let mut chopping = resting.clone();
+    let mut cold_chopping = resting.clone();
+    let work = crate::world::tree_felling_exertion();
+    assert_eq!(
+        physiology.active_work_heat_gain_ppm_per_tick(SurvivalExertion::REST),
+        0
+    );
+    assert_eq!(
+        physiology.active_work_heat_gain_ppm_per_tick(work),
+        physiology.thermal_comfort().unsheltered_loss_ppm_per_tick()
+    );
+
+    let run = |state: &mut AppState, exertion, exposure| {
+        let plan = decide_survival_tick_with_local_heat(
+            &registries,
+            state,
+            exertion,
+            next_tick(state),
+            Energy::ZERO,
+            exposure,
+            0,
+        )
+        .unwrap();
+        apply_survival_tick(state, plan).unwrap()
+    };
+    let rest = run(&mut resting, SurvivalExertion::REST, ThermalExposure::Open);
+    let active = run(&mut chopping, work, ThermalExposure::Open);
+    let severe = run(
+        &mut cold_chopping,
+        work,
+        ThermalExposure::GeneratedOpen {
+            cooling_multiplier_ppm: 2_000_000,
+        },
+    );
+    assert_eq!(rest.thermal_comfort_ppm(), 999_000);
+    assert_eq!(active.thermal_comfort_ppm(), 1_000_000);
+    assert_eq!(severe.thermal_comfort_ppm(), 999_000);
+    assert_eq!(
+        rest.metabolic_energy()
+            .checked_sub(active.metabolic_energy()),
+        Some(work.energy_cost_per_tick()),
+        "warmth is earned through the same charged work-energy budget"
+    );
+}
+
+#[test]
 fn exhausting_exact_reserves_does_not_apply_deficit_damage_until_the_next_tick() {
     let registries = build_registries();
     let mut state = AppState::new();

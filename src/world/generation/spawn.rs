@@ -13,10 +13,9 @@ use crate::world::{BlockStateId, CHUNK_SIDE, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, 
 
 use super::habitat::{HabitatKind, habitat_at};
 
-/// Finds the first physically admissible site with a level walking exit in
-/// the requested habitat, if any. The odd stride visits each column once.
-/// Habitat is checked *per candidate*, not after choosing one arbitrary
-/// standing site for the entire chunk.
+/// Prefer a physically admissible site with a two-step level walking route,
+/// falling back to a single exit where the generated hillside offers no such
+/// route. The odd stride visits each column once; habitat remains per-site.
 #[must_use]
 pub fn select_natural_world_spawn(
     registries: &Registries,
@@ -36,6 +35,7 @@ pub fn select_natural_world_spawn(
     let columns = CHUNK_SIDE * CHUNK_SIDE;
     let start = (position_hash & 255) as usize;
     let stride = (((position_hash >> 8) & 127) as usize) * 2 + 1;
+    let mut single_exit_fallback = None;
     for n in 0..columns {
         let index = (start + n * stride) % columns;
         let x = min_x.checked_add((index % CHUNK_SIDE) as i64)?;
@@ -48,11 +48,14 @@ pub fn select_natural_world_spawn(
             if is_grounded_spawn_site(registries, state, foot)
                 && has_level_walking_exit(registries, state, chunk, foot)
             {
-                return Some(foot);
+                if has_continuing_level_route(registries, state, chunk, foot) {
+                    return Some(foot);
+                }
+                single_exit_fallback.get_or_insert(foot);
             }
         }
     }
-    None
+    single_exit_fallback
 }
 
 /// One physical standing-site test for both the starting cell and its exit.
@@ -94,6 +97,40 @@ fn has_level_walking_exit(
             (ChunkCoord::containing(neighbor) == chunk).then_some(neighbor)
         })
         .any(|neighbor| is_level_walking_exit(registries, state, neighbor))
+}
+
+/// A first valid neighbor is not necessarily a traversable starting area.
+/// Prefer an exit with a second supported, body-clear standing cell, allowing
+/// a turn but not counting the spawn itself as forward progress. Only the
+/// already generated startup chunk is consulted; this cannot predict a route
+/// through undiscovered terrain or manufacture flat ground.
+fn has_continuing_level_route(
+    registries: &Registries,
+    state: &AppState,
+    chunk: ChunkCoord,
+    foot: VoxelCoord,
+) -> bool {
+    const DIRECTIONS: [(i64, i64); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+    DIRECTIONS.into_iter().any(|(dx, dz)| {
+        let Some((x, z)) = foot.x().checked_add(dx).zip(foot.z().checked_add(dz)) else {
+            return false;
+        };
+        let neighbor = VoxelCoord::new(x, foot.y(), z);
+        if ChunkCoord::containing(neighbor) != chunk
+            || !is_level_walking_exit(registries, state, neighbor)
+        {
+            return false;
+        }
+        DIRECTIONS.into_iter().any(|(next_dx, next_dz)| {
+            let Some((next_x, next_z)) = x.checked_add(next_dx).zip(z.checked_add(next_dz)) else {
+                return false;
+            };
+            let next = VoxelCoord::new(next_x, foot.y(), next_z);
+            next != foot
+                && ChunkCoord::containing(next) == chunk
+                && is_level_walking_exit(registries, state, next)
+        })
+    })
 }
 
 /// A neighbor can be supported by ore or built full-cell matter as well as

@@ -464,6 +464,13 @@ pub(super) fn evaluate_mobile_cold_response(
         Some(secured)
     );
     let prepared_state = state.clone();
+    let prepared_discomfort = assess_player_unheated_comfort_runway(registries, &state)
+        .and_then(|runway| runway.current())
+        .unwrap_or_else(|| panic!("the prepared survivor lost the resting warmth forecast"));
+    assert!(
+        prepared_discomfort.value() > predicted_discomfort.value() - preparation_ticks,
+        "paid gathering work must preserve warmth compared with a fully resting forecast"
+    );
 
     // A new need is discovered by normal elapsed physical time. Stop on the observation
     // boundary rather than advancing an evaluator-chosen fixed number of ticks.
@@ -487,9 +494,9 @@ pub(super) fn evaluate_mobile_cold_response(
     let cold = assess_survival(registries, &state)
         .unwrap_or_else(|| panic!("mobile cold warning lost survival state"));
     assert_eq!(
-        exposed_ticks + preparation_ticks,
-        predicted_discomfort.value(),
-        "player-facing unheated warmth runway must include real provision work and travel, not just idle exposure"
+        exposed_ticks,
+        prepared_discomfort.value(),
+        "the updated player-facing resting forecast must match subsequent unheated rest"
     );
     assert_eq!(cold.thermal_comfort_state(), ThermalComfortState::Chilly);
     assert!(cold.thermal_comfort_ppm() < warning);

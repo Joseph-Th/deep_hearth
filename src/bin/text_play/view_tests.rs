@@ -1,6 +1,43 @@
 //! Regression tests for player-local text projection formatting.
 
 #[test]
+fn rugged_natural_start_exposes_local_footing_without_inventing_a_route() {
+    use deep_hearth::logistics::project_player_standing_space;
+    use deep_hearth::world::HabitatKind;
+
+    let mut session = super::super::Session::new_natural_in_habitat(
+        7_405_532_088_482_206_663,
+        Some(HabitatKind::DampGrove),
+    )
+    .unwrap();
+    let initial = session.player_position().unwrap();
+    let readout = super::look(&session.registries, &session.state, None);
+    assert!(
+        readout.contains("Nearby footing (not a guaranteed route): N ")
+            && readout.contains(" | E ")
+            && readout.contains(" | S ")
+            && readout.contains(" | W "),
+        "the hillside must describe all four immediate choices: {readout}"
+    );
+    assert_eq!(
+        super::adjacent_footing(&session.registries, &session.state, 0, 1),
+        "level",
+        "a generated level exit should be recognizable to the player"
+    );
+    assert!(project_player_standing_space(
+        &session.registries,
+        &session.state,
+        deep_hearth::spatial::VoxelCoord::new(initial.x(), initial.y(), initial.z() + 1),
+    ));
+    let (movement, _) = session.command("s 240").unwrap();
+    assert_eq!(
+        session.player_position().unwrap().z(),
+        initial.z() + 1,
+        "{movement}"
+    );
+}
+
+#[test]
 fn cold_forecast_warns_when_weather_can_change_before_or_at_the_estimated_warning() {
     use deep_hearth::core::time::TickSpan;
 
@@ -38,7 +75,7 @@ fn cold_forecast_in_play_uses_the_survival_owners_weather_horizon() {
         assess_player_unheated_comfort_runway(&session.registries, &session.state).unwrap();
     let rendered = super::look(&session.registries, &session.state, None);
     assert!(
-        rendered.contains("Without heat at current exposure, cold warning in"),
+        rendered.contains("At rest without local heat, cold warning in"),
         "{rendered}"
     );
     let notice = super::weather_forecast_notice(forecast.current(), forecast.weather_changes_in());

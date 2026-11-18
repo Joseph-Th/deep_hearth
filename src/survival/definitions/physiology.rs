@@ -555,6 +555,27 @@ impl PhysiologyDefinition {
         self.metabolism.basal_cost_per_tick
     }
 
+    /// Physical work dissipates part of its already charged metabolic cost as
+    /// useful body warmth. Five times resting expenditure reaches the authored
+    /// unsheltered cooling baseline; severe exposure can still exceed this gain.
+    #[must_use]
+    pub(crate) fn active_work_heat_gain_ppm_per_tick(
+        self,
+        exertion: crate::survival::SurvivalExertion,
+    ) -> u32 {
+        let maximum = self.thermal_comfort().unsheltered_loss_ppm_per_tick();
+        let reference = self
+            .basal_energy_cost_per_tick()
+            .nanojoules()
+            .saturating_mul(5);
+        let spent = exertion.energy_cost_per_tick().nanojoules();
+        if spent >= reference {
+            return maximum;
+        }
+        let gain = spent.saturating_mul(u128::from(maximum)) / reference;
+        u32::try_from(gain).unwrap_or(maximum)
+    }
+
     #[must_use]
     pub const fn hydration_loss_per_tick(self) -> Volume {
         self.hydration.loss_per_tick

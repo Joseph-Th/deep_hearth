@@ -66,21 +66,28 @@ fn repeated_gathering_stops_without_retargeting_a_depleted_source() {
 }
 
 #[test]
-fn repeated_gathering_stops_on_a_cold_warning_with_work_still_active() {
+fn repeated_gathering_stays_warm_during_paid_exertion_and_stops_at_finite_supply() {
     let mut session = Session::new(24318).unwrap();
     for command in ["e 20", "wait 10"] {
         session.command(command).unwrap();
     }
     let (output, _) = session.command("gather 1 500 repeat 32").unwrap();
     assert!(
-        output.contains("Gather repeat: interrupted after")
-            && output.contains("Warnings: cold exposure"),
+        output.contains("Gather repeat: insufficient remaining source or carrying space")
+            && output.contains("11 batches completed")
+            && !output.contains("Warnings: cold exposure"),
         "{output}"
     );
-    assert!(matches!(
-        session.state.player_work().active(),
-        Some(PlayerWork::SurfaceGathering { .. })
-    ));
+    assert!(session.state.player_work().active().is_none());
+    let runway = deep_hearth::survival::assess_player_unheated_comfort_runway(
+        &session.registries,
+        &session.state,
+    )
+    .unwrap();
+    assert!(
+        runway.current().is_some(),
+        "work-produced warmth should not erase future rest-time cold risk"
+    );
 }
 
 #[test]

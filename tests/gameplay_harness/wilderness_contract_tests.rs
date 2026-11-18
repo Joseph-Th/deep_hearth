@@ -3355,8 +3355,8 @@ fn evaluate_generated_wilderness_opening_internal(
             });
             assert_eq!(
                 before_fire.thermal_comfort_state(),
-                ThermalComfortState::Chilly,
-                "the long worksite project should create a natural warmth problem before fire is considered"
+                ThermalComfortState::Comfortable,
+                "physical labor must offset mild-air cooling instead of forcing an artificial cold warning before lighting a fire"
             );
             thermal_before_fire_ppm = before_fire.thermal_comfort_ppm();
 
@@ -3527,6 +3527,21 @@ fn evaluate_generated_wilderness_opening_internal(
                 recovery_budget < campfire_single_charge_runway_ticks,
                 "restoring comfort must fit within one finite fire charge even in observed weather"
             );
+            // A survivor who spent the workday actively gathering and building
+            // may already be comfortable. Still observe one real resting tick
+            // by the newly fueled fire instead of forcing the actor to chill
+            // before accepting the light and future warmth as useful.
+            if current_comfort >= physiology.thermal_comfort().warning_below_ppm() {
+                let outcome = advance_tick(&registries, &mut state).unwrap_or_else(|error| {
+                    panic!("wilderness lit-fire observation tick failed: {error}")
+                });
+                assert_tick_events_within(
+                    &outcome,
+                    TickEventAllowance::default(),
+                    "warm worksite lit-fire observation",
+                );
+                campfire_recovery_ticks = 1;
+            }
             loop {
                 let warmth = assess_survival(&registries, &state)
                     .unwrap_or_else(|| panic!("wilderness player disappeared beside campfire"));
@@ -3552,9 +3567,15 @@ fn evaluate_generated_wilderness_opening_internal(
                 );
             }
             assert!(
-                thermal_after_fire_ppm > thermal_before_fire_ppm,
-                "staying beside a fueled local campfire must reverse the unsheltered warmth trend"
+                thermal_after_fire_ppm >= physiology.thermal_comfort().warning_below_ppm(),
+                "a lit worksite fire must keep an already comfortable survivor above the cold warning during the resting observation"
             );
+            if thermal_before_fire_ppm < physiology.thermal_comfort().warning_below_ppm() {
+                assert!(
+                    thermal_after_fire_ppm > thermal_before_fire_ppm,
+                    "fire heat must help restore a survivor who was already chilled"
+                );
+            }
             campfire_heat_remaining_nj = state
                 .energy()
                 .get_store(campfire)
@@ -5008,7 +5029,10 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
         assert_eq!(cache.campfire_logistics_legs, 2);
         assert!(cache.campfire_recovery_ticks > 0);
         assert!(cache.campfire_recovery_ticks <= 64);
-        assert!(cache.thermal_before_fire_ppm < cache.thermal_after_fire_ppm);
+        assert!(
+            cache.thermal_before_fire_ppm >= 800_000,
+            "active work should keep the camp warm before investing fuel in light and longer-term shelter"
+        );
         assert!(cache.thermal_after_fire_ppm >= 800_000);
         assert!(cache.campfire_heat_remaining_nj > 0);
         assert!(cache.campfire_light_level > 0);

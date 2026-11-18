@@ -24,7 +24,8 @@ use deep_hearth::logistics::{
 };
 use deep_hearth::material::CommodityKey;
 use deep_hearth::simulation::{
-    project_pointed_structural_break_target, project_pointed_timber_cover_target,
+    SecondaryActionOutcome, project_pointed_structural_break_target,
+    project_pointed_timber_cover_target,
 };
 use deep_hearth::spatial::ViewDirection;
 use deep_hearth::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord};
@@ -509,8 +510,61 @@ fn nearby_structure_report(registries: &Registries, state: &AppState) -> String 
     output
 }
 
+/// The ground one pace away is already locally observable. Use actual standing
+/// clearance and support rather than implying a generated hillside can always
+/// be traversed with a level walk. A jump or descent is still a real movement
+/// maneuver, not a pathfinding guarantee.
+fn adjacent_footing(registries: &Registries, state: &AppState, dx: i64, dz: i64) -> &'static str {
+    let Some(player) = state.logistics().player() else {
+        return "unknown";
+    };
+    let foot = player.position();
+    let Some((x, z)) = foot.x().checked_add(dx).zip(foot.z().checked_add(dz)) else {
+        return "world edge";
+    };
+    let next = VoxelCoord::new(x, foot.y(), z);
+    if state.world().block_at(next).is_none() {
+        return "unseen";
+    }
+    if project_player_standing_space(registries, state, next) {
+        return "level";
+    }
+    for (depth, label) in [(1, "down 1m"), (2, "drop 2m"), (3, "drop 3m")] {
+        if let Some(y) = foot.y().checked_sub(depth)
+            && project_player_standing_space(registries, state, VoxelCoord::new(x, y, z))
+        {
+            return label;
+        }
+    }
+    if let Some(y) = foot.y().checked_add(1)
+        && project_player_standing_space(registries, state, VoxelCoord::new(x, y, z))
+    {
+        return "up 1m (jump)";
+    }
+    "blocked/steep"
+}
+
+fn adjacent_footing_report(registries: &Registries, state: &AppState) -> String {
+    let Some(player) = state.logistics().player() else {
+        return String::new();
+    };
+    if player.body().vertical_velocity() != VerticalVelocity::ZERO
+        || state.world().block_at(player.position()).is_none()
+    {
+        return String::new();
+    }
+    format!(
+        "Nearby footing (not a guaranteed route): N {} | E {} | S {} | W {}\n",
+        adjacent_footing(registries, state, 0, -1),
+        adjacent_footing(registries, state, 1, 0),
+        adjacent_footing(registries, state, 0, 1),
+        adjacent_footing(registries, state, -1, 0),
+    )
+}
+
 pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection>) -> String {
     let mut output = status(registries, state);
+    output.push_str(&adjacent_footing_report(registries, state));
     let from = state.logistics().player().map(|player| player.position());
     let nearby =
         AdjacentSurfaceResource::visible_in_generated_world(registries, state).collect::<Vec<_>>();
@@ -640,7 +694,7 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
     if let Some(runway) = assess_player_unheated_comfort_runway(registries, state) {
         let _ = writeln!(
             output,
-            "Without heat at current exposure, cold warning in {}; cover: {:?}{}",
+            "At rest without local heat, cold warning in {}; cover: {:?}{}",
             runway_label(runway.current().map(|span| span.value())),
             runway.overhead_cover(),
             weather_forecast_notice(runway.current(), runway.weather_changes_in()),
@@ -712,8 +766,29 @@ fn timber_cover_preview(registries: &Registries, state: &AppState, aim: ViewDire
         Ok(None) => {
             return "Cover preview: no load-bearing member at this aim. Raise framing above standing height, then aim toward open space beside it.\n".to_owned();
         }
+        Err(SecondaryActionOutcome::StructuralPlacementIntersectsPlayer { position }) => {
+            return format!(
+                "Cover preview: a panel at {} would intersect your body. Move outside that destination and aim at an exposed face of the raised post.\n",
+                pos(position),
+            );
+        }
+        Err(
+            SecondaryActionOutcome::StructuralPlacementOccupied { position, .. }
+            | SecondaryActionOutcome::StructuralPlacementLocationOccupied { position },
+        ) => {
+            return format!(
+                "Cover preview: {} is already occupied. Aim at a free cell beside the raised support, above clear walking space.\n",
+                pos(position),
+            );
+        }
+        Err(SecondaryActionOutcome::StructuralPlacementWorldUnavailable { position }) => {
+            return format!(
+                "Cover preview: terrain at {} is not yet available. Approach the site to load it before building.\n",
+                pos(position),
+            );
+        }
         Err(_) => {
-            return "Cover preview: the intended position is obstructed or unavailable; no panel can be placed here.\n".to_owned();
+            return "Cover preview: placement unavailable at this aim; try an exposed side of the raised support.\n".to_owned();
         }
     };
     let mut output = format!("Cover preview: panel would occupy {}. ", pos(target));
@@ -725,7 +800,7 @@ fn timber_cover_preview(registries: &Registries, state: &AppState, aim: ViewDire
     if !project_player_standing_space(registries, state, beneath) {
         let _ = writeln!(
             output,
-            "No currently clear, grounded standing-height space at {} underneath it; this panel would not provide an accessible refuge there.",
+            "No clear, grounded standing-height space at {} underneath it. A support post or terrain may occupy the standing column; aim at a free cell beside raised framing to make shelter.",
             pos(beneath),
         );
     } else {
