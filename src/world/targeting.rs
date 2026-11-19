@@ -16,10 +16,10 @@ use traversal::{VoxelTraceStep, targetable_full_cube, trace_generated_voxels};
 
 /// Observe a living trunk at landscape scale without granting interaction range.
 ///
-/// A long tree sightline uses the same exact voxel traversal as block targeting:
+/// Every tree sightline uses the same exact voxel traversal as block targeting:
 /// rock, trunks, built walls, and missing chunks stop the ray. This is an
 /// observation only; chopping continues to require standing beside the tree.
-pub(crate) fn player_can_see_distant_tree_trunk(
+pub(crate) fn player_can_see_tree_trunk(
     registries: &Registries,
     state: &AppState,
     root: VoxelCoord,
@@ -37,21 +37,15 @@ pub(crate) fn player_can_see_distant_tree_trunk(
     if state.world().tree_at(root).is_none() {
         return false;
     }
-    let Some(above) = root.y().checked_add(2) else {
-        return false;
-    };
-    let illuminated = VoxelCoord::new(root.x(), above, root.z());
-    if super::sky::assess_generated_skylight_at(registries, state, illuminated, state.tick()) == 0
-        && crate::energy::assess_local_illumination(registries, state, illuminated).level() == 0
-    {
-        return false;
-    }
     [root.y().checked_add(1), Some(root.y())]
         .into_iter()
         .flatten()
         .any(|y| {
             let target = VoxelCoord::new(root.x(), y, root.z());
-            clear_landmark_ray(registries, state, eye, target)
+            clear_landmark_ray(registries, state, eye, target, |face| {
+                face.and_then(|face| face.adjacent_voxel(target))
+                    .is_some_and(|outside| landmark_cell_is_lit(registries, state, outside))
+            })
         })
 }
 
@@ -71,12 +65,13 @@ pub(crate) fn player_can_see_distant_cell(
     ) else {
         return false;
     };
-    if super::sky::assess_generated_skylight_at(registries, state, target, state.tick()) == 0
-        && crate::energy::assess_local_illumination(registries, state, target).level() == 0
-    {
-        return false;
-    }
-    clear_landmark_ray(registries, state, eye, target)
+    landmark_cell_is_lit(registries, state, target)
+        && clear_landmark_ray(registries, state, eye, target, |_| true)
+}
+
+fn landmark_cell_is_lit(registries: &Registries, state: &AppState, cell: VoxelCoord) -> bool {
+    super::sky::assess_generated_skylight_at(registries, state, cell, state.tick()) > 0
+        || crate::energy::assess_local_illumination(registries, state, cell).level() > 0
 }
 
 fn clear_landmark_ray(
@@ -84,6 +79,7 @@ fn clear_landmark_ray(
     state: &AppState,
     eye: WorldPoint,
     target: VoxelCoord,
+    target_is_visible: impl Fn(Option<CubeFace>) -> bool,
 ) -> bool {
     let Some((direction, length)) = direction_to_voxel_center(eye, target) else {
         return false;
@@ -100,9 +96,13 @@ fn clear_landmark_ray(
         eye,
         direction,
         reach,
-        |voxel, block, _| {
+        |voxel, block, face| {
             if voxel == target {
-                VoxelTraceStep::Hit(())
+                if target_is_visible(face) {
+                    VoxelTraceStep::Hit(())
+                } else {
+                    VoxelTraceStep::Blocked
+                }
             } else if targetable_full_cube(registries, block)
                 || state.structures().blocks_full_cell(voxel)
                 || state.world().tree_trunk_at(voxel).is_some()

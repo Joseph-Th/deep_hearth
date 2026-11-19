@@ -108,8 +108,8 @@ impl VisibleTree {
     }
 }
 
-/// A bounded spatial-index query checks a visible empty face beside each
-/// physical trunk. Trees behind rock or outside local eye reach stay unknown.
+/// A bounded spatial-index query checks illuminated faces of physical trunks
+/// with the actual player-eye ray, regardless of distance.
 pub fn available_visible_generated_trees(
     registries: &Registries,
     state: &AppState,
@@ -124,24 +124,7 @@ pub fn available_visible_generated_trees(
             if root.y().abs_diff(from.y()) > 6 {
                 continue;
             }
-            let close = root.x().abs_diff(from.x()).max(root.z().abs_diff(from.z())) <= 2;
-            let visible = if close {
-                [(-1_i64, 0_i64), (1, 0), (0, -1), (0, 1)]
-                    .into_iter()
-                    .any(|(dx, dz)| {
-                        let (Some(x), Some(z)) =
-                            (root.x().checked_add(dx), root.z().checked_add(dz))
-                        else {
-                            return false;
-                        };
-                        let face = VoxelCoord::new(x, root.y(), z);
-                        state.world().block_at(face) == Some(BlockStateId::AIR)
-                            && super::player_can_see_from_eye(registries, state, from, face)
-                    })
-            } else {
-                super::targeting::player_can_see_distant_tree_trunk(registries, state, root)
-            };
-            if visible {
+            if super::targeting::player_can_see_tree_trunk(registries, state, root) {
                 nearby.push(VisibleTree {
                     root,
                     species: tree.species(),

@@ -261,7 +261,7 @@ fn evergreen_crowns_keep_real_winter_shade_and_broadleaf_trees_lose_it() {
 }
 
 #[test]
-fn nearby_tree_species_are_visible_only_through_a_real_open_trunk_face() {
+fn nearby_tree_remains_visible_when_only_lower_trunk_is_occluded() {
     use crate::player::validate_admit_player;
 
     let registries = build_registries();
@@ -287,7 +287,9 @@ fn nearby_tree_species_are_visible_only_through_a_real_open_trunk_face() {
         let from = VoxelCoord::new(root.x() + 2, root.y(), root.z());
         let floor = VoxelCoord::new(from.x(), from.y() - 1, from.z());
         let head = VoxelCoord::new(from.x(), from.y() + 1, from.z());
+        let upper_face = VoxelCoord::new(face.x(), face.y() + 1, face.z());
         if state.world().block_at(face) != Some(BlockStateId::AIR)
+            || state.world().block_at(upper_face) != Some(BlockStateId::AIR)
             || state.world().block_at(from) != Some(BlockStateId::AIR)
             || state.world().block_at(head) != Some(BlockStateId::AIR)
             || state.world().block_at(floor) != Some(BLOCK_STATE_STONE)
@@ -317,8 +319,18 @@ fn nearby_tree_species_are_visible_only_through_a_real_open_trunk_face() {
         BLOCK_STATE_STONE,
     );
     assert!(
+        available_visible_generated_trees(&registries, &state).any(|seen| seen.root() == root),
+        "the exposed upper trunk remains visible above a one-block obstruction",
+    );
+    super::super::set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(face.x(), face.y() + 1, face.z()),
+        BLOCK_STATE_STONE,
+    );
+    assert!(
         available_visible_generated_trees(&registries, &state).all(|seen| seen.root() != root),
-        "an opaque face on the only local sightline must conceal the tree",
+        "a wall covering both trunk cells conceals the tree",
     );
 }
 
