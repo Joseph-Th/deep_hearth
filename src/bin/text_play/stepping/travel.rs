@@ -1,6 +1,7 @@
 //! Bounded, deliberate cardinal travel using ordinary sampled body controls.
 //! It follows only the next publicly observable foothold, never a remote route.
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use super::{Session, view};
@@ -9,10 +10,14 @@ use deep_hearth::kobolds::KoboldSighting;
 use deep_hearth::logistics::{
     HorizontalControlInput, PlayerControlInput, project_player_standing_space,
 };
+use deep_hearth::material::CommodityKey;
 use deep_hearth::simulation::PlayerDirectControlInput;
 use deep_hearth::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord, WorldPoint};
-use deep_hearth::surface::{SurfaceResourceLandmark, available_visible_surface_landmarks};
+use deep_hearth::surface::{AdjacentSurfaceResource, available_visible_surface_landmarks};
 use deep_hearth::survival::Vitality;
+use deep_hearth::world::{
+    VisibleWaterSource, available_visible_generated_water, available_visible_water_landmarks,
+};
 
 const CENTER_TOLERANCE: i64 = 30_000_000;
 const STEP_TICK_LIMIT: u64 = 240;
@@ -23,62 +28,74 @@ enum LegResult {
     Blocked,
 }
 
-enum TravelObservations {
-    Exploring {
-        cues: view::LocalCues,
-        landmarks: Vec<SurfaceResourceLandmark>,
-        copper: Vec<VoxelCoord>,
-    },
-    Steady(Vec<KoboldSighting>),
+struct TravelDiscoveries {
+    resources: BTreeSet<(VoxelCoord, CommodityKey)>,
+    water: Vec<VisibleWaterSource>,
+    copper: Vec<VoxelCoord>,
+}
+
+impl TravelDiscoveries {
+    fn capture(session: &Session) -> Self {
+        let (registries, state) = (&session.registries, &session.state);
+        // Near and distant sightings describe the same physical opportunities.
+        // Moving across their display boundary must not manufacture a discovery.
+        let resources = AdjacentSurfaceResource::visible_in_generated_world(registries, state)
+            .map(|site| (site.position(), site.commodity()))
+            .chain(
+                available_visible_surface_landmarks(registries, state)
+                    .into_iter()
+                    .map(|site| (site.position(), site.commodity())),
+            )
+            .collect();
+        let mut water = available_visible_generated_water(registries, state);
+        water.extend(available_visible_water_landmarks(registries, state));
+        Self {
+            resources,
+            water,
+            copper: visible_weathered_copper_sites(registries, state),
+        }
+    }
+
+    fn attention(&self, next: &Self) -> Option<&'static str> {
+        if !next.resources.is_subset(&self.resources) {
+            Some("A new loose resource is visible.")
+        } else if next.water.iter().any(|site| !self.water.contains(site)) {
+            Some("A new water source is visible.")
+        } else if next.copper.iter().any(|site| !self.copper.contains(site)) {
+            Some("Newly visible copper-stained rock.")
+        } else {
+            None
+        }
+    }
+}
+
+struct TravelObservations {
+    position: VoxelCoord,
+    residents: Vec<KoboldSighting>,
+    discoveries: Option<TravelDiscoveries>,
 }
 
 impl TravelObservations {
-    fn capture(session: &Session, steady: bool) -> Self {
-        if steady {
-            Self::Steady(view::local_resident_sightings(
-                &session.registries,
-                &session.state,
-            ))
-        } else {
-            Self::Exploring {
-                cues: view::local_cues(&session.registries, &session.state),
-                landmarks: available_visible_surface_landmarks(&session.registries, &session.state),
-                copper: visible_weathered_copper_sites(&session.registries, &session.state),
-            }
+    fn capture(session: &Session, position: VoxelCoord, steady: bool) -> Self {
+        Self {
+            position,
+            residents: view::local_resident_sightings(&session.registries, &session.state),
+            discoveries: (!steady).then(|| TravelDiscoveries::capture(session)),
         }
     }
 
     fn attention(&self, session: &Session, target: VoxelCoord) -> Option<&'static str> {
-        let (registries, state) = (&session.registries, &session.state);
-        match self {
-            Self::Steady(residents) => view::resident_watch_attention(
-                residents,
-                &view::local_resident_sightings(registries, state),
-                target,
-            ),
-            Self::Exploring {
-                cues,
-                landmarks,
-                copper,
-            } => {
-                if let Some(cue) = cues.work_attention(&view::local_cues(registries, state), target)
-                {
-                    Some(cue)
-                } else if available_visible_surface_landmarks(registries, state)
-                    .iter()
-                    .any(|site| !landmarks.contains(site))
-                {
-                    Some("a new distant resource is visible.")
-                } else if visible_weathered_copper_sites(registries, state)
-                    .iter()
-                    .any(|site| !copper.contains(site))
-                {
-                    Some("newly visible copper-stained rock.")
-                } else {
-                    None
-                }
-            }
-        }
+        view::resident_watch_attention(
+            &self.residents,
+            &view::local_resident_sightings(&session.registries, &session.state),
+            self.position,
+            target,
+        )
+        .or_else(|| {
+            self.discoveries
+                .as_ref()?
+                .attention(&TravelDiscoveries::capture(session))
+        })
     }
 }
 
@@ -115,7 +132,7 @@ impl Session {
         let mut output = String::new();
         let start = self.state.control_tick().value();
         let urgency = view::urgency(&self.registries, &self.state);
-        let observations = TravelObservations::capture(self, steady);
+        let observations = TravelObservations::capture(self, self.player_position()?, steady);
         let mut steps = 0;
         for _ in 0..cells {
             let origin = self.player_position()?;

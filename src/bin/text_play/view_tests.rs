@@ -157,16 +157,21 @@ fn daylight_watch_tolerates_passive_footprints_but_not_a_new_close_resident() {
     let resident_position = initial.kobolds[0].position();
     assert_eq!(
         unseen.watch_attention(&initial, resident_position),
-        Some("A resident has approached your immediate position.")
+        Some("A resident is now visible near your immediate position.")
     );
     assert_eq!(
-        super::resident_watch_attention(&[], &initial.kobolds, resident_position),
+        super::resident_watch_attention(
+            &[],
+            &initial.kobolds,
+            resident_position,
+            resident_position,
+        ),
         unseen.watch_attention(&initial, resident_position),
         "daylight watches must use the same attention policy without surveying unrelated cues"
     );
     assert_eq!(
         unseen.work_attention(&initial, resident_position),
-        Some("A resident has approached your immediate position.")
+        Some("A resident is now visible near your immediate position.")
     );
 }
 
@@ -190,11 +195,11 @@ fn watch_attention_counts_same_role_residents_instead_of_treating_roles_as_ident
     after.kobolds.push(resident);
     assert_eq!(
         before.watch_attention(&after, position),
-        Some("A resident has approached your immediate position.")
+        Some("A resident is now visible near your immediate position.")
     );
     assert_eq!(
         before.work_attention(&after, position),
-        Some("A resident has approached your immediate position.")
+        Some("A resident is now visible near your immediate position.")
     );
     assert_eq!(after.watch_attention(&after, position), None);
 }
@@ -220,7 +225,7 @@ fn watch_attention_includes_residents_on_an_adjacent_vertical_ledge() {
     for player in [above, below] {
         assert_eq!(
             unseen.watch_attention(&initial, player),
-            Some("A resident has approached your immediate position.")
+            Some("A resident is now visible near your immediate position.")
         );
     }
     assert_eq!(unseen.watch_attention(&initial, two_above), None);

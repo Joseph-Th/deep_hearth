@@ -223,7 +223,7 @@ impl LocalCues {
     /// Returns the most actionable changed cue for a passive local observation.
     pub fn changed(&self, next: &Self) -> Option<&'static str> {
         if self.kobolds != next.kobolds {
-            Some("A nearby kobold moved or changed behavior.")
+            Some("Nearby resident sightings have changed.")
         } else if self.footfalls != next.footfalls {
             Some("Nearby footsteps have changed.")
         } else if self.tracks != next.tracks {
@@ -246,7 +246,7 @@ impl LocalCues {
     /// warnings separately; only a new close approach or defensive posture
     /// requires attention from the otherwise passive local observations.
     pub fn watch_attention(&self, next: &Self, player: VoxelCoord) -> Option<&'static str> {
-        resident_watch_attention(&self.kobolds, &next.kobolds, player)
+        resident_watch_attention(&self.kobolds, &next.kobolds, player, player)
     }
 
     /// During hand work, ignore passive patrol motion, traces, and drifting
@@ -276,9 +276,10 @@ pub fn local_resident_sightings(registries: &Registries, state: &AppState) -> Ve
 pub fn resident_watch_attention(
     previous: &[KoboldSighting],
     next: &[KoboldSighting],
+    previous_player: VoxelCoord,
     player: VoxelCoord,
 ) -> Option<&'static str> {
-    let near = |sighting: &KoboldSighting| {
+    let near = |sighting: &KoboldSighting, player: VoxelCoord| {
         let position = sighting.position();
         position.y().abs_diff(player.y()) <= 1
             && position.x().abs_diff(player.x()) <= 1
@@ -301,18 +302,18 @@ pub fn resident_watch_attention(
             .filter(|seen| seen.role() == role && seen.is_defending())
             .count();
         if after > before {
-            return Some("A nearby resident has taken a defensive posture.");
+            return Some("A nearby resident is visibly defensive.");
         }
         let before = previous
             .iter()
-            .filter(|old| old.role() == role && near(old))
+            .filter(|old| old.role() == role && near(old, previous_player))
             .count();
         let after = next
             .iter()
-            .filter(|seen| seen.role() == role && near(seen))
+            .filter(|seen| seen.role() == role && near(seen, player))
             .count();
         if after > before {
-            return Some("A resident has approached your immediate position.");
+            return Some("A resident is now visible near your immediate position.");
         }
     }
     None

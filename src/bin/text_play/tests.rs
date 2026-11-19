@@ -1526,6 +1526,20 @@ fn sprint_sneak_crouch_and_jump_use_authoritative_body_motion() {
 }
 
 #[test]
+fn trek_distinguishes_new_sightings_from_changes_in_observation_range() {
+    let mut session = Session::new(24318).unwrap();
+    let (approach, _) = session.command("trek e 1 steady").unwrap();
+    assert_eq!(session.state.tick().value(), 0);
+    assert!(approach.contains("Trekked 1 of 1 cells"), "{approach}");
+    assert!(
+        !approach.contains("resident has approached"),
+        "the resident did not take a simulation step: {approach}"
+    );
+    let (travel, _) = session.command("trek s 2").unwrap();
+    assert!(travel.contains("Trekked 2 of 2 cells"), "{travel}");
+}
+
+#[test]
 fn natural_campaign_trek_reaches_finite_wood_and_stone_without_injury() {
     let mut session = Session::new_natural(4_909_227_005_684_505_656).unwrap();
     assert!(

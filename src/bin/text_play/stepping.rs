@@ -231,6 +231,7 @@ impl Session {
             .checked_mul(scale)
             .and_then(|ticks| ticks.checked_sub(self.state.control_tick().value() % scale))
             .ok_or("daylight wait exceeds the control-clock range")?;
+        let observed_position = self.player_position()?;
         let observed_residents = view::local_resident_sightings(&self.registries, &self.state);
         let initial_lit_fires = lit_nearby_fires(&self.registries, &self.state);
         let mut output = String::new();
@@ -270,6 +271,7 @@ impl Session {
                 if let Some(description) = view::resident_watch_attention(
                     &observed_residents,
                     &view::local_resident_sightings(&self.registries, &self.state),
+                    observed_position,
                     self.player_position()?,
                 ) {
                     let _ = writeln!(output, "{description}");
