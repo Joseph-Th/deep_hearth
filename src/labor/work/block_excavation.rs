@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::Mass;
-use crate::core::time::ControlTick;
+use crate::core::time::{ControlTick, SimulationTick};
 use crate::equipment::{EquipmentId, EquipmentOperationTrace};
 use crate::inventory::StockpileId;
 use crate::maintenance::Condition;
@@ -139,6 +139,15 @@ impl BlockExcavationWork {
     #[must_use]
     pub const fn duration_control_ticks(self) -> Option<u64> {
         self.completes_at.checked_steps_since(self.started_at)
+    }
+
+    /// Elapsed work at a slow settlement boundary, clamped to the work interval.
+    #[must_use]
+    pub(crate) fn elapsed_control_ticks_at_boundary(self, tick: SimulationTick) -> Option<u64> {
+        ControlTick::from_simulation_tick(tick)?
+            .max(self.started_at)
+            .min(self.completes_at)
+            .checked_steps_since(self.started_at)
     }
 
     #[must_use]

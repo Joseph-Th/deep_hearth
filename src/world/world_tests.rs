@@ -42,6 +42,8 @@ mod energy_footing;
 mod equipment_footing;
 #[path = "world_tests/excavation_overflow_footing.rs"]
 mod excavation_overflow_footing;
+#[path = "world_tests/excavation_reserves.rs"]
+mod excavation_reserves;
 #[path = "world_tests/excavation_selection.rs"]
 mod excavation_selection;
 #[path = "world_tests/foundation_excavation.rs"]

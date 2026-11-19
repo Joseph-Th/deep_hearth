@@ -152,13 +152,11 @@ fn advance_control_tick_unstaged(
             .map_err(TickError::PlayerBodyMotion)?;
         let control_excavation = match state.player_work().active() {
             Some(PlayerWork::BlockExcavation { work }) if work.completes_at() == next_control => {
-                let boundary = crate::core::time::ControlTick::from_simulation_tick(state.tick())
-                    .unwrap_or_else(|| unreachable!("current slow tick must map to control time"));
-                let elapsed_before = boundary
-                    .checked_steps_since(work.started_at())
-                    .unwrap_or_else(|| unreachable!("excavation completion cannot precede start"));
-                let elapsed_after = next_control
-                    .checked_steps_since(work.started_at())
+                let elapsed_before = work
+                    .elapsed_control_ticks_at_boundary(state.tick())
+                    .unwrap_or_else(|| unreachable!("current excavation boundary must be valid"));
+                let elapsed_after = work
+                    .duration_control_ticks()
                     .unwrap_or_else(|| unreachable!("excavation completion cannot precede start"));
                 let method = registries
                     .mining()

@@ -117,12 +117,13 @@ pub(super) fn validate_block_excavation_work(
     if duration_control_ticks != expected_control_ticks {
         return Err(PlayerWorkValidationError::BlockExcavationDurationMismatch);
     }
-    let elapsed_control_ticks = current
-        .checked_steps_since(work.started_at())
+    // Control time since the last slow boundary has not been charged yet.
+    let settled_control_ticks = work
+        .elapsed_control_ticks_at_boundary(current.simulation_tick())
         .ok_or(PlayerWorkValidationError::BlockExcavationScheduleInvalid)?;
     let remaining_exertion = control_exertion_between(
         method.exertion(),
-        elapsed_control_ticks,
+        settled_control_ticks,
         duration_control_ticks,
     )
     .ok_or(PlayerWorkValidationError::MetabolicCostOverflow)?;

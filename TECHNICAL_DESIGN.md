@@ -90,6 +90,10 @@ still expose no production `Clone` or whole-world data access to adapters.
 A known due tick is a bound, not permission to skip intervening semantics. Semantic fast-forward requires a
 separate authoritative transition with proved equivalence across every skipped phase.
 
+Control-rate excavation exertion is settled at slow boundaries and at off-boundary completion. Active-work
+reserve validation therefore accounts for all exertion after the last settled boundary, including elapsed but
+unsettled control time.
+
 Buffered structural breaks retain the exact target member, player body origin,
 view direction and active quick-access selection. A change in selection cancels
 the old request on its due slow boundary; a freshly held break can replace the
