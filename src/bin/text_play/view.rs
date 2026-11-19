@@ -936,10 +936,11 @@ pub fn gather_options(
             .unwrap_or_else(|| "unavailable".to_owned());
         let _ = writeln!(
             output,
-            "  {}. {} | available {} g | default {} g | work {}{}",
+            "  {}. {} | available {} g | batch limit {} g | default {} g | work {}{}",
             index + 1,
             name(registries, option.commodity()),
             grams(option.source_mass()),
+            grams(option.maximum_mass_at(state)),
             grams(mass),
             duration,
             if option.hand_handling_blocker().is_some() {

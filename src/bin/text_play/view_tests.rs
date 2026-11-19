@@ -391,6 +391,19 @@ fn gathering_suggestion_respects_unreserved_capacity_and_matches_action() {
         catalog.contains(&format!("default {} g", super::grams(expected))),
         "{catalog}"
     );
+    let limit = option.maximum_mass_at(&session.state);
+    assert!(
+        catalog.contains(&format!("batch limit {} g", super::grams(limit))),
+        "{catalog}"
+    );
+    let excessive = deep_hearth::core::quantity::Mass::from_milligrams(limit.milligrams() + 1);
+    let before_tick = session.state.control_tick();
+    let rejected = session
+        .command(&format!("gather 1 {}", super::grams(excessive)))
+        .unwrap_err();
+    assert!(rejected.contains(&format!("at most {} g", super::grams(limit))));
+    assert_eq!(session.state.control_tick(), before_tick);
+    assert!(session.state.player_work().active().is_none());
     let (started, _) = session.command("gather 1").unwrap();
     assert!(
         started.contains(&format!("Gathering started: {} g", super::grams(expected))),

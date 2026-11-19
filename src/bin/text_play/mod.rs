@@ -285,11 +285,12 @@ impl Session {
         if args.len() == 1 && mass.is_zero() {
             return Err("no carrying space for the suggested gathering batch".to_owned());
         }
-        if mass.is_zero() || mass > option.source_mass() || mass > option.maximum_batch_mass() {
-            return Err(
-                "gather quantity must be positive and within the displayed source/method limit"
-                    .to_owned(),
-            );
+        let limit = option.maximum_mass_at(&self.state);
+        if mass.is_zero() || mass > limit {
+            return Err(format!(
+                "gather quantity must be positive and at most {} g",
+                view::grams(limit)
+            ));
         }
         let mut output = self.start_gathering(option, mass)?;
         output.push_str(&view::status(&self.registries, &self.state));
