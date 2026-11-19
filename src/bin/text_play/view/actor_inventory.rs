@@ -4,7 +4,8 @@ use std::fmt::Write as _;
 
 use deep_hearth::inventory::MaterialStackProjection;
 use deep_hearth::logistics::{
-    PlayerActiveSelection, PlayerStockpileProjection, project_player_inventory,
+    PlayerActiveSelection, PlayerStockpileProjection, assess_player_carrying,
+    project_player_inventory, project_player_jump_rise_bound,
 };
 use deep_hearth::survival::assess_food_stack_freshness;
 use deep_hearth::{AppState, Registries};
@@ -110,6 +111,22 @@ pub fn inventory(registries: &Registries, state: &AppState) -> Result<String, St
         grams(carried.stored()),
         grams(carried.capacity()),
     );
+    if let Some(load) = assess_player_carrying(state) {
+        let _ = writeln!(
+            output,
+            "Total carried load: {} g / {} g (equipment {} g)",
+            grams(load.stored()),
+            grams(load.capacity()),
+            grams(load.equipment())
+        );
+    }
+    if let Some(height) = project_player_jump_rise_bound(registries, state) {
+        let _ = writeln!(
+            output,
+            "Unobstructed jump rise bound: {} mm",
+            height.micrometers() / 1_000
+        );
+    }
     if carried.stacks().is_empty() {
         output.push_str("  (empty)\n");
     }

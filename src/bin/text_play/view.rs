@@ -19,13 +19,14 @@ use deep_hearth::kobolds::{
     available_nearby_kobold_scouts, available_nearby_kobold_tracks,
 };
 use deep_hearth::logistics::{
-    PlayerActiveSelection, PlayerOverheadCoverAssessment, assess_player_overhead_cover,
+    HorizontalControlInput, PlayerActiveSelection, PlayerOverheadCoverAssessment,
+    assess_player_overhead_cover, project_player_climb_target, project_player_jump_rise_bound,
     project_player_level_approach, project_player_standing_space,
 };
 use deep_hearth::material::CommodityKey;
 use deep_hearth::simulation::{
     SecondaryActionOutcome, project_pointed_structural_break_target,
-    project_pointed_timber_cover_target,
+    project_pointed_timber_cover_target, validate_pointed_terrain_excavation,
 };
 use deep_hearth::spatial::ViewDirection;
 use deep_hearth::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord};
@@ -35,9 +36,9 @@ use deep_hearth::surface::{
     available_visible_surface_landmarks, player_surface_gathering_options,
 };
 use deep_hearth::survival::{
-    FoodFreshness, HungerState, HydrationState, SurvivalAssessment, ThermalComfortState, Vitality,
-    assess_player_resting_provision_runway, assess_player_unheated_comfort_runway, assess_survival,
-    available_local_drink_sources,
+    FoodFreshness, HungerState, HydrationState, LocalDrinkSource, SurvivalAssessment,
+    ThermalComfortState, Vitality, assess_player_resting_provision_runway,
+    assess_player_unheated_comfort_runway, assess_survival, available_local_drink_sources,
 };
 use deep_hearth::world::{
     DayPhase, ForageScent, HabitatKind, VisibleWaterSource, WindCondition, WindDirection,
@@ -136,12 +137,16 @@ pub fn milliliters(volume: Volume) -> String {
 /// Numbered exact-local drinking choices, never remote or unsafe water.
 /// Choosing one still revalidates the actual finite source on the input tick.
 pub fn drink_options(registries: &Registries, state: &AppState) -> String {
-    let mut output = String::new();
     let sources = available_local_drink_sources(registries, state).collect::<Vec<_>>();
+    drink_sources_report(&sources)
+        .unwrap_or_else(|| "No drinkable source at your current location.\n".to_owned())
+}
+
+fn drink_sources_report(sources: &[LocalDrinkSource]) -> Option<String> {
     if sources.is_empty() {
-        return "No drinkable source at your current location.\n".to_owned();
+        return None;
     }
-    output.push_str("Drink here (drink N):\n");
+    let mut output = String::from("Drink here (drink N):\n");
     for (index, source) in sources.iter().enumerate() {
         let celsius = celsius(source.temperature());
         let _ = writeln!(
@@ -152,7 +157,7 @@ pub fn drink_options(registries: &Registries, state: &AppState) -> String {
             celsius,
         );
     }
-    output
+    Some(output)
 }
 
 fn meters_from_nanometers(nanometers: i64) -> String {
@@ -212,6 +217,7 @@ struct LocalWeatherCue {
 pub struct LocalCues {
     resources: Vec<AdjacentSurfaceResource>,
     water: Vec<VisibleWaterSource>,
+    local_water: Vec<LocalDrinkSource>,
     kobolds: Vec<KoboldSighting>,
     footfalls: Vec<KoboldFootfall>,
     tracks: Vec<KoboldTrack>,
@@ -230,8 +236,10 @@ impl LocalCues {
             Some("Nearby tracks have changed.")
         } else if self.resources != next.resources {
             Some("Nearby loose resources have changed.")
+        } else if self.local_water != next.local_water {
+            Some("Drinkable water at your position has changed.")
         } else if self.water != next.water {
-            Some("Nearby water has changed.")
+            Some("Nearby water sightings have changed.")
         } else if self.scents != next.scents {
             Some("Scents in the area have shifted.")
         } else if self.weather != next.weather {
@@ -257,8 +265,15 @@ impl LocalCues {
         self.watch_attention(next, player).or_else(|| {
             if self.resources != next.resources {
                 Some("Nearby loose resources have changed.")
-            } else if self.water != next.water {
-                Some("Nearby water has changed.")
+            } else if self
+                .local_water
+                .iter()
+                .map(|source| source.store())
+                .ne(next.local_water.iter().map(|source| source.store()))
+            {
+                Some("Drinkable water at your position has changed.")
+            } else if next.water.iter().any(|source| !self.water.contains(source)) {
+                Some("New nearby water is visible.")
             } else {
                 None
             }
@@ -324,6 +339,7 @@ pub fn local_cues(registries: &Registries, state: &AppState) -> LocalCues {
     LocalCues {
         resources: AdjacentSurfaceResource::visible_in_generated_world(registries, state).collect(),
         water: available_visible_generated_water(registries, state),
+        local_water: available_local_drink_sources(registries, state).collect(),
         kobolds: local_resident_sightings(registries, state),
         footfalls: available_nearby_kobold_footfalls(registries, state),
         tracks: available_nearby_kobold_tracks(registries, state).collect(),
@@ -578,10 +594,25 @@ fn adjacent_footing(registries: &Registries, state: &AppState, dx: i64, dz: i64)
             return label;
         }
     }
+    let direction = HorizontalControlInput::new(dx as i32 * 1_000_000, dz as i32 * 1_000_000)
+        .expect("cardinal footing input");
+    let climb = project_player_climb_target(registries, state, direction);
     if let Some(y) = foot.y().checked_add(1)
         && project_player_standing_space(registries, state, VoxelCoord::new(x, y, z))
     {
+        if project_player_jump_rise_bound(registries, state)
+            .is_some_and(|height| height.micrometers() < 1_000_000)
+        {
+            return if climb.is_some() {
+                "up 1m (climb)"
+            } else {
+                "up 1m (load prevents jump)"
+            };
+        }
         return "up 1m (jump)";
+    }
+    if climb.is_some_and(|target| target.y().checked_sub(foot.y()) == Some(2)) {
+        return "up 2m (climb)";
     }
     "blocked/steep"
 }
@@ -675,6 +706,13 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
             pos(water.position())
         );
     }
+    // Exact-local access is not a sight ray. A roof or darkness can hide
+    // a spring that the actor is physically standing at and can drink from.
+    if let Some(report) =
+        drink_sources_report(&available_local_drink_sources(registries, state).collect::<Vec<_>>())
+    {
+        output.push_str(&report);
+    }
     for tree in available_visible_generated_trees(registries, state) {
         let _ = writeln!(
             output,
@@ -735,6 +773,16 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
                     pos(target.voxel()),
                     target.face()
                 );
+                if matches!(
+                    state.logistics().active_selection(),
+                    Some(PlayerActiveSelection::Equipment(_))
+                ) && registries
+                    .world()
+                    .block_for_state(target.state())
+                    .is_some_and(|block| block.excavation().is_some())
+                {
+                    output.push_str(&excavation_preview(registries, state, aim));
+                }
             }
             Ok(None) => output.push_str("No targetable block within reach in that direction.\n"),
             Err(error) => {
@@ -803,6 +851,33 @@ fn group_track_descriptions(tracks: impl IntoIterator<Item = String>) -> Vec<(St
         }
     }
     grouped
+}
+
+fn excavation_preview(registries: &Registries, state: &AppState, aim: ViewDirection) -> String {
+    match validate_pointed_terrain_excavation(registries, state, aim) {
+        Ok(Some(plan)) => {
+            let work = plan.work();
+            let mass = work.excavated_mass();
+            let remaining = work.source_mass_before();
+            let cuts = remaining.milligrams().div_ceil(mass.milligrams());
+            let duration = work
+                .duration_control_ticks()
+                .map(|ticks| ticks.div_ceil(CONTROL_TICKS_PER_SIMULATION_TICK));
+            let destination = if work.output().carried_stockpile().is_some() {
+                "pack"
+            } else {
+                "ground"
+            };
+            format!(
+                "Excavation preview: {} g solid terrain remains; next cut {} g in {} to {destination}. At this cut size: {cuts} cuts; tool wear and reserves can change subsequent cuts. Use 'break DIRECTION repeat N' for bounded repeated cuts.\n",
+                grams(remaining),
+                grams(mass),
+                runway_label(duration)
+            )
+        }
+        Ok(None) => String::new(),
+        Err(error) => format!("Excavation unavailable: {error}\n"),
+    }
 }
 
 fn structural_break_preview(

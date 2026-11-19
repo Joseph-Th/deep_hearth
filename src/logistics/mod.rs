@@ -80,9 +80,10 @@ pub use inventory_view::{
     PlayerStockpileProjection, project_player_inventory,
 };
 pub use kinematics::{
-    PlayerBodyMotionError, PlayerBodyMotionOutcome, PlayerFallImpactOutcome,
-    PlayerOverheadCoverAssessment, PlayerWalkProjection, PlayerWalkProjectionError,
-    assess_player_overhead_cover, project_player_adjacent_walk, project_player_level_approach,
+    MAX_LEDGE_CLIMB_METERS, PlayerBodyMotionError, PlayerBodyMotionOutcome,
+    PlayerFallImpactOutcome, PlayerOverheadCoverAssessment, PlayerWalkProjection,
+    PlayerWalkProjectionError, assess_player_overhead_cover, project_player_adjacent_walk,
+    project_player_climb_target, project_player_jump_rise_bound, project_player_level_approach,
     project_player_standing_space, project_player_walk_path, project_player_walk_path_for_load,
 };
 pub(crate) use kinematics::{

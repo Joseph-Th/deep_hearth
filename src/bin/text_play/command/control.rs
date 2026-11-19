@@ -48,6 +48,12 @@ impl Session {
             "descend" if args.len() == 1 => {
                 self.trek(Direction::parse(args[0])?.movement()?, 1, true, true)?
             }
+            "climb" if args.len() == 1 => self.trek(
+                Direction::parse(args[0])?.movement()?.with_climb(true),
+                1,
+                true,
+                false,
+            )?,
             "sprint" | "sneak" if (1..=2).contains(&args.len()) => {
                 let direction = Direction::parse(args[0])?;
                 let count = parse_count(args.get(1).copied(), 20, MAX_MOVEMENT_TICKS)?;
@@ -129,6 +135,13 @@ impl Session {
                 self.advance_one(
                     PlayerDirectControlInput::NEUTRAL
                         .with_secondary(SecondaryControlIntent::use_active(aim)),
+                )?
+            }
+            "break" if args.len() >= 2 && args[args.len() - 2] == "repeat" => {
+                let (aim, repeat) = args.split_at(args.len() - 2);
+                self.repeat_excavation(
+                    self.parse_aim(aim)?,
+                    parse_count(repeat.get(1).copied(), 1, 32)?,
                 )?
             }
             "break" | "shove" | "strike" | "prepare" | "release" => {

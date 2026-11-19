@@ -119,6 +119,12 @@ pub struct ValidatedPlayerBlockExcavationStart {
 }
 
 impl ValidatedPlayerBlockExcavationStart {
+    /// Observe the exact authorized batch before spending any time or resources.
+    #[must_use]
+    pub const fn work(&self) -> BlockExcavationWork {
+        self.work
+    }
+
     pub fn commit(
         self,
         state: &mut AppState,

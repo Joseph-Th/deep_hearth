@@ -4,6 +4,56 @@ use super::*;
 use crate::core::state::validate_loaded_state;
 use crate::world::WEATHER_FRONT_TICKS;
 
+#[test]
+fn bounded_neutral_span_matches_control_receipts_at_partial_boundaries() {
+    let (registries, mut accelerated, _) = generated_grounded_player_at(8, 8);
+    let mut exact = accelerated.clone();
+    for budget in [11, 1, 7, 72, 144, 3, 72] {
+        let start = accelerated.control_tick().value();
+        let result = advance_neutral_control_span(
+            &registries,
+            &mut accelerated,
+            std::num::NonZeroU64::new(budget).unwrap(),
+        )
+        .unwrap();
+        let elapsed = accelerated.control_tick().value() - start;
+        let remaining =
+            CONTROL_TICKS_PER_SIMULATION_TICK - start % CONTROL_TICKS_PER_SIMULATION_TICK;
+        assert_eq!(elapsed, if remaining <= budget { remaining } else { 1 });
+        let mut last = None;
+        for _ in 0..elapsed {
+            last = Some(advance_control_tick(&registries, &mut exact).unwrap());
+        }
+        assert_eq!(result, last.unwrap());
+        assert_eq!(accelerated, exact);
+    }
+}
+
+#[test]
+fn bounded_neutral_span_does_not_skip_airborne_motion() {
+    let (registries, mut airborne, _) = generated_grounded_player_at(8, 8);
+    let _ = advance_control_tick_with_input(
+        &registries,
+        &mut airborne,
+        PlayerControlInput::NEUTRAL.with_jump(true),
+    )
+    .unwrap();
+    let mut exact = airborne.clone();
+    let start = airborne.control_tick().value();
+    let result = advance_neutral_control_span(
+        &registries,
+        &mut airborne,
+        std::num::NonZeroU64::new(144).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(airborne.control_tick().value(), start + 1);
+    assert_eq!(
+        result,
+        advance_control_tick(&registries, &mut exact).unwrap()
+    );
+    assert_eq!(airborne, exact);
+}
+
 fn generated_grounded_world(seed_value: u64) -> (Registries, AppState) {
     let registries = build_registries();
     let mut state = AppState::new();

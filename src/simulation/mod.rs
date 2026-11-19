@@ -16,6 +16,19 @@ pub use outcome::{
     QuickAccessSelectionOutcome, SecondaryActionOutcome, TickOutcome,
 };
 
+/// Authorize one terrain-only cut at the current aim, or return no plan if a
+/// tree or structural target takes priority. No state changes during admission.
+pub fn validate_pointed_terrain_excavation(
+    registries: &crate::registry::Registries,
+    state: &crate::core::state::AppState,
+    direction: crate::spatial::ViewDirection,
+) -> Result<
+    Option<crate::world::ValidatedPlayerBlockExcavationStart>,
+    crate::world::BlockExcavationError,
+> {
+    direct_actions::validate_pointed_terrain_excavation(registries, state, direction)
+}
+
 /// Validate exact destination placement of a supported timber post or roof
 /// panel using a physical carried stack and the normal visible-air reach ray.
 pub fn validate_start_player_supported_timber_at(
@@ -349,6 +362,39 @@ pub fn advance_tick(
         });
     }
     advance_simulation_tick(registries, state, next_tick, SurvivalExertion::REST, 0)
+}
+
+/// Advance neutral input by at most the supplied control-frame budget.
+///
+/// When the next slow boundary fits the budget, reuse the guarded slow-tick
+/// path. Otherwise, or when any control-rate consequence could occur, execute
+/// exactly one control frame. Never cross more than one slow boundary, so
+/// callers can observe all events and stop at the first changed condition.
+pub fn advance_neutral_control_span(
+    registries: &Registries,
+    state: &mut AppState,
+    limit: std::num::NonZeroU64,
+) -> Result<ControlTickOutcome, TickError> {
+    let scale = crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
+    let remaining = scale - state.control_tick().value() % scale;
+    if limit.get() > 1 && remaining <= limit.get() {
+        match advance_tick(registries, state) {
+            Ok(simulation) => {
+                let block_excavation = simulation.block_excavation();
+                return Ok(ControlTickOutcome::new(
+                    state.control_tick(),
+                    Some(simulation),
+                    None,
+                    None,
+                    block_excavation,
+                    outcome::DirectActionOutcomes::new(None, None, None, None),
+                ));
+            }
+            Err(TickError::ControlSteppingRequired { .. }) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    advance_control_tick(registries, state)
 }
 
 #[cfg(test)]

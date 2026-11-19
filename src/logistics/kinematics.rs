@@ -1,5 +1,6 @@
 //! Deterministic control-rate player-body integration against authoritative block cells.
 
+mod climb;
 mod collision;
 mod cover;
 mod exertion;
@@ -23,6 +24,8 @@ use super::{
     CONTROL_INPUT_PARTS_PER_MILLION, HorizontalControlInput, PlayerBodyState, PlayerControlInput,
     PlayerLogisticsRecord, PlayerStance, assess_player_carrying,
 };
+use climb::resolve_ledge_climb;
+pub use climb::{MAX_LEDGE_CLIMB_METERS, project_player_climb_target};
 pub use collision::project_player_standing_space;
 use collision::{
     body_height, horizontal_chunks_generated, horizontal_voxel_bounds, length_nanometers,
@@ -39,6 +42,7 @@ pub(crate) use collision::{
 use exertion::resolve_control_exertion;
 use ground_control::resolve_horizontal_control;
 pub use horizontal::project_player_level_approach;
+pub use vertical::project_player_jump_rise_bound;
 pub(crate) use vertical::{player_body_has_fixed_floor, player_placement_has_fixed_floor};
 use vertical::{resolve_vertical_control, supporting_floor_y};
 
@@ -172,6 +176,7 @@ struct ResolvedPlayerBodyTick {
     after: PlayerBodyState,
     availability: PlayerControlAvailability,
     grounded: bool,
+    climbing: bool,
     fall_impact: Option<PlayerFallImpactOutcome>,
 }
 
@@ -199,6 +204,35 @@ fn resolve_player_body_tick(
         grounded: supporting_floor_y(registries, state, before, bounds)
             == Some(before.foot_position().y_nanometers()),
     };
+    if input.climb()
+        && !input.jump()
+        && !input.crouch()
+        && !input.sprint()
+        && availability.alive
+        && !availability.busy
+        && let Some(after) = resolve_ledge_climb(
+            registries,
+            state,
+            before,
+            locomotion,
+            input.horizontal(),
+            projected_load,
+        )?
+    {
+        return Ok(Some(ResolvedPlayerBodyTick {
+            after,
+            availability,
+            grounded: collision::player_body_is_grounded_at(registries, state, after),
+            climbing: true,
+            fall_impact: None,
+        }));
+    }
+    // An unavailable grip is not a request to walk or jump off a ledge.
+    let input = if input.climb() {
+        PlayerControlInput::NEUTRAL
+    } else {
+        input
+    };
     let horizontal_body = resolve_horizontal_control(
         registries,
         state,
@@ -220,6 +254,7 @@ fn resolve_player_body_tick(
         after,
         availability,
         grounded,
+        climbing: false,
         fall_impact,
     }))
 }
@@ -234,24 +269,23 @@ pub(crate) fn decide_player_body_motion(
         return Ok(None);
     };
     let before = player.body();
-    let Some(ResolvedPlayerBodyTick {
-        after,
-        availability,
-        grounded,
-        fall_impact,
-    }) = resolve_player_body_tick(registries, state, before, input, None)?
-    else {
+    let Some(resolved) = resolve_player_body_tick(registries, state, before, input, None)? else {
         return Ok(None);
     };
+    let ResolvedPlayerBodyTick {
+        after,
+        grounded,
+        fall_impact,
+        ..
+    } = resolved;
     let locomotion = registries.survival().physiology().locomotion();
     let exertion_before = player.locomotion_exertion();
     let pending_fall_before = player.pending_fall_vitality_loss_ppm();
     let (locomotion_exertion, settled_locomotion_exertion) = resolve_control_exertion(
         state,
         before,
-        after,
+        resolved,
         locomotion,
-        availability,
         input,
         settle_pending_exertion,
     )?;

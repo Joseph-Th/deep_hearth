@@ -8,15 +8,14 @@ use crate::survival::{LocomotionDefinition, SurvivalExertion};
 
 use super::{
     LocomotionExertionAccumulator, MICROSECONDS_PER_SECOND, PlayerBodyMotionError, PlayerBodyState,
-    PlayerControlAvailability, PlayerControlInput, assess_player_carrying,
+    PlayerControlInput, ResolvedPlayerBodyTick, assess_player_carrying,
 };
 
 pub(super) fn resolve_control_exertion(
     state: &AppState,
     before: PlayerBodyState,
-    after: PlayerBodyState,
+    resolved: ResolvedPlayerBodyTick,
     locomotion: LocomotionDefinition,
-    availability: PlayerControlAvailability,
     input: PlayerControlInput,
     settle_pending_exertion: bool,
 ) -> Result<(LocomotionExertionAccumulator, SurvivalExertion), PlayerBodyMotionError> {
@@ -36,9 +35,26 @@ pub(super) fn resolve_control_exertion(
     } else {
         before_accumulator
     };
-    if !availability.accepts_ground_control() {
+    if resolved.climbing {
+        // Climbing expends the load-scaled sprint effort per unit time;
+        // charging a walking displacement alone would make vertical work free.
+        let carrying = assess_player_carrying(state).expect("admitted climbing body has carrying");
+        let effort = locomotion
+            .exertion_for_horizontal_speed(
+                carrying.stored(),
+                carrying.capacity(),
+                u128::from(locomotion.sprinting_speed().nanometers_per_second()),
+            )
+            .ok_or(PlayerBodyMotionError::ExertionOverflow)?;
+        accumulator = accumulator
+            .checked_accrue(effort)
+            .ok_or(PlayerBodyMotionError::ExertionOverflow)?;
         return Ok((accumulator, settled));
     }
+    if input.climb() || !resolved.availability.accepts_ground_control() {
+        return Ok((accumulator, settled));
+    }
+    let after = resolved.after;
     let walked = !input.horizontal().is_neutral()
         && horizontal_position_changed(before.foot_position(), after.foot_position());
     let launched = input.jump()

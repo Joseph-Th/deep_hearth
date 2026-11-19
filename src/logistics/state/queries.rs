@@ -137,8 +137,9 @@ impl LogisticsState {
         self.pending_primary_break
     }
 
+    /// Whether a direct interaction is queued for the next control boundary.
     #[must_use]
-    pub(crate) const fn has_pending_direct_action(&self) -> bool {
+    pub const fn has_pending_direct_action(&self) -> bool {
         self.pending_secondary_use.is_some() || self.pending_primary_break.is_some()
     }
 

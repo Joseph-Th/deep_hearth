@@ -3,6 +3,8 @@
 use std::fmt::Write as _;
 
 use super::{Session, activity, crafting, view};
+#[path = "stepping/excavation.rs"]
+mod excavation;
 mod feedback;
 #[path = "stepping/travel.rs"]
 mod travel;
@@ -14,6 +16,7 @@ use deep_hearth::logistics::{
 use deep_hearth::mining::MiningJobId;
 use deep_hearth::simulation::{
     PlayerDirectControlInput, SecondaryActionOutcome, advance_control_tick_with_direct_input,
+    advance_neutral_control_span,
 };
 use deep_hearth::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord};
 use deep_hearth::surface::{SurfaceGatheringError, SurfaceResourceId};
@@ -24,6 +27,7 @@ use deep_hearth::world::{DayPhase, assess_player_weather};
 pub(super) enum BatchReceipt {
     Gathered(SurfaceResourceId),
     Mined(MiningJobId),
+    Excavated(VoxelCoord),
 }
 
 pub(super) struct StepReport {
@@ -172,8 +176,8 @@ impl Session {
         Ok(output)
     }
 
-    /// Wait awake for the next requested daylight phase, never skipping physical
-    /// control steps. Events, changing local threats, expired heat and new
+    /// Wait awake for the next requested daylight phase, eliding only neutral
+    /// control intervals proven inert by simulation. Events, changing local threats, expired heat and new
     /// survival warnings end the watch before its requested horizon.
     pub(super) fn advance_until_phase(&mut self, target: DayPhase) -> Result<String, String> {
         let phase_name = match target {
@@ -236,12 +240,15 @@ impl Session {
         let initial_lit_fires = lit_nearby_fires(&self.registries, &self.state);
         let mut output = String::new();
         let mut actual = 0_u64;
-        for _ in 0..maximum {
+        while actual < maximum {
             let previous_tick = self.state.tick();
-            let noteworthy = self
-                .step(PlayerDirectControlInput::NEUTRAL, &mut output)?
-                .noteworthy;
-            actual += 1;
+            let (report, elapsed) = self.step_bounded(
+                PlayerDirectControlInput::NEUTRAL,
+                maximum - actual,
+                &mut output,
+            )?;
+            let noteworthy = report.noteworthy;
+            actual += elapsed;
             if noteworthy {
                 output.push_str("Daylight watch interrupted by an event.\n");
                 break;
@@ -332,10 +339,11 @@ impl Session {
         let mut actual = 0;
         let mut completed = false;
         let mut interrupted = false;
-        for _ in 0..limit {
+        while actual < limit {
             let previous = self.state.tick();
-            let report = self.step(PlayerDirectControlInput::NEUTRAL, output)?;
-            actual += 1;
+            let (report, elapsed) =
+                self.step_bounded(PlayerDirectControlInput::NEUTRAL, limit - actual, output)?;
+            actual += elapsed;
             completed = report.batch_receipt == Some(expected);
             interrupted =
                 report.other_event || view::urgency(&self.registries, &self.state) != initial;
@@ -382,7 +390,7 @@ impl Session {
         // sample. Nearby changes must not interrupt the first jump mid-ledge.
         let directional_jump = walking && input.movement().jump();
         let mut actual = 0;
-        for _ in 0..limit {
+        while actual < limit {
             let body_before = walking
                 .then(|| self.state.logistics().player().map(|player| player.body()))
                 .flatten();
@@ -392,8 +400,10 @@ impl Session {
             } else {
                 input
             };
-            let noteworthy = self.step(sampled_input, &mut output)?.noteworthy;
-            actual += 1;
+            let (report, elapsed) =
+                self.step_bounded(sampled_input, limit - actual, &mut output)?;
+            let noteworthy = report.noteworthy;
+            actual += elapsed;
             if noteworthy || view::urgency(&self.registries, &self.state) != before {
                 break;
             }
@@ -475,11 +485,30 @@ impl Session {
         input: PlayerDirectControlInput,
         output: &mut String,
     ) -> Result<StepReport, String> {
+        self.step_bounded(input, 1, output)
+            .map(|(report, _)| report)
+    }
+
+    /// The same transcript path handles both one physical control sample and
+    /// one guarded neutral span. Every caller supplies its remaining horizon.
+    fn step_bounded(
+        &mut self,
+        input: PlayerDirectControlInput,
+        limit: u64,
+        output: &mut String,
+    ) -> Result<(StepReport, u64), String> {
         let before = self.player_position()?;
         let previous_work = self.state.player_work().active();
-        let outcome =
+        let control_before = self.state.control_tick().value();
+        let outcome = if input == PlayerDirectControlInput::NEUTRAL {
+            let budget =
+                std::num::NonZeroU64::new(limit).expect("positive remaining control limit");
+            advance_neutral_control_span(&self.registries, &mut self.state, budget)
+        } else {
             advance_control_tick_with_direct_input(&self.registries, &mut self.state, input)
-                .map_err(|error| format!("simulation tick failed: {error}"))?;
+        }
+        .map_err(|error| format!("simulation tick failed: {error}"))?;
+        let elapsed = self.state.control_tick().value() - control_before;
         let stale_gathering_option = matches!(
             outcome.secondary_action(),
             Some(SecondaryActionOutcome::SurfaceGatheringRejected(
@@ -488,11 +517,15 @@ impl Session {
         );
         // Physical motion and automatic custody transfer precede direct actions
         // in the control owner. Preserve that order when both occur in one frame.
-        let mut interrupt = note_text(
+        let mut batch_receipt = outcome
+            .block_excavation()
+            .map(|receipt| BatchReceipt::Excavated(receipt.target()));
+        let _ = note_text(
             output,
             "Excavated",
             outcome.block_excavation().map(feedback::excavation),
         );
+        let mut interrupt = false;
         let fall = outcome
             .body_motion()
             .and_then(|motion| motion.fall_impact());
@@ -524,7 +557,6 @@ impl Session {
                 .active_selection_drop()
                 .map(|event| feedback::drop(&self.registries, event)),
         );
-        let mut batch_receipt = None;
         if let Some(simulation) = outcome.simulation() {
             if let Some(gathered) = simulation.surface_gathering() {
                 let _ = writeln!(
@@ -643,15 +675,18 @@ impl Session {
         if self.player_position()? != before {
             Self::expand_neighborhood(&self.registries, &mut self.state)?;
         }
-        Ok(StepReport {
-            noteworthy: interrupt || landed || batch_receipt.is_some(),
-            travel_interrupt: interrupt
-                || batch_receipt.is_some()
-                || fall.is_some_and(|impact| impact.vitality_loss_ppm() > 0),
-            other_event: interrupt || landed,
-            batch_receipt,
-            stale_gathering_option,
-        })
+        Ok((
+            StepReport {
+                noteworthy: interrupt || landed || batch_receipt.is_some(),
+                travel_interrupt: interrupt
+                    || batch_receipt.is_some()
+                    || fall.is_some_and(|impact| impact.vitality_loss_ppm() > 0),
+                other_event: interrupt || landed,
+                batch_receipt,
+                stale_gathering_option,
+            },
+            elapsed,
+        ))
     }
 }
 

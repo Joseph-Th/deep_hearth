@@ -282,12 +282,32 @@ fn work_wait_still_notices_changes_to_physical_food_and_water() {
     );
     changed = initial.clone();
     changed.water.clear();
-    if !initial.water.is_empty() {
-        assert_eq!(
-            initial.work_attention(&changed, player),
-            Some("Nearby water has changed.")
-        );
+    assert!(!initial.water.is_empty());
+    assert_eq!(initial.work_attention(&changed, player), None);
+    assert_eq!(
+        initial.changed(&changed),
+        Some("Nearby water sightings have changed.")
+    );
+    assert_eq!(
+        changed.work_attention(&initial, player),
+        Some("New nearby water is visible.")
+    );
+
+    // Follow the real opening branch to a drinkable source.
+    for command in ["s 20", "wait 10"] {
+        session.command(command).unwrap();
     }
+    let player = session.player_position().unwrap();
+    let at_water = super::local_cues(&session.registries, &session.state);
+    assert!(!at_water.local_water.is_empty());
+    let catalog = super::drink_options(&session.registries, &session.state);
+    assert!(super::look(&session.registries, &session.state, None).contains(&catalog));
+    let mut lost_supply = at_water.clone();
+    lost_supply.local_water.clear();
+    assert_eq!(
+        at_water.work_attention(&lost_supply, player),
+        Some("Drinkable water at your position has changed.")
+    );
 }
 
 #[test]

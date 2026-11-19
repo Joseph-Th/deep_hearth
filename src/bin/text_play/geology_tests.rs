@@ -26,6 +26,64 @@ fn carried_stack(session: &Session, material_name: &str) -> usize {
 }
 
 #[test]
+fn repeated_terrain_excavation_matches_authorized_batches_and_conserves_matter() {
+    use deep_hearth::simulation::validate_pointed_terrain_excavation;
+    use deep_hearth::spatial::ViewDirection;
+
+    let mut repeated = equipped_for_copper_survey_and_mining();
+    run(&mut repeated, "equip 2");
+    let before = snapshot(&repeated);
+    let preview = run(&mut repeated, "look down");
+    assert!(preview.contains("Excavation preview:"), "{preview}");
+    assert!(preview.contains("solid terrain remains"), "{preview}");
+    assert_eq!(snapshot(&repeated), before);
+    for bad in [
+        "break down repeat 0",
+        "break down repeat 33",
+        "break bogus repeat 3",
+    ] {
+        assert!(repeated.command(bad).is_err(), "{bad}");
+        assert_eq!(snapshot(&repeated), before);
+    }
+    let mut manual = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&before)
+            .unwrap()
+            .into_state(&repeated.registries)
+            .unwrap(),
+        seed: None,
+    };
+    let conserved = calculate_matter_accounting(&repeated.state)
+        .unwrap()
+        .total();
+    let report = run(&mut repeated, "break down repeat 3");
+    assert!(
+        report.contains("Excavation repeat: 3 batches completed."),
+        "{report}"
+    );
+    assert_eq!(report.matches("Excavated:").count(), 3, "{report}");
+    let aim = ViewDirection::new(0, -1_000_000, 0).unwrap();
+    for _ in 0..3 {
+        let plan = validate_pointed_terrain_excavation(&manual.registries, &manual.state, aim)
+            .unwrap()
+            .unwrap();
+        let _receipt = plan.commit(&mut manual.state).unwrap();
+        finish_work(&mut manual);
+    }
+    assert_eq!(snapshot(&repeated), snapshot(&manual));
+    assert_eq!(
+        calculate_matter_accounting(&repeated.state)
+            .unwrap()
+            .total(),
+        conserved
+    );
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&repeated.registries, &repeated.state),
+        Ok(())
+    );
+}
+
+#[test]
 fn repeated_mining_matches_explicit_batches_and_conserves_matter() {
     let mut repeated = equipped_for_copper_survey_and_mining();
     run(&mut repeated, "prospect copper 2 with 1");

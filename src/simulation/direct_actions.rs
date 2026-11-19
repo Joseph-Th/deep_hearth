@@ -8,6 +8,44 @@ mod structural_target;
 
 pub(super) use placement::{project_pointed_timber_cover_target, validate_supported_timber_at};
 
+fn pointed_tree_root(
+    registries: &Registries,
+    state: &AppState,
+    direction: crate::spatial::ViewDirection,
+) -> Option<crate::spatial::VoxelCoord> {
+    crate::world::raycast_player_air_voxel(registries, state, direction, |voxel, _| {
+        state.world().tree_trunk_at(voxel).map(|tree| tree.root())
+    })
+    .ok()
+    .flatten()
+}
+
+/// An explicit terrain-only order may not pass through a tree or a structural
+/// break target. The same chosen-tool admission used by a single break
+/// supplies the plan, including actual costs, output custody and duration.
+pub(super) fn validate_pointed_terrain_excavation(
+    registries: &Registries,
+    state: &AppState,
+    direction: crate::spatial::ViewDirection,
+) -> Result<
+    Option<crate::world::ValidatedPlayerBlockExcavationStart>,
+    crate::world::BlockExcavationError,
+> {
+    if pointed_tree_root(registries, state, direction).is_some() {
+        return Ok(None);
+    }
+    match structural_target::resolve_direct_structural_target(registries, state, direction) {
+        Ok(_) | Err(structural_target::DirectStructuralTargetError::Ambiguous { .. }) => Ok(None),
+        Err(
+            structural_target::DirectStructuralTargetError::TargetUnavailable
+            | structural_target::DirectStructuralTargetError::NoTarget,
+        ) => crate::world::validate_start_player_block_excavation_active(
+            registries, state, direction,
+        )
+        .map(Some),
+    }
+}
+
 /// Read-only structural break selection with the same standing-tree priority
 /// as the primary-action owner. Terrain and absent targets return None.
 pub(super) fn project_pointed_structural_break_target(
@@ -15,11 +53,7 @@ pub(super) fn project_pointed_structural_break_target(
     state: &crate::core::state::AppState,
     direction: crate::spatial::ViewDirection,
 ) -> Result<Option<crate::structural::StructuralElementId>, usize> {
-    if let Ok(Some(_)) =
-        crate::world::raycast_player_air_voxel(registries, state, direction, |voxel, _| {
-            state.world().tree_trunk_at(voxel).map(|tree| tree.root())
-        })
-    {
+    if pointed_tree_root(registries, state, direction).is_some() {
         return Ok(None);
     }
     match structural_target::resolve_direct_structural_target(registries, state, direction) {

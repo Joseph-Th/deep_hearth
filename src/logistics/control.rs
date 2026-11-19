@@ -78,6 +78,7 @@ impl HorizontalControlInput {
 pub struct PlayerControlInput {
     horizontal: HorizontalControlInput,
     jump: bool,
+    climb: bool,
     crouch: bool,
     sprint: bool,
 }
@@ -86,6 +87,7 @@ impl PlayerControlInput {
     pub const NEUTRAL: Self = Self {
         horizontal: HorizontalControlInput::NEUTRAL,
         jump: false,
+        climb: false,
         crouch: false,
         sprint: false,
     };
@@ -95,6 +97,7 @@ impl PlayerControlInput {
         Self {
             horizontal,
             jump: false,
+            climb: false,
             crouch: false,
             sprint: false,
         }
@@ -109,6 +112,18 @@ impl PlayerControlInput {
     pub const fn with_jump(mut self, jump: bool) -> Self {
         self.jump = jump;
         self
+    }
+
+    /// Hold a cardinal ledge-climb input. Release resumes ordinary gravity.
+    #[must_use]
+    pub const fn with_climb(mut self, climb: bool) -> Self {
+        self.climb = climb;
+        self
+    }
+
+    #[must_use]
+    pub const fn climb(self) -> bool {
+        self.climb
     }
 
     #[must_use]

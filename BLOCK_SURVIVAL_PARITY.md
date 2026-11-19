@@ -256,9 +256,9 @@ height.
 | Step-up | Small obstacle auto-step | None | `GAP-P1` | Add bounded step height so ordinary terrain traversal feels familiar. |
 | Friction/slipperiness | Surface-dependent movement | None | `GAP-P1` | Material/block state should provide traction; ice/mud equivalents emerge from it. |
 | Fluids movement | Swimming, buoyancy/drag, current interaction | No world fluid field | `GAP-P1` | Add after spatial fluids. Use density/drag/current rather than special-case-only movement. |
-| Climbing | Ladders/vines/scaffolding special movement | None | `GAP-P1` | Add climbable support surfaces/components. |
+| Climbing | Ladders/vines/scaffolding special movement | Deliberate cardinal climb onto a clear fixed ledge up to two metres higher; continuous collision and load-dependent speed/exertion, with ordinary gravity on release | `DIFFERENT+` narrow | General climbable ladders, vines and scaffolding remain future work. |
 | Edge/contact effects | Movement path encounters blocks, fire, fluids, etc. | Voxel destination only | `GAP-P1` | Track swept contact so environmental effects cannot be bypassed by fast movement. |
-| Encumbrance | Vanilla inventory has no weight | Exact carried/equipment mass scales locomotion energy/hydration, sprint ceiling, and jump impulse; fractional 20 Hz cost settles through the slow survival owner | `DIFFERENT+` | Keep and extend to climb/swim where physically justified. |
+| Encumbrance | Vanilla inventory has no weight | Exact carried/equipment mass scales locomotion energy/hydration, sprint ceiling, and jump impulse; fractional 20 Hz cost settles through the slow survival owner | `DIFFERENT+` | Keep the same accounting for walking, jumping and short-ledge climbing; extend to swimming where physically justified. |
 | Multi-step routing | Mob/path systems route through blocks | No general pathfinder; a bounded persisted opening-access graph exposes only adjacent local orientation/planning choices | `GAP-P1` | Player needs no click-to-route for WASD, but AI/logistics need pathfinding over world collision/access data. |
 
 The persisted opening-access graph is observation/planning topology only. `AppState::available_adjacent_traversal_destinations`

@@ -108,14 +108,14 @@ pub(super) fn resolve_horizontal_motion(
 }
 
 #[derive(Clone, Copy)]
-enum HorizontalAxis {
+pub(super) enum HorizontalAxis {
     X,
     Z,
 }
 
 /// Both horizontal axes use the same checked leading-face sweep. The perpendicular body
 /// footprint is examined at each crossed cell, so a faster input cannot tunnel through a wall.
-fn sweep_horizontal_axis(
+pub(super) fn sweep_horizontal_axis(
     body: PlayerBodyState,
     locomotion: LocomotionDefinition,
     proposed: i64,

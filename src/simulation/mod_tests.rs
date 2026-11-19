@@ -38,6 +38,8 @@ use crate::world::{
 mod direct_consumption;
 #[path = "mod_tests/direct_gathering.rs"]
 mod direct_gathering;
+#[path = "mod_tests/ledge_climb.rs"]
+mod ledge_climb;
 #[path = "mod_tests/mechanical_worksite.rs"]
 mod mechanical_worksite;
 #[path = "mod_tests/neutral_fast_path_parity.rs"]

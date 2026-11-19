@@ -8,7 +8,8 @@ use super::{Session, view};
 use deep_hearth::geology::visible_weathered_copper_sites;
 use deep_hearth::kobolds::KoboldSighting;
 use deep_hearth::logistics::{
-    HorizontalControlInput, PlayerControlInput, project_player_standing_space,
+    HorizontalControlInput, MAX_LEDGE_CLIMB_METERS, PlayerControlInput,
+    project_player_climb_target, project_player_jump_rise_bound, project_player_standing_space,
 };
 use deep_hearth::material::CommodityKey;
 use deep_hearth::simulation::PlayerDirectControlInput;
@@ -117,7 +118,7 @@ impl Session {
             .body();
         if self.state.player_work().active().is_some()
             || body.horizontal_velocity() != HorizontalVelocity::ZERO
-            || body.vertical_velocity() != VerticalVelocity::ZERO
+            || (!movement.climb() && body.vertical_velocity() != VerticalVelocity::ZERO)
         {
             return Err("finish work and settle movement before trekking".to_owned());
         }
@@ -136,15 +137,11 @@ impl Session {
         let mut steps = 0;
         for _ in 0..cells {
             let origin = self.player_position()?;
-            let Some(target) = self.trek_foothold(origin, movement, descend) else {
-                output.push_str(if descend {
-                    "Descent stopped: no clear two- or three-metre landing.\n"
-                } else {
-                    "Trek stopped: no clear level or one-metre foothold; choose another route.\n"
-                });
+            let Some((target, climb)) = self.plan_trek_leg(origin, movement, descend, &mut output)
+            else {
                 break;
             };
-            match self.trek_leg(origin, target, urgency, &mut output)? {
+            match self.trek_leg(origin, target, climb, urgency, &mut output)? {
                 LegResult::Arrived => steps += 1,
                 LegResult::Interrupted => {
                     if self.player_position()? == target {
@@ -156,6 +153,9 @@ impl Session {
                 }
                 LegResult::Blocked => {
                     output.push_str("Trek stopped: physical approach could not be completed.\n");
+                    if target.y() > origin.y() && climb.is_none() {
+                        output.push_str("Try 'climb DIRECTION' for a clear fixed ledge, or reduce carried load.\n");
+                    }
                     break;
                 }
             }
@@ -173,12 +173,60 @@ impl Session {
         Ok(output)
     }
 
+    /// Choose a reachable foothold and the control maneuver appropriate to the
+    /// current carried load, without altering the canonical motion owner.
+    fn plan_trek_leg(
+        &self,
+        origin: VoxelCoord,
+        movement: PlayerControlInput,
+        descend: bool,
+        output: &mut String,
+    ) -> Option<(VoxelCoord, Option<HorizontalControlInput>)> {
+        let Some(target) = self.trek_foothold(origin, movement, descend) else {
+            output.push_str(if movement.climb() {
+                "Climb stopped: no reachable fixed ledge with clear lift and landing space (up to two metres).\n"
+            } else if descend {
+                "Descent stopped: no clear two- or three-metre landing.\n"
+            } else {
+                "Trek stopped: no clear level or one-metre foothold; choose another route.\n"
+            });
+            return None;
+        };
+        if origin.y().saturating_sub(target.y()) > MAX_LEDGE_CLIMB_METERS {
+            output.push_str("Warning: this drop exceeds the short-ledge climbing limit; returning this way may be impossible.\n");
+        }
+        if movement.climb() {
+            return Some((target, Some(movement.horizontal())));
+        }
+        let jump_too_low = target.y() > origin.y()
+            && project_player_jump_rise_bound(&self.registries, &self.state)
+                .is_some_and(|height| height.micrometers() < 1_000_000);
+        if !jump_too_low {
+            return Some((target, None));
+        }
+        if project_player_climb_target(&self.registries, &self.state, movement.horizontal())
+            != Some(target)
+        {
+            output.push_str("Trek stopped: the carried load prevents clearing this jump and there is no clear climb.\n");
+            return None;
+        }
+        output.push_str("The current load limits the jump height; climbing the ledge instead.\n");
+        Some((target, Some(movement.horizontal())))
+    }
+
     fn trek_foothold(
         &self,
         origin: VoxelCoord,
         movement: PlayerControlInput,
         descend: bool,
     ) -> Option<VoxelCoord> {
+        if movement.climb() {
+            return project_player_climb_target(
+                &self.registries,
+                &self.state,
+                movement.horizontal(),
+            );
+        }
         let x = origin
             .x()
             .checked_add(i64::from(movement.horizontal().x_ppm().signum()))?;
@@ -201,6 +249,7 @@ impl Session {
         &mut self,
         origin: VoxelCoord,
         target: VoxelCoord,
+        climb: Option<HorizontalControlInput>,
         urgency: (bool, bool, bool, bool),
         output: &mut String,
     ) -> Result<LegResult, String> {
@@ -251,7 +300,14 @@ impl Session {
             };
             let horizontal = HorizontalControlInput::new(component(dx), component(dz))
                 .map_err(|e| e.to_string())?;
-            let input = PlayerControlInput::new(horizontal).with_jump(uphill && tick == 0);
+            let input = if let Some(direction) = climb
+                && (position.x(), position.z()) == (origin.x(), origin.z())
+            {
+                PlayerControlInput::new(direction).with_climb(true)
+            } else {
+                PlayerControlInput::new(horizontal)
+                    .with_jump(climb.is_none() && uphill && tick == 0)
+            };
             let report = self.step(PlayerDirectControlInput::new(input), output)?;
             if report.travel_interrupt || view::urgency(&self.registries, &self.state) != urgency {
                 return Ok(LegResult::Interrupted);

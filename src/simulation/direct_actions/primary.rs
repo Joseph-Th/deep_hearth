@@ -123,11 +123,7 @@ fn attempt_primary_break(
     state: &mut AppState,
     direction: ViewDirection,
 ) -> PrimaryActionOutcome {
-    if let Ok(Some(root)) =
-        crate::world::raycast_player_air_voxel(registries, state, direction, |voxel, _face| {
-            state.world().tree_trunk_at(voxel).map(|tree| tree.root())
-        })
-    {
+    if let Some(root) = super::pointed_tree_root(registries, state, direction) {
         // Tree chopping executes immediately rather than using the structural
         // boundary queue. It supersedes a previously buffered break even when
         // the newly selected chopping tool cannot start this different work.

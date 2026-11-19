@@ -92,6 +92,40 @@ fn jump_or_existing_vertical_velocity(
     ))
 }
 
+/// Upper bound on the unobstructed discrete jump rise at the real carried load.
+/// Per-frame displacement rounds down, so a bound below a ledge height proves
+/// the jump cannot clear it. An adequate bound is not a clearance guarantee.
+pub fn project_player_jump_rise_bound(
+    registries: &Registries,
+    state: &AppState,
+) -> Option<crate::core::quantity::Length> {
+    let load = assess_player_carrying(state)?;
+    let locomotion = registries.survival().physiology().locomotion();
+    let velocity = i128::from(
+        locomotion
+            .jump_speed_for_load(load.stored(), load.capacity())
+            .nanometers_per_second(),
+    );
+    let gravity = i128::from(gravity_velocity_delta(registries).ok()?);
+    if gravity <= 0 {
+        return None;
+    }
+    // Gravity is applied before each displacement, including the launch frame.
+    let frames = velocity.saturating_sub(1) / gravity;
+    let sum = frames.checked_mul(velocity)?.checked_sub(
+        gravity
+            .checked_mul(frames)?
+            .checked_mul(frames.checked_add(1)?)?
+            / 2,
+    )?;
+    let micrometers = sum.checked_mul(i128::from(CONTROL_TICK_DURATION.microseconds()))?
+        / MICROSECONDS_PER_SECOND
+        / NANOMETERS_PER_MICROMETER;
+    Some(crate::core::quantity::Length::from_micrometers(
+        u64::try_from(micrometers).ok()?,
+    ))
+}
+
 fn gravity_velocity_delta(registries: &Registries) -> Result<i64, PlayerBodyMotionError> {
     let acceleration = i128::from(registries.core().gravity().micrometers_per_second_squared())
         .checked_mul(NANOMETERS_PER_MICROMETER)
@@ -187,7 +221,7 @@ fn crossed_floor_y(
     Ok(floor)
 }
 
-fn crossed_ceiling_y(
+pub(super) fn crossed_ceiling_y(
     blocked: &impl Fn(VoxelCoord) -> bool,
     (min_x, max_x, min_z, max_z): (i64, i64, i64, i64),
     current_top: i64,
