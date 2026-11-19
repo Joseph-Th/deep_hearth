@@ -41,6 +41,10 @@ use crate::fluid::{
     FluidGenerationCommitError, FluidGenerationError, ValidatedFluidGenerationBatch,
     validate_generate_fluid_stores,
 };
+use crate::geology::{
+    GenerateGeologicalDepositCommitError, ValidatedNaturalGeologicalDeposits,
+    validate_generate_geological_deposits,
+};
 use crate::material::CommodityKey;
 use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::Registries;
@@ -251,6 +255,7 @@ pub struct ValidatedNaturalChunkGeneration {
     profile: WorldGenerationProfile,
     chunks: Vec<WorldChunk>,
     surface: Option<ValidatedSurfaceResourceCreation>,
+    geology: ValidatedNaturalGeologicalDeposits,
     springs: Option<(ValidatedFluidGenerationBatch, Vec<VoxelCoord>, u64)>,
 }
 
@@ -264,6 +269,17 @@ impl ValidatedNaturalChunkGeneration {
         state: &mut AppState,
     ) -> Result<Vec<ChunkCoord>, ChunkGenerationCommitError> {
         self.guard.precheck(state, &self.chunks)?;
+        self.geology.precheck(state).map_err(|error| match error {
+            GenerateGeologicalDepositCommitError::Tick { .. } => {
+                unreachable!("natural geology dates materialization at commit")
+            }
+            GenerateGeologicalDepositCommitError::Revision { expected, actual } => {
+                ChunkGenerationCommitError::StaleGeologyRevision { expected, actual }
+            }
+            GenerateGeologicalDepositCommitError::NextDepositId { expected, actual } => {
+                ChunkGenerationCommitError::StaleGeologyIdentity { expected, actual }
+            }
+        })?;
         if let Some((generation, _, _)) = self.springs.as_ref() {
             generation.precheck(state).map_err(|error| match error {
                 FluidGenerationCommitError::Tick { expected, actual } => {
@@ -287,6 +303,7 @@ impl ValidatedNaturalChunkGeneration {
         // The common terrain guard already binds surface, world and structure
         // revisions. These source parcels are dated to tick zero, so a distant
         // clock advance cannot stale their physical generation identity.
+        self.geology.apply(state);
         if let Some(surface) = self.surface {
             surface.apply(state);
         }
@@ -422,8 +439,20 @@ fn validate_natural_chunks(
     // Plan all seeded surface matter together. Springs must use the exact
     // sites authorized for this expansion rather than separately rerolling
     // candidate positions and overlapping real loose resources or plants.
-    let (surface, blocked_sites) =
+    let (surface, mut blocked_sites) =
         validate_natural_surface_for_chunks(registries, state, profile, &chunks)?;
+    let specs = chunks
+        .iter()
+        .zip(&mut blocked_sites)
+        .filter_map(|(chunk, blocked)| {
+            let spec =
+                loose_materials::seeded_copper_spec(registries, state, profile, chunk, blocked)?;
+            blocked.push(spec.bounds().min());
+            Some(spec)
+        })
+        .collect::<Vec<_>>();
+    let geology = validate_generate_geological_deposits(registries, state, specs)
+        .map_err(ChunkGenerationError::InvalidGeneratedDeposit)?;
     let springs = validate_springs_for_chunks(registries, state, profile, &chunks, &blocked_sites)?;
     if !state.can_spend_world_revisions(1) {
         return Err(ChunkGenerationError::WorldRevisionExhausted);
@@ -438,6 +467,7 @@ fn validate_natural_chunks(
         profile,
         chunks,
         surface,
+        geology,
         springs,
     })
 }

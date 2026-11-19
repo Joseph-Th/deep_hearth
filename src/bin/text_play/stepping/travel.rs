@@ -4,12 +4,14 @@
 use std::fmt::Write as _;
 
 use super::{Session, view};
+use deep_hearth::geology::visible_weathered_copper_sites;
+use deep_hearth::kobolds::KoboldSighting;
 use deep_hearth::logistics::{
     HorizontalControlInput, PlayerControlInput, project_player_standing_space,
 };
 use deep_hearth::simulation::PlayerDirectControlInput;
 use deep_hearth::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord, WorldPoint};
-use deep_hearth::surface::available_visible_surface_landmarks;
+use deep_hearth::surface::{SurfaceResourceLandmark, available_visible_surface_landmarks};
 use deep_hearth::survival::Vitality;
 
 const CENTER_TOLERANCE: i64 = 30_000_000;
@@ -21,6 +23,65 @@ enum LegResult {
     Blocked,
 }
 
+enum TravelObservations {
+    Exploring {
+        cues: view::LocalCues,
+        landmarks: Vec<SurfaceResourceLandmark>,
+        copper: Vec<VoxelCoord>,
+    },
+    Steady(Vec<KoboldSighting>),
+}
+
+impl TravelObservations {
+    fn capture(session: &Session, steady: bool) -> Self {
+        if steady {
+            Self::Steady(view::local_resident_sightings(
+                &session.registries,
+                &session.state,
+            ))
+        } else {
+            Self::Exploring {
+                cues: view::local_cues(&session.registries, &session.state),
+                landmarks: available_visible_surface_landmarks(&session.registries, &session.state),
+                copper: visible_weathered_copper_sites(&session.registries, &session.state),
+            }
+        }
+    }
+
+    fn attention(&self, session: &Session, target: VoxelCoord) -> Option<&'static str> {
+        let (registries, state) = (&session.registries, &session.state);
+        match self {
+            Self::Steady(residents) => view::resident_watch_attention(
+                residents,
+                &view::local_resident_sightings(registries, state),
+                target,
+            ),
+            Self::Exploring {
+                cues,
+                landmarks,
+                copper,
+            } => {
+                if let Some(cue) = cues.work_attention(&view::local_cues(registries, state), target)
+                {
+                    Some(cue)
+                } else if available_visible_surface_landmarks(registries, state)
+                    .iter()
+                    .any(|site| !landmarks.contains(site))
+                {
+                    Some("a new distant resource is visible.")
+                } else if visible_weathered_copper_sites(registries, state)
+                    .iter()
+                    .any(|site| !copper.contains(site))
+                {
+                    Some("newly visible copper-stained rock.")
+                } else {
+                    None
+                }
+            }
+        }
+    }
+}
+
 impl Session {
     /// Travel one to 32 cells in a chosen cardinal direction. Stop before
     /// a cliff, an obstructed step, an unexpected fall, or a new discovery.
@@ -28,6 +89,8 @@ impl Session {
         &mut self,
         movement: PlayerControlInput,
         cells: u64,
+        steady: bool,
+        descend: bool,
     ) -> Result<String, String> {
         let body = self
             .state
@@ -52,20 +115,25 @@ impl Session {
         let mut output = String::new();
         let start = self.state.control_tick().value();
         let urgency = view::urgency(&self.registries, &self.state);
-        let before = view::local_cues(&self.registries, &self.state);
-        let landmarks = available_visible_surface_landmarks(&self.registries, &self.state);
+        let observations = TravelObservations::capture(self, steady);
         let mut steps = 0;
         for _ in 0..cells {
             let origin = self.player_position()?;
-            let Some(target) = self.trek_foothold(origin, movement) else {
-                output.push_str(
-                    "Trek stopped: no clear level or one-metre foothold; choose another route.\n",
-                );
+            let Some(target) = self.trek_foothold(origin, movement, descend) else {
+                output.push_str(if descend {
+                    "Descent stopped: no clear two- or three-metre landing.\n"
+                } else {
+                    "Trek stopped: no clear level or one-metre foothold; choose another route.\n"
+                });
                 break;
             };
             match self.trek_leg(origin, target, urgency, &mut output)? {
                 LegResult::Arrived => steps += 1,
                 LegResult::Interrupted => {
+                    if self.player_position()? == target {
+                        steps += 1;
+                        output.push_str("Entered target cell; movement may still need settling.\n");
+                    }
                     output.push_str("Trek interrupted by an event or changed condition.\n");
                     break;
                 }
@@ -74,16 +142,8 @@ impl Session {
                     break;
                 }
             }
-            let after = view::local_cues(&self.registries, &self.state);
-            if let Some(description) = before.work_attention(&after, target) {
+            if let Some(description) = observations.attention(self, target) {
                 let _ = writeln!(output, "Trek stopped: {description}");
-                break;
-            }
-            if available_visible_surface_landmarks(&self.registries, &self.state)
-                .iter()
-                .any(|source| !landmarks.contains(source))
-            {
-                output.push_str("Trek stopped: a new distant resource is visible.\n");
                 break;
             }
         }
@@ -100,6 +160,7 @@ impl Session {
         &self,
         origin: VoxelCoord,
         movement: PlayerControlInput,
+        descend: bool,
     ) -> Option<VoxelCoord> {
         let x = origin
             .x()
@@ -107,8 +168,14 @@ impl Session {
         let z = origin
             .z()
             .checked_add(i64::from(movement.horizontal().z_ppm().signum()))?;
-        [0_i64, -1, 1]
-            .into_iter()
+        let offsets: &[i64] = if descend { &[-2, -3] } else { &[0, -1, 1] };
+        // A conscious drop must not bypass a shallower standing surface.
+        if descend && self.trek_foothold(origin, movement, false).is_some() {
+            return None;
+        }
+        offsets
+            .iter()
+            .copied()
             .filter_map(|dy| Some(VoxelCoord::new(x, origin.y().checked_add(dy)?, z)))
             .find(|&point| project_player_standing_space(&self.registries, &self.state, point))
     }

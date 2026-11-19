@@ -3,6 +3,7 @@
 //! bounded evidence, while mining authorization and timed excavation remain owned by mining.
 
 mod coverage;
+mod exposure;
 mod generation_execution;
 mod knowledge;
 mod material_validation;
@@ -10,12 +11,15 @@ mod prospecting_action;
 mod prospecting_execution;
 mod state;
 
+pub use exposure::visible_weathered_copper_sites;
+
 pub use generation_execution::InsertGeneratedDepositError as GeologicalDepositGenerationError;
 #[cfg(test)]
 pub(crate) use generation_execution::InsertGeneratedDepositError;
 pub(crate) use generation_execution::{
     GenerateGeologicalDepositCommitError, ValidatedGeologicalDepositGeneration,
-    validate_generate_geological_deposit,
+    ValidatedNaturalGeologicalDeposits, validate_generate_geological_deposit,
+    validate_generate_geological_deposits,
 };
 pub use knowledge::{
     AbundanceBound, ExcavationHardnessEstimate, ExcavationHardnessEstimateError,

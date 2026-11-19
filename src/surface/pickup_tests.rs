@@ -18,6 +18,102 @@ use crate::spatial::VoxelCoord;
 use crate::survival::{Vitality, player_record_with_thermal_comfort};
 
 #[test]
+fn timber_pile_requires_deliberate_loading_and_preserves_remainder() {
+    use super::{player_surface_gathering_options, validate_start_player_surface_gathering_option};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let mass = Mass::from_milligrams(700_000_000);
+    let batch = Mass::from_milligrams(5_000_000);
+    let source = insert_surface_resource_for_test(
+        &registries,
+        &mut state,
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_WOOD),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let before = calculate_matter_accounting(&state).unwrap().total();
+    assert!(
+        advance_control_tick(&registries, &mut state)
+            .unwrap()
+            .surface_drop_pickup()
+            .is_none()
+    );
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    let options = player_surface_gathering_options(&registries, &state).unwrap();
+    assert_eq!(options.len(), 1);
+    assert_eq!(options[0].resource(), source);
+    assert_eq!(options[0].maximum_mass_at(&state), batch);
+    let _ = validate_start_player_surface_gathering_option(&registries, &state, options[0], batch)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.player_work().active().is_some() {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+        let _ = advance_tick(&registries, &mut replay).unwrap();
+    }
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    let _ = advance_tick(&registries, &mut replay).unwrap();
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(source).unwrap().remaining_mass(),
+        mass.checked_sub(batch).unwrap()
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(commodity),
+        batch
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);
+    let dropped = validate_drop_player_material(&registries, &state, commodity)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(
+        state
+            .surface()
+            .get(dropped.resources()[0])
+            .unwrap()
+            .remaining_mass(),
+        batch
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .stored_mass(),
+        Mass::ZERO
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn automatic_pickup_respects_tool_weight_across_fast_forward_and_recovery() {
     use crate::content::{EQUIPMENT_STONE_PICK, FORM_HANDLE, FORM_TOOL};
     use crate::equipment::validate_assemble_equipment;

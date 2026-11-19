@@ -117,7 +117,8 @@ The foundational block-survival shell therefore requires ordinary play to suppor
   gravity, jumping, crouching, sprinting, falling, and terrain contact;
 - visible generated terrain made from runtime block states rather than an abstract opportunity graph;
 - crosshair/raycast targeting, hold-to-break work, contextual placement/use, and direct entity interaction;
-- world drops, automatic pickup when hands and capacity permit, active hotbar context, familiar stack manipulation,
+- world drops, automatic pickup of incidental matter when hands and capacity permit, deliberate gathering of timber piles,
+  active hotbar context, familiar stack manipulation,
   carried inventory, container transfer, and personal crafting;
 - block geometry and collision shapes sufficient for full and common partial blocks, plus world lighting and
   enough environmental feedback to make darkness, shelter, fire, and exposure readable;

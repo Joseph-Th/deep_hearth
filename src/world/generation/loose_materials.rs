@@ -6,14 +6,15 @@
 //! No resource appears just because the player is low on supplies.
 
 use crate::content::{
-    BLOCK_STATE_STONE, FORM_LOG, FORM_LUMP, MATERIAL_CLAY, MATERIAL_FLINT, MATERIAL_STONE,
-    MATERIAL_WOOD,
+    BLOCK_STATE_STONE, FORM_LOG, FORM_LUMP, FORM_ORE, MATERIAL_CLAY, MATERIAL_COPPER,
+    MATERIAL_FLINT, MATERIAL_STONE, MATERIAL_WOOD,
 };
-use crate::core::quantity::{Mass, Temperature};
+use crate::core::quantity::{Mass, Pressure, Temperature};
 use crate::core::state::AppState;
-use crate::material::{CommodityKey, MaterialComposition};
+use crate::geology::GeneratedDepositSpec;
+use crate::material::{CommodityKey, CompositionComponent, MaterialComposition};
 use crate::registry::Registries;
-use crate::spatial::VoxelCoord;
+use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec};
 
 use super::terrain::{mix64, terrain_height};
@@ -217,6 +218,81 @@ fn weathered_stone_site(context: &LooseSiteContext<'_>, position: VoxelCoord) ->
                 .is_some_and(|tree| tree.occupies_trunk(neighbor));
     }
     exposed_face && level_approach
+}
+
+/// Weathered copper-bearing rubble is a separate finite geological body at a
+/// reachable rock face, not a duplicate of the solid block under the player.
+/// Seeded independently of player needs; barren chunks remain possible.
+pub(super) fn seeded_copper_spec(
+    registries: &Registries,
+    state: &AppState,
+    profile: WorldGenerationProfile,
+    chunk: &WorldChunk,
+    reserved: &[VoxelCoord],
+) -> Option<GeneratedDepositSpec> {
+    let commodity = CommodityKey::new(MATERIAL_COPPER, FORM_ORE);
+    if profile.solid_state() != BLOCK_STATE_STONE
+        || !registries.materials().has_commodity(commodity)
+    {
+        return None;
+    }
+    let coord = chunk.coord();
+    let hash = patch_hash(profile, coord, 0x434F_5050_4552_534D);
+    if !hash.is_multiple_of(3) {
+        return None;
+    }
+    let context = LooseSiteContext {
+        registries,
+        state,
+        profile,
+        chunk,
+        tree: super::super::generated_tree(profile, chunk),
+    };
+    let min_x = coord.world_min_x()?;
+    let min_z = coord.world_min_z()?;
+    for index in 0..49_u64 {
+        let offset = (index * 17 + (hash >> 8) % 49) % 49;
+        let position = context.position(
+            min_x.checked_add(1 + (offset % 7) as i64 * 2)?,
+            min_z.checked_add(1 + (offset / 7) as i64 * 2)?,
+        )?;
+        if !context.clear(position, reserved) || !weathered_stone_site(&context, position) {
+            continue;
+        }
+        let bounds = VoxelBounds::new(
+            position,
+            VoxelCoord::new(
+                position.x().checked_add(1)?,
+                position.y().checked_add(1)?,
+                position.z().checked_add(1)?,
+            ),
+        )
+        .ok()?;
+        if state
+            .geology()
+            .deposits()
+            .any(|deposit| deposit.bounds().has_intersection(bounds))
+        {
+            continue;
+        }
+        let composition = MaterialComposition::new(vec![
+            CompositionComponent::new(MATERIAL_COPPER, 100_000),
+            CompositionComponent::new(MATERIAL_STONE, 900_000),
+        ])
+        .expect("weathered copper composition is complete");
+        return Some(
+            GeneratedDepositSpec::new(
+                bounds,
+                commodity,
+                Mass::from_milligrams(24_000_000 + (hash >> 32) % 12_000_000),
+                AMBIENT_TEMPERATURE,
+                Pressure::from_pascals(450_000_000),
+                composition,
+            )
+            .expect("weathered copper specification is valid"),
+        );
+    }
+    None
 }
 
 /// Fallen deadwood belongs to the seeded landscape, not to the living tree's

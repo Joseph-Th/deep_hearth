@@ -12,7 +12,7 @@ use crate::survival::{
     edible_surface_food_definition, freshness_from_history,
 };
 
-use super::super::{SurfaceResourceId, SurfaceResourceKind};
+use super::super::{SurfaceResourceId, SurfaceResourceKind, pickup::requires_deliberate_pickup};
 use super::{
     SurfaceGatheringError, hand_gathering_temperature_blocker, validate_gathering_player_observer,
 };
@@ -221,9 +221,9 @@ impl PlayerSurfaceGatheringOption {
     }
 }
 
-/// Projects current exact-local natural gathering choices for the admitted player.
+/// Projects current exact-local natural gathering and deliberate timber loading choices.
 ///
-/// Player-created drops are excluded because their ordinary path is automatic pickup. A resource
+/// Incidental drops are excluded because their ordinary path is automatic pickup. A resource
 /// with multiple authored gathering methods yields one option per method so callers can surface a
 /// real technique choice or reject ambiguity rather than silently selecting an implementation ID.
 pub fn player_surface_gathering_options(
@@ -233,10 +233,9 @@ pub fn player_surface_gathering_options(
     validate_gathering_player_observer(state)?;
     let expected_surface_revision = state.surface().revision();
     let mut options = Vec::new();
-    for resource in state
-        .available_surface_resources()
-        .filter(|resource| resource.kind() == SurfaceResourceKind::Opportunity)
-    {
+    for resource in state.available_surface_resources().filter(|resource| {
+        resource.kind() == SurfaceResourceKind::Opportunity || requires_deliberate_pickup(resource)
+    }) {
         for definition in registries
             .labor()
             .surface_gathering_for_commodity(resource.commodity())

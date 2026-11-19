@@ -1,5 +1,6 @@
 //! Control-rate automatic transfer of player-created loose drops into carried custody.
 
+use crate::content::{FORM_LOG, MATERIAL_WOOD};
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, ControlTick, SimulationTick, TickSpan};
@@ -108,12 +109,20 @@ fn available_pickup_destination_when_hands_free(
     (!capacity.is_zero()).then_some((destination, player.position(), capacity))
 }
 
+/// Timber piles are deliberate loading sites, not incidental pocket pickups.
+/// Apply the same rule to felled and player-dropped logs, including remnants.
+pub(super) fn requires_deliberate_pickup(resource: &SurfaceResourceRecord) -> bool {
+    resource.kind() == SurfaceResourceKind::Drop
+        && resource.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_LOG)
+}
+
 fn pickup_eligible_at(state: &AppState, resource: &SurfaceResourceRecord, at: ControlTick) -> bool {
     // Automatic pickup is bare-handed. A hot parcel must remain on the ground
     // rather than entering a pack just because the actor walks through it.
     // An active hand-gathering job owns its exact source mass until it
     // completes. Both exclusions govern slow stepping and actual pickup.
-    !resource_reserved_for_player_gathering(state, resource.id())
+    !requires_deliberate_pickup(resource)
+        && !resource_reserved_for_player_gathering(state, resource.id())
         && resource.temperature() <= MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE
         && resource
             .automatic_pickup_delay_started_at()
@@ -224,6 +233,7 @@ pub(crate) fn automatic_surface_pickup_requires_control_stepping(
     if let Some(PlayerWork::SurfaceGathering { work }) = state.player_work().active()
         && let Some(resource) = state.surface().get(work.resource())
         && resource.kind() == SurfaceResourceKind::Drop
+        && !requires_deliberate_pickup(resource)
         && resource.remaining_mass() > work.gathered_mass()
         && resource.temperature() <= MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE
         && work.completes_at().value() == state.tick().value().saturating_add(1)

@@ -107,6 +107,101 @@ fn natural_districts_expose_all_four_materials_without_guaranteeing_any_one_at_s
 }
 
 #[test]
+fn natural_weathered_copper_is_visible_finite_and_surveyable() {
+    use crate::content::PROSPECTING_FIELD_INSPECTION;
+    use crate::geology::{
+        FieldProspectingRequest, validate_start_field_prospecting, visible_weathered_copper_sites,
+    };
+    use crate::world::validate_generate_natural_chunk;
+
+    // Find a real seeded site through natural generation, not a fixture deposit.
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(4251902342231240388);
+    let mut state = AppState::new();
+    for x in 16..24 {
+        let plan = validate_generate_natural_chunk(
+            &registries,
+            &state,
+            seed,
+            ChunkCoord::new(x, -10),
+            BLOCK_STATE_STONE,
+        )
+        .unwrap();
+        plan.commit(&mut state).unwrap();
+        if state.geology().deposits().next().is_some() {
+            break;
+        }
+    }
+    let deposit = state
+        .geology()
+        .deposits()
+        .next()
+        .expect("seeded weathered copper");
+    assert_eq!(
+        deposit.commodity(),
+        CommodityKey::new(MATERIAL_COPPER, FORM_ORE)
+    );
+    let site = deposit.bounds();
+    let mass = deposit.remaining_mass();
+    let position = site.min();
+    assert!(
+        state
+            .world()
+            .has_standing_clearance(registries.world(), position)
+    );
+    assert!(
+        state
+            .surface()
+            .available_resources_at(Some(position))
+            .next()
+            .is_none()
+    );
+    assert!(state.logistics().fluid_stores_at(position).next().is_none());
+    assert!(visible_weathered_copper_sites(&registries, &state).is_empty());
+    validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(visible_weathered_copper_sites(&registries, &state).contains(&position));
+    let before = calculate_matter_accounting(&state).unwrap().total();
+    let plan = validate_start_field_prospecting(
+        &registries,
+        &state,
+        FieldProspectingRequest::new(PROSPECTING_FIELD_INSPECTION, site, MATERIAL_COPPER),
+    )
+    .unwrap();
+    plan.commit(&mut state).unwrap();
+    for _ in 0..350 {
+        if state.player_work().active().is_none() {
+            break;
+        }
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert!(state.player_work().active().is_none());
+    assert_eq!(
+        state.geology().deposits().next().unwrap().remaining_mass(),
+        mass
+    );
+    let assessment = crate::geology::assess_geological_knowledge(
+        state.geological_knowledge(),
+        site,
+        MATERIAL_COPPER,
+    );
+    assert!(matches!(
+        assessment.consistency(),
+        crate::geology::GeologicalEvidenceConsistency::Compatible { .. }
+    ));
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(state, replay);
+}
+
+#[test]
 fn seeded_district_sites_are_distinct_at_signed_chunk_boundaries() {
     let profile =
         WorldGenerationProfile::new(WorldGenerationSeed::new(0xD15A_9A19), BLOCK_STATE_STONE);

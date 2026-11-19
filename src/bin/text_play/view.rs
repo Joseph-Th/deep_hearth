@@ -647,6 +647,14 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
     output.push_str(&adjacent_footing_report(registries, state));
     surface_sight_report(registries, state, &mut output);
     let from = state.logistics().player().map(|player| player.position());
+    for site in deep_hearth::geology::visible_weathered_copper_sites(registries, state) {
+        let _ = writeln!(
+            output,
+            "Copper-stained weathered rock {} at {} (survey from the site to assess ore)",
+            from.map_or_else(|| "unlocated".to_owned(), |from| bearing(from, site)),
+            pos(site),
+        );
+    }
     // The world visibility query includes placed water vessels as well as
     // natural springs. Sight alone does not establish a natural source.
     let local_water = available_visible_generated_water(registries, state)

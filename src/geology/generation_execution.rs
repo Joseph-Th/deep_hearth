@@ -110,6 +110,7 @@ pub(crate) enum GenerateGeologicalDepositCommitError {
 /// Prepared generation of actual geological matter. Validation cannot allocate
 /// ownership early; commit prechecks identity and revision before any mutation.
 #[must_use]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedGeologicalDepositGeneration {
     record: GeologicalDepositRecord,
     expected_tick: SimulationTick,
@@ -129,6 +130,13 @@ impl ValidatedGeologicalDepositGeneration {
                 actual: state.tick(),
             });
         }
+        self.precheck_ownership(state)
+    }
+
+    fn precheck_ownership(
+        &self,
+        state: &AppState,
+    ) -> Result<(), GenerateGeologicalDepositCommitError> {
         if state.geology().revision() != self.expected_revision {
             return Err(GenerateGeologicalDepositCommitError::Revision {
                 expected: self.expected_revision,
@@ -160,6 +168,65 @@ pub(crate) fn validate_generate_geological_deposit(
     state: &AppState,
     spec: GeneratedDepositSpec,
 ) -> Result<ValidatedGeologicalDepositGeneration, InsertGeneratedDepositError> {
+    validate_at_cursor(
+        registries,
+        spec,
+        state.tick(),
+        state.geology().next_deposit_id(),
+        state.geology().revision(),
+    )
+}
+
+/// Natural chunk streaming binds deposit custody, not an unrelated clock advance.
+/// The physical record is dated when its previously ungenerated chunk materializes.
+#[must_use]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ValidatedNaturalGeologicalDeposits(Vec<ValidatedGeologicalDepositGeneration>);
+
+impl ValidatedNaturalGeologicalDeposits {
+    pub(crate) fn precheck(
+        &self,
+        state: &AppState,
+    ) -> Result<(), GenerateGeologicalDepositCommitError> {
+        if let Some(first) = self.0.first() {
+            first.precheck_ownership(state)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn apply(self, state: &mut AppState) {
+        for mut plan in self.0 {
+            plan.record.generated_at = state.tick();
+            let _ = plan.apply(state);
+        }
+    }
+}
+
+/// Admit a whole chunk expansion before any owner commits.
+pub(crate) fn validate_generate_geological_deposits(
+    registries: &Registries,
+    state: &AppState,
+    specs: impl IntoIterator<Item = GeneratedDepositSpec>,
+) -> Result<ValidatedNaturalGeologicalDeposits, InsertGeneratedDepositError> {
+    let mut id = state.geology().next_deposit_id();
+    let mut revision = state.geology().revision();
+    let mut plans = Vec::new();
+    for spec in specs {
+        let plan = validate_at_cursor(registries, spec, state.tick(), id, revision)?;
+        id = plan.next_id;
+        revision = plan.next_revision;
+        plans.push(plan);
+    }
+    Ok(ValidatedNaturalGeologicalDeposits(plans))
+}
+
+fn validate_at_cursor(
+    registries: &Registries,
+    spec: GeneratedDepositSpec,
+    generated_at: SimulationTick,
+    cursor: u32,
+    revision: u64,
+) -> Result<ValidatedGeologicalDepositGeneration, InsertGeneratedDepositError> {
     validate_geological_material_state(
         registries.materials(),
         spec.commodity(),
@@ -190,15 +257,13 @@ pub(crate) fn validate_generate_geological_deposit(
         }
     })?;
 
-    let geology = state.geology();
-    let id = GeologicalDepositId::new(geology.next_deposit_id());
-    let Some(next_id) = geology.next_deposit_id().checked_add(1) else {
+    let id = GeologicalDepositId::new(cursor);
+    let Some(next_id) = cursor.checked_add(1) else {
         return Err(InsertGeneratedDepositError::IdExhausted);
     };
-    let Some(next_revision) = geology.revision().checked_add(1) else {
+    let Some(next_revision) = revision.checked_add(1) else {
         return Err(InsertGeneratedDepositError::RevisionExhausted);
     };
-    let generated_at = state.tick();
     let record = GeologicalDepositRecord {
         id,
         bounds: spec.bounds(),
@@ -216,7 +281,7 @@ pub(crate) fn validate_generate_geological_deposit(
     Ok(ValidatedGeologicalDepositGeneration {
         record,
         expected_tick: generated_at,
-        expected_revision: geology.revision(),
+        expected_revision: revision,
         next_id,
         next_revision,
     })

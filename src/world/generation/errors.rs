@@ -36,6 +36,7 @@ pub enum ChunkGenerationError {
     SurfaceIdExhausted,
     SurfaceRevisionExhausted,
     InvalidGeneratedSurfaceResource(crate::surface::SurfaceResourceValidationError),
+    InvalidGeneratedDeposit(crate::geology::GeologicalDepositGenerationError),
     SpringIdExhausted,
     SpringRevisionExhausted,
     InvalidSpringWater,
@@ -185,6 +186,7 @@ impl Display for ChunkGenerationError {
             Self::SurfaceIdExhausted => formatter.write_str("natural terrain exhausted surface resource identifiers"),
             Self::SurfaceRevisionExhausted => formatter.write_str("natural terrain exhausted surface revisions"),
             Self::InvalidGeneratedSurfaceResource(error) => write!(formatter, "natural surface matter is invalid: {error}"),
+            Self::InvalidGeneratedDeposit(error) => write!(formatter, "natural geological deposit is invalid: {error}"),
             Self::SpringIdExhausted => formatter.write_str("natural water exhausted store identifiers"),
             Self::SpringRevisionExhausted => formatter.write_str("natural water exhausted fluid revisions"),
             Self::InvalidSpringWater => formatter.write_str("natural water has invalid authored fluid properties"),
@@ -197,6 +199,14 @@ impl Error for ChunkGenerationError {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ChunkGenerationCommitError {
+    StaleGeologyRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleGeologyIdentity {
+        expected: u32,
+        actual: u32,
+    },
     SpringClockChanged {
         expected: SimulationTick,
         actual: SimulationTick,
@@ -245,6 +255,14 @@ pub enum ChunkGenerationCommitError {
 impl Display for ChunkGenerationCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleGeologyRevision { expected, actual } => write!(
+                formatter,
+                "geology revision changed from {expected} to {actual} before chunk commit"
+            ),
+            Self::StaleGeologyIdentity { expected, actual } => write!(
+                formatter,
+                "geology identity changed from {expected} to {actual} before chunk commit"
+            ),
             Self::SpringClockChanged { expected, actual } => write!(
                 formatter,
                 "natural-water plan was built at tick {} but the current tick is {}",

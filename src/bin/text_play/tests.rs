@@ -1534,12 +1534,19 @@ fn natural_campaign_trek_reaches_finite_wood_and_stone_without_injury() {
             .contains("Distant visible resource: timber log")
     );
     let before = snapshot(&session);
-    for invalid in ["trek up", "trek e 0", "trek n 33"] {
+    for invalid in [
+        "trek up",
+        "trek e 0",
+        "trek n 33",
+        "trek",
+        "trek steady",
+        "descend up",
+    ] {
         assert!(session.command(invalid).is_err(), "{invalid}");
     }
     assert_eq!(snapshot(&session), before);
     let mut north = Session::new_natural(4_909_227_005_684_505_656).unwrap();
-    let (cliff, _) = north.command("trek n 8").unwrap();
+    let (cliff, _) = north.command("trek n 8 steady").unwrap();
     assert!(cliff.contains("Trekked 5 of 8 cells"), "{cliff}");
     assert!(
         cliff.contains("no clear level or one-metre foothold"),
@@ -1548,7 +1555,7 @@ fn natural_campaign_trek_reaches_finite_wood_and_stone_without_injury() {
     let stopped = snapshot(&north);
     assert!(
         north
-            .command("trek n 8")
+            .command("trek n 8 steady")
             .unwrap()
             .0
             .contains("Trekked 0 of 8 cells in 0 control ticks")

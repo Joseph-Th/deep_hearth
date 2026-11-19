@@ -30,10 +30,23 @@ impl Session {
                     true,
                 )?
             }
-            "trek" if (1..=2).contains(&args.len()) => {
+            "trek" => {
+                let (args, steady) = if let Some(("steady", rest)) =
+                    args.split_last().map(|(last, rest)| (*last, rest))
+                {
+                    (rest, true)
+                } else {
+                    (args, false)
+                };
+                if !(1..=2).contains(&args.len()) {
+                    return Err("usage: trek DIRECTION [cells] [steady]".to_owned());
+                }
                 let direction = Direction::parse(args[0])?;
                 let cells = parse_count(args.get(1).copied(), 8, 32)?;
-                self.trek(direction.movement()?, cells)?
+                self.trek(direction.movement()?, cells, steady, false)?
+            }
+            "descend" if args.len() == 1 => {
+                self.trek(Direction::parse(args[0])?.movement()?, 1, true, true)?
             }
             "sprint" | "sneak" if (1..=2).contains(&args.len()) => {
                 let direction = Direction::parse(args[0])?;

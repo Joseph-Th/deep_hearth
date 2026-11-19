@@ -37,7 +37,7 @@ fn usage() -> &'static str {
      storage [all], place-store ID, stash CONTAINER STACK [grams], withdraw CONTAINER STACK [grams],\n\
      plan-at STACK X Y Z, build-at STACK X Y Z (supported framing or panel),\n\
      fire, build-fire, feed-fire FIRE STACK,\n\
-     n|s|e|w [ticks], trek DIRECTION [cells], sprint|sneak DIRECTION [ticks], crouch [ticks],\n\
+     n|s|e|w [ticks], trek DIRECTION [cells] [steady], descend DIRECTION, sprint|sneak DIRECTION [ticks], crouch [ticks],\n\
      jump [direction] [ticks], center, wait [ticks|work|finish|boundary|until PHASE],\n\
      use [direction|at X Y Z], break [direction|at X Y Z],\n\
      shove|strike|prepare|release [direction], cancel, slot N, select N,\n\

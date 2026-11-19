@@ -346,7 +346,10 @@ fn transplanted_felling_receipt_cannot_claim_an_unrecorded_destination() {
 #[test]
 fn different_seeded_trees_can_be_felled_at_the_same_replanted_site() {
     use crate::logistics::relocate_player_for_test;
-    use crate::simulation::advance_control_tick;
+    use crate::simulation::advance_tick;
+    use crate::surface::{
+        player_surface_gathering_options, validate_start_player_surface_gathering_option,
+    };
 
     // Two juvenile seed identities share one supported straight planting path.
     // The second is physically transplanted into the first tree's harvested root.
@@ -375,18 +378,44 @@ fn different_seeded_trees_can_be_felled_at_the_same_replanted_site() {
     );
     let original_matter = calculate_matter_accounting(&state).unwrap().total();
 
+    let first_tree = *state.world().tree_at(first).unwrap();
     let first_felling = validate_fell_tree(&registries, &state, first)
         .unwrap()
         .commit(&mut state)
         .unwrap();
     // Recover the actual parcel, freeing the original planting position.
     relocate_player_for_test(&mut state, first);
-    let picked = advance_control_tick(&registries, &mut state)
+    while !state
+        .surface()
+        .get(first_felling.drop())
         .unwrap()
-        .surface_drop_pickup()
-        .unwrap();
-    assert_eq!(picked.resource(), first_felling.drop());
-    assert_eq!(picked.picked_mass(), first_felling.wood());
+        .remaining_mass()
+        .is_zero()
+    {
+        let option = player_surface_gathering_options(&registries, &state)
+            .unwrap()
+            .into_iter()
+            .find(|option| option.resource() == first_felling.drop())
+            .unwrap();
+        let mass = option.maximum_mass_at(&state);
+        assert!(!mass.is_zero());
+        validate_start_player_surface_gathering_option(&registries, &state, option, mass)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        while state.player_work().active().is_some() {
+            let _ = advance_tick(&registries, &mut state).unwrap();
+        }
+    }
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .stored_mass(),
+        first_felling.wood()
+    );
 
     for from_x in [19, 17, 15, 13] {
         let from = VoxelCoord::new(from_x, 3, 7);
@@ -411,10 +440,16 @@ fn different_seeded_trees_can_be_felled_at_the_same_replanted_site() {
     let reject_forged_overlap = |game: &AppState| {
         let mut later = game.clone();
         let _ = crate::simulation::advance_tick(&registries, &mut later).unwrap();
-        assert_eq!(later.tick(), crate::core::time::SimulationTick::new(1));
         let mut value = serde_json::to_value(SaveEnvelope::new(&registries, &later)).unwrap();
         value["state"]["systems"]["world"]["felled_trees"][0]["felled_at"] =
-            serde_json::json!(1u64);
+            serde_json::json!(later.tick().value());
+        // Keep the forged photosynthetic ledger consistent so the tested
+        // rejection is the overlapping biological identity, not its mass.
+        let extra =
+            first_tree.wood_at(later.tick()).milligrams() - first_tree.initial_wood().milligrams();
+        value["state"]["systems"]["world"]["assimilated_wood_milligrams"] = serde_json::json!(
+            later.world().committed_assimilated_wood_milligrams() + u128::from(extra)
+        );
         let loaded = serde_json::from_value::<LoadedSaveEnvelope>(value)
             .unwrap()
             .into_state(&registries);
@@ -438,12 +473,13 @@ fn different_seeded_trees_can_be_felled_at_the_same_replanted_site() {
         .unwrap();
     assert_eq!(state, replay);
     for game in [&mut state, &mut replay] {
+        let expected_wood = game.world().tree_at(first).unwrap().wood_at(game.tick());
         let second_felling = validate_fell_tree(&registries, game, first)
             .unwrap()
             .commit(game)
             .unwrap();
         assert_eq!(second_felling.root(), first);
-        assert_eq!(second_felling.wood(), Mass::from_milligrams(8_000_000));
+        assert_eq!(second_felling.wood(), expected_wood);
         assert_eq!(
             game.world()
                 .felled_trees()
