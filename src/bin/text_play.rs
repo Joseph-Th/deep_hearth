@@ -32,7 +32,7 @@ fn usage() -> &'static str {
      eat STACK, drink, drink SOURCE,\n\
      recipes [all], craft PROCESS_ID [batches] [from STACK] [with TOOL],\n\
      surveys [width], prospect MATERIAL METHOD [width] [with TOOL], knowledge [width],\n\
-     mine MATERIAL GRAMS with TOOL [using METHOD] [repeat COUNT], ore, dress PROCESS STACK GRAMS,\n\
+     mine MATERIAL GRAMS with TOOL [using METHOD] [repeat COUNT], ore, dress PROCESS STACK GRAMS [repeat COUNT],\n\
      gear [all], assemble ID, take N, equip N, recover N,\n\
      storage [all], place-store ID, stash CONTAINER STACK [grams], withdraw CONTAINER STACK [grams],\n\
      plan-at STACK X Y Z, build-at STACK X Y Z (supported framing or panel),\n\

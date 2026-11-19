@@ -14,6 +14,7 @@ use deep_hearth::logistics::{
     HorizontalControlInput, PlayerControlInput, project_player_standing_space,
 };
 use deep_hearth::mining::MiningJobId;
+use deep_hearth::production::ProductionJobId;
 use deep_hearth::simulation::{
     PlayerDirectControlInput, SecondaryActionOutcome, advance_control_tick_with_direct_input,
     advance_neutral_control_span,
@@ -27,6 +28,7 @@ use deep_hearth::world::{DayPhase, assess_player_weather};
 pub(super) enum BatchReceipt {
     Gathered(SurfaceResourceId),
     Mined(MiningJobId),
+    Produced(ProductionJobId),
     Excavated(VoxelCoord),
 }
 
@@ -198,15 +200,7 @@ impl Session {
             return Err("finish active work with 'wait work' before a daylight watch".to_owned());
         }
         let urgency = view::urgency(&self.registries, &self.state);
-        if urgency.0
-            || urgency.1
-            || urgency.3
-            || self
-                .state
-                .survival()
-                .player()
-                .is_none_or(|player| player.vitality() == Vitality::ZERO)
-        {
+        if urgency.is_none_or(view::Urgency::requires_provisions_or_warmth) {
             return Err(
                 "resolve current survival warnings before a long daylight watch".to_owned(),
             );
@@ -649,7 +643,7 @@ impl Session {
                         &self.state,
                         completion,
                     ));
-                    interrupt = true;
+                    batch_receipt = Some(BatchReceipt::Produced(job));
                 }
             }
             if let Some(scout) = simulation.kobold_scout() {

@@ -4,7 +4,6 @@
 use deep_hearth::combat::{
     PrimitiveAttackError, PrimitiveAttackOutcome, PrimitivePreparationOutcome,
 };
-use deep_hearth::labor::PlayerWorkStartError;
 use deep_hearth::simulation::{
     ActiveSelectionDropOutcome, PrimaryActionOutcome, QuickAccessSelectionOutcome,
     SecondaryActionOutcome,
@@ -14,6 +13,7 @@ use deep_hearth::survival::{DrinkError, DrinkStoreToTargetError, EatError, EatSt
 use deep_hearth::world::{BlockExcavationError, TreeFellingError, TreeFellingStartError};
 use deep_hearth::{AppState, Registries};
 
+use super::super::errors::work_blocker;
 use super::super::{fire, storage, view};
 
 pub(super) fn slot(
@@ -104,34 +104,6 @@ fn tree_felling_blocker(error: &TreeFellingStartError) -> String {
             "The ground cannot admit another wood parcel."
         }
         Start::Tree(Tree::SurfacePlacement(_)) => "The felled wood has no valid ground landing.",
-    }
-    .to_owned()
-}
-
-fn work_blocker(error: &PlayerWorkStartError) -> String {
-    use PlayerWorkStartError as Work;
-    match error {
-        Work::SimulationBoundary(_) => {
-            "Work must start on a simulation boundary. Use 'wait boundary'."
-        }
-        Work::SurvivalNotInitialized => "The player has no initialized survival state.",
-        Work::PlayerDead => "Cannot start work while dead.",
-        Work::PlayerAirborne => "Stand on fixed ground before starting work.",
-        Work::PlayerMoving => "Stop moving before starting work; use 'wait 10' to settle.",
-        Work::PreparedStrikeActive => "Cancel the prepared strike before starting work.",
-        Work::Busy { .. } => "Finish the current task with 'wait work' before starting another.",
-        Work::MetabolicCostOverflow { .. } | Work::HydrationCostOverflow { .. } => {
-            "The requested work exceeds the supported exertion range."
-        }
-        Work::InsufficientMetabolicEnergy { .. } => {
-            "Not enough metabolic energy to complete the requested work."
-        }
-        Work::InsufficientHydration { .. } => {
-            "Not enough hydration to complete the requested work."
-        }
-        Work::RevisionExhausted | Work::SurvivalRevisionExhausted { .. } => {
-            "The work cannot reserve another state change."
-        }
     }
     .to_owned()
 }
@@ -243,7 +215,7 @@ pub(super) fn secondary(registries: &Registries, outcome: &SecondaryActionOutcom
             format!("{count} structures overlap the placement target. Aim more precisely.")
         }
         Action::StructuralPlacementRejected(error) => error.to_string(),
-        Action::AlreadySatisfied => "The target is already complete.".to_owned(),
+        Action::AlreadySatisfied => "The food or hydration target is already satisfied; no intake was needed.".to_owned(),
         Action::QueuedUntilSimulationBoundary | Action::DeferredUntilSimulationBoundary => {
             "Action queued for the next simulation boundary.".to_owned()
         }

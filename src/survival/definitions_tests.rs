@@ -214,6 +214,8 @@ fn player_resting_provision_forecast_tracks_actual_basal_consumption() {
     let before = assess_player_resting_provision_runway(&registries, &state).unwrap();
     assert!(before.hungry_in().unwrap().value() > 1);
     assert!(before.thirsty_in().unwrap().value() > 1);
+    assert!(before.starving_in().unwrap() > before.hungry_in().unwrap());
+    assert!(before.dehydrated_in().unwrap() > before.thirsty_in().unwrap());
     let _ = advance_tick(&registries, &mut state).unwrap();
     let after = assess_player_resting_provision_runway(&registries, &state).unwrap();
     assert_eq!(
@@ -223,6 +225,14 @@ fn player_resting_provision_forecast_tracks_actual_basal_consumption() {
     assert_eq!(
         before.thirsty_in().unwrap().value(),
         after.thirsty_in().unwrap().value() + 1
+    );
+    assert_eq!(
+        before.starving_in().unwrap().value(),
+        after.starving_in().unwrap().value() + 1
+    );
+    assert_eq!(
+        before.dehydrated_in().unwrap().value(),
+        after.dehydrated_in().unwrap().value() + 1
     );
 }
 

@@ -27,8 +27,9 @@ use crate::inventory::{
     ValidatedInboundReservation, validate_inbound_reservation, validate_material_ingress,
 };
 use crate::labor::{
-    PlayerWork, PlayerWorkCommitError, SurfaceGatheringMethodId, SurfaceGatheringWork,
-    ValidatedPlayerWorkStart, validate_player_work_start, validate_player_work_start_control_rate,
+    PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, SurfaceGatheringMethodId,
+    SurfaceGatheringWork, ValidatedPlayerWorkStart, validate_player_work_start,
+    validate_player_work_start_control_rate,
 };
 use crate::logistics::validate_player_stockpile_access;
 use crate::registry::Registries;
@@ -139,15 +140,60 @@ pub fn validate_start_player_surface_gathering_option(
     validate_player_gathering_option_with_mode(registries, state, option, mass, false)
 }
 
-/// Read-only feasibility for contextual choice, using the same admission
-/// prechecks as the executable control-rate gathering action.
-pub(crate) fn assess_player_surface_gathering_option_admission(
+/// Read-only feasibility for contextual choice and player-facing previews,
+/// using the same admission prechecks as the executable control-rate gathering action.
+/// This is not a reservation; the next control frame can change feasibility.
+pub fn assess_player_surface_gathering_option_admission(
     registries: &Registries,
     state: &AppState,
     option: PlayerSurfaceGatheringOption,
     mass: Mass,
 ) -> Result<(), SurfaceGatheringError> {
     validate_player_gathering_option_with_mode(registries, state, option, mass, true).map(|_| ())
+}
+
+/// Largest currently admissible portion no larger than the requested ceiling.
+/// Only reserve shortfalls warrant reducing an amount; all other blockers
+/// retain their original meaning. Each candidate uses real admission, including
+/// basal cost, pending exertion and the method's rounded work duration.
+pub fn assess_affordable_player_gathering_mass(
+    registries: &Registries,
+    state: &AppState,
+    option: PlayerSurfaceGatheringOption,
+    ceiling: Mass,
+) -> Result<Mass, SurfaceGatheringError> {
+    let reserve_shortfall = |error: &SurfaceGatheringError| {
+        matches!(
+            error,
+            SurfaceGatheringError::PlayerWork(
+                PlayerWorkStartError::InsufficientMetabolicEnergy { .. }
+                    | PlayerWorkStartError::InsufficientHydration { .. }
+            )
+        )
+    };
+    match assess_player_surface_gathering_option_admission(registries, state, option, ceiling) {
+        Ok(()) => return Ok(ceiling),
+        Err(error) if reserve_shortfall(&error) => {}
+        Err(error) => return Err(error),
+    }
+    // Work duration and reserve cost do not decrease as mass increases.
+    // Zero is a sentinel only; every positive result was admitted.
+    let mut low = 0;
+    let mut high = ceiling.milligrams();
+    while high - low > 1 {
+        let mid = low + (high - low) / 2;
+        match assess_player_surface_gathering_option_admission(
+            registries,
+            state,
+            option,
+            Mass::from_milligrams(mid),
+        ) {
+            Ok(()) => low = mid,
+            Err(error) if reserve_shortfall(&error) => high = mid,
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(Mass::from_milligrams(low))
 }
 
 /// Admit a contextual gathering job on the current control frame.

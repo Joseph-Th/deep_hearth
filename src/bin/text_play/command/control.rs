@@ -111,6 +111,23 @@ impl Session {
                 self.advance_until_phase(target)?
             }
             "center" if args.is_empty() => self.center_in_cell()?,
+            "wait"
+                if (args == ["work"] || args == ["finish"])
+                    && self.state.player_work().active().is_none()
+                    && self.state.logistics().has_pending_direct_action() =>
+            {
+                // Admission itself is an observable work event. Resolve a buffered
+                // gesture at its real boundary; do not run past a rejection or
+                // another interruption as though work had already begun.
+                let scale = deep_hearth::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
+                let remaining = scale - self.state.control_tick().value() % scale;
+                self.advance_many_with_work_wait(
+                    PlayerDirectControlInput::NEUTRAL,
+                    remaining,
+                    false,
+                    true,
+                )?
+            }
             "wait" if args == ["work"] || args == ["finish"] => {
                 let count = activity::remaining_work_control_ticks(&self.state)
                     .ok_or("no active work with a scheduled completion; use wait [ticks]")?

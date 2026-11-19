@@ -283,7 +283,19 @@ fn shallow_aim_completes_an_overhead_timber_cover_on_the_played_seed() {
     );
     let (started, _) = session.command("use e-shallow").unwrap();
     assert!(started.contains("Action queued"), "{started}");
-    let (building, _) = session.command("wait boundary").unwrap();
+    assert!(started.contains("Queued interaction:"), "{started}");
+    let before_wait = snapshot(&session);
+    let mut reference = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&before_wait)
+            .unwrap()
+            .into_state(&session.registries)
+            .unwrap(),
+        seed: None,
+    };
+    let (building, _) = session.command("wait finish").unwrap();
+    reference.command("wait boundary").unwrap();
+    assert_eq!(snapshot(&session), snapshot(&reference));
     assert!(
         building.contains("Structural construction started"),
         "{building}"
@@ -2265,14 +2277,20 @@ fn text_warmth_warning_uses_authored_survival_threshold() {
         .physiology()
         .thermal_comfort()
         .warning_below_ppm();
-    assert!(!view::urgency(&session.registries, &session.state).3);
+    let initial = view::urgency(&session.registries, &session.state);
+    assert!(!initial.unwrap().requires_provisions_or_warmth());
     let mut reached = false;
     for _ in 0..120 {
         let assessment = assess_survival(&session.registries, &session.state).unwrap();
         if assessment.thermal_comfort_state() != ThermalComfortState::Comfortable {
             let comfort = assessment.thermal_comfort_ppm();
             assert!(comfort < threshold);
-            assert!(view::urgency(&session.registries, &session.state).3);
+            assert!(
+                view::urgency(&session.registries, &session.state)
+                    .unwrap()
+                    .requires_provisions_or_warmth()
+            );
+            assert!(view::urgency(&session.registries, &session.state) != initial);
             assert!(
                 view::status(&session.registries, &session.state)
                     .contains("Warnings: cold exposure")

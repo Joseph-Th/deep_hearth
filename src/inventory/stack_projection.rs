@@ -242,6 +242,49 @@ impl MaterialStackProjection {
             })
     }
 
+    /// Reobserve the exact remainder after a completed action consumed a prefix
+    /// of this stack via `selections_for_mass`. This is observation, not work
+    /// authorization. Stop rather than substitute a different or merged cohort.
+    pub fn remainder_after_consumption(
+        &self,
+        registries: &Registries,
+        state: &AppState,
+        consumed: Mass,
+    ) -> Result<Option<Self>, MaterialStackProjectionError> {
+        if consumed.is_zero() {
+            return Err(MaterialStackProjectionError::ZeroMass);
+        }
+        if consumed > self.mass {
+            return Err(MaterialStackProjectionError::MassExceedsStack {
+                requested: consumed,
+                available: self.mass,
+            });
+        }
+        if consumed == self.mass {
+            return Ok(None);
+        }
+        let mut remove = consumed;
+        let mut expected = Vec::new();
+        for selection in &self.selections {
+            let taken = remove.min(selection.mass());
+            remove = remove.checked_sub(taken).expect("bounded removal");
+            let left = selection
+                .mass()
+                .checked_sub(taken)
+                .expect("bounded removal");
+            if !left.is_zero() {
+                expected.push(MaterialLotSelection::new(selection.lot(), left));
+            }
+        }
+        project_material_stacks(registries, state, self.stockpile)?
+            .into_iter()
+            .find(|candidate| candidate.selections == expected && candidate.profile == self.profile)
+            .map(Some)
+            .ok_or(MaterialStackProjectionError::StackMembershipChanged {
+                stockpile: self.stockpile,
+            })
+    }
+
     /// Rejects snapshots retained beyond either an inventory mutation or an aging tick.
     pub(crate) fn validate_current(
         &self,

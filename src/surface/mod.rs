@@ -24,15 +24,15 @@ pub use gathering::{
     PlayerSurfaceFoodValue, PlayerSurfaceGatheringOption, SurfaceGatheringCommitError,
     SurfaceGatheringError, SurfaceGatheringOutcome, SurfaceGatheringRequest,
     ValidatedSurfaceGatheringStart, active_player_surface_gathering_commodity,
+    assess_affordable_player_gathering_mass, assess_player_surface_gathering_option_admission,
     player_surface_gathering_options, validate_start_player_surface_gathering,
     validate_start_player_surface_gathering_option, validate_start_surface_gathering,
 };
 pub(crate) use gathering::{
     SurfaceGatheringCancellationPlan, SurfaceGatheringTickError, SurfaceGatheringTickPlan,
     apply_surface_gathering_cancellation, apply_surface_gathering_tick,
-    assess_player_surface_gathering_option_admission, assess_player_surface_gathering_reservation,
-    decide_surface_gathering_cancellation, decide_surface_gathering_tick,
-    validate_start_player_surface_gathering_option_control_rate,
+    assess_player_surface_gathering_reservation, decide_surface_gathering_cancellation,
+    decide_surface_gathering_tick, validate_start_player_surface_gathering_option_control_rate,
 };
 pub(crate) use ground_stockpile_raid::{
     ScavengedGroundStockpileRequest, scavenge_unenclosed_ground_stockpile_material,

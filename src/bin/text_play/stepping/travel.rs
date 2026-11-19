@@ -154,7 +154,16 @@ impl Session {
                 LegResult::Blocked => {
                     output.push_str("Trek stopped: physical approach could not be completed.\n");
                     if target.y() > origin.y() && climb.is_none() {
-                        output.push_str("Try 'climb DIRECTION' for a clear fixed ledge, or reduce carried load.\n");
+                        if project_player_climb_target(
+                            &self.registries,
+                            &self.state,
+                            movement.horizontal(),
+                        ) == Some(target)
+                        {
+                            output.push_str("A fixed-ledge climb is currently projected. Try 'climb' in the same direction after settling.\n");
+                        } else {
+                            output.push_str("No clear climb is projected from this position. Check headroom (especially under roofs), center if possible, or take a different exit.\n");
+                        }
                     }
                     break;
                 }
@@ -250,7 +259,7 @@ impl Session {
         origin: VoxelCoord,
         target: VoxelCoord,
         climb: Option<HorizontalControlInput>,
-        urgency: (bool, bool, bool, bool),
+        urgency: Option<view::Urgency>,
         output: &mut String,
     ) -> Result<LegResult, String> {
         let center = WorldPoint::centered_on_voxel_floor(target)

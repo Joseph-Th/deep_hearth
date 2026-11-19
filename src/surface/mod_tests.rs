@@ -1038,6 +1038,99 @@ fn player_world_drop_projection_excludes_natural_opportunities() {
 }
 
 #[test]
+fn reserve_limited_forage_reports_exact_affordable_portion_without_granting_matter() {
+    use super::{
+        assess_affordable_player_gathering_mass, assess_player_surface_gathering_option_admission,
+    };
+    use crate::labor::PlayerWorkStartError;
+    use crate::survival::player_record_with_thermal_comfort;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let resource = insert_surface_resource_for_test(
+        &registries,
+        &mut state,
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Opportunity,
+            position,
+            CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+            Mass::from_milligrams(500_000),
+            TEMPERATURE,
+            MaterialComposition::pure(MATERIAL_BERRIES),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let _ = admit_player(&registries, &mut state, position);
+    let option = player_surface_gathering_options(&registries, &state)
+        .unwrap()
+        .into_iter()
+        .find(|option| option.resource() == resource)
+        .unwrap();
+    let ceiling = option.suggested_mass_at(&state);
+    assert_eq!(
+        assess_affordable_player_gathering_mass(&registries, &state, option, ceiling),
+        Ok(ceiling)
+    );
+    let set_energy = |state: &mut AppState, energy: Energy| {
+        let player = *state.survival().player().unwrap();
+        let revision = state.survival().revision();
+        state.survival_state_mut().apply_player(
+            revision,
+            revision + 1,
+            player_record_with_thermal_comfort(
+                energy,
+                player.hydration(),
+                player.vitality(),
+                player.nutrition(),
+                player.vitality_recovery_remainder(),
+                player.thermal_comfort_ppm(),
+            ),
+        );
+    };
+    set_energy(&mut state, Energy::ZERO);
+    let Err(SurfaceGatheringError::PlayerWork(PlayerWorkStartError::InsufficientMetabolicEnergy {
+        required,
+        ..
+    })) = assess_player_surface_gathering_option_admission(&registries, &state, option, ceiling)
+    else {
+        panic!("zero reserves must block paid forage")
+    };
+    let before = state.clone();
+    assert_eq!(
+        assess_affordable_player_gathering_mass(&registries, &state, option, ceiling),
+        Ok(Mass::ZERO)
+    );
+    assert_eq!(state, before);
+    set_energy(
+        &mut state,
+        Energy::from_nanojoules(required.nanojoules() / 2),
+    );
+    let before = state.clone();
+    let portion =
+        assess_affordable_player_gathering_mass(&registries, &state, option, ceiling).unwrap();
+    assert!(!portion.is_zero() && portion < ceiling);
+    assert!(
+        assess_player_surface_gathering_option_admission(&registries, &state, option, portion)
+            .is_ok()
+    );
+    let next = Mass::from_milligrams(portion.milligrams() + 1);
+    assert!(matches!(
+        assess_player_surface_gathering_option_admission(&registries, &state, option, next),
+        Err(SurfaceGatheringError::PlayerWork(
+            PlayerWorkStartError::InsufficientMetabolicEnergy { .. }
+        ))
+    ));
+    assert_eq!(state, before);
+    validate_start_player_surface_gathering_option(&registries, &state, option, portion)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(state.player_work().active().is_some());
+}
+
+#[test]
 fn dead_player_cannot_query_or_start_surface_gathering_until_respawn() {
     use crate::player::validate_respawn_player;
     use crate::survival::player_record_with_thermal_comfort;

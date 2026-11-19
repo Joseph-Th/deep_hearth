@@ -1,6 +1,19 @@
 //! Regression tests for player-local text projection formatting.
 
 #[test]
+fn nonzero_vitality_and_reserves_never_display_as_exhausted() {
+    use super::{reserve_label, vitality_label};
+    assert_eq!(vitality_label(0), "0");
+    assert_eq!(vitality_label(1), "<0.01");
+    assert_eq!(vitality_label(9_100), "0.91");
+    assert_eq!(vitality_label(10_000), "1");
+    assert_eq!(vitality_label(1_000_000), "100");
+    assert_eq!(reserve_label(0, false), "<1");
+    assert_eq!(reserve_label(0, true), "0");
+    assert_eq!(reserve_label(78, false), "78");
+}
+
+#[test]
 fn rugged_natural_start_exposes_local_footing_without_inventing_a_route() {
     use deep_hearth::logistics::project_player_standing_space;
     use deep_hearth::world::HabitatKind;

@@ -47,6 +47,8 @@ pub enum PlayerWindShelter {
 pub struct PlayerRestingProvisionRunway {
     hungry_in: Option<TickSpan>,
     thirsty_in: Option<TickSpan>,
+    starving_in: Option<TickSpan>,
+    dehydrated_in: Option<TickSpan>,
 }
 
 impl PlayerRestingProvisionRunway {
@@ -59,6 +61,18 @@ impl PlayerRestingProvisionRunway {
     #[must_use]
     pub const fn thirsty_in(self) -> Option<TickSpan> {
         self.thirsty_in
+    }
+
+    /// When the metabolic reserve reaches zero at the same conditional resting rate.
+    #[must_use]
+    pub const fn starving_in(self) -> Option<TickSpan> {
+        self.starving_in
+    }
+
+    /// When the hydration reserve reaches zero at the same conditional resting rate.
+    #[must_use]
+    pub const fn dehydrated_in(self) -> Option<TickSpan> {
+        self.dehydrated_in
     }
 }
 
@@ -123,6 +137,18 @@ pub fn assess_player_resting_provision_runway(
         thirsty_in: warning_runway_with_pending_exertion(
             u128::from(player.hydration().microliters()),
             u128::from(physiology.thirsty_below().microliters()),
+            u128::from(physiology.hydration_loss_per_tick().microliters()),
+            u128::from(unsettled_exertion.hydration_loss_per_tick().microliters()),
+        ),
+        starving_in: warning_runway_with_pending_exertion(
+            player.metabolic_energy().nanojoules(),
+            0,
+            physiology.basal_energy_cost_per_tick().nanojoules(),
+            unsettled_exertion.energy_cost_per_tick().nanojoules(),
+        ),
+        dehydrated_in: warning_runway_with_pending_exertion(
+            u128::from(player.hydration().microliters()),
+            0,
             u128::from(physiology.hydration_loss_per_tick().microliters()),
             u128::from(unsettled_exertion.hydration_loss_per_tick().microliters()),
         ),

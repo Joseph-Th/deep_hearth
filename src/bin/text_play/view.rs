@@ -32,8 +32,10 @@ use deep_hearth::spatial::ViewDirection;
 use deep_hearth::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord};
 use deep_hearth::structural::StructuralLifecycle;
 use deep_hearth::surface::{
-    AdjacentSurfaceResource, PlayerSurfaceGatheringOption, SurfaceResourceKind,
-    available_visible_surface_landmarks, player_surface_gathering_options,
+    AdjacentSurfaceResource, PlayerSurfaceGatheringOption, SurfaceGatheringError,
+    SurfaceResourceKind, assess_affordable_player_gathering_mass,
+    assess_player_surface_gathering_option_admission, available_visible_surface_landmarks,
+    player_surface_gathering_options,
 };
 use deep_hearth::survival::{
     FoodFreshness, HungerState, HydrationState, LocalDrinkSource, SurvivalAssessment,
@@ -354,17 +356,55 @@ pub fn local_cues(registries: &Registries, state: &AppState) -> LocalCues {
     }
 }
 
-/// Threshold transitions, not tiny per-tick resource changes, interrupt long waits.
-pub fn urgency(registries: &Registries, state: &AppState) -> (bool, bool, bool, bool) {
-    let Some(assessment) = assess_survival(registries, state) else {
-        return (true, true, true, true);
-    };
-    (
-        assessment.hunger() != HungerState::Fed,
-        assessment.hydration_state() != HydrationState::Hydrated,
-        assessment.vitality() < Vitality::MAXIMUM,
-        assessment.thermal_comfort_state() != ThermalComfortState::Comfortable,
-    )
+/// Threshold transitions, not tiny per-tick resource changes, interrupt travel
+/// and long waits. A worsening warning (hunger -> starvation, etc.) is a
+/// separate change even when a warning was already present.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Urgency {
+    hunger: HungerState,
+    hydration: HydrationState,
+    thermal: ThermalComfortState,
+    injured: bool,
+    dead: bool,
+}
+
+impl Urgency {
+    pub fn requires_provisions_or_warmth(self) -> bool {
+        self.hunger != HungerState::Fed
+            || self.hydration != HydrationState::Hydrated
+            || self.thermal != ThermalComfortState::Comfortable
+            || self.dead
+    }
+}
+
+pub fn urgency(registries: &Registries, state: &AppState) -> Option<Urgency> {
+    let assessment = assess_survival(registries, state)?;
+    Some(Urgency {
+        hunger: assessment.hunger(),
+        hydration: assessment.hydration_state(),
+        thermal: assessment.thermal_comfort_state(),
+        injured: assessment.vitality() < Vitality::MAXIMUM,
+        dead: assessment.vitality() == Vitality::ZERO,
+    })
+}
+
+/// Never render a living player as zero vitality. Preserve ordinary
+/// whole-percent labels outside the final one percent.
+fn vitality_label(ppm: u32) -> String {
+    match ppm {
+        0 => "0".to_owned(),
+        1..=99 => "<0.01".to_owned(),
+        100..=9_999 => format!("0.{:02}", ppm / 100),
+        _ => (ppm / 10_000).to_string(),
+    }
+}
+
+fn reserve_label(percent: u8, exhausted: bool) -> String {
+    if percent == 0 && !exhausted {
+        "<1".to_owned()
+    } else {
+        percent.to_string()
+    }
 }
 
 fn survival_status(registries: &Registries, state: &AppState) -> String {
@@ -374,9 +414,9 @@ fn survival_status(registries: &Registries, state: &AppState) -> String {
         let _ = writeln!(
             output,
             "Condition: vitality {}%, food reserve {}%, hydration {}%, warmth {}%",
-            survival.vitality().parts_per_million() / 10_000,
-            food_percent,
-            water_percent,
+            vitality_label(survival.vitality().parts_per_million()),
+            reserve_label(food_percent, survival.metabolic_energy().is_zero()),
+            reserve_label(water_percent, survival.hydration().is_zero()),
             survival.thermal_comfort_ppm() / 10_000,
         );
         if survival.vitality() == Vitality::ZERO {
@@ -400,6 +440,12 @@ fn survival_status(registries: &Registries, state: &AppState) -> String {
             if !warnings.is_empty() {
                 let _ = writeln!(output, "Warnings: {}", warnings.join(", "));
             }
+            if survival.hunger() == HungerState::Starving {
+                output.push_str("Starvation: metabolic reserve exhausted. Vitality is being lost; paid gathering and other work may be impossible. Eat available carried food before spending more time.\n");
+            }
+            if survival.hydration_state() == HydrationState::Dehydrated {
+                output.push_str("Dehydration: water reserve exhausted. Vitality is being lost; drink available water before further exertion.\n");
+            }
             if injured {
                 injury_recovery_report(registries, survival, &mut output);
             }
@@ -414,12 +460,16 @@ fn injury_recovery_report(
     output: &mut String,
 ) {
     let ppm = survival.vitality().parts_per_million();
-    let _ = writeln!(
-        output,
-        "Vitality: {}.{:02}%",
-        ppm / 10_000,
-        (ppm % 10_000) / 100
-    );
+    if ppm < 100 {
+        output.push_str("Vitality: <0.01%\n");
+    } else {
+        let _ = writeln!(
+            output,
+            "Vitality: {}.{:02}%",
+            ppm / 10_000,
+            (ppm % 10_000) / 100
+        );
+    }
     if survival.hunger() != HungerState::Fed
         || survival.hydration_state() != HydrationState::Hydrated
         || survival.thermal_comfort_state() != ThermalComfortState::Comfortable
@@ -526,6 +576,8 @@ pub fn status(registries: &Registries, state: &AppState) -> String {
             "Work: {}",
             activity::remaining_duration(registries, state, work),
         );
+    } else if state.logistics().has_pending_direct_action() {
+        output.push_str("Queued interaction: use 'wait finish' to reach admission at the next simulation boundary; if work starts, wait again to complete it.\n");
     }
     output
 }
@@ -609,7 +661,11 @@ fn adjacent_footing(registries: &Registries, state: &AppState, dx: i64, dz: i64)
                 "up 1m (load prevents jump)"
             };
         }
-        return "up 1m (jump)";
+        return if climb.is_some() {
+            "up 1m (jump or climb)"
+        } else {
+            "up 1m (jump clearance unverified)"
+        };
     }
     if climb.is_some_and(|target| target.y().checked_sub(foot.y()) == Some(2)) {
         return "up 2m (climb)";
@@ -811,6 +867,12 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
             runway_label(runway.hungry_in().map(|time| time.value())),
             runway_label(runway.thirsty_in().map(|time| time.value()))
         );
+        let _ = writeln!(
+            output,
+            "At rest without intake, reserve exhaustion: food in {}, water in {} (work and travel spend reserves faster; provision before exhaustion).",
+            runway_label(runway.starving_in().map(|time| time.value())),
+            runway_label(runway.dehydrated_in().map(|time| time.value())),
+        );
     }
     if let Some(runway) = assess_player_unheated_comfort_runway(registries, state) {
         let _ = writeln!(
@@ -1011,7 +1073,7 @@ pub fn gather_options(
             .unwrap_or_else(|| "unavailable".to_owned());
         let _ = writeln!(
             output,
-            "  {}. {} | available {} g | batch limit {} g | default {} g | work {}{}",
+            "  {}. {} | available {} g | batch limit {} g | default {} g | work {} for default{}",
             index + 1,
             name(registries, option.commodity()),
             grams(option.source_mass()),
@@ -1028,7 +1090,39 @@ pub fn gather_options(
         );
         if let Ok(Some(food)) = option.food_value(registries, state) {
             let freshness = freshness_label(food.current_freshness());
-            let _ = writeln!(output, "     Food: {:?}, {freshness}", food.category(),);
+            let _ = writeln!(
+                output,
+                "     Food: {:?}, {freshness}; {} gross dietary energy per {} g",
+                food.category(),
+                super::fire::energy_label(food.dietary_energy()),
+                grams(food.batch_mass()),
+            );
+        }
+        if !mass.is_zero()
+            && let Err(SurfaceGatheringError::PlayerWork(error)) =
+                assess_player_surface_gathering_option_admission(registries, state, option, mass)
+        {
+            let _ = writeln!(
+                output,
+                "     Default batch currently blocked: {}",
+                super::errors::work_blocker(&error),
+            );
+            if let Ok(affordable) =
+                assess_affordable_player_gathering_mass(registries, state, option, mass)
+            {
+                if affordable.is_zero() {
+                    output.push_str(
+                        "     No positive portion is affordable with current reserves.\n",
+                    );
+                } else {
+                    let _ = writeln!(
+                        output,
+                        "     Smaller affordable portion now: gather {} {} (revalidated on use).",
+                        index + 1,
+                        grams(affordable)
+                    );
+                }
+            }
         }
     }
     output

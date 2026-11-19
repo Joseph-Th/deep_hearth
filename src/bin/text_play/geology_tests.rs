@@ -340,6 +340,71 @@ fn fractional_mining_and_hand_dressing_preserve_subgram_matter_and_save_replay()
     );
 }
 
+#[test]
+fn repeated_dressing_matches_individual_batches_and_preserves_matter() {
+    let mut repeated = equipped_for_copper_survey_and_mining();
+    run(&mut repeated, "prospect copper 1");
+    finish_work(&mut repeated);
+    run(&mut repeated, "prospect copper 2 with 1");
+    finish_work(&mut repeated);
+    run(&mut repeated, "mine copper 200 with 2 repeat 2");
+    let ore = carried_stack(&repeated, "copper ore");
+    let before = snapshot(&repeated);
+    for invalid in ["0", "33", "no"] {
+        assert!(
+            repeated
+                .command(&format!("dress 15 {ore} 100 repeat {invalid}"))
+                .is_err()
+        );
+        assert_eq!(snapshot(&repeated), before);
+    }
+    let mut manual = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&before)
+            .unwrap()
+            .into_state(&repeated.registries)
+            .unwrap(),
+        seed: None,
+    };
+    let conserved = calculate_matter_accounting(&repeated.state)
+        .unwrap()
+        .total();
+    let report = run(&mut repeated, &format!("dress 15 {ore} 100 repeat 3"));
+    assert!(
+        report.contains("Dressing repeat: 3 batches completed."),
+        "{report}"
+    );
+    for _ in 0..3 {
+        let index = carried_stack(&manual, "copper ore");
+        run(&mut manual, &format!("dress 15 {index} 100"));
+        finish_work(&mut manual);
+    }
+    assert_eq!(snapshot(&repeated), snapshot(&manual));
+    let crushed = carried_stack(&repeated, "crushed copper ore");
+    let report = run(&mut repeated, &format!("dress 13 {crushed} 100 repeat 4"));
+    assert!(
+        report.contains("Dressing repeat: 3 batches completed."),
+        "{report}"
+    );
+    assert!(report.contains("selected stack exhausted"), "{report}");
+    for _ in 0..3 {
+        let index = carried_stack(&manual, "crushed copper ore");
+        run(&mut manual, &format!("dress 13 {index} 100"));
+        finish_work(&mut manual);
+    }
+    assert_eq!(snapshot(&repeated), snapshot(&manual));
+    assert_eq!(
+        calculate_matter_accounting(&repeated.state)
+            .unwrap()
+            .total(),
+        conserved
+    );
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&repeated.registries, &repeated.state),
+        Ok(())
+    );
+}
+
 fn snapshot(session: &Session) -> Vec<u8> {
     serde_json::to_vec(&SaveEnvelope::new(&session.registries, &session.state)).unwrap()
 }

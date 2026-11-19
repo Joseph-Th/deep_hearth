@@ -2,14 +2,16 @@
 
 use std::fmt::Write as _;
 
-use super::{quantity, view};
+use super::{Session, activity, quantity, stepping, view};
 
+use deep_hearth::core::quantity::Mass;
+use deep_hearth::inventory::MaterialStackProjection;
 use deep_hearth::logistics::project_player_inventory;
 use deep_hearth::ore_processing::{
     resolve_manual_comminution_from_stack, resolve_manual_constituent_separation_from_stack,
     validate_start_manual_comminution, validate_start_manual_constituent_separation,
 };
-use deep_hearth::production::ProcessId;
+use deep_hearth::production::{ProcessId, ProductionJobId};
 use deep_hearth::{AppState, Registries};
 
 fn process_name(registries: &Registries, process: ProcessId) -> &str {
@@ -23,7 +25,8 @@ pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, Stri
     let inventory =
         project_player_inventory(registries, state).map_err(|error| error.to_string())?;
     let stacks = inventory.carried().stacks();
-    let mut output = String::from("Hand ore processing (dress PROCESS STACK GRAMS):\n");
+    let mut output =
+        String::from("Hand ore processing (dress PROCESS STACK GRAMS [repeat COUNT]):\n");
     for definition in registries.ore_processing().manual_comminution_definitions() {
         let _ = writeln!(
             output,
@@ -91,6 +94,15 @@ pub fn start(
     state: &mut AppState,
     args: &[&str],
 ) -> Result<String, String> {
+    let (process, stack, mass) = order(registries, state, args)?;
+    start_batch(registries, state, process, &stack, mass).map(|(_, report)| report)
+}
+
+fn order(
+    registries: &Registries,
+    state: &AppState,
+    args: &[&str],
+) -> Result<(ProcessId, MaterialStackProjection, Mass), String> {
     let [process, stack_index, grams] = args else {
         return Err("usage: dress PROCESS STACK GRAMS".to_owned());
     };
@@ -110,7 +122,6 @@ pub fn start(
     }
     let inventory =
         project_player_inventory(registries, state).map_err(|error| error.to_string())?;
-    let source = inventory.carried().stockpile();
     let stack = inventory
         .carried()
         .stacks()
@@ -120,6 +131,17 @@ pub fn start(
                 .ok_or("stack indices begin at 1")?,
         )
         .ok_or("no carried material at that stack index")?;
+    Ok((process, stack.clone(), mass))
+}
+
+fn start_batch(
+    registries: &Registries,
+    state: &mut AppState,
+    process: ProcessId,
+    stack: &MaterialStackProjection,
+    mass: Mass,
+) -> Result<(ProductionJobId, String), String> {
+    let source = stack.stockpile();
     let (job, duration, product) = if registries
         .ore_processing()
         .get_manual_comminution(process)
@@ -153,13 +175,68 @@ pub fn start(
     } else {
         return Err("process is not an authored direct-labor ore operation; see 'ore'".to_owned());
     };
-    Ok(format!(
-        "Started {} (job {}) on {} g from stack {}; {} in {} slow ticks. Use 'wait work' to complete.\n",
-        process_name(registries, process),
-        job.value(),
-        view::grams(mass),
-        stack_index,
-        product,
-        duration,
+    Ok((
+        job,
+        format!(
+            "Started {} (job {}) on {} g from stack selection; {} in {} slow ticks. Use 'wait work' to complete.\n",
+            process_name(registries, process),
+            job.value(),
+            view::grams(mass),
+            product,
+            duration,
+        ),
     ))
+}
+
+impl Session {
+    pub(super) fn dress_repeated(&mut self, args: &[&str], count: &str) -> Result<String, String> {
+        let count = count
+            .parse::<usize>()
+            .map_err(|_| "repeat count must be a whole number")?;
+        if !(1..=32).contains(&count) {
+            return Err("repeat count must be between 1 and 32".to_owned());
+        }
+        let (process, mut stack, mass) = order(&self.registries, &self.state, args)?;
+        let mut output = String::new();
+        let mut completed = 0;
+        for _ in 0..count {
+            let (job, started) =
+                match start_batch(&self.registries, &mut self.state, process, &stack, mass) {
+                    Ok(started) => started,
+                    Err(error) if completed == 0 => return Err(error),
+                    Err(error) => {
+                        let _ = writeln!(output, "Dressing repeat stopped: {error}");
+                        break;
+                    }
+                };
+            output.push_str(&started);
+            let wait = activity::remaining_work_control_ticks(&self.state)
+                .ok_or("dressing started without a scheduled completion")?
+                .min(72_000);
+            let (received, interrupted) =
+                self.await_batch(stepping::BatchReceipt::Produced(job), wait, &mut output)?;
+            completed += usize::from(received);
+            if !received || interrupted {
+                output.push_str("Dressing repeat interrupted by work or a condition change.\n");
+                break;
+            }
+            if completed == count {
+                break;
+            }
+            match stack.remainder_after_consumption(&self.registries, &self.state, mass) {
+                Ok(Some(remainder)) => stack = remainder,
+                Ok(None) => {
+                    output.push_str("Dressing repeat stopped: selected stack exhausted.\n");
+                    break;
+                }
+                Err(error) => {
+                    let _ = writeln!(output, "Dressing repeat stopped: {error}");
+                    break;
+                }
+            }
+        }
+        let _ = writeln!(output, "Dressing repeat: {completed} batches completed.");
+        output.push_str(&view::look(&self.registries, &self.state, None));
+        Ok(output)
+    }
 }

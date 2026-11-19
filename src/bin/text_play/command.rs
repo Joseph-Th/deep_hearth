@@ -181,6 +181,9 @@ impl Session {
                 result + &view::status(&self.registries, &self.state)
             }
             "ore" if args.is_empty() => ore::catalog(&self.registries, &self.state)?,
+            "dress" if let [order @ .., "repeat", count] = args => {
+                self.dress_repeated(order, count)?
+            }
             "dress" => {
                 let result = ore::start(&self.registries, &mut self.state, args)?;
                 result + &view::status(&self.registries, &self.state)
