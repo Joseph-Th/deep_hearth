@@ -13,10 +13,13 @@ use deep_hearth::{AppState, Registries};
 
 pub fn energy_label(stored: deep_hearth::core::quantity::Energy) -> String {
     let nanojoules = stored.nanojoules();
+    const NANOJOULES_PER_MEGAJOULE: u128 = 1_000_000_000_000_000;
+    let fraction = format!("{:015}", nanojoules % NANOJOULES_PER_MEGAJOULE);
+    let precision = fraction.trim_end_matches('0').len().max(3);
     format!(
-        "{}.{:03} MJ",
-        nanojoules / 1_000_000_000_000_000,
-        (nanojoules % 1_000_000_000_000_000) / 1_000_000_000_000,
+        "{}.{} MJ",
+        nanojoules / NANOJOULES_PER_MEGAJOULE,
+        &fraction[..precision],
     )
 }
 
@@ -176,39 +179,38 @@ pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, Stri
                 .unwrap_or("unidentified material");
             // Ask the combustion owner about actual admission rather than duplicating
             // purity, mass, attention, occupancy, and thermal-capacity rules.
-            let mut first_blocker = None;
-            let eligible = inventory
+            let _ = writeln!(
+                output,
+                "     Fuel: up to {} g {material} per charge",
+                view::grams(profile.fuel_mass()),
+            );
+            let mut matching = false;
+            for (index, stack) in inventory
                 .carried()
                 .stacks()
                 .iter()
                 .enumerate()
                 .filter(|(_, stack)| stack.commodity() == profile.fuel())
-                .find_map(|(index, stack)| {
-                    match validate_combust_stack_fuel(registries, state, id, source, stack) {
-                        Ok(charge) => {
-                            Some((index + 1, charge.consumed_mass(), charge.released_energy()))
-                        }
-                        Err(error) => {
-                            if first_blocker.is_none() {
-                                first_blocker = Some(fuel_blocker(registries, error));
-                            }
-                            None
-                        }
-                    }
-                });
-            let _ = writeln!(
-                output,
-                "     Fuel: up to {} g {material} per charge | {}",
-                view::grams(profile.fuel_mass()),
-                eligible.map_or_else(
-                    || first_blocker.unwrap_or_else(|| "no matching carried stack".to_owned()),
-                    |(stack, mass, heat)| format!(
-                        "feed-fire {count} {stack} ({} g, {})",
-                        view::grams(mass),
-                        energy_label(heat)
-                    )
-                ),
-            );
+            {
+                matching = true;
+                let stack_index = index + 1;
+                let choice = match validate_combust_stack_fuel(registries, state, id, source, stack)
+                {
+                    Ok(charge) => format!(
+                        "feed-fire {count} {stack_index} ({} g, {})",
+                        view::grams(charge.consumed_mass()),
+                        energy_label(charge.released_energy()),
+                    ),
+                    Err(error) => format!(
+                        "stack {stack_index} blocked: {}",
+                        fuel_blocker(registries, error),
+                    ),
+                };
+                let _ = writeln!(output, "       {choice}");
+            }
+            if !matching {
+                output.push_str("       no matching carried stack\n");
+            }
         }
     }
     if count == 0 {

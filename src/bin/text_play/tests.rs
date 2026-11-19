@@ -1157,6 +1157,43 @@ fn stone_campfire_from_wilderness() -> Session {
 }
 
 #[test]
+fn campfire_catalog_lists_each_physical_fuel_cohort() {
+    let mut session = stone_campfire_from_wilderness();
+    // Preserve the gathered mass but model two distinct thermal cohorts in a
+    // current-schema save, then admit it through the normal load boundary.
+    let mut saved: serde_json::Value = serde_json::from_slice(&snapshot(&session)).unwrap();
+    let inventory = &mut saved["state"]["systems"]["inventory"];
+    let next = inventory["next_lot_id"].as_u64().unwrap();
+    let lots = inventory["lots"].as_object_mut().unwrap();
+    assert_eq!(lots.len(), 1);
+    let original = lots.values_mut().next().unwrap();
+    let mass = original["mass"].as_u64().unwrap();
+    let mut second = original.clone();
+    original["mass"] = serde_json::json!(1);
+    second["mass"] = serde_json::json!(mass - 1);
+    second["id"] = serde_json::json!(next);
+    second["profile"]["temperature"] = serde_json::json!(280_000);
+    lots.insert(next.to_string(), second);
+    inventory["next_lot_id"] = serde_json::json!(next + 1);
+    session.state = serde_json::from_value::<LoadedSaveEnvelope>(saved)
+        .unwrap()
+        .into_state(&session.registries)
+        .unwrap();
+
+    let before = snapshot(&session);
+    let (catalog, _) = session.command("fire").unwrap();
+    assert!(catalog.contains("feed-fire 1 1 ("), "{catalog}");
+    assert!(catalog.contains("feed-fire 1 2 ("), "{catalog}");
+    assert!(catalog.contains("0.001 g, 0.000012 MJ"), "{catalog}");
+    assert_eq!(snapshot(&session), before);
+    let (burned, _) = session.command("feed-fire 1 1").unwrap();
+    assert!(burned.contains("Burned"), "{burned}");
+    let (remaining, _) = session.command("fire").unwrap();
+    assert!(remaining.contains("feed-fire 1 1 ("), "{remaining}");
+    assert!(!remaining.contains("feed-fire 1 2 ("), "{remaining}");
+}
+
+#[test]
 fn finite_campfire_fuel_warms_player_and_preserves_terminal_matter() {
     let mut empty = Session::new(24318).unwrap();
     let before = snapshot(&empty);
