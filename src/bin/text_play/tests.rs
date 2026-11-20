@@ -10,6 +10,73 @@ fn snapshot(session: &Session) -> Vec<u8> {
 }
 
 #[test]
+fn gathering_catalog_matches_the_reserve_limited_default_command() {
+    use deep_hearth::core::quantity::Mass;
+    use deep_hearth::labor::PlayerWorkStartError;
+    use deep_hearth::surface::{
+        SurfaceGatheringError, assess_affordable_player_gathering_mass,
+        assess_player_surface_gathering_option_admission,
+    };
+
+    let mut session = Session::new(24318).unwrap();
+    for _ in 0..3 {
+        session.command("e 20").unwrap();
+        session.command("wait 10").unwrap();
+    }
+    let option = player_surface_gathering_options(&session.registries, &session.state).unwrap()[0];
+    let ceiling = option.suggested_mass_at(&session.state);
+    let mut saved: serde_json::Value = serde_json::from_slice(&snapshot(&session)).unwrap();
+    let player = &mut saved["state"]["systems"]["survival"]["player"];
+    player["metabolic_energy"] = serde_json::json!(0);
+    let depleted = serde_json::from_value::<LoadedSaveEnvelope>(saved.clone())
+        .unwrap()
+        .into_state(&session.registries)
+        .unwrap();
+    let Err(SurfaceGatheringError::PlayerWork(PlayerWorkStartError::InsufficientMetabolicEnergy {
+        required,
+        ..
+    })) = assess_player_surface_gathering_option_admission(
+        &session.registries,
+        &depleted,
+        option,
+        ceiling,
+    )
+    else {
+        panic!("stone gathering should require metabolic reserves");
+    };
+    saved["state"]["systems"]["survival"]["player"]["metabolic_energy"] =
+        serde_json::json!(required.nanojoules() / 2);
+    session.state = serde_json::from_value::<LoadedSaveEnvelope>(saved)
+        .unwrap()
+        .into_state(&session.registries)
+        .unwrap();
+    let expected = assess_affordable_player_gathering_mass(
+        &session.registries,
+        &session.state,
+        option,
+        ceiling,
+    )
+    .unwrap();
+    assert!(expected > Mass::ZERO && expected < ceiling);
+    let before = snapshot(&session);
+    let catalog = session.command("gather").unwrap().0;
+    assert!(
+        catalog.contains(&format!("default {} g", view::grams(expected))),
+        "{catalog}"
+    );
+    assert!(
+        !catalog.contains("Default batch currently blocked"),
+        "{catalog}"
+    );
+    assert_eq!(snapshot(&session), before);
+    let report = session.command("gather 1").unwrap().0;
+    let Some(PlayerWork::SurfaceGathering { work }) = session.state.player_work().active() else {
+        panic!("{report}");
+    };
+    assert_eq!(work.gathered_mass(), expected);
+}
+
+#[test]
 fn eating_at_slow_boundary_refreshes_the_exact_selected_cohort() {
     let mut session = Session::new(24318).unwrap();
     for command in [

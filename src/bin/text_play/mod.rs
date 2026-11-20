@@ -23,6 +23,7 @@ mod tests;
 use std::fmt::Write as _;
 
 use deep_hearth::content::BLOCK_STATE_STONE;
+use deep_hearth::core::quantity::Mass;
 use deep_hearth::labor::PlayerWork;
 use deep_hearth::logistics::{
     PlayerActiveSelection, project_player_inventory, validate_set_active_selection,
@@ -32,7 +33,7 @@ use deep_hearth::player::{validate_admit_player, validate_respawn_player};
 use deep_hearth::simulation::{PlayerDirectControlInput, SecondaryControlIntent};
 use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::surface::{
-    PlayerSurfaceGatheringOption, assess_affordable_player_gathering_mass,
+    PlayerSurfaceGatheringOption, SurfaceGatheringError, assess_affordable_player_gathering_mass,
     player_surface_gathering_options,
 };
 use deep_hearth::world::{
@@ -46,6 +47,40 @@ use deep_hearth::{AppState, Registries, build_registries};
 use command::parse_index;
 use quantity::parse_decimal_grams;
 use save_file::{publish_new_save, slot_path};
+
+/// A single read-only assessment shared by the gathering catalog and commands.
+struct DefaultGatheringBatch {
+    suggested: Mass,
+    affordable: Result<Mass, SurfaceGatheringError>,
+}
+
+impl DefaultGatheringBatch {
+    fn assess(
+        registries: &Registries,
+        state: &AppState,
+        option: PlayerSurfaceGatheringOption,
+    ) -> Self {
+        let suggested = option.suggested_mass_at(state);
+        let affordable = if suggested.is_zero() {
+            Ok(suggested)
+        } else {
+            assess_affordable_player_gathering_mass(registries, state, option, suggested)
+        };
+        Self {
+            suggested,
+            affordable,
+        }
+    }
+
+    /// Retain the suggestion on rejection so canonical admission reports the
+    /// actual blocker rather than attempting to start a zero-mass job.
+    fn request_mass(&self) -> Mass {
+        match &self.affordable {
+            Ok(mass) if !mass.is_zero() => *mass,
+            _ => self.suggested,
+        }
+    }
+}
 
 pub struct Session {
     registries: Registries,
@@ -284,7 +319,7 @@ impl Session {
         let mass = if let Some(grams) = args.get(1) {
             parse_decimal_grams(grams, "gather quantity")?
         } else {
-            self.default_gathering_mass(option)
+            DefaultGatheringBatch::assess(&self.registries, &self.state, option).request_mass()
         };
         if args.len() == 1 && mass.is_zero() {
             return Err("no carrying space for the suggested gathering batch".to_owned());
@@ -299,28 +334,6 @@ impl Session {
         let mut output = self.start_gathering(option, mass)?;
         output.push_str(&view::status(&self.registries, &self.state));
         Ok(output)
-    }
-
-    /// Use the same affordable portion as contextual empty-hand gathering.
-    /// Retain the authored suggestion when no portion can start so normal
-    /// admission returns its precise reason.
-    fn default_gathering_mass(
-        &self,
-        option: PlayerSurfaceGatheringOption,
-    ) -> deep_hearth::core::quantity::Mass {
-        let suggested = option.suggested_mass_at(&self.state);
-        if suggested.is_zero() {
-            return suggested;
-        }
-        match assess_affordable_player_gathering_mass(
-            &self.registries,
-            &self.state,
-            option,
-            suggested,
-        ) {
-            Ok(mass) if !mass.is_zero() => mass,
-            _ => suggested,
-        }
     }
 
     /// Automatic physical pickup precedes secondary use within one control
@@ -411,7 +424,9 @@ impl Session {
                 );
                 break;
             };
-            let mass = requested_mass.unwrap_or_else(|| self.default_gathering_mass(option));
+            let mass = requested_mass.unwrap_or_else(|| {
+                DefaultGatheringBatch::assess(&self.registries, &self.state, option).request_mass()
+            });
             if mass.is_zero() || mass > option.maximum_mass_at(&self.state) {
                 if completed == 0 {
                     return Err(

@@ -471,11 +471,9 @@ impl ThermalComfortDefinition {
         while deficit < target {
             let gain = self.resting_warmth_gain_ppm_per_tick(exposure, (scale - deficit) as u32);
             let step = u64::from(loss - gain);
-            let boundary = if capacity == 0 {
-                target
-            } else {
-                target.min(u64::from(gain) * scale / capacity + 1)
-            };
+            let boundary = (u64::from(gain) * scale)
+                .checked_div(capacity)
+                .map_or(target, |threshold| target.min(threshold + 1));
             let count = (boundary - deficit).div_ceil(step);
             deficit += count * step;
             ticks += count;

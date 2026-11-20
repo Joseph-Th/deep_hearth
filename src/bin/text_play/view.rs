@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use super::activity;
+use super::{DefaultGatheringBatch, activity};
 mod actor_inventory;
 mod sensory;
 
@@ -33,9 +33,8 @@ use deep_hearth::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord};
 use deep_hearth::structural::StructuralLifecycle;
 use deep_hearth::surface::{
     AdjacentSurfaceResource, PlayerSurfaceGatheringOption, SurfaceGatheringError,
-    SurfaceResourceKind, assess_affordable_player_gathering_mass,
-    assess_player_surface_gathering_option_admission, available_visible_surface_landmarks,
-    player_surface_gathering_options,
+    SurfaceResourceKind, assess_player_surface_gathering_option_admission,
+    available_visible_surface_landmarks, player_surface_gathering_options,
 };
 use deep_hearth::survival::{
     FoodFreshness, HungerState, HydrationState, LocalDrinkSource, SurvivalAssessment,
@@ -1097,7 +1096,8 @@ pub fn gather_options(
     }
     output.push_str("Gather here (gather N, optional grams to 0.001 g):\n");
     for (index, option) in options.iter().copied().enumerate() {
-        let mass = option.suggested_mass_at(state);
+        let batch = DefaultGatheringBatch::assess(registries, state, option);
+        let mass = batch.request_mass();
         let duration = option
             .duration_for_mass(mass)
             .map(|span| activity::gathering_duration(span.value()))
@@ -1129,28 +1129,32 @@ pub fn gather_options(
                 grams(food.batch_mass()),
             );
         }
-        if !mass.is_zero()
-            && let Err(SurfaceGatheringError::PlayerWork(error)) =
-                assess_player_surface_gathering_option_admission(registries, state, option, mass)
-        {
+        if mass < batch.suggested {
             let _ = writeln!(
                 output,
-                "     Default batch currently blocked: {}",
-                super::errors::work_blocker(&error),
+                "     Default reduced from {} g to fit current work reserves (revalidated on use).",
+                grams(batch.suggested)
             );
-            if let Ok(affordable) =
-                assess_affordable_player_gathering_mass(registries, state, option, mass)
-            {
-                if affordable.is_zero() {
+        } else if !mass.is_zero() {
+            let (admission, no_affordable_portion) = match batch.affordable {
+                Ok(affordable) if affordable.is_zero() => (
+                    assess_player_surface_gathering_option_admission(
+                        registries, state, option, mass,
+                    ),
+                    true,
+                ),
+                Ok(_) => (Ok(()), false),
+                Err(error) => (Err(error), false),
+            };
+            if let Err(SurfaceGatheringError::PlayerWork(error)) = admission {
+                let _ = writeln!(
+                    output,
+                    "     Default batch currently blocked: {}",
+                    super::errors::work_blocker(&error),
+                );
+                if no_affordable_portion {
                     output.push_str(
                         "     No positive portion is affordable with current reserves.\n",
-                    );
-                } else {
-                    let _ = writeln!(
-                        output,
-                        "     Smaller affordable portion now: gather {} {} (revalidated on use).",
-                        index + 1,
-                        grams(affordable)
                     );
                 }
             }

@@ -58,7 +58,7 @@ fn timber_pile_requires_deliberate_loading_and_preserves_remainder() {
     assert_eq!(options.len(), 1);
     assert_eq!(options[0].resource(), source);
     assert_eq!(options[0].maximum_mass_at(&state), batch);
-    let _ = validate_start_player_surface_gathering_option(&registries, &state, options[0], batch)
+    validate_start_player_surface_gathering_option(&registries, &state, options[0], batch)
         .unwrap()
         .commit(&mut state)
         .unwrap();

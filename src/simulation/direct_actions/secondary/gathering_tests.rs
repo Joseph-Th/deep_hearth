@@ -88,7 +88,7 @@ fn contextual_stone_gathering_uses_affordable_portion_but_explicit_amount_is_not
         .unwrap()
         .commit(&mut state)
         .unwrap();
-    validate_admit_player(&registries, &mut state, position)
+    validate_admit_player(&registries, &state, position)
         .unwrap()
         .commit(&mut state)
         .unwrap();
