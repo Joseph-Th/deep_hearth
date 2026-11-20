@@ -37,16 +37,16 @@ fn district_hash(profile: WorldGenerationProfile, coord: ChunkCoord) -> u64 {
 
 fn seeded_food(profile: WorldGenerationProfile, hash: u64, x: i64, z: i64) -> (CommodityKey, Mass) {
     let (material, mass_mg) = match super::habitat_at(profile.seed(), x, z) {
-        super::HabitatKind::DampGrove => (MATERIAL_BERRIES, 700_000 + ((hash >> 40) % 500_000)),
-        super::HabitatKind::DryScrub => (MATERIAL_WILD_NUTS, 180_000 + ((hash >> 40) % 320_000)),
-        super::HabitatKind::MixedWoodland => (
-            if hash & 4 == 0 {
-                MATERIAL_BERRIES
-            } else {
-                MATERIAL_WILD_NUTS
-            },
-            250_000 + ((hash >> 40) % 600_000),
-        ),
+        // A sparse site represents an entire harvestable patch, not a single
+        // serving. Its finite crop should support a useful provisioning trip.
+        super::HabitatKind::DampGrove => (MATERIAL_BERRIES, 2_800_000 + ((hash >> 40) % 2_000_000)),
+        super::HabitatKind::DryScrub => (MATERIAL_WILD_NUTS, 720_000 + ((hash >> 40) % 1_280_000)),
+        super::HabitatKind::MixedWoodland if hash & 4 == 0 => {
+            (MATERIAL_BERRIES, 2_000_000 + ((hash >> 40) % 1_600_000))
+        }
+        super::HabitatKind::MixedWoodland => {
+            (MATERIAL_WILD_NUTS, 750_000 + ((hash >> 40) % 750_000))
+        }
     };
     (
         CommodityKey::new(material, FORM_FOOD),

@@ -43,6 +43,32 @@ fn discover_at(at: SimulationTick) -> (Registries, AppState) {
 }
 
 #[test]
+fn unexplored_wilderness_retains_its_untouched_crop_on_the_second_morning() {
+    let (_, early) = discover_at(SimulationTick::ZERO);
+    let (registries, late) = discover_at(SimulationTick::new(24_000));
+    let mut checked = 0;
+    for source in early.surface().perennial_resources() {
+        let discovered = late
+            .surface()
+            .perennial_resources()
+            .find(|plant| plant.position() == source.position())
+            .expect("the original seeded crop must still exist");
+        assert_eq!(discovered.lifecycle(), SurfaceResourceLifecycle::Available);
+        assert_eq!(discovered.remaining_mass(), source.remaining_mass());
+        assert_eq!(
+            discovered.perennial_root_mass(),
+            source.perennial_root_mass()
+        );
+        assert!(matches!(
+            crate::survival::assess_surface_food_freshness(&registries, discovered, late.tick()),
+            Some(crate::survival::FoodFreshness::Fresh { .. })
+        ));
+        checked += 1;
+    }
+    assert!(checked > 0);
+}
+
+#[test]
 fn lazy_original_crop_senescence_matches_real_weather_front_execution() {
     let (registries, mut continuous) = discover_at(SimulationTick::ZERO);
     for _ in 0..FIRST_SENESCENCE {

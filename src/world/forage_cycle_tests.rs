@@ -759,7 +759,7 @@ fn untouched_fruit_wither_and_return_as_later_ripe_food_without_new_mass() {
     let initial_fruit = state.surface().get(id).unwrap().remaining_mass();
     let mut withered = false;
     let mut recovered = false;
-    for _ in 0..8_000 {
+    for _ in 0..FRUIT_SENESCENCE_TICKS + 8_000 {
         let _ = advance_tick(&registries, &mut state).unwrap();
         let source = state.surface().get(id).unwrap();
         if source.lifecycle() == SurfaceResourceLifecycle::Depleted {

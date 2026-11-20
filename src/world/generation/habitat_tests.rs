@@ -116,15 +116,17 @@ fn seed_ground_conditions_change_real_trees_and_generated_food() {
             match kind {
                 HabitatKind::DampGrove => {
                     assert_eq!(patch.commodity().material(), MATERIAL_BERRIES);
-                    assert!((700_000..1_200_000).contains(&mass));
+                    assert!((2_800_000..4_800_000).contains(&mass));
                 }
                 HabitatKind::DryScrub => {
                     assert_eq!(patch.commodity().material(), MATERIAL_WILD_NUTS);
-                    assert!((180_000..500_000).contains(&mass));
+                    assert!((720_000..2_000_000).contains(&mass));
                 }
-                HabitatKind::MixedWoodland => {
-                    assert!((250_000..850_000).contains(&mass));
-                }
+                HabitatKind::MixedWoodland => match patch.commodity().material() {
+                    MATERIAL_BERRIES => assert!((2_000_000..3_600_000).contains(&mass)),
+                    MATERIAL_WILD_NUTS => assert!((750_000..1_500_000).contains(&mass)),
+                    other => panic!("unexpected woodland food {other:?}"),
+                },
             }
             found_forage[patch_index] = true;
         }
