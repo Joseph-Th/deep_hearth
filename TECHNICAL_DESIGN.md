@@ -150,7 +150,9 @@ buffering. Invalid aims and missing materials reject immediately. Full-footprint
 cover panels also reject occupied loose-matter cells and living forage roots,
 including fruit-depleted shrubs. Narrow timber posts may share those cells under
 the canonical structural footprint rules. A feasible construction still waits
-for canonical slow-tick admission and revalidation. Explicit supported-timber placement
+for canonical slow-tick admission and revalidation. A log pointed at an embodied
+structural support remains a construction gesture even if that support occludes
+the terrain ray and a local fire could accept fuel. Explicit supported-timber placement
 accepts an exact carried stack and reachable empty destination at a slow boundary.
 A bounded eye ray must reach that destination, and the same structural plan validator
 requires active face-adjacent support, valid occupancy, physical materials and attention.

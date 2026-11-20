@@ -36,7 +36,7 @@ pub(in crate::simulation) fn project_pointed_timber_cover_target(
         Ok(None) => return Ok(None),
         Err(error) => return Err(error),
     };
-    validate_structural_placement_position(state, bounds.min())
+    validate_full_footprint_placement_position(state, bounds.min())
         .map_err(structural_placement_error)?;
     Ok(Some(bounds.min()))
 }
@@ -73,7 +73,7 @@ fn validate_direct_placement_position(
     Ok(())
 }
 
-fn validate_structural_placement_position(
+fn validate_full_footprint_placement_position(
     state: &AppState,
     position: VoxelCoord,
 ) -> Result<(), DirectPlacementTargetError> {
@@ -111,6 +111,23 @@ fn structural_placement_error(error: DirectPlacementTargetError) -> SecondaryAct
             SecondaryActionOutcome::StructuralPlacementLocationOccupied { position }
         }
     }
+}
+
+/// A log aimed at a physical member is a construction gesture even when
+/// that member occludes the terrain ray. Retain ambiguous or blocked aims
+/// for placement to report or arbitrate against local combustion.
+pub(super) fn has_pointed_timber_target(
+    registries: &Registries,
+    state: &AppState,
+    direction: ViewDirection,
+) -> bool {
+    !matches!(
+        resolve_supported_timber_target(registries, state, direction),
+        Ok(None)
+    ) || matches!(
+        raycast_player_block(registries, state, direction),
+        Ok(Some(_))
+    )
 }
 
 /// Resolves shared pointed structural support and adjacent free geometry for timber members.

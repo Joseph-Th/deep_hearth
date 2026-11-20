@@ -236,6 +236,237 @@ fn pointed_supported_post_retains_priority_over_local_refueling() {
 }
 
 #[test]
+fn pointed_embodied_support_takes_priority_over_local_fire() {
+    use crate::content::{
+        BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS,
+        ENERGY_STONE_RING_CAMPFIRE, FORM_LUMP, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    };
+    use crate::energy::validate_assemble_energy_store;
+    use crate::spatial::VoxelBounds;
+    use crate::structural::{
+        StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
+        validate_activate_structural_element,
+    };
+
+    let (registries, mut state, foot_y) = generated_grounded_player_at(0, 0);
+    let destination = VoxelCoord::new(1, foot_y + 1, 0);
+    let support_cell = VoxelCoord::new(2, foot_y + 1, 0);
+    for cell in [destination, support_cell] {
+        set_generated_block_for_test(registries.world(), &mut state, cell, BlockStateId::AIR);
+    }
+    let support = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        StructuralElementGeometry::new(
+            VoxelBounds::new(support_cell, VoxelCoord::new(3, foot_y + 2, 1)).unwrap(),
+            BASIC_TIMBER_COVER_PANEL_THICKNESS,
+            BASIC_TIMBER_COVER_PANEL_AREA,
+        )
+        .unwrap(),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, support, FORM_BOARD);
+    let _ = validate_activate_structural_element(&registries, &state, support)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(1_000_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let fire =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, carried)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    let timber = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        timber,
+        Mass::from_milligrams(6_500_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(timber)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let direction = ViewDirection::new(1_000_000, 0, 0).unwrap();
+    assert_eq!(
+        crate::world::raycast_player_block(&registries, &state, direction),
+        Ok(None)
+    );
+    assert_eq!(
+        project_pointed_structural_break_target(&registries, &state, direction),
+        Ok(Some(support))
+    );
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_secondary(SecondaryControlIntent::use_active(direction));
+    let first = advance_control_tick_with_direct_input(&registries, &mut state, input).unwrap();
+    assert_eq!(
+        first.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    let mut outcome = first;
+    for _ in 1..CONTROL_TICKS_PER_SIMULATION_TICK {
+        outcome = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    let Some(SecondaryActionOutcome::StructuralConstructionStarted(work)) =
+        outcome.secondary_action()
+    else {
+        panic!(
+            "expected supported post, got {:?}",
+            outcome.secondary_action()
+        );
+    };
+    assert_eq!(
+        state
+            .structures()
+            .get_element(work.element())
+            .unwrap()
+            .bounds()
+            .min(),
+        destination
+    );
+    assert_eq!(
+        state.energy().get_store(fire).unwrap().stored(),
+        Energy::ZERO
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn explicit_supported_timber_distinguishes_slender_and_full_footprint_occupancy() {
+    use crate::content::{
+        BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    };
+    use crate::inventory::project_material_stacks;
+    use crate::spatial::VoxelBounds;
+    use crate::structural::{
+        StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
+        validate_activate_structural_element,
+    };
+
+    let (registries, mut state, foot_y) = generated_grounded_player_at(0, 0);
+    let destination = VoxelCoord::new(1, foot_y + 1, 0);
+    let support_cell = VoxelCoord::new(2, foot_y + 1, 0);
+    for cell in [destination, support_cell] {
+        set_generated_block_for_test(registries.world(), &mut state, cell, BlockStateId::AIR);
+    }
+    let support = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        StructuralElementGeometry::new(
+            VoxelBounds::new(support_cell, VoxelCoord::new(3, foot_y + 2, 1)).unwrap(),
+            BASIC_TIMBER_COVER_PANEL_THICKNESS,
+            BASIC_TIMBER_COVER_PANEL_AREA,
+        )
+        .unwrap(),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, support, FORM_BOARD);
+    let _ = validate_activate_structural_element(&registries, &state, support)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let drop = insert_surface_resource_for_test(
+        &registries,
+        &mut state,
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            destination,
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(50_000),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    for form in [FORM_BOARD, FORM_LOG] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            CommodityKey::new(MATERIAL_WOOD, form),
+            Mass::from_milligrams(6_500_000),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+    }
+    let stacks = project_material_stacks(&registries, &state, carried).unwrap();
+    let board = stacks
+        .iter()
+        .find(|stack| stack.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD))
+        .unwrap();
+    let log = stacks
+        .iter()
+        .find(|stack| stack.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_LOG))
+        .unwrap();
+    let before = state.clone();
+    assert!(matches!(
+        crate::simulation::validate_start_player_supported_timber_at(
+            &registries, &state, board, destination
+        ),
+        Err(SecondaryActionOutcome::StructuralPlacementLocationOccupied { position }) if position == destination
+    ));
+    assert_eq!(state, before);
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    let work = crate::simulation::validate_start_player_supported_timber_at(
+        &registries,
+        &state,
+        log,
+        destination,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(
+        state
+            .structures()
+            .get_element(work.element())
+            .unwrap()
+            .bounds()
+            .min(),
+        destination
+    );
+    assert_eq!(
+        state.surface().get(drop).unwrap().remaining_mass(),
+        Mass::from_milligrams(50_000)
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
 fn direct_timber_post_can_share_a_cell_with_loose_matter() {
     for occupied in [false, true] {
         let (registries, mut state, foot_y) = generated_grounded_player_at(0, 0);

@@ -87,7 +87,7 @@ fn depleted_living_forage_blocks_full_footprint_placement_preview() {
     let position = source.position();
     let id = source.id();
     assert_eq!(
-        super::validate_structural_placement_position(&state, position),
+        super::validate_full_footprint_placement_position(&state, position),
         Err(DirectPlacementTargetError::LocationOccupied { position })
     );
 
@@ -118,7 +118,7 @@ fn depleted_living_forage_blocks_full_footprint_placement_preview() {
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     let snapshot = state.clone();
     assert_eq!(
-        super::validate_structural_placement_position(&state, position),
+        super::validate_full_footprint_placement_position(&state, position),
         Err(DirectPlacementTargetError::LocationOccupied { position }),
         "dead fruit does not make an occupied building site clear"
     );
@@ -131,7 +131,7 @@ fn depleted_living_forage_blocks_full_footprint_placement_preview() {
         .unwrap();
     assert_eq!(restored, state);
     assert_eq!(
-        super::validate_structural_placement_position(&restored, position),
+        super::validate_full_footprint_placement_position(&restored, position),
         Err(DirectPlacementTargetError::LocationOccupied { position })
     );
 }

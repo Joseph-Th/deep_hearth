@@ -20,7 +20,7 @@ use crate::structural::{
 use super::super::secondary::resolve_unique_carried_stack;
 use super::{
     resolve_direct_placement_target, resolve_supported_timber_target, single_voxel_bounds,
-    structural_placement_error, validate_structural_placement_position,
+    structural_placement_error, validate_full_footprint_placement_position,
 };
 use crate::simulation::outcome::SecondaryActionOutcome;
 
@@ -120,7 +120,10 @@ pub(in crate::simulation) fn validate_supported_timber_at(
     }
     super::validate_direct_placement_position(registries, state, position)
         .map_err(structural_placement_error)?;
-    validate_structural_placement_position(state, position).map_err(structural_placement_error)?;
+    if stack.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD) {
+        validate_full_footprint_placement_position(state, position)
+            .map_err(structural_placement_error)?;
+    }
     let bounds = single_voxel_bounds(position)
         .ok_or(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow)?;
     let supports = super::local_active_face_supports(state, position, bounds);
@@ -146,7 +149,7 @@ pub(in crate::simulation::direct_actions) fn attempt_selected_timber_cover_place
         Ok(None) => return Some(SecondaryActionOutcome::NoStructuralPlacementTarget),
         Err(error) => return Some(error),
     };
-    if let Err(error) = validate_structural_placement_position(state, bounds.min()) {
+    if let Err(error) = validate_full_footprint_placement_position(state, bounds.min()) {
         return Some(structural_placement_error(error));
     }
     // Physical context and carried material are observable on the input frame.

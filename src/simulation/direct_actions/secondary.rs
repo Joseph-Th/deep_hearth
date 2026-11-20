@@ -11,12 +11,11 @@ use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
 use crate::spatial::ViewDirection;
 use crate::survival::{EatStackToTargetError, validate_eat_stack_to_full_control_rate};
-use crate::world::raycast_player_block;
 
 use super::SecondaryActionOutcome;
 use super::placement::{
     attempt_selected_storage_placement, attempt_selected_timber_cover_placement,
-    attempt_selected_timber_placement,
+    attempt_selected_timber_placement, has_pointed_timber_target,
 };
 
 mod combustion;
@@ -47,13 +46,9 @@ pub(super) fn attempt_selected_secondary_action(
     {
         return outcome;
     }
-    let points_at_block = matches!(
-        raycast_player_block(registries, state, direction),
-        Ok(Some(_))
-    );
     let timber = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
     if commodity == timber
-        && points_at_block
+        && has_pointed_timber_target(registries, state, direction)
         && let Some(outcome) =
             attempt_selected_timber_placement(registries, state, commodity, direction)
     {
