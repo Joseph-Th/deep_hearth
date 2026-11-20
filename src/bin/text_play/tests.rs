@@ -2097,6 +2097,183 @@ fn carried_flint_knife_accelerates_timed_woodwork_and_survives_work_save() {
     assert!(inventory.contains("timber board | 800 g"));
 }
 
+#[test]
+fn local_crafting_uses_equipment_without_picking_it_up() {
+    let mut session = prepared_flint_and_handle();
+    for command in [
+        "assemble 58",
+        "take 1",
+        "equip 1",
+        "n 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "gather 1 1000",
+        "wait work",
+        "drop",
+        "wait boundary",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    let (recipes, _) = session.command("recipes").unwrap();
+    assert!(
+        recipes.contains("at 1 (hafted flint woodworking knife)"),
+        "{recipes}"
+    );
+    let before = snapshot(&session);
+    assert!(session.command("craft 14 at 2").is_err());
+    assert!(session.command("craft 14 with 1 at 1").is_err());
+    assert_eq!(snapshot(&session), before);
+    let (started, _) = session.command("craft 14 at 1").unwrap();
+    assert!(
+        started.contains("Work: shape timber boards; scheduled completion in 1m 12s"),
+        "{started}"
+    );
+    let (done, _) = session.command("wait work").unwrap();
+    assert!(
+        done.contains("Received 800 g timber board (carried)"),
+        "{done}"
+    );
+    let (gear, _) = session.command("gear").unwrap();
+    assert!(gear.contains("hafted flint woodworking knife"), "{gear}");
+    let (inventory, _) = session.command("inventory").unwrap();
+    assert!(
+        !inventory.contains("Carried equipment 1: hafted flint woodworking knife"),
+        "{inventory}"
+    );
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
+        Ok(())
+    );
+}
+
+#[test]
+fn ceramic_workshop_fires_and_cools_the_gathered_player_stack() {
+    use deep_hearth::content::{FORM_FIRED_CROCK, MATERIAL_CLAY};
+    use deep_hearth::core::quantity::{Mass, Temperature};
+    use deep_hearth::material::CommodityKey;
+
+    let mut session = Session::new(24318).unwrap();
+    // The same visible stone, timber and clay deposits used in ordinary opening play.
+    for command in [
+        "e 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "gather 1 3000",
+        "wait work",
+        "gather 1 3000",
+        "wait work",
+        "w 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "gather 1 3000",
+        "wait work",
+        "w 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "gather 1 3000",
+        "wait work",
+        "craft 101",
+        "wait work",
+        "craft 61 2",
+        "wait work",
+        "craft 14",
+        "wait work",
+        "assemble 61",
+        "build-heat 16",
+        "build-heat 17",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    let before = snapshot(&session);
+    let (catalog, _) = session.command("thermal").unwrap();
+    assert!(
+        catalog.contains("fueled stone pit-kiln hearth"),
+        "{catalog}"
+    );
+    assert!(catalog.contains("stone ceramic cooling bed"), "{catalog}");
+    assert!(
+        catalog.contains("unfired") || catalog.contains("Stack"),
+        "{catalog}"
+    );
+    // Select by observed physical cohort, never by a hidden material lot ID.
+    let stack_index = |session: &Session, key| {
+        project_player_inventory(&session.registries, &session.state)
+            .unwrap()
+            .carried()
+            .stacks()
+            .iter()
+            .position(|stack| stack.commodity() == key)
+            .unwrap()
+            + 1
+    };
+    use deep_hearth::content::{FORM_GREENWARE_CROCK, FORM_LOG, MATERIAL_WOOD};
+    let green = CommodityKey::new(MATERIAL_CLAY, FORM_GREENWARE_CROCK);
+    let fired = CommodityKey::new(MATERIAL_CLAY, FORM_FIRED_CROCK);
+    let firing = format!("heat 102 {} 1 1", stack_index(&session, green));
+    assert!(
+        session.command(&firing).is_err(),
+        "an empty hearth cannot fire"
+    );
+    assert_eq!(snapshot(&session), before);
+    let fuel = format!(
+        "feed-heat 1 {}",
+        stack_index(&session, CommodityKey::new(MATERIAL_WOOD, FORM_LOG))
+    );
+    session.command(&fuel).unwrap();
+    let firing = format!("heat 102 {} 1 1", stack_index(&session, green));
+    let (catalog, _) = session.command("thermal").unwrap();
+    assert!(catalog.contains(&format!("{firing} | ready")), "{catalog}");
+    session.command(&firing).unwrap();
+    let finish = |session: &mut Session| {
+        for _ in 0..200 {
+            if session.state.production().jobs().next().is_none() {
+                return;
+            }
+            session.command("wait 7200").unwrap();
+        }
+        panic!("thermal batch did not complete");
+    };
+    finish(&mut session);
+    let hot = project_player_inventory(&session.registries, &session.state).unwrap();
+    let hot = &hot.carried().stacks()[stack_index(&session, fired) - 1];
+    assert_eq!(hot.mass(), Mass::from_milligrams(1_600_000));
+    assert_eq!(hot.temperature(), Temperature::from_millikelvin(1_100_000));
+    session.command("wait boundary").unwrap();
+    let cooling = format!("heat 104 {} 1 2", stack_index(&session, fired));
+    session.command(&cooling).unwrap();
+    let saved = snapshot(&session);
+    let mut restored = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&session.registries)
+            .unwrap(),
+        seed: None,
+    };
+    finish(&mut session);
+    finish(&mut restored);
+    assert_eq!(snapshot(&session), snapshot(&restored));
+    let cooled = project_player_inventory(&session.registries, &session.state).unwrap();
+    let cooled = &cooled.carried().stacks()[stack_index(&session, fired) - 1];
+    assert_eq!(cooled.mass(), Mass::from_milligrams(1_600_000));
+    assert_eq!(cooled.temperature(), Temperature::from_millikelvin(293_150));
+    session.command("place-store 10").unwrap();
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
+        Ok(())
+    );
+}
+
 fn field_box_body_from_wilderness() -> Session {
     let mut session = Session::new(24318).unwrap();
     for command in [

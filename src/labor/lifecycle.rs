@@ -337,21 +337,23 @@ fn validate_player_work_start_inner(
         .metabolic_energy()
         .checked_add(pending_locomotion.energy_cost_per_tick())
         .ok_or(PlayerWorkStartError::MetabolicCostOverflow { duration })?;
-    if player.metabolic_energy() < required_energy {
-        return Err(PlayerWorkStartError::InsufficientMetabolicEnergy {
-            available: player.metabolic_energy(),
-            required: required_energy,
-        });
-    }
     let required_hydration = budget
         .hydration()
         .checked_add(pending_locomotion.hydration_loss_per_tick())
         .ok_or(PlayerWorkStartError::HydrationCostOverflow { duration })?;
-    if player.hydration() < required_hydration {
-        return Err(PlayerWorkStartError::InsufficientHydration {
-            available: player.hydration(),
-            required: required_hydration,
-        });
+    if !super::work_resources::allows_work_reserve_deficit(registries, state, work) {
+        if player.metabolic_energy() < required_energy {
+            return Err(PlayerWorkStartError::InsufficientMetabolicEnergy {
+                available: player.metabolic_energy(),
+                required: required_energy,
+            });
+        }
+        if player.hydration() < required_hydration {
+            return Err(PlayerWorkStartError::InsufficientHydration {
+                available: player.hydration(),
+                required: required_hydration,
+            });
+        }
     }
     if !state
         .survival()

@@ -1038,7 +1038,7 @@ fn player_world_drop_projection_excludes_natural_opportunities() {
 }
 
 #[test]
-fn reserve_limited_forage_reports_exact_affordable_portion_without_granting_matter() {
+fn reserve_limited_stone_gathering_reports_exact_affordable_portion_without_granting_matter() {
     use super::{
         assess_affordable_player_gathering_mass, assess_player_surface_gathering_option_admission,
     };
@@ -1054,10 +1054,10 @@ fn reserve_limited_forage_reports_exact_affordable_portion_without_granting_matt
         SurfaceResourceSpec::new(
             SurfaceResourceKind::Opportunity,
             position,
-            CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
-            Mass::from_milligrams(500_000),
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(1_000_000),
             TEMPERATURE,
-            MaterialComposition::pure(MATERIAL_BERRIES),
+            MaterialComposition::pure(MATERIAL_STONE),
         )
         .unwrap(),
     )
@@ -1095,7 +1095,7 @@ fn reserve_limited_forage_reports_exact_affordable_portion_without_granting_matt
         ..
     })) = assess_player_surface_gathering_option_admission(&registries, &state, option, ceiling)
     else {
-        panic!("zero reserves must block paid forage")
+        panic!("zero reserves must block bulk material gathering")
     };
     let before = state.clone();
     assert_eq!(

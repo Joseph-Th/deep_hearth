@@ -50,12 +50,12 @@ These canonical owners may lack ordinary acquisition.
 | Production | Timed conserved work, routed outputs, actor-local powered comminution batch choices with capacity-limited outputs and stale-cohort rejection, metal remelting/casting and iron upkeep. PbS+Fe yields lead and FeS matte. |
 | Crafting | Timed exact-lot processing, including iron head finishing with recoverable chips, equipment admission and conserved outputs. |
 | Logistics | 20 Hz body collision, carrying/load exertion, falling injury, equipment and inventory access, nine-slot hotbar, buffered actions. |
-| Loose surface matter | Finite gathering and drops; contextual gathering respects capacity and work reserves. Pickup respects capacity and pauses during gathering, eating or drinking. Deep residue obstructs storage footing. |
+| Loose surface matter | Finite gathering and drops; small fresh emergency forage can spend vitality, other work requires reserves. Pickup respects capacity and pauses during gathering, eating or drinking. Deep residue obstructs storage footing. |
 | Energy and fluids | Finite energy/losses, shafts, campfire, drinking; exact local/downhill pouring forbids bare-hand fluid >353.15 K at touched ends. |
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; timed posts, framing, cover and grounded timber roller; timed primary-break recovery. |
 | Block world | Terrain, mineral provinces, biome trees, shrubs, finite tubers and seasonal fungal fruiting, springs, ruins, excavation; finite water. |
-| Spatial and presentation | Checked coords/shaders; text play: motion, crafting, tools, copper surveys/mining/dressing, boxes, fire, saves. |
+| Spatial and presentation | Checked coords/shaders; text play: motion, local crafting, copper work, ceramic firing/cooling, boxes, fire, saves. |
 
 ## Capability-only evaluation
 

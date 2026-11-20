@@ -65,7 +65,7 @@ fn contextual_gathering_counts_physical_sources_before_method_choices() {
 }
 
 #[test]
-fn contextual_forage_uses_affordable_portion_but_explicit_amount_is_not_reduced() {
+fn contextual_stone_gathering_uses_affordable_portion_but_explicit_amount_is_not_reduced() {
     use crate::core::quantity::Energy;
     use crate::core::state::validate_loaded_state;
     use crate::labor::PlayerWorkStartError;
@@ -78,10 +78,10 @@ fn contextual_forage_uses_affordable_portion_but_explicit_amount_is_not_reduced(
     let spec = SurfaceResourceSpec::new(
         SurfaceResourceKind::Opportunity,
         position,
-        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
-        Mass::from_milligrams(500_000),
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        Mass::from_milligrams(1_000_000),
         Temperature::from_millikelvin(293_150),
-        MaterialComposition::pure(MATERIAL_BERRIES),
+        MaterialComposition::pure(MATERIAL_STONE),
     )
     .unwrap();
     validate_create_surface_resources(&registries, &state, [spec])
@@ -142,6 +142,157 @@ fn contextual_forage_uses_affordable_portion_but_explicit_amount_is_not_reduced(
         calculate_matter_accounting(&state).unwrap().total(),
         calculate_matter_accounting(&before).unwrap().total()
     );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn emergency_forage_costs_vitality_and_enables_recovery_after_save_reload() {
+    use crate::core::quantity::{Energy, Volume};
+    use crate::core::state::validate_loaded_state;
+    use crate::labor::PlayerWorkStartError;
+    use crate::matter::calculate_matter_accounting;
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+    use crate::survival::{Vitality, player_record_with_thermal_comfort};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let created = validate_create_surface_resources(
+        &registries,
+        &state,
+        [SurfaceResourceSpec::new(
+            SurfaceResourceKind::Opportunity,
+            position,
+            CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+            Mass::from_milligrams(1_000_000),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_BERRIES),
+        )
+        .unwrap()],
+    )
+    .unwrap();
+    let resource = created.first_resource_id();
+    created.commit(&mut state).unwrap();
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let original = *state.survival().player().unwrap();
+    let revision = state.survival().revision();
+    state.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            Energy::ZERO,
+            Volume::ZERO,
+            original.vitality(),
+            original.nutrition(),
+            original.vitality_recovery_remainder(),
+            original.thermal_comfort_ppm(),
+        ),
+    );
+    let option = player_surface_gathering_options(&registries, &state).unwrap()[0];
+    let portion = option.suggested_mass_at(&state);
+    let full = option.maximum_mass_at(&state);
+    assert!(full > portion);
+    assert!(matches!(
+        assess_player_surface_gathering_option_admission(&registries, &state, option, full),
+        Err(SurfaceGatheringError::PlayerWork(
+            PlayerWorkStartError::InsufficientMetabolicEnergy { .. }
+        ))
+    ));
+    assert_eq!(
+        assess_affordable_player_gathering_mass(&registries, &state, option, full),
+        Ok(portion)
+    );
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    // The same rescue attempt can fail if the player has too little vitality.
+    let mut dying = state.clone();
+    let revision = dying.survival().revision();
+    dying.survival_state_mut().apply_player(
+        revision,
+        revision + 1,
+        player_record_with_thermal_comfort(
+            Energy::ZERO,
+            Volume::ZERO,
+            Vitality::from_parts_per_million_unchecked(1),
+            original.nutrition(),
+            original.vitality_recovery_remainder(),
+            original.thermal_comfort_ppm(),
+        ),
+    );
+    assert!(matches!(
+        attempt_empty_hand_secondary_action(&registries, &mut dying),
+        SecondaryActionOutcome::SurfaceGatheringStarted(_)
+    ));
+    let _ = crate::simulation::advance_tick(&registries, &mut dying).unwrap();
+    assert_eq!(
+        dying.survival().player().unwrap().vitality(),
+        Vitality::ZERO
+    );
+    assert!(dying.player_work().active().is_none());
+    assert_eq!(
+        dying.surface().get(resource).unwrap().remaining_mass(),
+        full
+    );
+    assert_eq!(
+        dying
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .reserved_inbound(),
+        Mass::ZERO
+    );
+    assert_eq!(calculate_matter_accounting(&dying).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &dying), Ok(()));
+    let SecondaryActionOutcome::SurfaceGatheringStarted(work) =
+        attempt_empty_hand_secondary_action(&registries, &mut state)
+    else {
+        panic!("living player must be able to forage a rescue portion");
+    };
+    assert_eq!(work.gathered_mass(), portion);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    // One exact active slow boundary at a time: no reserve or matter grant.
+    while state.tick() < work.completes_at() {
+        let a = crate::simulation::advance_tick(&registries, &mut state).unwrap();
+        let b = crate::simulation::advance_tick(&registries, &mut replay).unwrap();
+        assert_eq!(a, b);
+        assert_eq!(state, replay);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+    let weakened = state.survival().player().unwrap();
+    assert!(weakened.vitality() < original.vitality());
+    assert!(weakened.vitality() > Vitality::ZERO);
+    assert_eq!(weakened.metabolic_energy(), Energy::ZERO);
+    assert_eq!(
+        state
+            .surface()
+            .get(resource)
+            .unwrap()
+            .remaining_mass()
+            .milligrams(),
+        full.milligrams() - portion.milligrams()
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    let stacks = crate::inventory::project_material_stacks(&registries, &state, carried).unwrap();
+    let meal = &stacks[0];
+    let eating = crate::survival::validate_eat_stack_to_full(&registries, &state, meal)
+        .unwrap()
+        .unwrap();
+    let _ = eating.commit(&mut state).unwrap();
+    while state.player_work().active().is_some() {
+        let _ = crate::simulation::advance_tick(&registries, &mut state).unwrap();
+    }
+    let recovered = state.survival().player().unwrap();
+    assert!(recovered.metabolic_energy() > Energy::ZERO);
+    assert!(recovered.hydration() > Volume::ZERO);
+    assert!(recovered.vitality() > Vitality::ZERO);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 

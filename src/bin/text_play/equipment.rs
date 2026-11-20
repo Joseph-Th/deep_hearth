@@ -21,7 +21,7 @@ fn carried(state: &AppState) -> Result<deep_hearth::inventory::StockpileId, Stri
         .ok_or("no admitted player".to_owned())
 }
 
-fn local_stationary(state: &AppState) -> Vec<deep_hearth::equipment::EquipmentId> {
+pub(super) fn local_stationary(state: &AppState) -> Vec<deep_hearth::equipment::EquipmentId> {
     state
         .available_local_equipment()
         .filter(|record| !state.logistics().is_equipment_carried(record.id()))
@@ -155,7 +155,7 @@ pub fn assemble(
         .commit(state)
         .map_err(|error| error.to_string())?;
     Ok(format!(
-        "Assembled {name} at your current location (equipment {}). Use 'take N' from gear.\n",
+        "Assembled {name} at your current location (equipment {}). Inspect 'gear' for local use or 'take N' to carry it.\n",
         id.value()
     ))
 }

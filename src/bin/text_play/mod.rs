@@ -12,6 +12,7 @@ mod quantity;
 mod save_file;
 mod stepping;
 mod storage;
+mod thermal;
 mod view;
 
 #[cfg(test)]
@@ -30,7 +31,10 @@ use deep_hearth::persistence::{LoadedSaveEnvelope, SaveEnvelope, validate_persis
 use deep_hearth::player::{validate_admit_player, validate_respawn_player};
 use deep_hearth::simulation::{PlayerDirectControlInput, SecondaryControlIntent};
 use deep_hearth::spatial::VoxelCoord;
-use deep_hearth::surface::{PlayerSurfaceGatheringOption, player_surface_gathering_options};
+use deep_hearth::surface::{
+    PlayerSurfaceGatheringOption, assess_affordable_player_gathering_mass,
+    player_surface_gathering_options,
+};
 use deep_hearth::world::{
     BlockStateId, ChunkCoord, HabitatKind, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
     select_natural_world_spawn, validate_generate_chunk, validate_generate_natural_chunk,
@@ -280,7 +284,7 @@ impl Session {
         let mass = if let Some(grams) = args.get(1) {
             parse_decimal_grams(grams, "gather quantity")?
         } else {
-            option.suggested_mass_at(&self.state)
+            self.default_gathering_mass(option)
         };
         if args.len() == 1 && mass.is_zero() {
             return Err("no carrying space for the suggested gathering batch".to_owned());
@@ -295,6 +299,28 @@ impl Session {
         let mut output = self.start_gathering(option, mass)?;
         output.push_str(&view::status(&self.registries, &self.state));
         Ok(output)
+    }
+
+    /// Use the same affordable portion as contextual empty-hand gathering.
+    /// Retain the authored suggestion when no portion can start so normal
+    /// admission returns its precise reason.
+    fn default_gathering_mass(
+        &self,
+        option: PlayerSurfaceGatheringOption,
+    ) -> deep_hearth::core::quantity::Mass {
+        let suggested = option.suggested_mass_at(&self.state);
+        if suggested.is_zero() {
+            return suggested;
+        }
+        match assess_affordable_player_gathering_mass(
+            &self.registries,
+            &self.state,
+            option,
+            suggested,
+        ) {
+            Ok(mass) if !mass.is_zero() => mass,
+            _ => suggested,
+        }
     }
 
     /// Automatic physical pickup precedes secondary use within one control
@@ -385,7 +411,7 @@ impl Session {
                 );
                 break;
             };
-            let mass = requested_mass.unwrap_or_else(|| option.suggested_mass_at(&self.state));
+            let mass = requested_mass.unwrap_or_else(|| self.default_gathering_mass(option));
             if mass.is_zero() || mass > option.maximum_mass_at(&self.state) {
                 if completed == 0 {
                     return Err(

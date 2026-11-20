@@ -85,7 +85,7 @@ pub(super) fn assembly_blocker(registries: &Registries, error: EnergyStoreAssemb
     }
 }
 
-fn fuel_blocker(registries: &Registries, error: CombustionError) -> String {
+pub(super) fn fuel_blocker(registries: &Registries, error: CombustionError) -> String {
     match error {
         CombustionError::InsufficientThermalCapacity {
             stored,

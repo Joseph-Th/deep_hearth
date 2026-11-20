@@ -30,13 +30,14 @@ fn usage() -> &'static str {
      Commands: help, look [direction], status, inventory, gather, gather N [decimal grams],\n\
      gather N [decimal grams] repeat COUNT (up to 32 batches; stops at interruptions),\n\
      eat STACK, drink, drink SOURCE,\n\
-     recipes [all], craft PROCESS_ID [batches] [from STACK] [with TOOL],\n\
+     recipes [all], craft PROCESS_ID [batches] [from STACK] [with TOOL | at STATION],\n\
      surveys [width], prospect MATERIAL METHOD [width] [with TOOL], knowledge [width],\n\
      mine MATERIAL GRAMS with TOOL [using METHOD] [repeat COUNT], ore, dress PROCESS STACK GRAMS [repeat COUNT],\n\
      gear [all], assemble ID, take N, equip N, recover N,\n\
      storage [all], place-store ID, stash CONTAINER STACK [grams], withdraw CONTAINER STACK [grams],\n\
      plan-at STACK X Y Z, build-at STACK X Y Z (supported framing or panel),\n\
      fire, build-fire, feed-fire FIRE STACK,\n\
+     thermal, build-heat ID, feed-heat STORE STACK, heat PROCESS STACK STATION STORE [grams],\n\
      n|s|e|w [ticks], trek DIRECTION [cells] [steady], climb DIRECTION, descend DIRECTION, sprint|sneak DIRECTION [ticks], crouch [ticks],\n\
      jump [direction] [ticks], center, wait [ticks|work|finish|boundary|until PHASE],\n\
      use [direction|at X Y Z], break [direction|at X Y Z],\n\

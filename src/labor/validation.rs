@@ -349,6 +349,7 @@ pub(super) fn validate_remaining_resources(
         }
     })?;
     validate_work_reserves_with_pending_locomotion(
+        registries,
         state,
         available_energy,
         available_hydration,
@@ -362,6 +363,7 @@ pub(super) fn validate_remaining_resources(
 /// while new work is already active, so the work's remaining cost alone is
 /// insufficient to validate the persisted promise.
 pub(super) fn validate_work_reserves_with_pending_locomotion(
+    registries: &Registries,
     state: &AppState,
     available_energy: Energy,
     available_hydration: Volume,
@@ -377,15 +379,20 @@ pub(super) fn validate_work_reserves_with_pending_locomotion(
     let required_energy = work_energy
         .checked_add(pending.energy_cost_per_tick())
         .ok_or(PlayerWorkValidationError::MetabolicCostOverflow)?;
+    let required_hydration = work_hydration
+        .checked_add(pending.hydration_loss_per_tick())
+        .ok_or(PlayerWorkValidationError::HydrationCostOverflow)?;
+    if state.player_work().active().is_some_and(|work| {
+        super::work_resources::allows_work_reserve_deficit(registries, state, work)
+    }) {
+        return Ok(());
+    }
     if available_energy < required_energy {
         return Err(PlayerWorkValidationError::InsufficientMetabolicEnergy {
             available: available_energy,
             required: required_energy,
         });
     }
-    let required_hydration = work_hydration
-        .checked_add(pending.hydration_loss_per_tick())
-        .ok_or(PlayerWorkValidationError::HydrationCostOverflow)?;
     if available_hydration < required_hydration {
         return Err(PlayerWorkValidationError::InsufficientHydration {
             available: available_hydration,

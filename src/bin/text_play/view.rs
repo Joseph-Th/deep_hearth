@@ -472,10 +472,10 @@ fn survival_status(registries: &Registries, state: &AppState) -> String {
                 let _ = writeln!(output, "Warnings: {}", warnings.join(", "));
             }
             if survival.hunger() == HungerState::Starving {
-                output.push_str("Starvation: metabolic reserve exhausted. Uncovered metabolic costs cause vitality loss; paid gathering and other work may be impossible. Eat available carried food before spending more time.\n");
+                output.push_str("Starvation: metabolic reserve exhausted. Uncovered metabolic costs cause vitality loss. Eat carried food or gather a small fresh edible portion at risk to vitality; other paid work may be impossible.\n");
             }
             if survival.hydration_state() == HydrationState::Dehydrated {
-                output.push_str("Dehydration: water reserve exhausted. Uncovered hydration costs cause vitality loss; drink available water before further exertion.\n");
+                output.push_str("Dehydration: water reserve exhausted. Uncovered hydration costs cause vitality loss. Drink local water or forage fresh edible food at risk to vitality.\n");
             }
             if injured {
                 injury_recovery_report(registries, survival, &mut output);

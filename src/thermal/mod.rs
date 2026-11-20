@@ -6,6 +6,7 @@ mod melting_execution;
 mod phase_change_batch;
 mod physics;
 mod planning;
+mod player_batch;
 mod processes;
 
 pub use casting_execution::{
@@ -26,6 +27,7 @@ pub use planning::{
     MeltingLotMassConstraint, MeltingLotMassEnvelope, MeltingLotMassRequest,
     assess_casting_lot_mass_envelope, assess_melting_lot_mass_envelope,
 };
+pub use player_batch::{PlayerThermalBatchError, validate_start_player_thermal_batch_from_stack};
 pub use processes::{
     CastingPhaseChange, CastingProcessDefinition, FiringConversion, MeltingProcessDefinition,
     PhaseChangeForms, PhaseChangeProcessProfile, ResolvedSensibleCooling, ResolvedSensibleHeating,

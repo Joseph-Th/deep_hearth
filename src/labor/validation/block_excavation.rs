@@ -155,6 +155,7 @@ pub(super) fn validate_block_excavation_work(
         .checked_add(remaining_exertion.hydration_loss_per_tick())
         .ok_or(PlayerWorkValidationError::HydrationCostOverflow)?;
     validate_work_reserves_with_pending_locomotion(
+        registries,
         state,
         available_energy,
         available_hydration,

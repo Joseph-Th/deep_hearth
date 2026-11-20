@@ -67,7 +67,7 @@ Foundational blockers:
 - held excavation now admits, progresses, completes, and chains canonical timed batches on the 20 Hz control
   clock while preserving authored mining costs; secondary hotbar use can consume one unambiguous selected food
   commodity, while an explicit projected stack can select among visible freshness cohorts without exposing lot IDs;
-  with empty hands, secondary use gathers up to one authored direct batch from a co-located natural opportunity or drinks one finite source, limits implicit gathering by carried capacity and affordable work reserves, and rejects ambiguous local contexts. Explicit quantities remain exact;
+  with empty hands, secondary use gathers up to one authored direct batch from a co-located natural opportunity or drinks one finite source, respects carried capacity and work budgets (small fresh emergency forage can cost vitality), and rejects ambiguous local contexts. Explicit quantities remain exact;
   secondary use can also place an authored finished storage object into generated air adjacent to the pointed face, with body/object
   overlap rejection; carried logs can set posts/framing and carried boards can set one conserved 1 m² × 10 mm supported
   timber cover panel through atomic timed hand-setting. Only the completed 6.5 kg panel reduces overhead thermal exposure.

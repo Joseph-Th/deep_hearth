@@ -1,6 +1,6 @@
 //! Text-play command parsing and dispatch; session setup and stepping remain in the parent.
 
-use super::{Session, crafting, equipment, fire, geology, ore, storage, view};
+use super::{Session, crafting, equipment, fire, geology, ore, storage, thermal, view};
 use deep_hearth::logistics::{HorizontalControlInput, PlayerControlInput};
 use deep_hearth::spatial::{ViewDirection, VoxelCoord};
 use deep_hearth::world::aim_player_at_voxel;
@@ -248,6 +248,16 @@ impl Session {
                 let stack = parse_index(args[1], usize::MAX)?;
                 let report = fire::fuel(&self.registries, &mut self.state, store, stack)?;
                 report + &fire::catalog(&self.registries, &self.state)?
+            }
+            "thermal" if args.is_empty() => thermal::catalog(&self.registries, &self.state)?,
+            "build-heat" if args.len() == 1 => {
+                thermal::build(&self.registries, &mut self.state, args[0])?
+            }
+            "feed-heat" if args.len() == 2 => {
+                thermal::fuel(&self.registries, &mut self.state, args)?
+            }
+            "heat" if args.len() == 4 || args.len() == 5 => {
+                thermal::start(&self.registries, &mut self.state, args)?
             }
             "select" if args.len() == 1 => self.select(args[0])?,
             "empty" if args.is_empty() => self.set_selection(None)?,
