@@ -6,8 +6,9 @@ use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
 use crate::surface::{
     PlayerSurfaceGatheringOption, SurfaceGatheringError, SurfaceResourceId,
-    assess_player_surface_gathering_option_admission, assess_player_surface_gathering_reservation,
-    player_surface_gathering_options, validate_start_player_surface_gathering_option_control_rate,
+    assess_affordable_player_gathering_mass, assess_player_surface_gathering_option_admission,
+    assess_player_surface_gathering_reservation, player_surface_gathering_options,
+    validate_start_player_surface_gathering_option_control_rate,
 };
 use crate::survival::{
     assess_drink_store_to_full_admission, available_local_drink_sources,
@@ -18,7 +19,7 @@ use super::SecondaryActionOutcome;
 
 enum DirectSurfaceGatheringResolution {
     None,
-    One(PlayerSurfaceGatheringOption),
+    One(PlayerSurfaceGatheringOption, Mass),
     AmbiguousResources { count: usize },
     AmbiguousMethods { count: usize },
 }
@@ -33,35 +34,38 @@ fn resolve_direct_surface_gathering(
     });
     // Inadmissible sources must not compete with a viable local gather.
     // The owner checks temperature, storage, revisions and work resources.
-    let actionable = options
+    let requested = options
         .iter()
         .copied()
-        .filter(|option| {
-            assess_player_surface_gathering_option_admission(
-                registries,
-                state,
-                *option,
-                direct_gathering_request_mass(state, *option),
-            )
-            .is_ok()
+        .map(|option| (option, direct_gathering_request_mass(state, option)))
+        .collect::<Vec<_>>();
+    let actionable = requested
+        .iter()
+        .copied()
+        .filter_map(|(option, ceiling)| {
+            // An implicit gesture does not promise an exact amount. Explicit
+            // quantity requests still require their entire amount.
+            let mass =
+                assess_affordable_player_gathering_mass(registries, state, option, ceiling).ok()?;
+            (!mass.is_zero()).then_some((option, mass))
         })
         .collect::<Vec<_>>();
     if actionable.is_empty() && allow_unavailable_fallback {
         // With neither a feasible drink nor a feasible gather, preserve the
         // observed source's typed rejection rather than reporting no context.
-        classify_direct_surface_gathering_options(&options)
+        classify_direct_surface_gathering_options(&requested)
     } else {
         classify_direct_surface_gathering_options(&actionable)
     }
 }
 
 fn classify_direct_surface_gathering_options(
-    options: &[PlayerSurfaceGatheringOption],
+    options: &[(PlayerSurfaceGatheringOption, Mass)],
 ) -> DirectSurfaceGatheringResolution {
     // Resolve physical sources before their possible gathering methods. Multiple
     // methods for one source must not mask a different local source, and method
     // multiplicity must not inflate the number of physical resources reported.
-    let mut resources = options.chunk_by(|left, right| left.resource() == right.resource());
+    let mut resources = options.chunk_by(|left, right| left.0.resource() == right.0.resource());
     let Some(methods) = resources.next() else {
         return DirectSurfaceGatheringResolution::None;
     };
@@ -75,7 +79,7 @@ fn classify_direct_surface_gathering_options(
             count: methods.len(),
         }
     } else {
-        DirectSurfaceGatheringResolution::One(methods[0])
+        DirectSurfaceGatheringResolution::One(methods[0].0, methods[0].1)
     }
 }
 
@@ -112,7 +116,7 @@ pub(in crate::simulation::direct_actions) fn attempt_empty_hand_secondary_action
         resolve_direct_surface_gathering(registries, state, actionable_drink_sources.is_empty());
     let surface_resources = match gathering {
         DirectSurfaceGatheringResolution::AmbiguousResources { count } => count,
-        DirectSurfaceGatheringResolution::One(_)
+        DirectSurfaceGatheringResolution::One(..)
         | DirectSurfaceGatheringResolution::AmbiguousMethods { .. } => 1,
         DirectSurfaceGatheringResolution::None => 0,
     };
@@ -130,8 +134,8 @@ pub(in crate::simulation::direct_actions) fn attempt_empty_hand_secondary_action
             count: surface_resources,
         };
     }
-    if let DirectSurfaceGatheringResolution::One(target) = gathering {
-        return attempt_direct_surface_gathering(registries, state, target);
+    if let DirectSurfaceGatheringResolution::One(target, mass) = gathering {
+        return start_surface_gathering(registries, state, target, mass);
     }
     // A fully hydrated player has no drink to select. Multiple water stores
     // cannot create a physical-choice ambiguity between equivalent no-ops;
@@ -166,21 +170,6 @@ fn direct_gathering_request_mass(state: &AppState, option: PlayerSurfaceGatherin
     } else {
         suggested
     }
-}
-
-fn attempt_direct_surface_gathering(
-    registries: &Registries,
-    state: &mut AppState,
-    option: PlayerSurfaceGatheringOption,
-) -> SecondaryActionOutcome {
-    if let Some(blocker) = option.hand_handling_blocker() {
-        return SecondaryActionOutcome::SurfaceGatheringRejected(blocker);
-    }
-    let request_mass = direct_gathering_request_mass(state, option);
-    if let Err(error) = assess_player_surface_gathering_reservation(state, request_mass) {
-        return SecondaryActionOutcome::SurfaceGatheringRejected(error);
-    }
-    start_surface_gathering(registries, state, option, request_mass)
 }
 
 /// An option is an opaque production-projected choice, including the method and

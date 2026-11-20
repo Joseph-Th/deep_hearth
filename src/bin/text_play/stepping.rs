@@ -229,8 +229,8 @@ impl Session {
             .checked_mul(scale)
             .and_then(|ticks| ticks.checked_sub(self.state.control_tick().value() % scale))
             .ok_or("daylight wait exceeds the control-clock range")?;
-        let observed_position = self.player_position()?;
-        let observed_residents = view::local_resident_sightings(&self.registries, &self.state);
+        let mut residents =
+            view::ResidentWatch::capture(&self.registries, &self.state, self.player_position()?);
         let initial_lit_fires = lit_nearby_fires(&self.registries, &self.state);
         let mut output = String::new();
         let mut actual = 0_u64;
@@ -269,12 +269,11 @@ impl Session {
                     );
                     break;
                 }
-                if let Some(description) = view::resident_watch_attention(
-                    &observed_residents,
-                    &view::local_resident_sightings(&self.registries, &self.state),
-                    observed_position,
+                if let Some(description) = residents.observe(view::ResidentWatch::capture(
+                    &self.registries,
+                    &self.state,
                     self.player_position()?,
-                ) {
+                )) {
                     let _ = writeln!(output, "{description}");
                     output.push_str("Daylight watch interrupted by a local change.\n");
                     break;
@@ -329,7 +328,7 @@ impl Session {
         output: &mut String,
     ) -> Result<(bool, bool), String> {
         let initial = view::urgency(&self.registries, &self.state);
-        let visible = view::local_cues(&self.registries, &self.state);
+        let mut visible = view::local_cues(&self.registries, &self.state);
         let mut actual = 0;
         let mut completed = false;
         let mut interrupted = false;
@@ -346,7 +345,7 @@ impl Session {
             if !completed
                 && !interrupted
                 && self.state.tick() != previous
-                && let Some(description) = self.wait_attention(&visible, true)?
+                && let Some(description) = self.wait_attention(&mut visible, true)?
             {
                 let _ = writeln!(output, "{description}");
                 interrupted = true;
@@ -377,7 +376,7 @@ impl Session {
         let mut output = String::new();
         let starting_position = self.player_position()?;
         let before = view::urgency(&self.registries, &self.state);
-        let visible_before = view::local_cues(&self.registries, &self.state);
+        let mut visible = view::local_cues(&self.registries, &self.state);
         // A directional jump is one impulse followed by continued horizontal
         // control. Do not hold the jump button across a landing: the motion
         // owner would legitimately launch another jump on the next grounded
@@ -403,7 +402,7 @@ impl Session {
             }
             if !directional_jump
                 && self.state.tick() != slow_tick_before
-                && let Some(description) = self.wait_attention(&visible_before, work_wait)?
+                && let Some(description) = self.wait_attention(&mut visible, work_wait)?
             {
                 let _ = writeln!(output, "{description}");
                 break;
@@ -454,15 +453,17 @@ impl Session {
 
     fn wait_attention(
         &self,
-        previous: &view::LocalCues,
+        previous: &mut view::LocalCues,
         work_wait: bool,
     ) -> Result<Option<&'static str>, String> {
         let current = view::local_cues(&self.registries, &self.state);
-        if work_wait {
-            Ok(previous.work_attention(&current, self.player_position()?))
+        let attention = if work_wait {
+            previous.work_attention(&current, self.player_position()?)
         } else {
-            Ok(previous.changed(&current))
-        }
+            previous.changed(&current)
+        };
+        *previous = current;
+        Ok(attention)
     }
 
     pub(super) fn player_position(&self) -> Result<VoxelCoord, String> {

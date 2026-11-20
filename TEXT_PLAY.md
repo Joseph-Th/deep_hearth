@@ -8,7 +8,7 @@ The client separates session setup and save/load (`src/bin/text_play/mod.rs`), c
 
 Felled timber and deliberately dropped logs remain on the ground until explicitly gathered; walking over them does not fill the pack. Gathering defaults are suggested portions, not maximum batches. Explicit amounts in single or repeated gathering use the authored method ceiling, available source and carrying capacity. Repetition and recovery after automatic pickup refresh the exact source and method through the surface owner; each new batch still requires normal admission.
 
-Daylight watches compare only locally visible residents while settling every slow boundary and every consequential control frame. Guarded neutral spans skip only inert control samples, preserving the exact clock, costs, observations and interruption rules. They do not repeatedly survey unrelated water, forage, scent, weather or track read models; survival and event interruptions still use their own authoritative observations.
+Daylight watches compare successive locally visible resident observations while settling every slow boundary and every consequential control frame. A departure resets the proximity baseline, so a return can interrupt the watch. Trekking uses the same resident comparison at completed legs. Guarded neutral spans skip only inert control samples, preserving the exact clock, costs, observations and interruption rules. Daylight watches do not repeatedly survey unrelated water, forage, scent, weather or track read models; survival and event interruptions still use their own authoritative observations.
 
 ## Launch
 

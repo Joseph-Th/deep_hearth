@@ -280,6 +280,9 @@ pub(super) fn parse_index(text: &str, maximum: usize) -> Result<usize, String> {
     let index: usize = text
         .parse()
         .map_err(|_| "selection must be a 1-based number")?;
+    if maximum == 0 {
+        return Err("no selections are currently available".to_owned());
+    }
     if index == 0 || index > maximum {
         return Err(format!(
             "selection {index} is not available (1..={maximum})"

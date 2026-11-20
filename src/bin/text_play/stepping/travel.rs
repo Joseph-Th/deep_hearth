@@ -6,7 +6,6 @@ use std::fmt::Write as _;
 
 use super::{Session, view};
 use deep_hearth::geology::visible_weathered_copper_sites;
-use deep_hearth::kobolds::KoboldSighting;
 use deep_hearth::logistics::{
     HorizontalControlInput, MAX_LEDGE_CLIMB_METERS, PlayerControlInput,
     project_player_climb_target, project_player_jump_rise_bound, project_player_standing_space,
@@ -71,32 +70,30 @@ impl TravelDiscoveries {
 }
 
 struct TravelObservations {
-    position: VoxelCoord,
-    residents: Vec<KoboldSighting>,
+    residents: view::ResidentWatch,
     discoveries: Option<TravelDiscoveries>,
 }
 
 impl TravelObservations {
     fn capture(session: &Session, position: VoxelCoord, steady: bool) -> Self {
         Self {
-            position,
-            residents: view::local_resident_sightings(&session.registries, &session.state),
+            residents: view::ResidentWatch::capture(&session.registries, &session.state, position),
             discoveries: (!steady).then(|| TravelDiscoveries::capture(session)),
         }
     }
 
-    fn attention(&self, session: &Session, target: VoxelCoord) -> Option<&'static str> {
-        view::resident_watch_attention(
-            &self.residents,
-            &view::local_resident_sightings(&session.registries, &session.state),
-            self.position,
-            target,
-        )
-        .or_else(|| {
-            self.discoveries
-                .as_ref()?
-                .attention(&TravelDiscoveries::capture(session))
-        })
+    fn attention(&mut self, session: &Session, target: VoxelCoord) -> Option<&'static str> {
+        self.residents
+            .observe(view::ResidentWatch::capture(
+                &session.registries,
+                &session.state,
+                target,
+            ))
+            .or_else(|| {
+                self.discoveries
+                    .as_ref()?
+                    .attention(&TravelDiscoveries::capture(session))
+            })
     }
 }
 
@@ -133,7 +130,7 @@ impl Session {
         let mut output = String::new();
         let start = self.state.control_tick().value();
         let urgency = view::urgency(&self.registries, &self.state);
-        let observations = TravelObservations::capture(self, self.player_position()?, steady);
+        let mut observations = TravelObservations::capture(self, self.player_position()?, steady);
         let mut steps = 0;
         for _ in 0..cells {
             let origin = self.player_position()?;

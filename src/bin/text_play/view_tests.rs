@@ -218,6 +218,36 @@ fn watch_attention_counts_same_role_residents_instead_of_treating_roles_as_ident
 }
 
 #[test]
+fn rolling_resident_watch_notices_a_close_approach_after_a_departure() {
+    let mut session = super::super::Session::new(1170684742).unwrap();
+    session.command("s 20").unwrap();
+    session.command("wait 10").unwrap();
+    let resident = super::local_resident_sightings(&session.registries, &session.state)
+        .into_iter()
+        .find(|resident| !resident.is_defending())
+        .expect("the seeded clearing contains a non-defending visible resident");
+    let position = resident.position();
+    let mut watch = super::ResidentWatch {
+        position,
+        residents: vec![resident],
+    };
+    assert_eq!(
+        watch.observe(super::ResidentWatch {
+            position,
+            residents: Vec::new(),
+        }),
+        None
+    );
+    assert_eq!(
+        watch.observe(super::ResidentWatch {
+            position,
+            residents: vec![resident],
+        }),
+        Some("A resident is now visible near your immediate position.")
+    );
+}
+
+#[test]
 fn watch_attention_includes_residents_on_an_adjacent_vertical_ledge() {
     let mut session = super::super::Session::new(1170684742).unwrap();
     session.command("s 20").unwrap();

@@ -39,6 +39,10 @@ fn contextual_gathering_counts_physical_sources_before_method_choices() {
     let options = player_surface_gathering_options(&registries, &state).unwrap();
     assert_eq!(options.len(), 2);
     assert_ne!(options[0].resource(), options[1].resource());
+    let options = options
+        .into_iter()
+        .map(|option| (option, option.suggested_mass_at(&state)))
+        .collect::<Vec<_>>();
 
     assert!(matches!(
         classify_direct_surface_gathering_options(&[]),
@@ -46,7 +50,7 @@ fn contextual_gathering_counts_physical_sources_before_method_choices() {
     ));
     assert!(matches!(
         classify_direct_surface_gathering_options(&options[..1]),
-        DirectSurfaceGatheringResolution::One(_)
+        DirectSurfaceGatheringResolution::One(..)
     ));
     // An additional method for the same observed source must not be
     // counted as another physical resource or hide the second source.
@@ -58,6 +62,87 @@ fn contextual_gathering_counts_physical_sources_before_method_choices() {
         classify_direct_surface_gathering_options(&[options[0], options[0], options[1]]),
         DirectSurfaceGatheringResolution::AmbiguousResources { count: 2 }
     ));
+}
+
+#[test]
+fn contextual_forage_uses_affordable_portion_but_explicit_amount_is_not_reduced() {
+    use crate::core::quantity::Energy;
+    use crate::core::state::validate_loaded_state;
+    use crate::labor::PlayerWorkStartError;
+    use crate::matter::calculate_matter_accounting;
+    use crate::survival::player_record_with_thermal_comfort;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Opportunity,
+        position,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(500_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_BERRIES),
+    )
+    .unwrap();
+    validate_create_surface_resources(&registries, &state, [spec])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_admit_player(&registries, &mut state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let option = player_surface_gathering_options(&registries, &state).unwrap()[0];
+    let ceiling = option.suggested_mass_at(&state);
+    let player = *state.survival().player().unwrap();
+    let set_energy = |state: &mut AppState, energy: Energy| {
+        let revision = state.survival().revision();
+        state.survival_state_mut().apply_player(
+            revision,
+            revision + 1,
+            player_record_with_thermal_comfort(
+                energy,
+                player.hydration(),
+                player.vitality(),
+                player.nutrition(),
+                player.vitality_recovery_remainder(),
+                player.thermal_comfort_ppm(),
+            ),
+        );
+    };
+    set_energy(&mut state, Energy::ZERO);
+    let Err(SurfaceGatheringError::PlayerWork(PlayerWorkStartError::InsufficientMetabolicEnergy {
+        required,
+        ..
+    })) = assess_player_surface_gathering_option_admission(&registries, &state, option, ceiling)
+    else {
+        panic!("the ordinary batch must exceed an empty reserve");
+    };
+    set_energy(
+        &mut state,
+        Energy::from_nanojoules(required.nanojoules() / 2),
+    );
+    let affordable =
+        assess_affordable_player_gathering_mass(&registries, &state, option, ceiling).unwrap();
+    assert!(!affordable.is_zero() && affordable < ceiling);
+    let before = state.clone();
+    assert!(matches!(
+        attempt_explicit_surface_gathering(&registries, &mut state, option.resource(), ceiling),
+        SecondaryActionOutcome::SurfaceGatheringRejected(SurfaceGatheringError::PlayerWork(
+            PlayerWorkStartError::InsufficientMetabolicEnergy { .. }
+        ))
+    ));
+    assert_eq!(state, before);
+    assert!(matches!(
+        attempt_empty_hand_secondary_action(&registries, &mut state),
+        SecondaryActionOutcome::SurfaceGatheringStarted(work)
+            if work.gathered_mass() == affordable
+    ));
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        calculate_matter_accounting(&before).unwrap().total()
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

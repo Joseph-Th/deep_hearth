@@ -289,6 +289,34 @@ pub fn local_resident_sightings(registries: &Registries, state: &AppState) -> Ve
     available_nearby_kobold_scouts(registries, state).collect()
 }
 
+/// Successive local observations for commands that deliberately ignore
+/// departures and ordinary patrol motion. A departure must still reset the
+/// baseline so that a later close approach or defensive posture is noticed.
+pub struct ResidentWatch {
+    position: VoxelCoord,
+    residents: Vec<KoboldSighting>,
+}
+
+impl ResidentWatch {
+    pub fn capture(registries: &Registries, state: &AppState, position: VoxelCoord) -> Self {
+        Self {
+            position,
+            residents: local_resident_sightings(registries, state),
+        }
+    }
+
+    pub fn observe(&mut self, next: Self) -> Option<&'static str> {
+        let attention = resident_watch_attention(
+            &self.residents,
+            &next.residents,
+            self.position,
+            next.position,
+        );
+        *self = next;
+        attention
+    }
+}
+
 /// Compare the same authoritative resident observations used by work waits.
 pub fn resident_watch_attention(
     previous: &[KoboldSighting],
@@ -417,7 +445,10 @@ fn survival_status(registries: &Registries, state: &AppState) -> String {
             vitality_label(survival.vitality().parts_per_million()),
             reserve_label(food_percent, survival.metabolic_energy().is_zero()),
             reserve_label(water_percent, survival.hydration().is_zero()),
-            survival.thermal_comfort_ppm() / 10_000,
+            reserve_label(
+                (survival.thermal_comfort_ppm() / 10_000) as u8,
+                survival.thermal_comfort_ppm() == 0,
+            ),
         );
         if survival.vitality() == Vitality::ZERO {
             output.push_str(
@@ -441,10 +472,10 @@ fn survival_status(registries: &Registries, state: &AppState) -> String {
                 let _ = writeln!(output, "Warnings: {}", warnings.join(", "));
             }
             if survival.hunger() == HungerState::Starving {
-                output.push_str("Starvation: metabolic reserve exhausted. Vitality is being lost; paid gathering and other work may be impossible. Eat available carried food before spending more time.\n");
+                output.push_str("Starvation: metabolic reserve exhausted. Uncovered metabolic costs cause vitality loss; paid gathering and other work may be impossible. Eat available carried food before spending more time.\n");
             }
             if survival.hydration_state() == HydrationState::Dehydrated {
-                output.push_str("Dehydration: water reserve exhausted. Vitality is being lost; drink available water before further exertion.\n");
+                output.push_str("Dehydration: water reserve exhausted. Uncovered hydration costs cause vitality loss; drink available water before further exertion.\n");
             }
             if injured {
                 injury_recovery_report(registries, survival, &mut output);
