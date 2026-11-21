@@ -15,6 +15,162 @@ use crate::world::{
 };
 use std::collections::BTreeSet;
 
+fn weathered_copper_fixture() -> (
+    Registries,
+    WorldGenerationProfile,
+    WorldChunk,
+    GeneratedDepositSpec,
+) {
+    let registries = build_registries();
+    let profile = WorldGenerationProfile::new(
+        WorldGenerationSeed::new(4251902342231240388),
+        BLOCK_STATE_STONE,
+    );
+    let state = AppState::new();
+    for x in 16..24 {
+        let chunk = super::super::build_generated_chunk(
+            registries.world(),
+            profile,
+            ChunkCoord::new(x, -10),
+        )
+        .unwrap();
+        if let Some(copper) = seeded_copper_spec(&registries, &state, profile, &chunk, &[]) {
+            return (registries, profile, chunk, copper);
+        }
+    }
+    panic!("known seeded landscape has a walkable weathered copper site");
+}
+
+#[test]
+fn full_footprint_construction_closes_the_only_walkable_approaches_to_weathered_ore() {
+    use crate::content::{
+        BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS, FORM_BOARD,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    };
+    use crate::spatial::VoxelBounds;
+    use crate::structural::{
+        StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
+    };
+
+    let (registries, profile, chunk, copper) = weathered_copper_fixture();
+    let position = copper.bounds().min();
+    let mut state = AppState::new();
+    let tree = super::super::super::generated_tree(profile, &chunk);
+    let context = LooseSiteContext {
+        registries: &registries,
+        state: &state,
+        profile,
+        chunk: &chunk,
+        tree,
+    };
+    assert!(context.clear(position, &[]));
+    assert!(weathered_stone_site(&context, position));
+    let approaches = [(1_i64, 0_i64), (-1, 0), (0, 1), (0, -1)]
+        .into_iter()
+        .filter_map(|(dx, dz)| context.position(position.x() + dx, position.z() + dz))
+        .filter(|&neighbor| {
+            neighbor.y() == position.y()
+                && chunk.block_at(neighbor) == BlockStateId::AIR
+                && chunk.block_at(VoxelCoord::new(
+                    neighbor.x(),
+                    neighbor.y() + 1,
+                    neighbor.z(),
+                )) == BlockStateId::AIR
+                && !tree.is_some_and(|tree| tree.occupies_trunk(neighbor))
+        })
+        .collect::<Vec<_>>();
+    assert!(!approaches.is_empty());
+    for neighbor in &approaches {
+        let bounds = VoxelBounds::new(
+            *neighbor,
+            VoxelCoord::new(neighbor.x() + 1, neighbor.y() + 1, neighbor.z() + 1),
+        )
+        .unwrap();
+        let geometry = StructuralElementGeometry::new(
+            bounds,
+            BASIC_TIMBER_COVER_PANEL_THICKNESS,
+            BASIC_TIMBER_COVER_PANEL_AREA,
+        )
+        .unwrap();
+        let member = add_structural_element(
+            &registries,
+            &mut state,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            geometry,
+            false,
+        )
+        .unwrap();
+        materialize_structural_element_for_test(&registries, &mut state, member, FORM_BOARD);
+        assert!(state.structures().blocks_full_cell(*neighbor));
+    }
+    let context = LooseSiteContext {
+        registries: &registries,
+        state: &state,
+        profile,
+        chunk: &chunk,
+        tree,
+    };
+    assert!(
+        context.clear(position, &[]),
+        "the ore cell itself remains unobstructed"
+    );
+    assert!(
+        !weathered_stone_site(&context, position),
+        "built full-cell walls cannot masquerade as a traversable ore approach"
+    );
+    assert_ne!(
+        seeded_copper_spec(&registries, &state, profile, &chunk, &[])
+            .map(|spec| spec.bounds().min()),
+        Some(position),
+        "new natural mineral generation must select a genuinely accessible alternative"
+    );
+}
+
+#[test]
+fn distant_geological_history_does_not_displace_a_local_seeded_ore_body() {
+    use crate::geology::validate_generate_geological_deposit;
+    use crate::spatial::VoxelBounds;
+
+    let (registries, profile, chunk, copper) = weathered_copper_fixture();
+    let mut state = AppState::new();
+    let bounds = VoxelBounds::new(
+        VoxelCoord::new(4_096, -10, 4_096),
+        VoxelCoord::new(4_097, -9, 4_097),
+    )
+    .unwrap();
+    let distant = GeneratedDepositSpec::new(
+        bounds,
+        copper.commodity(),
+        copper.mass(),
+        copper.temperature(),
+        copper.excavation_hardness(),
+        copper.composition().clone(),
+    )
+    .unwrap();
+    let generation = validate_generate_geological_deposit(&registries, &state, distant).unwrap();
+    generation.precheck(&state).unwrap();
+    generation.apply(&mut state);
+    assert_eq!(
+        seeded_copper_spec(&registries, &state, profile, &chunk, &[]),
+        Some(copper.clone()),
+        "a remote deposit cannot alter the local finite geology identity"
+    );
+
+    // Conversely, existing geology inside the generated chunk must continue
+    // to reserve its exact footprint. Filtering remote history is not license
+    // to duplicate matter where an earlier local deposit already exists.
+    let local = validate_generate_geological_deposit(&registries, &state, copper.clone()).unwrap();
+    local.precheck(&state).unwrap();
+    local.apply(&mut state);
+    assert_ne!(
+        seeded_copper_spec(&registries, &state, profile, &chunk, &[])
+            .map(|spec| spec.bounds().min()),
+        Some(copper.bounds().min()),
+        "local geological custody still prevents overlapping generated ore"
+    );
+}
+
 #[test]
 fn natural_districts_expose_all_four_materials_without_guaranteeing_any_one_at_spawn() {
     let registries = build_registries();

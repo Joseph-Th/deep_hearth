@@ -18,7 +18,9 @@ use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec};
 
 use super::terrain::{mix64, terrain_height};
-use super::{BlockStateId, ChunkCoord, HabitatKind, WorldChunk, WorldGenerationProfile};
+use super::{
+    BlockStateId, CHUNK_SIDE, ChunkCoord, HabitatKind, WorldChunk, WorldGenerationProfile,
+};
 
 const SITE_SALT: u64 = 0x4C4F_4F53_455F_5349;
 const AMBIENT_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
@@ -213,6 +215,8 @@ fn weathered_stone_site(context: &LooseSiteContext<'_>, position: VoxelCoord) ->
                 .chunk
                 .block_at(VoxelCoord::new(x, neighbor.y() + 1, z))
                 == BlockStateId::AIR
+            && !context.state.structures().blocks_full_cell(neighbor)
+            && context.state.world().tree_trunk_at(neighbor).is_none()
             && !context
                 .tree
                 .is_some_and(|tree| tree.occupies_trunk(neighbor));
@@ -250,6 +254,24 @@ pub(super) fn seeded_copper_spec(
     };
     let min_x = coord.world_min_x()?;
     let min_z = coord.world_min_z()?;
+    // Use inclusive chunk extrema so cells at the end of i64 world space
+    // remain representable even when an exclusive chunk bound would overflow.
+    let last_x = min_x.checked_add(i64::try_from(CHUNK_SIDE - 1).ok()?)?;
+    let last_z = min_z.checked_add(i64::try_from(CHUNK_SIDE - 1).ok()?)?;
+    // Geological bodies are authoritative even after depletion, but remote
+    // bodies cannot intersect this chunk. Bound the owner-wide scan to one
+    // pass per generation, then test each of the at most 49 local candidates
+    // against only the bodies overlapping these horizontal columns.
+    let local_deposits = state
+        .geology()
+        .deposits()
+        .map(|deposit| deposit.bounds())
+        .filter(|bounds| {
+            let min = bounds.min();
+            let max = bounds.max_exclusive();
+            min.x() <= last_x && max.x() > min_x && min.z() <= last_z && max.z() > min_z
+        })
+        .collect::<Vec<_>>();
     for index in 0..49_u64 {
         let offset = (index * 17 + (hash >> 8) % 49) % 49;
         let position = context.position(
@@ -268,10 +290,9 @@ pub(super) fn seeded_copper_spec(
             ),
         )
         .ok()?;
-        if state
-            .geology()
-            .deposits()
-            .any(|deposit| deposit.bounds().has_intersection(bounds))
+        if local_deposits
+            .iter()
+            .any(|existing| existing.has_intersection(bounds))
         {
             continue;
         }
