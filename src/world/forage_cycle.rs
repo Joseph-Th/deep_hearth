@@ -5,7 +5,9 @@
 //! underground biomass into another fresh, locally gatherable crop. This is
 //! transfer, not a photosynthetic source or loot respawn.
 
-use crate::content::{BLOCK_STATE_STONE, MATERIAL_EDIBLE_FUNGI};
+use crate::content::{
+    BLOCK_STATE_STONE, MATERIAL_BERRIES, MATERIAL_EDIBLE_FUNGI, MATERIAL_WILD_NUTS,
+};
 use crate::core::arithmetic::checked_mul_div_with_remainder;
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
@@ -133,10 +135,14 @@ fn ripening_site_shade(
     at: SimulationTick,
 ) -> Option<u8> {
     let fungal = source.commodity().material() == MATERIAL_EDIBLE_FUNGI;
-    let season_allows = if fungal {
-        matches!(season, Season::Spring | Season::Autumn)
-    } else {
-        matches!(season, Season::Spring | Season::Summer)
+    // Wild nuts retain their seeded spring availability and summer recovery,
+    // but also ripen from their finite roots during autumn. The old shared
+    // spring/summer gate wrongly removed the main storable food in autumn.
+    let season_allows = match source.commodity().material() {
+        MATERIAL_EDIBLE_FUNGI => matches!(season, Season::Spring | Season::Autumn),
+        MATERIAL_WILD_NUTS => matches!(season, Season::Spring | Season::Summer | Season::Autumn),
+        MATERIAL_BERRIES => matches!(season, Season::Spring | Season::Summer),
+        _ => false,
     };
     if source.lifecycle() != SurfaceResourceLifecycle::Depleted
         || !season_allows

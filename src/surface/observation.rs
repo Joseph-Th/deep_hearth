@@ -4,12 +4,13 @@
 #[path = "observation_tests.rs"]
 mod tests;
 
+use crate::content::{MATERIAL_BERRIES, MATERIAL_WILD_NUTS};
 use crate::core::state::AppState;
 use crate::material::CommodityKey;
-use crate::spatial::VoxelCoord;
+use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::survival::Vitality;
 
-use super::{SurfaceResourceId, SurfaceResourceKind};
+use super::{SurfaceResourceId, SurfaceResourceKind, SurfaceResourceLifecycle};
 
 /// Actor-visible surface material on one authorized adjacent traversal voxel.
 ///
@@ -112,37 +113,41 @@ impl SurfaceResourceLandmark {
 /// Observe live surface resources beyond immediate reach, in the same
 /// landscape envelope as water. Only generated, lit, unobstructed cells
 /// reached by the real player-eye ray can be seen.
-#[must_use]
-pub fn available_visible_surface_landmarks(
-    registries: &crate::registry::Registries,
-    state: &AppState,
-) -> Vec<SurfaceResourceLandmark> {
+fn landscape_sight_bounds(state: &AppState) -> Option<(VoxelCoord, VoxelBounds)> {
+    let radius = i64::from(crate::world::LANDMARK_SIGHT_HORIZONTAL_RADIUS);
     if !state
         .survival()
         .player()
         .is_some_and(|player| player.vitality() != Vitality::ZERO)
     {
-        return Vec::new();
+        return None;
     }
-    let Some(from) = state.player_observation_position() else {
-        return Vec::new();
-    };
+    let from = state.player_observation_position()?;
     if !state.world().has_generated_terrain_at(from) {
-        return Vec::new();
+        return None;
     }
-    let Some(bounds) = crate::spatial::VoxelBounds::new(
+    let bounds = VoxelBounds::new(
         VoxelCoord::new(
-            from.x().saturating_sub(12),
+            from.x().saturating_sub(radius),
             from.y().saturating_sub(6),
-            from.z().saturating_sub(12),
+            from.z().saturating_sub(radius),
         ),
         VoxelCoord::new(
-            from.x().saturating_add(13),
+            from.x().saturating_add(radius + 1),
             from.y().saturating_add(7),
-            from.z().saturating_add(13),
+            from.z().saturating_add(radius + 1),
         ),
     )
-    .ok() else {
+    .ok()?;
+    Some((from, bounds))
+}
+
+#[must_use]
+pub fn available_visible_surface_landmarks(
+    registries: &crate::registry::Registries,
+    state: &AppState,
+) -> Vec<SurfaceResourceLandmark> {
+    let Some((from, bounds)) = landscape_sight_bounds(state) else {
         return Vec::new();
     };
     let mut visible = state
@@ -152,6 +157,59 @@ pub fn available_visible_surface_landmarks(
             let to = resource.position();
             from.x().abs_diff(to.x()) + from.y().abs_diff(to.y()) + from.z().abs_diff(to.z()) > 2
                 && crate::world::player_can_see_distant_cell(registries, state, to)
+        })
+        .map(|resource| SurfaceResourceLandmark {
+            position: resource.position(),
+            commodity: resource.commodity(),
+        })
+        .collect::<Vec<_>>();
+    visible.sort_unstable();
+    visible.dedup();
+    visible
+}
+
+/// A bare shrub is visible even when its first fruit has withered.
+/// This reveals neither harvestable mass nor the private root reserve:
+/// underground fungal mycelium cannot be seen, and a stripped dead root
+/// without surviving biomass is not reported as a living plant.
+#[must_use]
+pub fn available_visible_dormant_shrub_landmarks(
+    registries: &crate::registry::Registries,
+    state: &AppState,
+) -> Vec<SurfaceResourceLandmark> {
+    let Some((from, bounds)) = landscape_sight_bounds(state) else {
+        return Vec::new();
+    };
+    let mut visible = state
+        .surface()
+        .perennial_resources_in_bounds(bounds)
+        .filter(|resource| {
+            resource.lifecycle() == SurfaceResourceLifecycle::Depleted
+                && resource.rooted_biomass_occupies_site()
+                && matches!(
+                    resource.commodity().material(),
+                    MATERIAL_BERRIES | MATERIAL_WILD_NUTS
+                )
+                && (if resource.position() == from {
+                    true
+                } else if from.x().abs_diff(resource.position().x())
+                    + from.y().abs_diff(resource.position().y())
+                    + from.z().abs_diff(resource.position().z())
+                    <= 2
+                {
+                    crate::world::player_can_see_from_eye(
+                        registries,
+                        state,
+                        from,
+                        resource.position(),
+                    )
+                } else {
+                    crate::world::player_can_see_distant_cell(
+                        registries,
+                        state,
+                        resource.position(),
+                    )
+                })
         })
         .map(|resource| SurfaceResourceLandmark {
             position: resource.position(),

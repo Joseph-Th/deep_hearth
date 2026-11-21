@@ -21,6 +21,9 @@ use deep_hearth::world::{
 
 const CENTER_TOLERANCE: i64 = 30_000_000;
 const STEP_TICK_LIMIT: u64 = 240;
+// Long-range landmarks inform route choice in 'look'. Interrupt a moving
+// player only for discoveries near enough to act on without a major detour.
+const DISCOVERY_ATTENTION_RADIUS: u64 = 12;
 
 enum LegResult {
     Arrived,
@@ -37,6 +40,13 @@ struct TravelDiscoveries {
 impl TravelDiscoveries {
     fn capture(session: &Session) -> Self {
         let (registries, state) = (&session.registries, &session.state);
+        let from = state.logistics().player().map(|player| player.position());
+        let close = |to: VoxelCoord| {
+            from.is_some_and(|at| {
+                at.x().abs_diff(to.x()) <= DISCOVERY_ATTENTION_RADIUS
+                    && at.z().abs_diff(to.z()) <= DISCOVERY_ATTENTION_RADIUS
+            })
+        };
         // Near and distant sightings describe the same physical opportunities.
         // Moving across their display boundary must not manufacture a discovery.
         let resources = AdjacentSurfaceResource::visible_in_generated_world(registries, state)
@@ -44,11 +54,16 @@ impl TravelDiscoveries {
             .chain(
                 available_visible_surface_landmarks(registries, state)
                     .into_iter()
+                    .filter(|site| close(site.position()))
                     .map(|site| (site.position(), site.commodity())),
             )
             .collect();
         let mut water = available_visible_generated_water(registries, state);
-        water.extend(available_visible_water_landmarks(registries, state));
+        water.extend(
+            available_visible_water_landmarks(registries, state)
+                .into_iter()
+                .filter(|site| close(site.position())),
+        );
         Self {
             resources,
             water,

@@ -16,6 +16,80 @@ use crate::world::{
 };
 
 #[test]
+fn water_landmark_across_a_chunk_is_only_a_lit_sight_not_remote_drinking() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let seed = WorldGenerationSeed::new(0x5741_5445_5253_4947);
+    for chunk in [ChunkCoord::new(0, 0), ChunkCoord::new(1, 0)] {
+        validate_generate_chunk(&registries, &state, seed, chunk, BLOCK_STATE_STONE)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    }
+    let y = WORLD_MAX_Y_EXCLUSIVE - 4;
+    let observer = VoxelCoord::new(2, y, 2);
+    let visible = VoxelCoord::new(21, y, 2);
+    let too_far = VoxelCoord::new(30, y, 2);
+    for position in [observer, visible, too_far] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(position.x(), y - 1, position.z()),
+            BLOCK_STATE_STONE,
+        );
+        set_generated_block_for_test(registries.world(), &mut state, position, BlockStateId::AIR);
+    }
+    let create = |state: &mut AppState, position| {
+        let quantity = Volume::from_microliters(500_000);
+        let id = validate_generate_fluid_store(
+            &registries,
+            state,
+            GeneratedFluidStoreSpec::new(
+                quantity,
+                FLUID_WATER,
+                quantity,
+                Temperature::from_millikelvin(293_150),
+            ),
+        )
+        .unwrap()
+        .commit(state)
+        .unwrap();
+        validate_place_fluid_store(state, id, position)
+            .unwrap()
+            .commit(state)
+            .unwrap();
+        id
+    };
+    let seen = create(&mut state, visible);
+    let hidden = create(&mut state, too_far);
+    validate_admit_player(&registries, &state, observer)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let observed = available_visible_water_landmarks(&registries, &state);
+    assert_eq!(
+        observed,
+        vec![VisibleWaterSource {
+            store: seen,
+            position: visible
+        }]
+    );
+    assert!(!observed.iter().any(|water| water.store() == hidden));
+    assert!(matches!(
+        validate_drink(&registries, &state, seen, Volume::from_microliters(250_000)),
+        Err(DrinkError::Access(_))
+    ));
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(10, y + 1, 2),
+        BLOCK_STATE_STONE,
+    );
+    assert!(available_visible_water_landmarks(&registries, &state).is_empty());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn generated_water_sight_is_physical_even_when_the_water_is_not_drinkable() {
     let registries = build_registries();
     let mut state = AppState::new();

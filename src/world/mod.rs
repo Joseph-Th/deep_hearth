@@ -78,6 +78,7 @@ pub use state::{
     CHUNK_SIDE, ChunkCoord, SECTION_CELL_COUNT, SECTION_SIDE, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y,
     WorldChunk, WorldSection, WorldState,
 };
+pub use targeting::LANDMARK_SIGHT_HORIZONTAL_RADIUS;
 pub use targeting::{
     PlayerBlockTarget, PlayerBlockTargetError, aim_player_at_voxel, raycast_player_block,
 };

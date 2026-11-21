@@ -34,7 +34,8 @@ use deep_hearth::structural::StructuralLifecycle;
 use deep_hearth::surface::{
     AdjacentSurfaceResource, PlayerSurfaceGatheringOption, SurfaceGatheringError,
     SurfaceResourceKind, assess_player_surface_gathering_option_admission,
-    available_visible_surface_landmarks, player_surface_gathering_options,
+    available_visible_dormant_shrub_landmarks, available_visible_surface_landmarks,
+    player_surface_gathering_options,
 };
 use deep_hearth::survival::{
     FoodFreshness, HungerState, HydrationState, LocalDrinkSource, SurvivalAssessment,
@@ -756,6 +757,18 @@ fn surface_sight_report(registries: &Registries, state: &AppState, output: &mut 
                 |from| bearing(from, source.position())
             ),
             pos(source.position()),
+        );
+    }
+    for shrub in available_visible_dormant_shrub_landmarks(registries, state) {
+        let _ = writeln!(
+            output,
+            "Dormant {} shrub {} at {} (no harvestable crop)",
+            name(registries, shrub.commodity()),
+            from.map_or_else(
+                || "unlocated".to_owned(),
+                |from| bearing(from, shrub.position())
+            ),
+            pos(shrub.position()),
         );
     }
 }

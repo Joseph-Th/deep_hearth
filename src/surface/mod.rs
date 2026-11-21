@@ -43,7 +43,7 @@ pub use material_drop::{
 };
 pub use observation::{
     AdjacentSurfaceResource, SurfaceResourceLandmark, available_adjacent_surface_resources,
-    available_visible_surface_landmarks,
+    available_visible_dormant_shrub_landmarks, available_visible_surface_landmarks,
 };
 pub use pickup::SurfaceDropPickupOutcome;
 pub(crate) use pickup::{

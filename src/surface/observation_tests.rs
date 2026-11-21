@@ -30,12 +30,23 @@ fn distant_surface_sight_is_bounded_lit_unobstructed_and_does_not_grant_custody(
     .unwrap()
     .commit(&mut state)
     .unwrap();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(31),
+        ChunkCoord::new(1, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
     let y = WORLD_MAX_Y_EXCLUSIVE - 4;
     let origin = VoxelCoord::new(1, y, 2);
     let near = VoxelCoord::new(2, y, 2);
     let far = VoxelCoord::new(7, y, 2);
-    let outside = VoxelCoord::new(14, y, 2);
-    for position in [origin, near, far, outside] {
+    let beyond_one_chunk = VoxelCoord::new(21, y, 2);
+    let outside = VoxelCoord::new(31, y, 2);
+    for position in [origin, near, far, beyond_one_chunk, outside] {
         set_generated_block_for_test(
             registries.world(),
             &mut state,
@@ -44,7 +55,7 @@ fn distant_surface_sight_is_bounded_lit_unobstructed_and_does_not_grant_custody(
         );
     }
     let commodity = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
-    let specs = [near, far, outside].map(|position| {
+    let specs = [near, far, beyond_one_chunk, outside].map(|position| {
         SurfaceResourceSpec::new(
             SurfaceResourceKind::Opportunity,
             position,
@@ -68,10 +79,16 @@ fn distant_surface_sight_is_bounded_lit_unobstructed_and_does_not_grant_custody(
     let unchanged = state.clone();
     assert_eq!(
         observe(&state),
-        vec![SurfaceResourceLandmark {
-            position: far,
-            commodity
-        }]
+        vec![
+            SurfaceResourceLandmark {
+                position: far,
+                commodity
+            },
+            SurfaceResourceLandmark {
+                position: beyond_one_chunk,
+                commodity
+            }
+        ]
     );
     assert!(
         player_surface_gathering_options(&registries, &state)

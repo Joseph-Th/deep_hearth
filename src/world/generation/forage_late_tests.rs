@@ -1,7 +1,7 @@
 //! Late chunk discovery must not temporarily restore crops that already aged away.
 
 use super::*;
-use crate::content::{BLOCK_STATE_STONE, build_registries};
+use crate::content::{BLOCK_STATE_STONE, MATERIAL_WILD_NUTS, build_registries};
 use crate::core::state::{AppState, apply_clock_advance, validate_loaded_state};
 use crate::core::time::SimulationTick;
 use crate::matter::calculate_matter_accounting;
@@ -14,8 +14,11 @@ use crate::world::{ChunkCoord, WorldGenerationSeed, validate_generate_chunk};
 const FIRST_SENESCENCE: u64 = super::super::super::forage_cycle::FRUIT_SENESCENCE_TICKS;
 
 fn discover_at(at: SimulationTick) -> (Registries, AppState) {
+    discover_seed_at(WorldGenerationSeed::new(0x464F_5241_4745_434F), at)
+}
+
+fn discover_seed_at(seed: WorldGenerationSeed, at: SimulationTick) -> (Registries, AppState) {
     let registries = build_registries();
-    let seed = WorldGenerationSeed::new(0x464F_5241_4745_434F);
     let mut state = AppState::new();
     validate_generate_chunk(
         &registries,
@@ -40,6 +43,70 @@ fn discover_at(at: SimulationTick) -> (Registries, AppState) {
         .unwrap();
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     (registries, state)
+}
+
+#[test]
+fn autumn_expedition_finds_real_nut_roots_that_fruit_on_the_next_weather_front() {
+    let calendar = build_registries().core().calendar();
+    let autumn_start = calendar.ticks_per_day()
+        * u64::from(calendar.days_per_month())
+        * u64::from(calendar.months_per_year() / 4)
+        * 2;
+    let arrival = SimulationTick::new(autumn_start + calendar.ticks_per_day() / 4);
+    let next_front =
+        SimulationTick::new(arrival.value() + super::super::super::WEATHER_FRONT_TICKS);
+    for number in 0..48 {
+        let (registries, mut state) = discover_seed_at(WorldGenerationSeed::new(number), arrival);
+        let nuts = state
+            .surface()
+            .perennial_resources()
+            .filter(|source| source.commodity().material() == MATERIAL_WILD_NUTS)
+            .map(|source| source.id())
+            .collect::<Vec<_>>();
+        if nuts.is_empty() {
+            continue;
+        }
+        for id in &nuts {
+            let record = state.surface().get(*id).unwrap();
+            assert_eq!(record.lifecycle(), SurfaceResourceLifecycle::Depleted);
+            assert_eq!(record.remaining_mass(), Mass::ZERO);
+            assert_eq!(record.perennial_root_mass(), record.initial_mass());
+            assert_eq!(
+                record.depleted_at(),
+                Some(SimulationTick::new(FIRST_SENESCENCE))
+            );
+        }
+        let mass = calculate_matter_accounting(&state).unwrap().total();
+        apply_clock_advance(&mut state, next_front);
+        super::super::super::forage_cycle::apply_natural_forage_cycle(
+            &registries,
+            &mut state,
+            next_front,
+        )
+        .unwrap();
+        let recovered = nuts.into_iter().any(|id| {
+            let record = state.surface().get(id).unwrap();
+            assert_eq!(
+                record
+                    .perennial_root_mass()
+                    .checked_add(record.remaining_mass()),
+                Some(record.initial_mass()),
+            );
+            record.lifecycle() == SurfaceResourceLifecycle::Available
+        });
+        if recovered {
+            assert_eq!(calculate_matter_accounting(&state).unwrap().total(), mass);
+            assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+            let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+            let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+                .unwrap()
+                .into_state(&registries)
+                .unwrap();
+            assert_eq!(loaded, state);
+            return;
+        }
+    }
+    panic!("in-season nuts must reappear from finite late-discovered living roots");
 }
 
 #[test]

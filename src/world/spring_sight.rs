@@ -96,7 +96,7 @@ pub fn available_visible_water_landmarks(
     }
     let mut visible = state
         .logistics()
-        .fluid_store_locations_near(from, 12)
+        .fluid_store_locations_near(from, super::LANDMARK_SIGHT_HORIZONTAL_RADIUS)
         .filter(|(_, to)| {
             let dy = to.y().abs_diff(from.y());
             dy <= 6 && to.x().abs_diff(from.x()) + dy + to.z().abs_diff(from.z()) > 2

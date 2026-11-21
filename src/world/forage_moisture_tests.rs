@@ -2,7 +2,7 @@
 
 use super::*;
 
-use crate::content::{BLOCK_STATE_STONE, build_registries};
+use crate::content::{BLOCK_STATE_STONE, MATERIAL_BERRIES, build_registries};
 use crate::core::quantity::Volume;
 use crate::core::state::validate_loaded_state;
 use crate::fluid::{
@@ -139,7 +139,10 @@ fn rooted_basin() -> (
         let moisture = RootMoistureSurvey::observe(&state);
         let mut found = None;
         'scan: for source in state.surface().resources() {
-            if source.kind() != SurfaceResourceKind::Opportunity || source.perennial.is_none() {
+            if source.kind() != SurfaceResourceKind::Opportunity
+                || source.commodity().material() != MATERIAL_BERRIES
+                || source.perennial.is_none()
+            {
                 continue;
             }
             if moisture.at(source.position())

@@ -55,6 +55,147 @@ fn generated_plant() -> (Registries, AppState, crate::surface::SurfaceResourceId
 }
 
 #[test]
+fn autumn_nuts_ripen_from_existing_roots_but_berries_remain_out_of_season() {
+    use crate::content::{MATERIAL_BERRIES, MATERIAL_WILD_NUTS};
+    use crate::core::state::apply_clock_advance;
+    use crate::surface::{
+        available_visible_dormant_shrub_landmarks, available_visible_surface_landmarks,
+    };
+
+    let registries = build_registries();
+    let calendar = registries.core().calendar();
+    let autumn_start = calendar.ticks_per_day()
+        * u64::from(calendar.days_per_month())
+        * u64::from(calendar.months_per_year() / 4)
+        * 2;
+    let mut checked = [false; 2];
+    for seed_value in 0..64 {
+        let seed = WorldGenerationSeed::new(seed_value);
+        let mut state = AppState::new();
+        validate_generate_chunk(
+            &registries,
+            &state,
+            seed,
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+        let spawn = VoxelCoord::new(
+            0,
+            super::super::generation::terrain_height(seed, 0, 0) + 1,
+            0,
+        );
+        validate_admit_player(&registries, &state, spawn)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        validate_generate_player_neighborhood(&registries, &state)
+            .unwrap()
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        let Some((id, kind)) = state.surface().perennial_resources().find_map(|source| {
+            let kind = match source.commodity().material() {
+                MATERIAL_WILD_NUTS => 0,
+                MATERIAL_BERRIES => 1,
+                _ => return None,
+            };
+            (!checked[kind]).then_some((source.id(), kind))
+        }) else {
+            continue;
+        };
+        let first_end = SimulationTick::new(FRUIT_SENESCENCE_TICKS);
+        apply_clock_advance(&mut state, first_end);
+        apply_natural_forage_cycle(&registries, &mut state, first_end).unwrap();
+        assert_eq!(
+            state.surface().get(id).unwrap().lifecycle(),
+            SurfaceResourceLifecycle::Depleted
+        );
+        let site = state.surface().get(id).unwrap().position();
+        crate::logistics::relocate_player_for_test(&mut state, site);
+        assert!(
+            available_visible_dormant_shrub_landmarks(&registries, &state)
+                .iter()
+                .any(|shrub| shrub.position() == site),
+            "a real living shrub remains visible after its fruit senesces"
+        );
+        assert!(
+            available_visible_surface_landmarks(&registries, &state)
+                .iter()
+                .all(|source| source.position() != site),
+            "bare roots must not masquerade as gathered food"
+        );
+        let autumn = (6_000..12_000)
+            .step_by(FIELD_CHECK_TICKS as usize)
+            .map(|delta| SimulationTick::new(autumn_start + delta))
+            .find(|&at| {
+                let source = state.surface().get(id).unwrap();
+                let temperature = super::super::weather::weather_at(
+                    &registries,
+                    seed.value(),
+                    source.position(),
+                    at,
+                )
+                .ambient_temperature()
+                .millikelvin();
+                (283_150..=303_150).contains(&temperature)
+            })
+            .unwrap();
+        apply_clock_advance(&mut state, autumn);
+        if kind == 0
+            && ripening_site_shade(
+                &registries,
+                &state,
+                state.surface().get(id).unwrap(),
+                seed,
+                Season::Autumn,
+                autumn,
+            )
+            .is_none()
+        {
+            continue;
+        }
+        let total = calculate_matter_accounting(&state).unwrap().total();
+        apply_natural_forage_cycle(&registries, &mut state, autumn).unwrap();
+        let plant = state.surface().get(id).unwrap();
+        if kind == 0 {
+            assert_eq!(plant.lifecycle(), SurfaceResourceLifecycle::Available);
+            assert!(plant.remaining_mass() > Mass::ZERO);
+            assert!(
+                available_visible_dormant_shrub_landmarks(&registries, &state)
+                    .iter()
+                    .all(|shrub| shrub.position() != site),
+                "a ripe nut shrub is no longer dormant"
+            );
+            assert_eq!(
+                plant
+                    .perennial_root_mass()
+                    .checked_add(plant.remaining_mass()),
+                Some(plant.initial_mass())
+            );
+        } else {
+            assert_eq!(plant.lifecycle(), SurfaceResourceLifecycle::Depleted);
+            assert_eq!(plant.remaining_mass(), Mass::ZERO);
+            assert!(
+                available_visible_dormant_shrub_landmarks(&registries, &state)
+                    .iter()
+                    .any(|shrub| shrub.position() == site),
+                "berry shrubs remain unfruitful in autumn"
+            );
+        }
+        assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        checked[kind] = true;
+        if checked == [true; 2] {
+            break;
+        }
+    }
+    assert_eq!(checked, [true; 2]);
+}
+
+#[test]
 fn due_gathering_and_senescence_near_surface_revision_exhaustion_are_atomic() {
     use crate::surface::{
         SurfaceResourceState, player_surface_gathering_options,

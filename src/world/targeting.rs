@@ -11,6 +11,11 @@ use crate::spatial::{CubeFace, ViewDirection, VoxelCoord, WorldPoint};
 
 use super::BlockStateId;
 
+/// A physically lit, unobstructed ground-level material or water landmark
+/// can be identified across more than one immediately adjacent chunk.
+/// Quantity, freshness and interaction still require arriving at the source.
+pub const LANDMARK_SIGHT_HORIZONTAL_RADIUS: u8 = 24;
+
 mod traversal;
 use traversal::{VoxelTraceStep, targetable_full_cube, trace_generated_voxels};
 
