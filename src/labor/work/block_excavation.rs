@@ -54,7 +54,10 @@ pub struct BlockExcavationWork {
 }
 
 impl BlockExcavationWork {
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one validated excavation binds ten independent durable fields; grouping duplicates the persisted record"
+    )]
     pub(crate) const fn new(
         target: VoxelCoord,
         state: BlockStateId,
