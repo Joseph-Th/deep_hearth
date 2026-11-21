@@ -1,4 +1,5 @@
 /target/
+/saves/
 __pycache__/
 .pytest_cache/
 /mutants.out*/
