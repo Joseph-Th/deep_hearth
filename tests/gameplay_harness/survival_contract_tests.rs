@@ -7,7 +7,8 @@ use deep_hearth::content::{
     MATERIAL_STONE, MATERIAL_WOOD, STORAGE_BULK_TIMBER_PROVISIONS_CRATE,
     STORAGE_CARVED_STONE_PROVISIONS_CROCK, STORAGE_COPPER_BANDED_STONE_PROVISIONS_CROCK,
     STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST, STORAGE_INSULATED_TIMBER_PANTRY,
-    STORAGE_ROUGH_TIMBER_FIELD_BOX, STORAGE_TIMBER_PROVISIONS_CHEST, build_registries,
+    STORAGE_ROUGH_TIMBER_FIELD_BOX, STORAGE_STONE_AND_TIMBER_WINTER_CACHE,
+    STORAGE_TIMBER_PROVISIONS_CHEST, build_registries,
 };
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::material::CommodityKey;
@@ -158,7 +159,8 @@ fn storage_raw_opportunity(
 }
 
 #[test]
-fn maintained_survival_coverage_keeps_the_strongest_preservation_endpoint_actionable() {
+fn maintained_survival_coverage_evaluates_strongest_buildable_preservation_without_forcing_purchase()
+ {
     let registries = build_registries();
     let world = provisioning_world(&registries, SURVIVAL_STRONG_PRESERVATION_COVERAGE_SEED);
     let decision = evaluate_preservation_decision(
@@ -168,16 +170,22 @@ fn maintained_survival_coverage_keeps_the_strongest_preservation_endpoint_action
         world.foods[world.witness_index],
         world.preserved_reserve_mass,
     );
-    let strongest_feasible = preservation_storage_definition_for_policy_with_constraints(
+    let strongest_buildable = preservation_storage_definition_for_policy_with_constraints(
         &registries,
         PreservationInvestmentPolicy::MaximumProtection,
         world.preserved_reserve_mass,
-        None,
+        Some(decision.opportunity.available()),
     );
     assert_eq!(
-        decision.investment,
-        Some(strongest_feasible),
-        "maintained survival coverage must keep the currently authored strongest capacity-feasible preservation choice actionable"
+        decision.protection.storage_definition, strongest_buildable,
+        "the executed maximum-protection comparison must respect the disclosed raw opportunity"
+    );
+    assert!(
+        decision.investment.is_some_and(|selected| decision
+            .projections
+            .iter()
+            .any(|candidate| candidate.definition == selected)),
+        "the maintained actor must invest in a feasible candidate without being forced into an unfunded maximum-protection build"
     );
 }
 
@@ -560,6 +568,12 @@ fn preservation_storage_routes_are_authored_recoverable_tradeoffs() {
     for storage in preservation {
         let mut recoverable_body_count = 0_u32;
         for input in storage.assembly_profile().inputs() {
+            // A bulk stone facing or other disclosed raw root is gathered,
+            // not fabricated or salvaged as a finished enclosure body.
+            // The construction-plan check above verifies its real acquisition.
+            if is_disclosed_preservation_raw_material(input.commodity()) {
+                continue;
+            }
             let handbook = registries
                 .commodity_handbook_entry(input.commodity())
                 .unwrap_or_else(|| panic!("preservation body commodity disappeared"));
@@ -733,8 +747,8 @@ fn survival_investment_policy_generation_stays_bounded_and_registry_valid() {
             above_smaller_maximum_protection,
             None,
         ),
-        STORAGE_DOUBLE_WALL_TIMBER_PROVISIONS_CHEST,
-        "maximum-protection ranking must reject the pantry and crock when the reserve exceeds their capacity"
+        STORAGE_STONE_AND_TIMBER_WINTER_CACHE,
+        "maximum-protection ranking must select the larger, more protective winter cache when small enclosures cannot hold the reserve"
     );
     let stone_only = storage_raw_opportunity(&registries, STORAGE_CARVED_STONE_PROVISIONS_CROCK);
     assert!(

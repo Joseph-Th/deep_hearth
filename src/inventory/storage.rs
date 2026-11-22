@@ -28,7 +28,10 @@ impl StorageDefinitionId {
     }
 }
 
-/// Authored physical enclosure that can improve one existing stockpile's storage environment.
+/// Authored physical enclosure that gives a stockpile bounded capacity and a storage environment.
+///
+/// Ventilated bulk stores may leave food aging at the ambient rate, while
+/// joined, sealed enclosures can provide longer preservation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StorageDefinition {
     id: StorageDefinitionId,
@@ -179,12 +182,6 @@ impl StorageRegistry {
 
     pub(crate) fn validate_references(&self, materials: &MaterialRegistry) {
         for definition in self.definitions.values() {
-            assert!(
-                definition.residual_only()
-                    || definition.storage_profile().preservation_multiplier_ppm()
-                        > AMBIENT_PRESERVATION_MULTIPLIER_PPM,
-                "ordinary preservation storage must improve on ambient shelf life"
-            );
             definition
                 .assembly_profile()
                 .validate_infrastructure_references(materials)

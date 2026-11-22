@@ -75,13 +75,13 @@ pub(in super::super) struct PreservationNoBuildReview {
     )
 )]
 pub(in super::super) struct PreservationDecisionReview {
-    pub(super) opportunity: PreservationRawOpportunity,
+    pub(in super::super) opportunity: PreservationRawOpportunity,
     pub(super) attention: PreservationInfrastructureReview,
-    pub(super) protection: PreservationInfrastructureReview,
+    pub(in super::super) protection: PreservationInfrastructureReview,
     pub(super) best_enclosure: PreservationInfrastructureReview,
     pub(in super::super) investment: Option<StorageDefinitionId>,
     pub(in super::super) no_build: PreservationNoBuildReview,
-    pub(super) projections: Vec<PreservationCandidateProjection>,
+    pub(in super::super) projections: Vec<PreservationCandidateProjection>,
     pub(super) physical_frontier: BTreeSet<StorageDefinitionId>,
     pub(super) material_budget_ppm: u32,
     pub(super) material_budget_mg: u64,

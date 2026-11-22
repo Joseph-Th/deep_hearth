@@ -139,11 +139,6 @@ pub(in crate::simulation::direct_actions) fn attempt_selected_timber_cover_place
     if commodity != CommodityKey::new(MATERIAL_WOOD, FORM_BOARD) {
         return None;
     }
-    let stack = match resolve_unique_carried_stack(registries, state, commodity) {
-        Ok(stack) => stack,
-        Err(outcome) => return Some(outcome),
-    };
-    let stack = &stack;
     let (bounds, supports) = match resolve_supported_timber_target(registries, state, direction) {
         Ok(Some(target)) => target,
         Ok(None) => return Some(SecondaryActionOutcome::NoStructuralPlacementTarget),
@@ -152,13 +147,17 @@ pub(in crate::simulation::direct_actions) fn attempt_selected_timber_cover_place
     if let Err(error) = validate_full_footprint_placement_position(state, bounds.min()) {
         return Some(structural_placement_error(error));
     }
+    let stack = match resolve_unique_carried_stack(registries, state, commodity) {
+        Ok(stack) => stack,
+        Err(outcome) => return Some(outcome),
+    };
     // Physical context and carried material are observable on the input frame.
     // Construction admission still occurs on the next authoritative slow tick.
     if !state.control_tick().is_simulation_boundary() {
         return Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary);
     }
     Some(commit_supported_timber(
-        registries, state, stack, bounds, supports,
+        registries, state, &stack, bounds, supports,
     ))
 }
 

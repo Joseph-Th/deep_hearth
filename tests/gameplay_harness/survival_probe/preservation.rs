@@ -66,7 +66,7 @@ impl PreservationRawOpportunityKind {
     }
 }
 
-pub(super) struct PreservationRawOpportunity {
+pub(in super::super) struct PreservationRawOpportunity {
     #[cfg_attr(test, allow(dead_code, reason = "report-only opportunity provenance"))]
     origin: StorageDefinitionId,
     available: Vec<(CommodityKey, Mass)>,
@@ -83,7 +83,7 @@ impl PreservationRawOpportunity {
         self.origin
     }
 
-    pub(super) fn available(&self) -> &[(CommodityKey, Mass)] {
+    pub(in super::super) fn available(&self) -> &[(CommodityKey, Mass)] {
         &self.available
     }
 

@@ -49,10 +49,10 @@ struct PreservationScenarioSpec {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct PreservationInfrastructureReview {
+pub(in super::super) struct PreservationInfrastructureReview {
     pub(super) selection_kind: PreservationSelectionKind,
     pub(super) candidate_count: usize,
-    pub(super) storage_definition: StorageDefinitionId,
+    pub(in super::super) storage_definition: StorageDefinitionId,
     pub(super) fastest_definition: StorageDefinitionId,
     pub(super) fastest_ticks: u64,
     pub(super) fastest_preservation_multiplier_ppm: u32,
@@ -487,17 +487,9 @@ pub(super) fn evaluate_preservation_infrastructure_definition_with_raw_opportuni
         .routes
         .iter()
         .map(|route| {
-            assert!(
-                !route.steps.is_empty(),
-                "ordinary preservation investment must be produced from a manual construction route rather than fixture-ready enclosure matter"
-            );
-            *raw_sources
-                .get(&route.raw_commodity)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "selected preservation route is not funded by the disclosed raw opportunity"
-                    )
-                })
+            *raw_sources.get(&route.raw_commodity).unwrap_or_else(|| {
+                panic!("selected preservation route is not funded by the disclosed raw opportunity")
+            })
         })
         .collect::<Vec<_>>();
     let route_destinations = construction_plan
@@ -573,6 +565,49 @@ pub(super) fn evaluate_preservation_infrastructure_definition_with_raw_opportuni
         .zip(route_destinations)
     {
         let mut source = initial_source;
+        if route.steps.is_empty() {
+            // A disclosed raw assembly input (such as stone facing) needs
+            // transport, not fictional joinery. Move it using the same local
+            // player pickup/drop operations as ordinary play; finished bodies
+            // still have to pass through every manual craft stage below.
+            let stack = project_material_stacks(registries, &state, source)
+                .unwrap_or_else(|error| panic!("raw preservation stack projection failed: {error}"))
+                .into_iter()
+                .find(|stack| stack.commodity() == route.raw_commodity)
+                .unwrap_or_else(|| panic!("raw preservation source lost its required material"));
+            deep_hearth::logistics::validate_pickup_stack_from_ground(
+                registries,
+                &state,
+                source,
+                &stack,
+                route.raw_mass,
+            )
+            .unwrap_or_else(|error| panic!("raw preservation pickup failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("raw preservation pickup commit failed: {error}"));
+            let carried = state
+                .logistics()
+                .player()
+                .unwrap_or_else(|| panic!("preservation worker disappeared"))
+                .carried_stockpile();
+            let stack = project_material_stacks(registries, &state, carried)
+                .unwrap_or_else(|error| {
+                    panic!("carried preservation stack projection failed: {error}")
+                })
+                .into_iter()
+                .find(|stack| stack.commodity() == route.raw_commodity)
+                .unwrap_or_else(|| panic!("raw preservation pickup lost carried material"));
+            deep_hearth::logistics::validate_drop_stack_to_ground(
+                registries,
+                &state,
+                assembled,
+                &stack,
+                route.raw_mass,
+            )
+            .unwrap_or_else(|error| panic!("raw preservation staging failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("raw preservation staging commit failed: {error}"));
+        }
         for (step, destination) in route.steps.iter().zip(destinations) {
             assert!(
                 state

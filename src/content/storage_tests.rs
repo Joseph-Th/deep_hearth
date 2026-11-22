@@ -45,8 +45,8 @@ fn winter_cache_and_fuel_rack_are_primitive_bulk_stockpiles() {
         cache.assembly_profile().inputs(),
         &[
             MaterialInputSpec::pure(
-                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
-                Mass::from_milligrams(3_000_000),
+                CommodityKey::new(MATERIAL_WOOD, FORM_INSULATED_PANTRY_BODY),
+                INSULATED_TIMBER_PANTRY_BODY_MASS,
             ),
             MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
@@ -60,7 +60,7 @@ fn winter_cache_and_fuel_rack_are_primitive_bulk_stockpiles() {
     );
     assert_eq!(
         rack.storage_profile().preservation_multiplier_ppm(),
-        1_250_000
+        1_000_000
     );
     assert_eq!(
         rack.assembly_profile().inputs(),
@@ -786,10 +786,16 @@ fn preservation_salvage_requires_fresh_primary_input_before_rebuilding_fabricate
                 }
             }
         }
-        assert!(
-            fabricated_body_count != 0,
-            "preservation storage {} must contain at least one fabricated enclosure body",
-            storage.id().value()
-        );
+        // Non-preserving bulk storage may be built directly from cut stock.
+        // Any actual food-preservation gain requires a fabricated enclosure.
+        if storage.storage_profile().preservation_multiplier_ppm()
+            > crate::inventory::AMBIENT_PRESERVATION_MULTIPLIER_PPM
+        {
+            assert!(
+                fabricated_body_count != 0,
+                "preservation storage {} must contain at least one fabricated enclosure body",
+                storage.id().value()
+            );
+        }
     }
 }

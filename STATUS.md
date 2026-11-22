@@ -13,7 +13,7 @@ Progression:
 | Area | Reachable capability |
 | --- | --- |
 | Survival and labor | Spring start; 90-day seasons (30-day months), 360-day year. Metabolism, hydration, diet, spoilage, timed intake/work, exertion, weather, roofs and windbreaks. |
-| Materials and inventory | Conserved finite lots/storage, reservations, preservation, residues and spoil bays. Stone/timber winter cache (75 kg, 4x preservation) and covered fuel rack (150 kg, 1.25x). |
+| Materials and inventory | Conserved lots/storage, reservations, preservation, residues and spoil bays. Insulated stone/timber cache (75 kg, 4x); ventilated fuel rack (150 kg, ambient aging). |
 | Prospecting and mining | Weathered 10%-grade copper ore needs a stone pick, survey, mining and hand dressing; reserves stay private. |
 | Crafting and equipment | Nut sorting (500 g to 450 g 180-day staples + 50 g waste); tuber curing (500 g to 400 g 90-day staples + 100 g waste). Rejects spoiled input. Flint/copper tools, kiln, molds, maintenance and waste storage. |
 | Power | Crank, treadle, flywheels, buffers and straight timber shafts (50 W; 20% loss/roller). No gears or electric networks. |

@@ -8,6 +8,184 @@ use crate::matter::calculate_matter_accounting;
 use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec, insert_surface_resource_for_test};
 
 #[test]
+fn selected_boards_prioritize_physical_cover_over_storage() {
+    use crate::content::{
+        BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    };
+    use crate::spatial::VoxelBounds;
+    use crate::structural::{
+        StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
+        validate_activate_structural_element,
+    };
+
+    let (registries, mut state, foot_y) = generated_grounded_player_at(0, 0);
+    let destination = VoxelCoord::new(1, foot_y + 1, 0);
+    let support_cell = VoxelCoord::new(2, foot_y + 1, 0);
+    for position in [destination, support_cell] {
+        set_generated_block_for_test(registries.world(), &mut state, position, BlockStateId::AIR);
+    }
+    let support = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        StructuralElementGeometry::new(
+            VoxelBounds::new(support_cell, VoxelCoord::new(3, foot_y + 2, 1)).unwrap(),
+            BASIC_TIMBER_COVER_PANEL_THICKNESS,
+            BASIC_TIMBER_COVER_PANEL_AREA,
+        )
+        .unwrap(),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, support, FORM_BOARD);
+    let _ = validate_activate_structural_element(&registries, &state, support)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    let boards = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        boards,
+        Mass::from_milligrams(6_500_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(boards)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let direction = ViewDirection::new(1_000_000, 0, 0).unwrap();
+    assert_eq!(
+        crate::world::raycast_player_block(&registries, &state, direction),
+        Ok(None)
+    );
+    let mut outcome = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(direction)),
+    )
+    .unwrap();
+    assert_eq!(
+        outcome.secondary_action(),
+        Some(&SecondaryActionOutcome::QueuedUntilSimulationBoundary)
+    );
+    for _ in 1..CONTROL_TICKS_PER_SIMULATION_TICK {
+        outcome = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    let Some(SecondaryActionOutcome::StructuralConstructionStarted(work)) =
+        outcome.secondary_action()
+    else {
+        panic!(
+            "pointed cover did not take priority: {:?}",
+            outcome.secondary_action()
+        );
+    };
+    assert_eq!(
+        state
+            .structures()
+            .get_element(work.element())
+            .unwrap()
+            .bounds()
+            .min(),
+        destination
+    );
+    assert_eq!(
+        state
+            .structures()
+            .supports(work.element())
+            .unwrap()
+            .collect::<Vec<_>>(),
+        vec![support]
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
+fn selected_boards_use_terrain_for_fuel_rack_placement() {
+    use crate::content::STORAGE_PRIMITIVE_FUELWOOD_RACK;
+
+    let (registries, mut state, foot_y) = generated_grounded_player_at(0, 0);
+    let ground = VoxelCoord::new(1, foot_y - 1, 0);
+    let destination = VoxelCoord::new(1, foot_y, 0);
+    set_generated_block_for_test(registries.world(), &mut state, ground, BLOCK_STATE_STONE);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        destination,
+        BlockStateId::AIR,
+    );
+    let boards = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        boards,
+        Mass::from_milligrams(2_400_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(boards)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let direction = ViewDirection::new(600_000, -800_000, 0).unwrap();
+    assert!(
+        crate::world::raycast_player_block(&registries, &state, direction)
+            .unwrap()
+            .is_some()
+    );
+    let outcome = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(direction)),
+    )
+    .unwrap();
+    assert!(
+        matches!(
+            outcome.secondary_action(),
+            Some(SecondaryActionOutcome::StoragePlaced { definition, .. })
+                if *definition == STORAGE_PRIMITIVE_FUELWOOD_RACK
+        ),
+        "terrain-directed boards did not place storage: {:?}",
+        outcome.secondary_action()
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
 fn impossible_timber_use_rejects_on_input_tick_instead_of_queuing() {
     for form in [FORM_LOG, FORM_BOARD, FORM_HANDLE] {
         let (registries, mut state, _) = generated_grounded_player_at(0, 0);

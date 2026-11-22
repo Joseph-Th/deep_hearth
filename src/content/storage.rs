@@ -150,15 +150,16 @@ pub(crate) fn build_storage_registry() -> StorageRegistry {
         4_000_000,
     )
     .unwrap_or_else(|error| panic!("winter cache storage profile failed: {error}"));
-    let covered_rack_preservation = StockpileStorageProfile::with_preservation(
-        true,
-        false,
-        PROVISIONS_STORAGE_MAXIMUM_TEMPERATURE,
-        1_250_000,
-    )
-    .unwrap_or_else(|error| panic!("covered fuel rack storage profile failed: {error}"));
+    // An airy rack keeps fuelwood off the ground but is not a food-preserving
+    // enclosure. A shelf-life bonus on 150 kg of exposed provisions would
+    // make it an implausibly efficient alternative to joined chests.
+    let fuelwood_rack_storage =
+        StockpileStorageProfile::new(true, false, PROVISIONS_STORAGE_MAXIMUM_TEMPERATURE)
+            .unwrap_or_else(|error| panic!("fuelwood rack storage profile failed: {error}"));
     StorageRegistry::new([
-        // A large sealed cache, made from gathered stone and locally shaped boards.
+        // An insulated, joined timber enclosure faced with local stone provides
+        // the physical seal behind this bulk cache's fourfold preservation.
+        // Loose boards alone cannot provide the same protection.
         storage_definition(
             STORAGE_STONE_AND_TIMBER_WINTER_CACHE,
             "stone-and-timber winter provisions cache",
@@ -170,17 +171,17 @@ pub(crate) fn build_storage_registry() -> StorageRegistry {
                     Mass::from_milligrams(6_000_000),
                 ),
                 MaterialInputSpec::pure(
-                    CommodityKey::new(MATERIAL_WOOD, super::FORM_BOARD),
-                    Mass::from_milligrams(3_000_000),
+                    CommodityKey::new(MATERIAL_WOOD, FORM_INSULATED_PANTRY_BODY),
+                    INSULATED_TIMBER_PANTRY_BODY_MASS,
                 ),
             ]),
         ),
-        // A covered bulk fuel store with only minimal protection for food.
+        // A covered bulk fuel store, not a sealed provisions container.
         storage_definition(
             STORAGE_PRIMITIVE_FUELWOOD_RACK,
             "covered timber fuelwood rack",
             Mass::from_milligrams(150_000_000),
-            covered_rack_preservation,
+            fuelwood_rack_storage,
             MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
                 CommodityKey::new(MATERIAL_WOOD, super::FORM_BOARD),
                 Mass::from_milligrams(2_400_000),

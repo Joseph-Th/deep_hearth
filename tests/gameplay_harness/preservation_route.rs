@@ -64,11 +64,21 @@ pub(super) fn preservation_construction_plan(
                 input.commodity().value()
             )
         });
-        assert!(
-            !route.steps.is_empty(),
-            "preservation enclosure assembly commodity {} has no manual fabrication step; do not bootstrap a finished enclosure component as ordinary-play evidence",
-            input.commodity().value()
-        );
+        if raw_roots.contains(&input.commodity()) {
+            // Gathering a disclosed raw input is already a valid acquisition
+            // route. No manual fabrication step is due for stone or clay lumps.
+            assert!(route.steps.is_empty());
+            assert_eq!(route.raw_commodity, input.commodity());
+            assert_eq!(route.raw_mass, input.mass());
+        } else {
+            // A finished enclosure body must still be produced through actual
+            // manual work, not bootstrapped as an available starting material.
+            assert!(
+                !route.steps.is_empty(),
+                "preservation enclosure assembly commodity {} has no manual fabrication step; do not bootstrap a finished enclosure component as ordinary-play evidence",
+                input.commodity().value()
+            );
+        }
         raw_mass = raw_mass
             .checked_add(route.raw_mass)
             .unwrap_or_else(|| panic!("preservation construction raw-material mass overflowed"));
