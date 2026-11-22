@@ -16,7 +16,8 @@ use deep_hearth::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord, Wor
 use deep_hearth::surface::{AdjacentSurfaceResource, available_visible_surface_landmarks};
 use deep_hearth::survival::Vitality;
 use deep_hearth::world::{
-    VisibleWaterSource, available_visible_generated_water, available_visible_water_landmarks,
+    ForageScentKind, VisibleWaterSource, assess_player_forage_scents,
+    available_visible_generated_water, available_visible_water_landmarks,
 };
 
 const CENTER_TOLERANCE: i64 = 30_000_000;
@@ -32,52 +33,68 @@ enum LegResult {
 }
 
 struct TravelDiscoveries {
+    observer: Option<VoxelCoord>,
     resources: BTreeSet<(VoxelCoord, CommodityKey)>,
     water: Vec<VisibleWaterSource>,
     copper: Vec<VoxelCoord>,
+    scents: BTreeSet<ForageScentKind>,
 }
 
 impl TravelDiscoveries {
     fn capture(session: &Session) -> Self {
         let (registries, state) = (&session.registries, &session.state);
-        let from = state.logistics().player().map(|player| player.position());
-        let close = |to: VoxelCoord| {
-            from.is_some_and(|at| {
-                at.x().abs_diff(to.x()) <= DISCOVERY_ATTENTION_RADIUS
-                    && at.z().abs_diff(to.z()) <= DISCOVERY_ATTENTION_RADIUS
-            })
-        };
-        // Near and distant sightings describe the same physical opportunities.
-        // Moving across their display boundary must not manufacture a discovery.
+        // Remember every already visible landmark, even outside the attention radius.
+        // Otherwise approaching a known distant site would masquerade as discovering it.
         let resources = AdjacentSurfaceResource::visible_in_generated_world(registries, state)
             .map(|site| (site.position(), site.commodity()))
             .chain(
                 available_visible_surface_landmarks(registries, state)
                     .into_iter()
-                    .filter(|site| close(site.position()))
                     .map(|site| (site.position(), site.commodity())),
             )
             .collect();
         let mut water = available_visible_generated_water(registries, state);
-        water.extend(
-            available_visible_water_landmarks(registries, state)
-                .into_iter()
-                .filter(|site| close(site.position())),
-        );
+        water.extend(available_visible_water_landmarks(registries, state));
         Self {
+            observer: state.logistics().player().map(|player| player.position()),
             resources,
             water,
             copper: visible_weathered_copper_sites(registries, state),
+            scents: assess_player_forage_scents(registries, state)
+                .into_iter()
+                .map(|scent| scent.kind())
+                .collect(),
         }
     }
 
+    fn close_to(&self, site: VoxelCoord) -> bool {
+        self.observer.is_some_and(|at| {
+            at.x().abs_diff(site.x()) <= DISCOVERY_ATTENTION_RADIUS
+                && at.z().abs_diff(site.z()) <= DISCOVERY_ATTENTION_RADIUS
+        })
+    }
+
     fn attention(&self, next: &Self) -> Option<&'static str> {
-        if !next.resources.is_subset(&self.resources) {
+        if next
+            .resources
+            .iter()
+            .any(|site| next.close_to(site.0) && !self.resources.contains(site))
+        {
             Some("A new loose resource is visible.")
-        } else if next.water.iter().any(|site| !self.water.contains(site)) {
+        } else if next
+            .water
+            .iter()
+            .any(|site| next.close_to(site.position()) && !self.water.contains(site))
+        {
             Some("A new water source is visible.")
-        } else if next.copper.iter().any(|site| !self.copper.contains(site)) {
+        } else if next
+            .copper
+            .iter()
+            .any(|site| next.close_to(*site) && !self.copper.contains(site))
+        {
             Some("Newly visible copper-stained rock.")
+        } else if !next.scents.is_subset(&self.scents) {
+            Some("A new forage scent is noticeable.")
         } else {
             None
         }
@@ -98,17 +115,18 @@ impl TravelObservations {
     }
 
     fn attention(&mut self, session: &Session, target: VoxelCoord) -> Option<&'static str> {
-        self.residents
-            .observe(view::ResidentWatch::capture(
-                &session.registries,
-                &session.state,
-                target,
-            ))
-            .or_else(|| {
-                self.discoveries
-                    .as_ref()?
-                    .attention(&TravelDiscoveries::capture(session))
-            })
+        if let Some(description) = self.residents.observe(view::ResidentWatch::capture(
+            &session.registries,
+            &session.state,
+            target,
+        )) {
+            return Some(description);
+        }
+        let previous = self.discoveries.as_mut()?;
+        let next = TravelDiscoveries::capture(session);
+        let attention = previous.attention(&next);
+        *previous = next;
+        attention
     }
 }
 
@@ -337,3 +355,7 @@ impl Session {
         Ok(LegResult::Blocked)
     }
 }
+
+#[cfg(test)]
+#[path = "travel_tests.rs"]
+mod tests;
