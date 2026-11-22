@@ -121,9 +121,12 @@ pub const PROCESS_SHAPE_CLAY_INGOT_MOLD: ProcessId = ProcessId::new(105);
 pub const PROCESS_FIRE_CLAY_INGOT_MOLD: ProcessId = ProcessId::new(106);
 pub const PROCESS_COOL_FIRED_CLAY_INGOT_MOLD: ProcessId = ProcessId::new(107);
 pub const PROCESS_CRUSH_CERAMIC_INGOT_MOLD: ProcessId = ProcessId::new(108);
+pub const PROCESS_SORT_WILD_NUTS_FOR_WINTER: ProcessId = ProcessId::new(109);
+pub const PROCESS_CURE_WILD_TUBERS: ProcessId = ProcessId::new(110);
 
 mod chemical;
 mod fabrication;
+mod food;
 mod ore;
 mod powered;
 mod storage;
@@ -186,6 +189,7 @@ pub(crate) fn build_production_registry() -> ProductionRegistry {
         .into_iter()
         .chain(thermal::definitions())
         .chain(chemical::definitions())
+        .chain(food::definitions())
         .chain(storage::definitions())
         .chain(fabrication::definitions())
         .chain(powered::definitions())

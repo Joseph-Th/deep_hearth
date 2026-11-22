@@ -12,7 +12,7 @@ use crate::production::{
     validate_start_manual_process_routed,
 };
 use crate::registry::Registries;
-use crate::survival::{Vitality, assess_survival};
+use crate::survival::{FoodFreshness, Vitality, assess_food_freshness, assess_survival};
 
 mod batch;
 mod definitions;
@@ -221,6 +221,24 @@ pub fn resolve_manual_craft(
             temperature: trace.profile().temperature(),
             maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
         });
+    }
+    // Preserving food can extend shelf life, but it cannot revive already spoiled raw stock.
+    if registries.survival().get_food(definition.input()).is_some() {
+        for selection in request.selections() {
+            match assess_food_freshness(registries, state, selection.lot()) {
+                Ok(FoodFreshness::Fresh { .. }) => {}
+                Ok(FoodFreshness::Spoiled { .. }) => {
+                    return Err(ManualCraftError::SpoiledFoodInput {
+                        lot: selection.lot(),
+                    });
+                }
+                Err(_) => {
+                    return Err(ManualCraftError::FoodFreshnessUnavailable {
+                        lot: selection.lot(),
+                    });
+                }
+            }
+        }
     }
     let batches = batch.batches();
     let outputs =

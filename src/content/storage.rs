@@ -35,6 +35,8 @@ pub const STORAGE_CLAY_DAUBED_TIMBER_PROVISIONS_BIN: StorageDefinitionId =
 pub const STORAGE_CLAY_LINED_SPOIL_BAY: StorageDefinitionId = StorageDefinitionId::new(9);
 pub const STORAGE_FIRED_CERAMIC_PROVISIONS_CROCK: StorageDefinitionId =
     StorageDefinitionId::new(10);
+pub const STORAGE_STONE_AND_TIMBER_WINTER_CACHE: StorageDefinitionId = StorageDefinitionId::new(11);
+pub const STORAGE_PRIMITIVE_FUELWOOD_RACK: StorageDefinitionId = StorageDefinitionId::new(12);
 const PROVISIONS_STORAGE_MAXIMUM_TEMPERATURE: Temperature = Temperature::from_millikelvin(333_150);
 const STORAGE_DISMANTLE_MILLIGRAMS_PER_TICK: u64 = 100_000;
 
@@ -141,7 +143,49 @@ pub(crate) fn build_storage_registry() -> StorageRegistry {
         2_500_000,
     )
     .unwrap_or_else(|error| panic!("clay-daubed provisions bin storage profile failed: {error}"));
+    let winter_cache_preservation = StockpileStorageProfile::with_preservation(
+        true,
+        false,
+        PROVISIONS_STORAGE_MAXIMUM_TEMPERATURE,
+        4_000_000,
+    )
+    .unwrap_or_else(|error| panic!("winter cache storage profile failed: {error}"));
+    let covered_rack_preservation = StockpileStorageProfile::with_preservation(
+        true,
+        false,
+        PROVISIONS_STORAGE_MAXIMUM_TEMPERATURE,
+        1_250_000,
+    )
+    .unwrap_or_else(|error| panic!("covered fuel rack storage profile failed: {error}"));
     StorageRegistry::new([
+        // A large sealed cache, made from gathered stone and locally shaped boards.
+        storage_definition(
+            STORAGE_STONE_AND_TIMBER_WINTER_CACHE,
+            "stone-and-timber winter provisions cache",
+            Mass::from_milligrams(75_000_000),
+            winter_cache_preservation,
+            MaterialAssemblyProfile::new(vec![
+                MaterialInputSpec::pure(
+                    CommodityKey::new(MATERIAL_STONE, super::FORM_LUMP),
+                    Mass::from_milligrams(6_000_000),
+                ),
+                MaterialInputSpec::pure(
+                    CommodityKey::new(MATERIAL_WOOD, super::FORM_BOARD),
+                    Mass::from_milligrams(3_000_000),
+                ),
+            ]),
+        ),
+        // A covered bulk fuel store with only minimal protection for food.
+        storage_definition(
+            STORAGE_PRIMITIVE_FUELWOOD_RACK,
+            "covered timber fuelwood rack",
+            Mass::from_milligrams(150_000_000),
+            covered_rack_preservation,
+            MaterialAssemblyProfile::new(vec![MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, super::FORM_BOARD),
+                Mass::from_milligrams(2_400_000),
+            )]),
+        ),
         // Smaller than a heavy stone crock, but an actual sealed fired vessel:
         // wood fuel and kiln labor purchase improved food-age protection.
         storage_definition(

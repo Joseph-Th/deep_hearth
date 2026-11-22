@@ -88,6 +88,8 @@ pub const FORM_GREENWARE_CROCK: FormId = FormId::new(37);
 pub const FORM_FIRED_CROCK: FormId = FormId::new(38);
 pub const FORM_GREENWARE_INGOT_MOLD: FormId = FormId::new(39);
 pub const FORM_FIRED_INGOT_MOLD: FormId = FormId::new(40);
+/// Hand-selected staples held for winter use, distinct from fresh forage.
+pub const FORM_WINTER_PROVISIONS: FormId = FormId::new(41);
 
 fn consolidated_form(id: FormId, name: &'static str) -> FormDefinition {
     FormDefinition::new(
@@ -128,6 +130,12 @@ fn register_forms(registry: &mut MaterialRegistry) {
         loose_form(
             FORM_FOOD,
             "food",
+            MaterialPhase::Solid,
+            ParticleSizeStatePolicy::Untracked,
+        ),
+        loose_form(
+            FORM_WINTER_PROVISIONS,
+            "winter provisions",
             MaterialPhase::Solid,
             ParticleSizeStatePolicy::Untracked,
         ),
@@ -691,8 +699,24 @@ fn register_commodities(registry: &mut MaterialRegistry) {
             "wild nuts",
         ),
         (
+            CommodityKey::new(MATERIAL_WILD_NUTS, FORM_WINTER_PROVISIONS),
+            "sorted shell-on wild nuts",
+        ),
+        (
+            CommodityKey::new(MATERIAL_WILD_NUTS, FORM_CHIP),
+            "rejected nut fragments",
+        ),
+        (
             CommodityKey::new(MATERIAL_WILD_TUBERS, FORM_FOOD),
             "wild tubers",
+        ),
+        (
+            CommodityKey::new(MATERIAL_WILD_TUBERS, FORM_WINTER_PROVISIONS),
+            "cured wild tubers",
+        ),
+        (
+            CommodityKey::new(MATERIAL_WILD_TUBERS, FORM_CHIP),
+            "tuber trimmings",
         ),
         (
             CommodityKey::new(MATERIAL_EDIBLE_FUNGI, FORM_FOOD),

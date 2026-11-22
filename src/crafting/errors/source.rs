@@ -40,6 +40,8 @@ impl Error for ManualCraftError {
             | Self::InputCommodityMismatch { .. }
             | Self::InputCompositionMismatch { .. }
             | Self::InputTooHot { .. }
+            | Self::SpoiledFoodInput { .. }
+            | Self::FoodFreshnessUnavailable { .. }
             | Self::InputMassNotWholeBatches { .. }
             | Self::DurationOverflow { .. }
             | Self::RequiredEquipmentMissing { .. }

@@ -4,6 +4,60 @@ use super::*;
 use crate::crafting::ManualCraftOutput;
 
 #[test]
+fn primitive_winter_staples_have_conserved_preparation_routes_and_real_shelf_lives() {
+    let registries = build_registries();
+    for (process, material, preserved_mass, waste_mass, shelf_days) in [
+        (
+            PROCESS_SORT_WILD_NUTS_FOR_WINTER,
+            MATERIAL_WILD_NUTS,
+            450_000,
+            50_000,
+            180,
+        ),
+        (
+            PROCESS_CURE_WILD_TUBERS,
+            MATERIAL_WILD_TUBERS,
+            400_000,
+            100_000,
+            90,
+        ),
+    ] {
+        let recipe = registries.crafting().get_manual(process).unwrap();
+        let raw = CommodityKey::new(material, FORM_FOOD);
+        let preserved = CommodityKey::new(material, FORM_WINTER_PROVISIONS);
+        let waste = CommodityKey::new(material, FORM_CHIP);
+        assert_eq!(recipe.input(), raw);
+        assert_eq!(recipe.input_mass(), Mass::from_milligrams(500_000));
+        assert_eq!(recipe.outputs().len(), 2);
+        assert!(recipe.outputs().contains(&ManualCraftOutput::new(
+            preserved,
+            Mass::from_milligrams(preserved_mass)
+        )));
+        assert!(recipe.outputs().contains(&ManualCraftOutput::new(
+            waste,
+            Mass::from_milligrams(waste_mass)
+        )));
+        assert_eq!(preserved_mass + waste_mass, 500_000);
+        assert!(registries.materials().is_residual_commodity(waste));
+        assert!(registries.production().get_process(process).is_some());
+        assert!(
+            registries
+                .crafting()
+                .manual_producers(preserved)
+                .any(|item| item.process() == process)
+        );
+        let fresh = registries.survival().get_food(raw).unwrap();
+        let winter = registries.survival().get_food(preserved).unwrap();
+        assert_eq!(
+            winter.shelf_life(),
+            TickSpan::new(DEFAULT_TICKS_PER_DAY * shelf_days)
+        );
+        assert!(winter.shelf_life() > fresh.shelf_life());
+        assert_eq!(winter.dietary_energy(), fresh.dietary_energy());
+    }
+}
+
+#[test]
 fn dressed_board_handles_retain_material_and_save_fresh_timber() {
     let registries = build_registries();
     let board_handles = registries

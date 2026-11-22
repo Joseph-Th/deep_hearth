@@ -6,6 +6,7 @@ use crate::capability::{CapabilityId, CapabilityValueKind};
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::throughput::MassFlowDurationError;
 use crate::equipment::{EquipmentDefinitionId, EquipmentId, EquipmentProviderError};
+use crate::inventory::MaterialLotId;
 use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError};
 use crate::logistics::{PlayerEquipmentAccessError, PlayerStockpileAccessError};
 use crate::maintenance::ActiveConditionDurationError;
@@ -92,6 +93,12 @@ pub enum ManualCraftError {
         commodity: CommodityKey,
         temperature: Temperature,
         maximum: Temperature,
+    },
+    SpoiledFoodInput {
+        lot: MaterialLotId,
+    },
+    FoodFreshnessUnavailable {
+        lot: MaterialLotId,
     },
     InputMassNotWholeBatches {
         consumed: Mass,

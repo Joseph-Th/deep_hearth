@@ -15,8 +15,9 @@ use crate::survival::{
 };
 
 use super::{
-    DEFAULT_TICKS_PER_DAY, FLUID_WATER, FORM_FOOD, MATERIAL_BERRIES, MATERIAL_EDIBLE_FUNGI,
-    MATERIAL_GRAIN, MATERIAL_LEGUMES, MATERIAL_MEAT, MATERIAL_WILD_NUTS, MATERIAL_WILD_TUBERS,
+    DEFAULT_TICKS_PER_DAY, FLUID_WATER, FORM_FOOD, FORM_WINTER_PROVISIONS, MATERIAL_BERRIES,
+    MATERIAL_EDIBLE_FUNGI, MATERIAL_GRAIN, MATERIAL_LEGUMES, MATERIAL_MEAT, MATERIAL_WILD_NUTS,
+    MATERIAL_WILD_TUBERS,
 };
 
 const MINIMUM_CONSUMPTION_TEMPERATURE_MK: u32 = 273_150;
@@ -138,7 +139,7 @@ fn physiology() -> PhysiologyDefinition {
     )
 }
 
-fn foods() -> [FoodDefinition; 7] {
+fn foods() -> [FoodDefinition; 9] {
     [
         FoodDefinition::new(
             CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
@@ -182,6 +183,15 @@ fn foods() -> [FoodDefinition; 7] {
             TickSpan::new(DEFAULT_TICKS_PER_DAY * 10),
             direct_consumption_temperature(),
         ),
+        // Select intact nuts early; unlike fresh forage, this stock can bridge winter.
+        FoodDefinition::new(
+            CommodityKey::new(MATERIAL_WILD_NUTS, FORM_WINTER_PROVISIONS),
+            FoodCategory::Protein,
+            MassSpecificEnergy::from_nanojoules_per_milligram(7_000_000_000),
+            0,
+            TickSpan::new(DEFAULT_TICKS_PER_DAY * 180),
+            direct_consumption_temperature(),
+        ),
         // Diggable tubers are a slower but longer-lived energy source than
         // fragile wet-woodland fungi. Both remain finite food material.
         FoodDefinition::new(
@@ -190,6 +200,14 @@ fn foods() -> [FoodDefinition; 7] {
             MassSpecificEnergy::from_nanojoules_per_milligram(3_300_000_000),
             690_000,
             TickSpan::new(DEFAULT_TICKS_PER_DAY * 8),
+            direct_consumption_temperature(),
+        ),
+        FoodDefinition::new(
+            CommodityKey::new(MATERIAL_WILD_TUBERS, FORM_WINTER_PROVISIONS),
+            FoodCategory::Grain,
+            MassSpecificEnergy::from_nanojoules_per_milligram(3_300_000_000),
+            690_000,
+            TickSpan::new(DEFAULT_TICKS_PER_DAY * 90),
             direct_consumption_temperature(),
         ),
         FoodDefinition::new(

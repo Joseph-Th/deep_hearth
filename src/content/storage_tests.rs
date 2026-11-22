@@ -23,6 +23,62 @@ use crate::registry::Registries;
 const RECOVERY_SCALE: u128 = 1_000_000_000_000;
 
 #[test]
+fn winter_cache_and_fuel_rack_are_primitive_bulk_stockpiles() {
+    let registries = build_registries();
+    let cache = registries
+        .storage()
+        .get(STORAGE_STONE_AND_TIMBER_WINTER_CACHE)
+        .unwrap();
+    let rack = registries
+        .storage()
+        .get(STORAGE_PRIMITIVE_FUELWOOD_RACK)
+        .unwrap();
+    assert_eq!(
+        cache.maximum_stockpile_capacity(),
+        Mass::from_milligrams(75_000_000)
+    );
+    assert_eq!(
+        cache.storage_profile().preservation_multiplier_ppm(),
+        4_000_000
+    );
+    assert_eq!(
+        cache.assembly_profile().inputs(),
+        &[
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+                Mass::from_milligrams(3_000_000),
+            ),
+            MaterialInputSpec::pure(
+                CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+                Mass::from_milligrams(6_000_000),
+            ),
+        ]
+    );
+    assert_eq!(
+        rack.maximum_stockpile_capacity(),
+        Mass::from_milligrams(150_000_000)
+    );
+    assert_eq!(
+        rack.storage_profile().preservation_multiplier_ppm(),
+        1_250_000
+    );
+    assert_eq!(
+        rack.assembly_profile().inputs(),
+        &[MaterialInputSpec::pure(
+            CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+            Mass::from_milligrams(2_400_000),
+        )]
+    );
+    assert!(
+        registries
+            .crafting()
+            .manual_producers(CommodityKey::new(MATERIAL_WOOD, FORM_BOARD))
+            .next()
+            .is_some()
+    );
+}
+
+#[test]
 fn storage_dismantle_duration_is_derived_from_embodied_assembly_mass() {
     let registry = build_storage_registry();
     let mut definitions = registry.definitions().peekable();

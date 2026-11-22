@@ -12,13 +12,13 @@ Progression:
 
 | Area | Reachable capability |
 | --- | --- |
-| Survival and labor | Metabolism, hydration, vitality, diet, spoilage, timed intake, exertion, exclusive work, weather cooling/rewarming, roofs and windbreaks. |
-| Materials and inventory | Exact lots, finite storage/reservations, conservation, preservation, classified residues and waste-only spoil bays. |
-| Prospecting and mining | Starter copper is 10%-grade weathered ore, not loose metal. A stone pick, precise hammer survey, mining and hand dressing precede reinforcement; reserves stay private. |
-| Crafting and equipment | Flint/copper tools, kiln, cooling bed, fired ceramic casting mold, maintenance and upgrades; finite waste storage. |
-| Power | Hand crank, treadle, flywheels and buffers. Straight built timber shafts couple opposed mechanical stores at up to 50 W, losing 20% per roller. No gearboxes or electric networks. |
+| Survival and labor | Spring start; 90-day seasons (30-day months), 360-day year. Metabolism, hydration, diet, spoilage, timed intake/work, exertion, weather, roofs and windbreaks. |
+| Materials and inventory | Conserved finite lots/storage, reservations, preservation, residues and spoil bays. Stone/timber winter cache (75 kg, 4x preservation) and covered fuel rack (150 kg, 1.25x). |
+| Prospecting and mining | Weathered 10%-grade copper ore needs a stone pick, survey, mining and hand dressing; reserves stay private. |
+| Crafting and equipment | Nut sorting (500 g to 450 g 180-day staples + 50 g waste); tuber curing (500 g to 400 g 90-day staples + 100 g waste). Rejects spoiled input. Flint/copper tools, kiln, molds, maintenance and waste storage. |
+| Power | Crank, treadle, flywheels, buffers and straight timber shafts (50 W; 20% loss/roller). No gears or electric networks. |
 | Processing | Ore dressing, local crusher batch choices and unattended work; casting, PbS+Fe smelting, kiln firing and finite cooling. No general reduction or passive cooling. |
-| Opening wilderness acquisition | Scouts forage, drink, steal and warn; thirst limits raids. Firelight/boxes deter theft, loot persists and can be recovered. Tracks, sounds and club staggers are simulated; tool injuries are scenario-only. |
+| Opening wilderness acquisition | Scouts forage, drink, steal and warn; thirst limits raids. Firelight/boxes deter theft; loot is recoverable. Tracks, sounds and staggers; injuries scenario-only. |
 | Natural starts | Random dry/mixed/damp hills, ore and raw matter, species-specific tree growth, four wild foods and seasonal fungal mycelia; no guaranteed supplies. |
 | Structures | Timed carried-stack posts, framing and a 6.5 kg cover panel; activation on completion. |
 

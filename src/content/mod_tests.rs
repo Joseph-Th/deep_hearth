@@ -175,6 +175,33 @@ fn built_in_world_time_scale_and_gravity_are_stable() {
     );
 }
 
+#[test]
+fn winter_calendar_has_ninety_day_seasons_and_a_three_hundred_sixty_day_year() {
+    use crate::core::time::{Season, SimulationTick};
+
+    let calendar = build_registries().core().calendar();
+    assert_eq!(calendar.days_per_month(), 30);
+    assert_eq!(calendar.months_per_year(), 12);
+    let day = calendar.ticks_per_day();
+    for (day_number, season) in [
+        (0, Season::Spring),
+        (89, Season::Spring),
+        (90, Season::Summer),
+        (179, Season::Summer),
+        (180, Season::Autumn),
+        (269, Season::Autumn),
+        (270, Season::Winter),
+        (359, Season::Winter),
+        (360, Season::Spring),
+    ] {
+        assert_eq!(
+            calendar.season_at(SimulationTick::new(day_number * day)),
+            season
+        );
+    }
+    assert_eq!(calendar.date_at(SimulationTick::new(360 * day)).year(), 2);
+}
+
 #[path = "mod_tests/gameplay_authoring.rs"]
 mod gameplay_authoring;
 #[path = "mod_tests/presentation.rs"]

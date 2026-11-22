@@ -129,6 +129,16 @@ impl Display for ManualCraftError {
                 temperature.millikelvin(),
                 maximum.millikelvin()
             ),
+            Self::SpoiledFoodInput { lot } => write!(
+                formatter,
+                "cannot preserve spoiled food lot {}",
+                lot.value()
+            ),
+            Self::FoodFreshnessUnavailable { lot } => write!(
+                formatter,
+                "cannot establish freshness of food lot {} before preserving it",
+                lot.value()
+            ),
             Self::InputMassNotWholeBatches {
                 consumed,
                 batch_mass,
