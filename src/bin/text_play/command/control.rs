@@ -1,7 +1,7 @@
 //! Direct-control locomotion, interaction, and time-step commands.
 //! These operations share the authoritative control-clock path.
 
-use super::super::activity;
+use super::super::{activity, view};
 use super::{Direction, Session, parse_index};
 use deep_hearth::logistics::{PlayerControlInput, PlayerQuickAccessSlot};
 use deep_hearth::simulation::{
@@ -116,17 +116,7 @@ impl Session {
                     && self.state.player_work().active().is_none()
                     && self.state.logistics().has_pending_direct_action() =>
             {
-                // Admission itself is an observable work event. Resolve a buffered
-                // gesture at its real boundary; do not run past a rejection or
-                // another interruption as though work had already begun.
-                let scale = deep_hearth::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
-                let remaining = scale - self.state.control_tick().value() % scale;
-                self.advance_many_with_work_wait(
-                    PlayerDirectControlInput::NEUTRAL,
-                    remaining,
-                    false,
-                    true,
-                )?
+                self.wait_queued_action(args == ["finish"])?
             }
             "wait" if args == ["work"] || args == ["finish"] => {
                 let count = activity::remaining_work_control_ticks(&self.state)
@@ -188,6 +178,33 @@ impl Session {
             _ => return Ok(None),
         };
         Ok(Some(output))
+    }
+
+    /// Resolve buffered physical input at its real admission boundary. A work
+    /// wait stops there; a finish wait continues through the scheduled job,
+    /// unless admission failed or the player's survival urgency changed.
+    fn wait_queued_action(&mut self, finish: bool) -> Result<String, String> {
+        let before = view::urgency(&self.registries, &self.state);
+        let scale = deep_hearth::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
+        let remaining = scale - self.state.control_tick().value() % scale;
+        let mut output = self.advance_many_with_work_wait(
+            PlayerDirectControlInput::NEUTRAL,
+            remaining,
+            false,
+            true,
+        )?;
+        if finish
+            && view::urgency(&self.registries, &self.state) == before
+            && let Some(work_ticks) = activity::remaining_work_control_ticks(&self.state)
+        {
+            output.push_str(&self.advance_many_with_work_wait(
+                PlayerDirectControlInput::NEUTRAL,
+                work_ticks.min(72_000),
+                false,
+                true,
+            )?);
+        }
+        Ok(output)
     }
 }
 

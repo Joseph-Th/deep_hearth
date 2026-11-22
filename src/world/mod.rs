@@ -70,7 +70,8 @@ pub use sky::assess_generated_skylight;
 pub(crate) use sky::is_generated_night;
 pub(crate) use spring_identity::seeded_spring_matches;
 pub use spring_sight::{
-    VisibleWaterSource, available_visible_generated_water, available_visible_water_landmarks,
+    VisibleWaterSource, assess_player_local_natural_spring, available_visible_generated_water,
+    available_visible_water_landmarks,
 };
 #[cfg(test)]
 pub(crate) use state::set_generated_block_for_test;

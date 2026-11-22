@@ -43,9 +43,9 @@ use deep_hearth::survival::{
     assess_player_unheated_comfort_runway, assess_survival, available_local_drink_sources,
 };
 use deep_hearth::world::{
-    HabitatKind, assess_player_forage_scents, assess_player_habitat, assess_player_weather,
-    available_visible_generated_trees, available_visible_generated_water,
-    available_visible_water_landmarks, raycast_player_block,
+    HabitatKind, assess_player_forage_scents, assess_player_habitat,
+    assess_player_local_natural_spring, assess_player_weather, available_visible_generated_trees,
+    available_visible_generated_water, available_visible_water_landmarks, raycast_player_block,
 };
 use deep_hearth::{AppState, Registries};
 
@@ -139,8 +139,10 @@ pub fn milliliters(volume: Volume) -> String {
 /// Choosing one still revalidates the actual finite source on the input tick.
 pub fn drink_options(registries: &Registries, state: &AppState) -> String {
     let sources = available_local_drink_sources(registries, state).collect::<Vec<_>>();
-    drink_sources_report(&sources)
-        .unwrap_or_else(|| "No drinkable source at your current location.\n".to_owned())
+    let mut output = drink_sources_report(&sources)
+        .unwrap_or_else(|| "No drinkable source at your current location.\n".to_owned());
+    output.push_str(&natural_spring_report(registries, state));
+    output
 }
 
 fn drink_sources_report(sources: &[LocalDrinkSource]) -> Option<String> {
@@ -159,6 +161,36 @@ fn drink_sources_report(sources: &[LocalDrinkSource]) -> Option<String> {
         );
     }
     Some(output)
+}
+
+/// Only the co-located natural pool is assessed. This is a conditional
+/// planning aid, not a promise of future rainfall or automatic absorption.
+fn natural_spring_report(registries: &Registries, state: &AppState) -> String {
+    let Some(surface) = assess_player_local_natural_spring(state) else {
+        return String::new();
+    };
+    spring_supply_label(
+        surface,
+        registries.survival().physiology().hydration_loss_per_tick(),
+    )
+}
+
+fn spring_supply_label(surface: Volume, resting_hydration_loss_per_tick: Volume) -> String {
+    if surface.is_zero() {
+        return "Dry natural spring basin here: no surface water to drink. Moisture retained in its soil may return with weather, but a completely spent spring cannot replenish itself. Seek another source.\n".to_owned();
+    }
+    let rate = resting_hydration_loss_per_tick.microliters();
+    if rate == 0 {
+        return format!(
+            "Natural spring here: {} mL of finite surface water.\n",
+            milliliters(surface)
+        );
+    }
+    format!(
+        "Natural spring supply: {} mL, equivalent to {} of hydration loss at rest. This is finite water, not a daily yield; work uses more and soil-weather exchange can change the visible amount.\n",
+        milliliters(surface),
+        runway_label(Some(surface.microliters() / rate)),
+    )
 }
 
 fn meters_from_nanometers(nanometers: i64) -> String {
@@ -393,7 +425,7 @@ pub fn status(registries: &Registries, state: &AppState) -> String {
             activity::remaining_duration(registries, state, work),
         );
     } else if state.logistics().has_pending_direct_action() {
-        output.push_str("Queued interaction: use 'wait finish' to reach admission at the next simulation boundary; if work starts, wait again to complete it.\n");
+        output.push_str("Queued interaction: 'wait finish' admits this action at the next simulation boundary and continues through scheduled work unless interrupted; 'wait work' stops at admission.\n");
     }
     output
 }
@@ -597,6 +629,7 @@ pub fn look(registries: &Registries, state: &AppState, aim: Option<ViewDirection
     {
         output.push_str(&report);
     }
+    output.push_str(&natural_spring_report(registries, state));
     for tree in available_visible_generated_trees(registries, state) {
         let _ = writeln!(
             output,

@@ -1,6 +1,7 @@
 //! Discover nearby located fluid without exposing the hidden regional water ledger.
 
 use crate::content::FLUID_WATER;
+use crate::core::quantity::Volume;
 use crate::core::state::AppState;
 use crate::fluid::FluidStoreId;
 use crate::registry::Registries;
@@ -25,6 +26,32 @@ impl VisibleWaterSource {
     pub const fn position(self) -> VoxelCoord {
         self.position
     }
+}
+
+/// Surface water in the natural basin the living player is standing in.
+/// A spent basin remains recognizable at one's feet; no distant empty pool
+/// or hidden subsurface reserve is disclosed.
+#[must_use]
+pub fn assess_player_local_natural_spring(state: &AppState) -> Option<Volume> {
+    let player = state.logistics().player()?;
+    if state
+        .survival()
+        .player()
+        .is_none_or(|survival| survival.vitality() == Vitality::ZERO)
+        || !state.world().has_generated_terrain_at(player.position())
+    {
+        return None;
+    }
+    state
+        .logistics()
+        .fluid_stores_at(player.position())
+        .find(|store| state.fluid().is_natural_spring(*store))
+        .and_then(|store| {
+            state
+                .fluid()
+                .get_store(store)
+                .map(|record| record.stored_volume())
+        })
 }
 
 #[must_use]

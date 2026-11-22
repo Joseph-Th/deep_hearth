@@ -509,11 +509,41 @@ impl Session {
         Ok(output)
     }
 
-    fn eat(&mut self, index: &str) -> Result<String, String> {
+    fn eat(&mut self, selection: &str) -> Result<String, String> {
         let inventory = project_player_inventory(&self.registries, &self.state)
             .map_err(|error| error.to_string())?;
         let stacks = inventory.carried().stacks();
-        let index = parse_index(index, stacks.len())?;
+        // A food name is stable across inventory reordering, whereas row
+        // numbers are not. Require an unambiguous whole displayed name when
+        // there are multiple carried cohorts; never choose one arbitrarily.
+        let index = if selection.bytes().all(|byte| byte.is_ascii_digit()) {
+            parse_index(selection, stacks.len())?
+        } else {
+            let matching = stacks
+                .iter()
+                .enumerate()
+                .filter(|(_, stack)| {
+                    self.registries
+                        .materials()
+                        .commodity_name(stack.commodity())
+                        .is_some_and(|name| name.eq_ignore_ascii_case(selection))
+                })
+                .map(|(index, _)| index + 1)
+                .collect::<Vec<_>>();
+            match matching.as_slice() {
+                [index] => *index,
+                [] => {
+                    return Err(format!(
+                        "no carried stack named {selection:?}; use inventory to inspect exact food names"
+                    ));
+                }
+                _ => {
+                    return Err(format!(
+                        "multiple carried stacks named {selection:?} at rows {matching:?}; use eat N to select the intended cohort"
+                    ));
+                }
+            }
+        };
         let stack = &stacks[index - 1];
         let mut output = String::new();
         // A boundary frame settles the slow owners before consuming input.

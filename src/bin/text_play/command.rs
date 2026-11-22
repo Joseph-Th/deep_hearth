@@ -150,7 +150,7 @@ impl Session {
             "gather" if matches!(args, [_, "repeat", _] | [_, _, "repeat", _]) => {
                 self.gather_repeated(args)?
             }
-            "eat" if args.len() == 1 => self.eat(args[0])?,
+            "eat" if !args.is_empty() => self.eat(&args.join(" "))?,
             "drink" if args.is_empty() => view::drink_options(&self.registries, &self.state),
             "drink" if args.len() == 1 => self.drink(args[0])?,
             "surveys" if args.len() <= 1 => {

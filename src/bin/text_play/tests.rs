@@ -115,6 +115,31 @@ fn eating_at_slow_boundary_refreshes_the_exact_selected_cohort() {
 }
 
 #[test]
+fn named_food_selection_matches_numbered_cohort_without_guessing_a_different_material() {
+    let mut by_name = Session::new(24318).unwrap();
+    let mut by_row = Session::new(24318).unwrap();
+    for command in ["e 20", "wait 10", "gather 1 500", "wait work"] {
+        by_name.command(command).unwrap();
+        by_row.command(command).unwrap();
+    }
+    let before = snapshot(&by_name);
+    assert_eq!(snapshot(&by_row), before);
+    assert!(
+        by_name.command("eat crushed stone").is_err(),
+        "a missing named material must not select an unrelated food"
+    );
+    assert_eq!(snapshot(&by_name), before);
+    let (named, _) = by_name.command("eat BERRIES").unwrap();
+    let (numbered, _) = by_row.command("eat 1").unwrap();
+    assert!(named.contains("Eating started:"), "{named}");
+    assert!(numbered.contains("Eating started:"), "{numbered}");
+    assert_eq!(snapshot(&by_name), snapshot(&by_row));
+    by_name.command("wait finish").unwrap();
+    by_row.command("wait finish").unwrap();
+    assert_eq!(snapshot(&by_name), snapshot(&by_row));
+}
+
+#[test]
 fn repeated_gathering_matches_explicit_authoritative_batches() {
     let mut repeated = Session::new(24318).unwrap();
     let mut manual = Session::new(24318).unwrap();
@@ -360,19 +385,38 @@ fn shallow_aim_completes_an_overhead_timber_cover_on_the_played_seed() {
             .unwrap(),
         seed: None,
     };
-    let (building, _) = session.command("wait finish").unwrap();
-    reference.command("wait boundary").unwrap();
-    assert_eq!(snapshot(&session), snapshot(&reference));
+    let (admission, _) = reference.command("wait work").unwrap();
     assert!(
-        building.contains("Structural construction started"),
-        "{building}"
+        admission.contains("Structural construction started"),
+        "{admission}"
     );
     assert!(
-        building.contains("Nearby panel: axial compression at (9,0,11) | Planned | 6500 g"),
-        "{building}"
+        admission.contains("Nearby panel: axial compression at (9,0,11) | Planned | 6500 g"),
+        "{admission}"
     );
-    let (finished, _) = session.command("wait work").unwrap();
-    assert!(finished.contains("Construction finished"), "{finished}");
+    assert!(
+        reference.state.player_work().active().is_some(),
+        "wait work must stop after admission, before construction finishes"
+    );
+    let (completed_in_one, _) = session.command("wait finish").unwrap();
+    let (completed_in_two, _) = reference.command("wait finish").unwrap();
+    assert!(
+        completed_in_one.contains("Structural construction started"),
+        "{completed_in_one}"
+    );
+    assert!(
+        completed_in_one.contains("Construction finished"),
+        "{completed_in_one}"
+    );
+    assert!(
+        completed_in_two.contains("Construction finished"),
+        "{completed_in_two}"
+    );
+    assert_eq!(
+        snapshot(&session),
+        snapshot(&reference),
+        "one wait finish must settle exactly the same canonical ticks as admission plus completion"
+    );
     let (look, _) = session.command("look").unwrap();
     assert!(
         look.contains("Nearby panel: axial compression at (9,0,11) | Active | 6500 g"),

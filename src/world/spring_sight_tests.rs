@@ -12,8 +12,90 @@ use crate::player::validate_admit_player;
 use crate::survival::{DrinkError, Vitality, player_record_with_thermal_comfort, validate_drink};
 use crate::world::{
     BlockStateId, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WorldGenerationSeed,
-    set_generated_block_for_test, validate_generate_chunk,
+    set_generated_block_for_test, validate_generate_chunk, validate_generate_player_neighborhood,
 };
+
+#[test]
+fn dry_natural_basin_remains_known_only_at_the_players_feet_after_water_is_spent() {
+    use crate::fluid::{add_fluid_store, validate_transfer_fluid_between_local_stores};
+    use crate::world::WORLD_MIN_Y;
+
+    let registries = build_registries();
+    let (mut state, basin, position, spawn) = (0..80_u64)
+        .find_map(|number| {
+            let mut state = AppState::new();
+            validate_generate_chunk(
+                &registries,
+                &state,
+                WorldGenerationSeed::new(number),
+                ChunkCoord::new(0, 0),
+                BLOCK_STATE_STONE,
+            )
+            .ok()?
+            .commit(&mut state)
+            .ok()?;
+            let y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE - 1).find(|&y| {
+                state.world().block_at(VoxelCoord::new(0, y, 0)) == Some(BlockStateId::AIR)
+                    && state.world().block_at(VoxelCoord::new(0, y - 1, 0))
+                        == Some(BLOCK_STATE_STONE)
+            })?;
+            let spawn = VoxelCoord::new(0, y, 0);
+            validate_admit_player(&registries, &state, spawn)
+                .ok()?
+                .commit(&mut state)
+                .ok()?;
+            validate_generate_player_neighborhood(&registries, &state)
+                .ok()??
+                .commit(&mut state)
+                .ok()?;
+            let (basin, position) = state
+                .fluid()
+                .spring_soil()
+                .next()
+                .map(|(id, soil)| (id, soil.position))?;
+            Some((state, basin, position, spawn))
+        })
+        .expect("some local generated seed must have a finite natural spring");
+
+    assert_eq!(assess_player_local_natural_spring(&state), None);
+    relocate_player_for_test(&mut state, position);
+    let initial = state.fluid().get_store(basin).unwrap().stored_volume();
+    assert!(!initial.is_zero());
+    assert_eq!(assess_player_local_natural_spring(&state), Some(initial));
+
+    let receiver = add_fluid_store(&mut state, initial).unwrap();
+    validate_place_fluid_store(&state, receiver, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ =
+        validate_transfer_fluid_between_local_stores(&registries, &state, basin, receiver, initial)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    assert_eq!(
+        assess_player_local_natural_spring(&state),
+        Some(Volume::ZERO)
+    );
+    assert!(
+        !available_visible_generated_water(&registries, &state)
+            .iter()
+            .any(|source| source.store() == basin),
+        "no drinkable water may be implied by the recognizable dry basin"
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(
+        assess_player_local_natural_spring(&replay),
+        Some(Volume::ZERO)
+    );
+    assert_eq!(validate_loaded_state(&registries, &replay), Ok(()));
+    relocate_player_for_test(&mut state, spawn);
+    assert_eq!(assess_player_local_natural_spring(&state), None);
+}
 
 #[test]
 fn water_landmark_across_a_chunk_is_only_a_lit_sight_not_remote_drinking() {

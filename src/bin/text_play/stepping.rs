@@ -524,7 +524,19 @@ impl Session {
         let fall = outcome
             .body_motion()
             .and_then(|motion| motion.fall_impact());
-        let landed = note_text(output, "Fall impact", fall.map(feedback::landing));
+        // Ordinary downhill travel makes frequent low-speed landings. Keep
+        // those real physics receipts, but don't flood the transcript with
+        // identical harmless impacts. A damaging landing still reports and
+        // interrupts immediately before its vitality cost settles.
+        // Harmless impacts stay observable to movement and work scheduling:
+        // suppress only their repetitive transcript, not the physical event.
+        let landed = fall.is_some();
+        let _ = note_text(
+            output,
+            "Fall impact",
+            fall.filter(|impact| impact.vitality_loss_ppm() > 0)
+                .map(feedback::landing),
+        );
         interrupt |= note_text(
             output,
             "Picked up",
