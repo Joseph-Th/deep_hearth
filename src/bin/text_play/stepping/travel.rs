@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use super::{Session, view};
+use deep_hearth::fluid::FluidStoreId;
 use deep_hearth::geology::visible_weathered_copper_sites;
 use deep_hearth::logistics::{
     HorizontalControlInput, MAX_LEDGE_CLIMB_METERS, PlayerControlInput,
@@ -16,8 +17,8 @@ use deep_hearth::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord, Wor
 use deep_hearth::surface::{AdjacentSurfaceResource, available_visible_surface_landmarks};
 use deep_hearth::survival::Vitality;
 use deep_hearth::world::{
-    ForageScentKind, VisibleWaterSource, assess_player_forage_scents,
-    available_visible_generated_water, available_visible_water_landmarks,
+    ForageScentKind, assess_player_forage_scents, available_visible_generated_water,
+    available_visible_water_landmarks,
 };
 
 const CENTER_TOLERANCE: i64 = 30_000_000;
@@ -35,8 +36,8 @@ enum LegResult {
 struct TravelDiscoveries {
     observer: Option<VoxelCoord>,
     resources: BTreeSet<(VoxelCoord, CommodityKey)>,
-    water: Vec<VisibleWaterSource>,
-    copper: Vec<VoxelCoord>,
+    water: BTreeSet<(VoxelCoord, FluidStoreId)>,
+    copper: BTreeSet<VoxelCoord>,
     scents: BTreeSet<ForageScentKind>,
 }
 
@@ -53,13 +54,18 @@ impl TravelDiscoveries {
                     .map(|site| (site.position(), site.commodity())),
             )
             .collect();
-        let mut water = available_visible_generated_water(registries, state);
-        water.extend(available_visible_water_landmarks(registries, state));
+        let water = available_visible_generated_water(registries, state)
+            .into_iter()
+            .chain(available_visible_water_landmarks(registries, state))
+            .map(|source| (source.position(), source.store()))
+            .collect();
         Self {
             observer: state.logistics().player().map(|player| player.position()),
             resources,
             water,
-            copper: visible_weathered_copper_sites(registries, state),
+            copper: visible_weathered_copper_sites(registries, state)
+                .into_iter()
+                .collect(),
             scents: assess_player_forage_scents(registries, state)
                 .into_iter()
                 .map(|scent| scent.kind())
@@ -69,8 +75,11 @@ impl TravelDiscoveries {
 
     fn close_to(&self, site: VoxelCoord) -> bool {
         self.observer.is_some_and(|at| {
-            at.x().abs_diff(site.x()) <= DISCOVERY_ATTENTION_RADIUS
-                && at.z().abs_diff(site.z()) <= DISCOVERY_ATTENTION_RADIUS
+            // The player travels cardinally. A diagonal sighting inside the
+            // visibility square can still require a long off-route detour.
+            let east_west = at.x().abs_diff(site.x());
+            east_west <= DISCOVERY_ATTENTION_RADIUS
+                && at.z().abs_diff(site.z()) <= DISCOVERY_ATTENTION_RADIUS - east_west
         })
     }
 
@@ -84,7 +93,7 @@ impl TravelDiscoveries {
         } else if next
             .water
             .iter()
-            .any(|site| next.close_to(site.position()) && !self.water.contains(site))
+            .any(|site| next.close_to(site.0) && !self.water.contains(site))
         {
             Some("A new water source is visible.")
         } else if next
@@ -98,6 +107,19 @@ impl TravelDiscoveries {
         } else {
             None
         }
+    }
+
+    /// A landmark that leaves sight remains known for this trek. Only scents
+    /// describe a changing present-tense observation and may become new again
+    /// after the wind stops carrying them.
+    fn observe(&mut self, next: Self) -> Option<&'static str> {
+        let attention = self.attention(&next);
+        self.observer = next.observer;
+        self.resources.extend(next.resources);
+        self.water.extend(next.water);
+        self.copper.extend(next.copper);
+        self.scents = next.scents;
+        attention
     }
 }
 
@@ -124,9 +146,7 @@ impl TravelObservations {
         }
         let previous = self.discoveries.as_mut()?;
         let next = TravelDiscoveries::capture(session);
-        let attention = previous.attention(&next);
-        *previous = next;
-        attention
+        previous.observe(next)
     }
 }
 
