@@ -683,11 +683,19 @@ fn supported_construction_support_failure_interrupts_without_losing_material() {
         .into_state(&registries)
         .unwrap_or_else(|error| panic!("support-failure trusted load failed: {error}"));
 
+    let mut interruptions = 0;
     while loaded.tick() < work.completes_at() {
         let outcome = advance_tick(&registries, &mut loaded)
             .unwrap_or_else(|error| panic!("support-failure continuation failed: {error}"));
         assert_ne!(outcome.structural_construction(), Some(element));
+        if outcome.structural_construction_interrupted() == Some(element) {
+            interruptions += 1;
+        }
     }
+    assert_eq!(
+        interruptions, 1,
+        "one failed support must produce exactly one interruption receipt"
+    );
 
     assert_eq!(loaded.player_work().active(), None);
     assert_eq!(

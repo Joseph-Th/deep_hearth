@@ -8,6 +8,7 @@ use deep_hearth::simulation::{
     ActiveSelectionDropOutcome, PrimaryActionOutcome, QuickAccessSelectionOutcome,
     SecondaryActionOutcome,
 };
+use deep_hearth::structural::{StructuralElementId, StructuralLifecycle};
 use deep_hearth::surface::SurfaceGatheringError;
 use deep_hearth::survival::{DrinkError, DrinkStoreToTargetError, EatError, EatStackToTargetError};
 use deep_hearth::world::{BlockExcavationError, TreeFellingError, TreeFellingStartError};
@@ -15,6 +16,33 @@ use deep_hearth::{AppState, Registries};
 
 use super::super::errors::work_blocker;
 use super::super::{fire, storage, view};
+
+/// Construction completion is not evidence of a usable support: the canonical
+/// activation can resolve immediate load failure on this same simulation tick.
+pub(super) fn construction_finished(state: &AppState, element: StructuralElementId) -> String {
+    construction_status(
+        state
+            .structures()
+            .get_element(element)
+            .map(|member| member.lifecycle()),
+    )
+    .to_owned()
+}
+
+fn construction_status(lifecycle: Option<StructuralLifecycle>) -> &'static str {
+    match lifecycle {
+        Some(StructuralLifecycle::Active) => "The built member is now load-bearing.",
+        Some(StructuralLifecycle::Failed) => {
+            "The built member failed under structural load and is not load-bearing. Its material can be recovered."
+        }
+        Some(StructuralLifecycle::Planned) => "The member remains planned and is not load-bearing.",
+        None => "The completed member is no longer present.",
+    }
+}
+
+#[cfg(test)]
+#[path = "feedback_tests.rs"]
+mod tests;
 
 pub(super) fn slot(
     registries: &Registries,

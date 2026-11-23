@@ -845,6 +845,7 @@ fn fatal_tick_leaves_unfinished_member_materialized_but_inert() {
         .unwrap_or_else(|error| panic!("fatal construction tick failed: {error}"));
 
     assert_eq!(outcome.structural_construction(), None);
+    assert_eq!(outcome.structural_construction_interrupted(), None);
     assert_eq!(state.player_work().active(), None);
     assert_eq!(
         state.survival().player().map(|player| player.vitality()),

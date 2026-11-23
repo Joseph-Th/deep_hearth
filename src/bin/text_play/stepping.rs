@@ -584,7 +584,15 @@ impl Session {
                 "Construction finished",
                 simulation
                     .structural_construction()
-                    .map(|_| "The built member is now load-bearing.".to_owned()),
+                    .map(|element| feedback::construction_finished(&self.state, element)),
+            );
+            interrupt |= note_text(
+                output,
+                "Construction interrupted",
+                simulation.structural_construction_interrupted().map(|_| {
+                    "The member lost its active support before activation; its material remains recoverable."
+                        .to_owned()
+                }),
             );
             interrupt |= note_text(
                 output,

@@ -567,7 +567,9 @@ fn validate_start_player_structural_construction_for_planned_member_with_support
 #[must_use]
 pub(crate) struct StructuralConstructionTickPlan {
     element: StructuralElementId,
-    activation: ValidatedStructuralMutation,
+    // A due work item can lose its support before activation. Retain its
+    // completion as an observable interruption without a structural write.
+    activation: Option<ValidatedStructuralMutation>,
 }
 
 impl StructuralConstructionTickPlan {
@@ -576,8 +578,15 @@ impl StructuralConstructionTickPlan {
     pub(crate) fn project_structures(
         &self,
         structures: &crate::structural::StructureState,
-    ) -> crate::structural::StructureState {
-        self.activation.project(structures)
+    ) -> Option<crate::structural::StructureState> {
+        self.activation
+            .as_ref()
+            .map(|activation| activation.project(structures))
+    }
+
+    #[must_use]
+    pub(crate) const fn mutates_structures(&self) -> bool {
+        self.activation.is_some()
     }
 }
 
@@ -595,14 +604,14 @@ pub(crate) fn decide_structural_construction_tick(
         projected_structures,
         work.element(),
     ) {
-        Ok(activation) => activation,
+        Ok(activation) => Some(activation),
         // A retained support may physically fail after construction admission. The already-
         // embodied planned member stays conserved and recoverable, while this completion becomes
         // an interrupted attempt rather than activating unsupported structure.
         Err(StructuralMutationError::ActivationUnsupported { element })
             if element == work.element() =>
         {
-            return None;
+            None
         }
         Err(error) => panic!("admitted structural construction became invalid: {error}"),
     };
@@ -615,13 +624,17 @@ pub(crate) fn decide_structural_construction_tick(
 pub(crate) fn apply_structural_construction_tick(
     state: &mut AppState,
     plan: Option<StructuralConstructionTickPlan>,
-) -> Option<StructuralElementId> {
-    let plan = plan?;
-    let _ = plan
-        .activation
+) -> (Option<StructuralElementId>, Option<StructuralElementId>) {
+    let Some(plan) = plan else {
+        return (None, None);
+    };
+    let Some(activation) = plan.activation else {
+        return (None, Some(plan.element));
+    };
+    let _ = activation
         .commit(state)
         .unwrap_or_else(|error| panic!("prechecked structural activation failed: {error}"));
-    Some(plan.element)
+    (Some(plan.element), None)
 }
 
 #[cfg(test)]

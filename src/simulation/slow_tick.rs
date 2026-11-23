@@ -258,7 +258,10 @@ fn advance_simulation_tick_unstaged(
         next_tick,
         mining_plan,
         inventory_owner_busy,
-        structural_construction_plan.is_some() || structural_dismantling_plan.is_some(),
+        structural_construction_plan
+            .as_ref()
+            .is_some_and(|plan| plan.mutates_structures())
+            || structural_dismantling_plan.is_some(),
     )?;
     // Production, construction and automatic mining output settle before
     // mechanical work. Any of their actual support-load changes can crack
@@ -267,7 +270,7 @@ fn advance_simulation_tick_unstaged(
     // so newly assembled rollers and newly released work remain deferred.
     let after_construction_structures = structural_construction_plan
         .as_ref()
-        .map(|plan| plan.project_structures(after_production_structures.as_ref()));
+        .and_then(|plan| plan.project_structures(after_production_structures.as_ref()));
     let before_mining_structures = after_construction_structures
         .as_ref()
         .unwrap_or(after_production_structures.as_ref());
@@ -356,7 +359,7 @@ fn advance_simulation_tick_unstaged(
         completions: production_completions,
         availability_changes: production_availability_changes,
     } = apply_completion_plan(state, completion_plan)?;
-    let structural_construction =
+    let (structural_construction, structural_construction_interrupted) =
         apply_structural_construction_tick(state, structural_construction_plan);
     let structural_dismantling =
         apply_structural_dismantling_tick(state, structural_dismantling_plan);
@@ -420,6 +423,7 @@ fn advance_simulation_tick_unstaged(
         equipment_maintenance,
         storage_enclosure_dismantling,
         structural_construction,
+        structural_construction_interrupted,
         structural_dismantling,
         field_prospecting,
         kobold_scout,

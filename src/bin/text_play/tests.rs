@@ -412,6 +412,10 @@ fn shallow_aim_completes_an_overhead_timber_cover_on_the_played_seed() {
         completed_in_two.contains("Construction finished"),
         "{completed_in_two}"
     );
+    assert!(
+        completed_in_one.contains("The built member is now load-bearing."),
+        "{completed_in_one}"
+    );
     assert_eq!(
         snapshot(&session),
         snapshot(&reference),

@@ -366,6 +366,7 @@ pub struct TickOutcome {
     pub(super) equipment_maintenance: Option<EquipmentMaintenanceOutcome>,
     pub(super) storage_enclosure_dismantling: Option<StorageEnclosureDismantlingOutcome>,
     pub(super) structural_construction: Option<StructuralElementId>,
+    pub(super) structural_construction_interrupted: Option<StructuralElementId>,
     pub(super) structural_dismantling: Option<StructuralDismantlingOutcome>,
     pub(super) field_prospecting: Option<FieldProspectingOutcome>,
     pub(super) kobold_scout: Option<KoboldScoutEvent>,
@@ -439,10 +440,19 @@ impl TickOutcome {
         self.storage_enclosure_dismantling.as_ref()
     }
 
-    /// Returns the structural member that became load-bearing this tick, if any.
+    /// Returns the member whose construction activated this tick. Activation
+    /// resolves load failures as well, so inspect its resulting lifecycle
+    /// before treating it as a usable support.
     #[must_use]
     pub const fn structural_construction(&self) -> Option<StructuralElementId> {
         self.structural_construction
+    }
+
+    /// Returns due construction whose supporting member failed before activation.
+    /// Its embodied material remains in place for ordinary recovery.
+    #[must_use]
+    pub const fn structural_construction_interrupted(&self) -> Option<StructuralElementId> {
+        self.structural_construction_interrupted
     }
 
     /// Returns the structural member and exact recovered lots dismantled this tick, if any.
@@ -495,6 +505,7 @@ impl TickOutcome {
             equipment_maintenance,
             storage_enclosure_dismantling,
             structural_construction,
+            structural_construction_interrupted,
             structural_dismantling,
             field_prospecting,
             kobold_scout,
@@ -513,6 +524,7 @@ impl TickOutcome {
             equipment_maintenance.is_some(),
             storage_enclosure_dismantling.is_some(),
             structural_construction.is_some(),
+            structural_construction_interrupted.is_some(),
             structural_dismantling.is_some(),
             field_prospecting.is_some(),
             kobold_scout.is_some(),
