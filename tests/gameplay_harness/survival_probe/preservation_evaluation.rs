@@ -263,6 +263,13 @@ pub(in super::super) fn select_preservation_investment(
         }),
         "matched preservation candidates must share one no-build freshness baseline"
     );
+    // An unaffordable enclosure is not an executable preservation choice.
+    if !projections
+        .iter()
+        .any(|projection| projection.raw_material_mass_mg <= material_budget_mg)
+    {
+        return None;
+    }
     let selected = select_preservation_projection_for_attention_value(
         attention_value_ppm,
         material_budget_mg,

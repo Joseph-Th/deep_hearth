@@ -253,15 +253,9 @@ pub(in super::super) fn evaluate_preservation_decision(
             total.checked_add(mass.milligrams())
         })
         .unwrap_or_else(|| panic!("preservation disclosed raw opportunity overflowed"));
-    let minimum_candidate_raw_mg = projections
-        .iter()
-        .map(|projection| projection.raw_material_mass_mg)
-        .min()
-        .unwrap_or_else(|| panic!("preservation projection has no authored candidates"));
-    let proportional_budget_mg =
+    let material_budget_mg =
         u64::try_from(u128::from(available_raw_mg) * u128::from(material_budget_ppm) / 1_000_000)
             .unwrap_or_else(|_| unreachable!("bounded preservation material budget fits u64"));
-    let material_budget_mg = proportional_budget_mg.max(minimum_candidate_raw_mg);
     let material_budget_eligible_count = projections
         .iter()
         .filter(|projection| projection.raw_material_mass_mg <= material_budget_mg)
@@ -333,8 +327,16 @@ pub(in super::super) fn evaluate_preservation_decision(
         )
         .unwrap_or(u32::MAX)
     };
+    // A market can offer an enclosure that the actor cannot currently afford.
+    // Retain its counterfactual comparison without raising the spending limit
+    // or admitting the construction as an investment.
+    let comparison_budget_mg = if material_budget_eligible_count == 0 {
+        available_raw_mg
+    } else {
+        material_budget_mg
+    };
     let selected_projection =
-        select_preservation_projection(behavior_seed, material_budget_mg, &projections);
+        select_preservation_projection(behavior_seed, comparison_budget_mg, &projections);
     let physical_frontier = preservation_physical_frontier(&projections);
     let selected_on_physical_frontier = physical_frontier.contains(&selected_projection.definition);
     let selected_within_material_budget =

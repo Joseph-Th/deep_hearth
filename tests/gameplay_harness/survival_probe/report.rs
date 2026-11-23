@@ -91,6 +91,8 @@ pub(in super::super) fn run_survival_provisioning_probe(
     };
     let preservation_commitment_reason = if preservation_commitment.is_some() {
         "return-clears-threshold"
+    } else if preservation_material_budget_eligible_count == 0 {
+        "raw-budget-insufficient"
     } else {
         "return-does-not-clear-threshold"
     };

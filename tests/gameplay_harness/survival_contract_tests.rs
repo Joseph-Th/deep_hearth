@@ -235,6 +235,65 @@ fn preservation_can_decline_a_low_benefit_singleton() {
 }
 
 #[test]
+fn preservation_declines_when_no_enclosure_fits_the_material_budget() {
+    use super::survival_probe::preservation_evaluation::{
+        PreservationCandidateProjection, select_preservation_investment,
+    };
+    let worthwhile = PreservationCandidateProjection {
+        definition: STORAGE_TIMBER_PROVISIONS_CHEST,
+        production_ticks: 150,
+        raw_material_mass_mg: 2_000_000,
+        ambient_remaining_fresh_ticks: 0,
+        remaining_fresh_ticks: 600,
+    };
+    assert_eq!(
+        select_preservation_investment(1_000_000, 1_000_000, 1_999_999, &[worthwhile]),
+        None,
+        "a worthwhile preservation plan cannot spend raw material reserved for other work"
+    );
+}
+
+#[test]
+fn preservation_opportunity_never_expands_the_actors_material_commitment() {
+    let registries = build_registries();
+    let seed = 0x51A2_0001;
+    let behavior_seed = 0_u64; // Forty percent of the available raw matter.
+    let world = provisioning_world(&registries, seed);
+    let review = evaluate_preservation_decision(
+        &registries,
+        seed,
+        behavior_seed,
+        world.foods[world.witness_index],
+        world.preserved_reserve_mass,
+    );
+    let available = review
+        .opportunity
+        .available()
+        .iter()
+        .map(|(_, mass)| u128::from(mass.milligrams()))
+        .sum::<u128>();
+    let budget = u64::try_from(
+        available * u128::from(preservation_material_budget_ppm(behavior_seed)) / 1_000_000,
+    )
+    .expect("bounded resource commitment fits u64");
+    let eligible = review
+        .projections
+        .iter()
+        .filter(|candidate| candidate.raw_material_mass_mg <= budget)
+        .collect::<Vec<_>>();
+    if eligible.is_empty() {
+        assert!(review.investment.is_none());
+    }
+    if let Some(chosen) = review.investment {
+        assert!(
+            eligible
+                .iter()
+                .any(|candidate| candidate.definition == chosen)
+        );
+    }
+}
+
+#[test]
 fn preservation_need_horizon_spans_use_before_and_after_ambient_spoilage() {
     let registries = build_registries();
     let baselines = (1_u64..=64)
