@@ -49,7 +49,42 @@ fn a_job_cannot_enter_two_different_due_buckets() {
 }
 
 #[test]
-fn future_material_lot_identity_demand_tracks_job_insert_and_remove() {
+fn schedule_validation_rejects_orphan_index_memberships() {
+    use super::super::validation::ProductionValidationError;
+
+    let id = ProductionJobId::new(1);
+    let mut indexes = ProductionIndexes::new();
+    assert_eq!(
+        indexes.validate_schedule_membership(std::iter::empty()),
+        Ok(())
+    );
+    indexes.due_tick_by_job.insert(id, SimulationTick::new(10));
+    assert_eq!(
+        indexes.validate_schedule_membership(std::iter::empty()),
+        Err(ProductionValidationError::InverseDueIndexMismatch)
+    );
+    indexes.due_tick_by_job.clear();
+    indexes.suspended_jobs.insert(id);
+    assert_eq!(
+        indexes.validate_schedule_membership(std::iter::empty()),
+        Err(ProductionValidationError::SuspendedJobIndexMismatch)
+    );
+    indexes.suspended_jobs.clear();
+    indexes.player_labor_suspended_jobs.insert(id);
+    assert_eq!(
+        indexes.validate_schedule_membership(std::iter::empty()),
+        Err(ProductionValidationError::PlayerLaborSuspendedJobIndexMismatch)
+    );
+    indexes.player_labor_suspended_jobs.clear();
+    indexes.required_active_support_jobs.insert(id);
+    assert_eq!(
+        indexes.validate_schedule_membership(std::iter::empty()),
+        Err(ProductionValidationError::RequiredActiveSupportIndexMismatch)
+    );
+}
+
+#[test]
+fn future_owner_demand_tracks_job_insert_and_remove() {
     let job = ProductionJobId::new(1);
     let projection = ProductionJobIndexProjection {
         due_tick: None,
@@ -58,6 +93,10 @@ fn future_material_lot_identity_demand_tracks_job_insert_and_remove() {
         equipment: None,
         output_stockpiles: std::collections::BTreeSet::new(),
         future_material_lot_id_demand: 3,
+        completion_revision_demand: CompletionRevisionDemand {
+            equipment: 1,
+            energy: 1,
+        },
         suspended: false,
         player_labor_suspended: false,
         requires_active_support: false,
@@ -66,9 +105,45 @@ fn future_material_lot_identity_demand_tracks_job_insert_and_remove() {
 
     indexes.insert_job(job, &projection);
     assert_eq!(indexes.future_material_lot_id_demand(), 3);
+    assert_eq!(
+        indexes.completion_revision_demand(),
+        projection.completion_revision_demand
+    );
 
+    let other = ProductionJobId::new(2);
+    let mut other_projection = projection.clone();
+    other_projection.future_material_lot_id_demand = 2;
+    other_projection.completion_revision_demand.energy = 0;
+    other_projection.suspended = true;
+    indexes.insert_job(other, &other_projection);
+    assert_eq!(indexes.future_material_lot_id_demand(), 5);
+    assert_eq!(
+        indexes.completion_revision_demand(),
+        CompletionRevisionDemand {
+            equipment: 2,
+            energy: 1
+        }
+    );
     indexes.remove_job(job, &projection);
+    assert_eq!(indexes.future_material_lot_id_demand(), 2);
+    assert_eq!(
+        indexes.completion_revision_demand(),
+        other_projection.completion_revision_demand
+    );
+    indexes.remove_job(other, &other_projection);
     assert_eq!(indexes.future_material_lot_id_demand(), 0);
+    assert_eq!(
+        indexes.completion_revision_demand(),
+        CompletionRevisionDemand::ZERO
+    );
+    indexes.completion_revision_demand = projection.completion_revision_demand;
+    assert_eq!(
+        indexes.completion_revision_demand_mismatch(std::iter::empty()),
+        Some((
+            projection.completion_revision_demand,
+            CompletionRevisionDemand::ZERO
+        ))
+    );
 
     indexes.future_material_lot_id_demand = 1;
     assert_eq!(
@@ -96,6 +171,7 @@ fn physical_availability_candidates_inspect_only_active_output_destinations() {
                 equipment: None,
                 output_stockpiles,
                 future_material_lot_id_demand: 0,
+                completion_revision_demand: CompletionRevisionDemand::ZERO,
                 suspended,
                 player_labor_suspended: false,
                 requires_active_support,

@@ -204,9 +204,19 @@ pub enum ProductionValidationError {
     EmptyDueIndex {
         due: SimulationTick,
     },
+    InverseDueIndexMismatch,
+    SuspendedJobIndexMismatch,
+    PlayerLaborSuspendedJobIndexMismatch,
+    RequiredActiveSupportIndexMismatch,
     FutureMaterialLotIdDemandIndexMismatch {
         indexed: u64,
         expected: u64,
+    },
+    CompletionRevisionDemandIndexMismatch {
+        indexed_equipment: u64,
+        expected_equipment: u64,
+        indexed_energy: u64,
+        expected_energy: u64,
     },
     EnergyOccupancyIndexMismatch {
         store: EnergyStoreId,

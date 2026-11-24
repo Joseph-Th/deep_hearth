@@ -81,6 +81,19 @@ pub(super) fn validate_occupancy_indexes(
 ) -> Result<(), ProductionValidationError> {
     if let Some((indexed, expected)) = state
         .indexes
+        .completion_revision_demand_mismatch(state.jobs.values())
+    {
+        return Err(
+            ProductionValidationError::CompletionRevisionDemandIndexMismatch {
+                indexed_equipment: indexed.equipment,
+                expected_equipment: expected.equipment,
+                indexed_energy: indexed.energy,
+                expected_energy: expected.energy,
+            },
+        );
+    }
+    if let Some((indexed, expected)) = state
+        .indexes
         .future_material_lot_id_demand_mismatch(state.jobs.values())
     {
         return Err(

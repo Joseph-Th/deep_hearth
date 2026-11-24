@@ -12,8 +12,13 @@ impl MiningState {
     pub(crate) fn rebuild_derived_indexes(&mut self) {
         let mut due_jobs = BTreeMap::<SimulationTick, BTreeSet<MiningJobId>>::new();
         let mut awaiting_settlement_jobs = BTreeSet::new();
+        let mut jobs_by_destination = BTreeMap::<StockpileId, BTreeSet<MiningJobId>>::new();
         let mut equipment_occupancy = BTreeMap::<EquipmentId, MiningJobId>::new();
         for (job_id, job) in &self.jobs {
+            jobs_by_destination
+                .entry(job.destination())
+                .or_default()
+                .insert(*job_id);
             if job.is_working() {
                 due_jobs
                     .entry(job.completes_at())
@@ -32,7 +37,28 @@ impl MiningState {
         }
         self.due_jobs = due_jobs;
         self.awaiting_settlement_jobs = awaiting_settlement_jobs;
+        self.jobs_by_destination = jobs_by_destination;
         self.equipment_occupancy = equipment_occupancy;
+    }
+
+    pub(super) fn insert_destination_job(&mut self, destination: StockpileId, id: MiningJobId) {
+        assert!(
+            self.jobs_by_destination
+                .entry(destination)
+                .or_default()
+                .insert(id)
+        );
+    }
+
+    pub(super) fn remove_destination_job(&mut self, destination: StockpileId, id: MiningJobId) {
+        let jobs = self
+            .jobs_by_destination
+            .get_mut(&destination)
+            .unwrap_or_else(|| panic!("mining destination index lost a retained output"));
+        assert!(jobs.remove(&id));
+        if jobs.is_empty() {
+            self.jobs_by_destination.remove(&destination);
+        }
     }
 
     pub(crate) fn get_equipment_occupant(&self, equipment: EquipmentId) -> Option<MiningJobId> {
@@ -69,6 +95,18 @@ impl MiningState {
             })
     }
 
+    /// Extracted parcels in stable identity order, without inspecting working jobs.
+    pub(crate) fn awaiting_settlement_jobs(&self) -> impl Iterator<Item = &super::MiningJobRecord> {
+        self.awaiting_settlement_jobs.iter().map(|id| {
+            self.jobs.get(id).unwrap_or_else(|| {
+                panic!(
+                    "mining settlement index references missing job {}",
+                    id.value()
+                )
+            })
+        })
+    }
+
     /// Returns the number of durable outputs that still require inventory settlement.
     ///
     /// Every retained mining job owns exactly one output parcel until settlement retirement. Coalescing
@@ -82,10 +120,9 @@ impl MiningState {
     /// Returns retained outputs currently targeting one stockpile.
     pub(crate) fn future_settlement_count_for_destination(&self, destination: StockpileId) -> u64 {
         let count = self
-            .jobs
-            .values()
-            .filter(|job| job.destination() == destination)
-            .count();
+            .jobs_by_destination
+            .get(&destination)
+            .map_or(0, BTreeSet::len);
         u64::try_from(count).unwrap_or_else(|_| {
             unreachable!("resident mining destination settlement count fits u64")
         })
@@ -97,10 +134,11 @@ impl MiningState {
         &self,
         destination: StockpileId,
     ) -> Option<MiningJobId> {
-        self.jobs
-            .values()
-            .find(|job| job.destination() == destination && job.is_awaiting_settlement())
-            .map(|job| job.id())
+        self.jobs_by_destination
+            .get(&destination)?
+            .iter()
+            .find(|id| self.awaiting_settlement_jobs.contains(id))
+            .copied()
     }
 
     /// Returns retained outputs whose current destination support makes settlement structurally mutating.
@@ -109,22 +147,22 @@ impl MiningState {
     /// Mounting that stockpile later creates this future obligation; unmounting releases it.
     pub(crate) fn future_supported_settlement_count(&self, inventory: &InventoryState) -> u64 {
         let count = self
-            .jobs
-            .values()
-            .filter(|job| {
+            .jobs_by_destination
+            .iter()
+            .filter(|(destination, _)| {
                 inventory
-                    .get_stockpile(job.destination())
+                    .get_stockpile(**destination)
                     .unwrap_or_else(|| {
                         panic!(
-                            "runtime invariant broken: mining job {} references missing destination stockpile {}",
-                            job.id().value(),
-                            job.destination().value()
+                            "runtime invariant broken: mining destination index references missing stockpile {}",
+                            destination.value()
                         )
                     })
                     .supported_by()
                     .is_some()
             })
-            .count();
+            .map(|(_, jobs)| jobs.len())
+            .sum::<usize>();
         u64::try_from(count)
             .unwrap_or_else(|_| unreachable!("resident supported mining settlement count fits u64"))
     }

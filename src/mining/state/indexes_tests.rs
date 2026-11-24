@@ -67,6 +67,14 @@ fn settlement_index_tracks_completion_retirement_and_rebuild_without_future_jobs
     };
 
     state.insert_job(job_record(Condition::PRISTINE, first_due), 2, 1);
+    assert_eq!(
+        state.future_settlement_count_for_destination(StockpileId::new(1)),
+        1
+    );
+    assert_eq!(
+        state.awaiting_settlement_destination_occupant(StockpileId::new(1)),
+        None
+    );
     assert_eq!(candidates(&state, first_due), BTreeSet::from([first_id]));
     assert!(candidates(&state, future_due).is_empty());
     assert_eq!(
@@ -75,6 +83,17 @@ fn settlement_index_tracks_completion_retirement_and_rebuild_without_future_jobs
     );
     assert_eq!(candidates(&state, first_due), BTreeSet::from([first_id]));
     assert_eq!(candidates(&state, future_due), BTreeSet::from([first_id]));
+    assert_eq!(
+        state.awaiting_settlement_destination_occupant(StockpileId::new(1)),
+        Some(first_id)
+    );
+    assert_eq!(
+        state
+            .awaiting_settlement_jobs()
+            .map(MiningJobRecord::id)
+            .collect::<Vec<_>>(),
+        vec![first_id]
+    );
 
     // A later, still working job cannot be selected before its own completion.
     // A previously completed parcel must remain visible until retirement.
@@ -87,12 +106,40 @@ fn settlement_index_tracks_completion_retirement_and_rebuild_without_future_jobs
     let mut rebuilt = state.clone();
     rebuilt.rebuild_derived_indexes();
     assert_eq!(rebuilt, state, "trusted-load index rebuild must be exact");
+    assert_eq!(
+        super::super::validate_loaded_mining(&state, first_due),
+        Ok(())
+    );
+    let mut corrupted = state.clone();
+    corrupted.awaiting_settlement_jobs.clear();
+    assert_eq!(
+        super::super::validate_loaded_mining(&corrupted, first_due),
+        Err(super::super::MiningValidationError::AwaitingSettlementIndexMismatch)
+    );
+    let mut corrupted = state.clone();
+    corrupted.jobs_by_destination.clear();
+    assert_eq!(
+        super::super::validate_loaded_mining(&corrupted, first_due),
+        Err(super::super::MiningValidationError::DestinationIndexMismatch)
+    );
 
     let retired = state.remove_awaiting_settlement_job(first_id, 3, 4);
     assert_eq!(retired.id(), first_id);
+    assert_eq!(
+        state.future_settlement_count_for_destination(StockpileId::new(1)),
+        0
+    );
+    assert_eq!(
+        state.awaiting_settlement_destination_occupant(StockpileId::new(1)),
+        None
+    );
     assert!(candidates(&state, first_due).is_empty());
     assert_eq!(candidates(&state, future_due), BTreeSet::from([second_id]));
     state.cancel_working_job(second_id, 4, 5);
+    assert_eq!(
+        state.future_settlement_count_for_destination(StockpileId::new(2)),
+        0
+    );
     assert!(candidates(&state, future_due).is_empty());
     let mut rebuilt = state.clone();
     rebuilt.rebuild_derived_indexes();

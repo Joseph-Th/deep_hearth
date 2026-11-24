@@ -26,6 +26,9 @@ pub(crate) fn validate_loaded_production(
         validate_job_due_membership(state, *id, job)?;
     }
     validate_due_index(state)?;
+    state
+        .indexes
+        .validate_schedule_membership(state.jobs.values())?;
     validate_occupancy_indexes(state)?;
     if !state.has_future_completion_revision_capacity_from(state.revision, 0) {
         return Err(

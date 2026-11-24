@@ -1,10 +1,8 @@
 //! Future revision-capacity forecasting for production completion and availability plans.
 
-use std::collections::BTreeSet;
-
 use crate::core::state::AppState;
 use crate::inventory::{StockpileStructuralLoadError, ValidatedStockpileStructuralLoad};
-use crate::production::state::{ProductionJobId, ProductionJobRecord};
+use crate::production::state::ProductionJobId;
 use crate::structural::StructuralMutationError;
 
 use super::super::{
@@ -75,19 +73,53 @@ fn require_revision_capacity(
     }
 }
 
-fn remaining_job_count_where(
-    state: &AppState,
-    completing: &BTreeSet<ProductionJobId>,
-    mut predicate: impl FnMut(&ProductionJobRecord) -> bool,
-) -> u64 {
-    u64::try_from(
-        state
-            .production()
-            .jobs()
-            .filter(|job| !completing.contains(&job.id()) && predicate(job))
-            .count(),
-    )
-    .unwrap_or_else(|_| unreachable!("resident production revision demand fits u64"))
+struct RemainingRevisionDemand {
+    jobs: u64,
+    equipment: u64,
+    energy: u64,
+    structures: u64,
+}
+
+impl RemainingRevisionDemand {
+    fn after_completion(state: &AppState, completing: &[ProductionJobId]) -> Self {
+        let production = state.production();
+        let inventory = state.inventory();
+        let mut remaining = Self {
+            jobs: production.future_completion_revision_demand(),
+            equipment: production.future_equipment_revision_demand(),
+            energy: production.future_released_energy_revision_demand(),
+            structures: production.future_supported_output_revision_demand(inventory),
+        };
+        // Completion planning emits a sorted, unique cohort. Subtract only its
+        // obligations from the authoritative totals, not one revision per
+        // mutation batch: jobs outside this cohort still own their reservations.
+        assert!(completing.windows(2).all(|pair| pair[0] < pair[1]));
+        for id in completing {
+            let job = production
+                .get_job(*id)
+                .unwrap_or_else(|| unreachable!("planned completion job must exist"));
+            remaining.jobs = subtract(remaining.jobs, true);
+            remaining.equipment = subtract(
+                remaining.equipment,
+                job.requires_equipment_revision_at_completion(),
+            );
+            remaining.energy = subtract(
+                remaining.energy,
+                job.requires_energy_revision_at_completion(),
+            );
+            remaining.structures = subtract(
+                remaining.structures,
+                job.requires_structure_revision_at_completion(inventory),
+            );
+        }
+        remaining
+    }
+}
+
+fn subtract(total: u64, released: bool) -> u64 {
+    total
+        .checked_sub(u64::from(released))
+        .unwrap_or_else(|| panic!("production completion released an unreserved revision"))
 }
 
 /// Prevents the current plan from spending revision capacity retained by jobs that will remain.
@@ -95,11 +127,10 @@ pub(super) fn validate_remaining_job_revision_capacity(
     state: &AppState,
     plan: &CompletionPlan,
 ) -> Result<(), CompletionPlanError> {
-    let completing = plan.jobs.iter().copied().collect::<BTreeSet<_>>();
-    let remaining_jobs = remaining_job_count_where(state, &completing, |_| true);
+    let remaining = RemainingRevisionDemand::after_completion(state, &plan.jobs);
     require_revision_capacity(
         plan.revisions.next_production_revision,
-        [remaining_jobs],
+        [remaining.jobs],
         CompletionPlanError::ProductionRevision,
     )?;
     require_revision_capacity(
@@ -107,7 +138,7 @@ pub(super) fn validate_remaining_job_revision_capacity(
         [
             u64::from(!plan.inventory_deposits.is_empty()),
             state.future_nonproduction_inventory_revision_demand(),
-            remaining_jobs,
+            remaining.jobs,
         ],
         CompletionPlanError::InventoryRevision,
     )?;
@@ -119,9 +150,7 @@ pub(super) fn validate_remaining_job_revision_capacity(
         [
             u64::from(!plan.equipment_outcomes.is_empty()),
             nonproduction_equipment_revision_demand,
-            remaining_job_count_where(state, &completing, |job| {
-                job.requires_equipment_revision_at_completion()
-            }),
+            remaining.equipment,
         ],
         CompletionPlanError::EquipmentRevision,
     )?;
@@ -130,9 +159,7 @@ pub(super) fn validate_remaining_job_revision_capacity(
         [
             u64::from(!plan.released_energy_outcomes.is_empty()),
             state.future_nonproduction_energy_revision_demand(),
-            remaining_job_count_where(state, &completing, |job| {
-                job.requires_energy_revision_at_completion()
-            }),
+            remaining.energy,
         ],
         CompletionPlanError::EnergyRevision,
     )?;
@@ -143,9 +170,7 @@ pub(super) fn validate_remaining_job_revision_capacity(
                 .as_ref()
                 .map_or(0, ValidatedStockpileStructuralLoad::revision_delta),
             state.future_nonproduction_structure_revision_demand(),
-            remaining_job_count_where(state, &completing, |job| {
-                job.requires_structure_revision_at_completion(state.inventory())
-            }),
+            remaining.structures,
         ],
         CompletionPlanError::StructuralLoad(StockpileStructuralLoadError::Structure(
             StructuralMutationError::RevisionExhausted,

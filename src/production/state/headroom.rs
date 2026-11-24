@@ -32,23 +32,11 @@ impl ProductionState {
     }
 
     pub(crate) fn future_equipment_revision_demand(&self) -> u64 {
-        u64::try_from(
-            self.jobs
-                .values()
-                .filter(|job| job.requires_equipment_revision_at_completion())
-                .count(),
-        )
-        .unwrap_or_else(|_| unreachable!("resident production equipment revision demand fits u64"))
+        self.indexes.completion_revision_demand().equipment
     }
 
     pub(crate) fn future_released_energy_revision_demand(&self) -> u64 {
-        u64::try_from(
-            self.jobs
-                .values()
-                .filter(|job| job.requires_energy_revision_at_completion())
-                .count(),
-        )
-        .unwrap_or_else(|_| unreachable!("resident production energy revision demand fits u64"))
+        self.indexes.completion_revision_demand().energy
     }
 
     pub(crate) fn future_supported_output_revision_demand(
@@ -118,7 +106,7 @@ impl ProductionState {
     ) -> (u64, u64) {
         let mut additional = 0_u64;
         let mut released = 0_u64;
-        for job in self.jobs.values() {
+        for job in self.retained_output_jobs(stockpile) {
             let before = job.requires_structure_revision_at_completion(inventory);
             let after = job.output_streams().iter().any(|stream| {
                 if stream.destination() == stockpile {

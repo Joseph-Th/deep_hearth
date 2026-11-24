@@ -97,6 +97,12 @@ Control-rate excavation exertion is settled at slow boundaries and at off-bounda
 reserve validation therefore accounts for all exertion after the last settled boundary, including elapsed but
 unsettled control time.
 
+Production completion reserves equipment and energy revisions through derived per-job demand counters,
+including suspended jobs. A completing cohort releases only its own obligations; structural demand is
+recomputed against current output support. Mining indexes retained outputs by destination and awaiting
+settlement status, so local settlement and support changes need not search unrelated jobs. These indexes
+are reconstructed from durable records and independently validated; they add no persistent save fields.
+
 Buffered structural breaks retain the exact target member, player body origin,
 view direction and active quick-access selection. A change in selection cancels
 the old request on its due slow boundary; a freshly held break can replace the

@@ -7,6 +7,7 @@ use serde::Deserialize;
 
 use crate::core::time::SimulationTick;
 use crate::equipment::EquipmentId;
+use crate::inventory::StockpileId;
 
 mod indexes;
 mod job;
@@ -32,6 +33,8 @@ pub struct MiningState {
     #[serde(skip)]
     awaiting_settlement_jobs: BTreeSet<MiningJobId>,
     #[serde(skip)]
+    jobs_by_destination: BTreeMap<StockpileId, BTreeSet<MiningJobId>>,
+    #[serde(skip)]
     equipment_occupancy: BTreeMap<EquipmentId, MiningJobId>,
 }
 
@@ -54,6 +57,7 @@ impl MiningState {
             jobs: BTreeMap::new(),
             due_jobs: BTreeMap::new(),
             awaiting_settlement_jobs: BTreeSet::new(),
+            jobs_by_destination: BTreeMap::new(),
             equipment_occupancy: BTreeMap::new(),
         }
     }

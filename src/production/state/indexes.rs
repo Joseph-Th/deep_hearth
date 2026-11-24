@@ -21,6 +21,7 @@ pub(super) struct ProductionJobIndexProjection {
     equipment: Option<EquipmentId>,
     output_stockpiles: BTreeSet<StockpileId>,
     future_material_lot_id_demand: u64,
+    completion_revision_demand: CompletionRevisionDemand,
     suspended: bool,
     player_labor_suspended: bool,
     requires_active_support: bool,
@@ -41,6 +42,7 @@ impl ProductionJobIndexProjection {
                 .map(|stream| stream.destination())
                 .collect(),
             future_material_lot_id_demand: job.future_material_lot_id_demand_upper_bound(),
+            completion_revision_demand: CompletionRevisionDemand::from_job(job),
             suspended: job.is_suspended(),
             player_labor_suspended: job.suspension().is_some_and(|suspension| {
                 suspension.reason() == ProductionSuspensionReason::PlayerLaborUnavailable
@@ -53,6 +55,53 @@ impl ProductionJobIndexProjection {
         [self.consumed_energy_store, self.released_energy_store]
             .into_iter()
             .flatten()
+    }
+}
+
+/// Completion obligations independent of schedule and stockpile support.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct CompletionRevisionDemand {
+    pub(super) equipment: u64,
+    pub(super) energy: u64,
+}
+
+impl CompletionRevisionDemand {
+    const ZERO: Self = Self {
+        equipment: 0,
+        energy: 0,
+    };
+
+    fn from_job(job: &ProductionJobRecord) -> Self {
+        Self {
+            equipment: u64::from(job.requires_equipment_revision_at_completion()),
+            energy: u64::from(job.requires_energy_revision_at_completion()),
+        }
+    }
+
+    fn add(self, other: Self) -> Self {
+        Self {
+            equipment: self
+                .equipment
+                .checked_add(other.equipment)
+                .unwrap_or_else(|| unreachable!("resident equipment obligations fit u64")),
+            energy: self
+                .energy
+                .checked_add(other.energy)
+                .unwrap_or_else(|| unreachable!("resident energy obligations fit u64")),
+        }
+    }
+
+    fn remove(self, other: Self) -> Self {
+        Self {
+            equipment: self
+                .equipment
+                .checked_sub(other.equipment)
+                .unwrap_or_else(|| panic!("production equipment obligations underflowed")),
+            energy: self
+                .energy
+                .checked_sub(other.energy)
+                .unwrap_or_else(|| panic!("production energy obligations underflowed")),
+        }
     }
 }
 
@@ -94,6 +143,7 @@ pub(super) struct ProductionIndexes {
     equipment_occupancy: BTreeMap<EquipmentId, ProductionJobId>,
     output_stockpile_occupancy: BTreeMap<StockpileId, BTreeSet<ProductionJobId>>,
     future_material_lot_id_demand: u64,
+    completion_revision_demand: CompletionRevisionDemand,
     suspended_jobs: BTreeSet<ProductionJobId>,
     player_labor_suspended_jobs: BTreeSet<ProductionJobId>,
     required_active_support_jobs: BTreeSet<ProductionJobId>,
@@ -108,6 +158,7 @@ impl PartialEq for ProductionIndexes {
             && self.equipment_occupancy == other.equipment_occupancy
             && self.output_stockpile_occupancy == other.output_stockpile_occupancy
             && self.future_material_lot_id_demand == other.future_material_lot_id_demand
+            && self.completion_revision_demand == other.completion_revision_demand
             && self.suspended_jobs == other.suspended_jobs
             && self.player_labor_suspended_jobs == other.player_labor_suspended_jobs
             && self.required_active_support_jobs == other.required_active_support_jobs
@@ -125,6 +176,7 @@ impl ProductionIndexes {
             equipment_occupancy: BTreeMap::new(),
             output_stockpile_occupancy: BTreeMap::new(),
             future_material_lot_id_demand: 0,
+            completion_revision_demand: CompletionRevisionDemand::ZERO,
             suspended_jobs: BTreeSet::new(),
             player_labor_suspended_jobs: BTreeSet::new(),
             required_active_support_jobs: BTreeSet::new(),
@@ -143,10 +195,7 @@ impl ProductionIndexes {
     }
 
     fn insert_rebuilt(&mut self, id: ProductionJobId, projection: &ProductionJobIndexProjection) {
-        self.future_material_lot_id_demand = self
-            .future_material_lot_id_demand
-            .checked_add(projection.future_material_lot_id_demand)
-            .unwrap_or_else(|| unreachable!("resident production output parcels fit u64"));
+        self.add_future_demand(projection);
         if let Some(due_tick) = projection.due_tick {
             self.insert_due_job(id, due_tick);
         }
@@ -175,6 +224,30 @@ impl ProductionIndexes {
 
     pub(super) const fn future_material_lot_id_demand(&self) -> u64 {
         self.future_material_lot_id_demand
+    }
+
+    pub(super) const fn completion_revision_demand(&self) -> CompletionRevisionDemand {
+        self.completion_revision_demand
+    }
+
+    fn add_future_demand(&mut self, projection: &ProductionJobIndexProjection) {
+        self.future_material_lot_id_demand = self
+            .future_material_lot_id_demand
+            .checked_add(projection.future_material_lot_id_demand)
+            .unwrap_or_else(|| unreachable!("resident production output parcels fit u64"));
+        self.completion_revision_demand = self
+            .completion_revision_demand
+            .add(projection.completion_revision_demand);
+    }
+
+    fn remove_future_demand(&mut self, projection: &ProductionJobIndexProjection) {
+        self.future_material_lot_id_demand = self
+            .future_material_lot_id_demand
+            .checked_sub(projection.future_material_lot_id_demand)
+            .unwrap_or_else(|| panic!("production future lot-id demand underflowed"));
+        self.completion_revision_demand = self
+            .completion_revision_demand
+            .remove(projection.completion_revision_demand);
     }
 
     pub(super) fn suspended_jobs(&self) -> impl Iterator<Item = ProductionJobId> + '_ {

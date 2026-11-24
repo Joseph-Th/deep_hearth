@@ -333,6 +333,26 @@ impl Display for ProductionValidationError {
                 "production due index contains an empty bucket at tick {}",
                 due.value()
             ),
+            Self::InverseDueIndexMismatch => {
+                formatter.write_str("inverse production due index disagrees with durable jobs")
+            }
+            Self::SuspendedJobIndexMismatch => {
+                formatter.write_str("production suspension index disagrees with durable jobs")
+            }
+            Self::PlayerLaborSuspendedJobIndexMismatch => formatter
+                .write_str("production player-labor suspension index disagrees with durable jobs"),
+            Self::RequiredActiveSupportIndexMismatch => {
+                formatter.write_str("production active-support index disagrees with durable jobs")
+            }
+            Self::CompletionRevisionDemandIndexMismatch {
+                indexed_equipment,
+                expected_equipment,
+                indexed_energy,
+                expected_energy,
+            } => write!(
+                formatter,
+                "production completion revision index reserves equipment {indexed_equipment} and energy {indexed_energy}; expected equipment {expected_equipment} and energy {expected_energy}"
+            ),
             Self::FutureMaterialLotIdDemandIndexMismatch { indexed, expected } => write!(
                 formatter,
                 "production future material-lot identity demand index stores {indexed} parcels but durable jobs require {expected}"

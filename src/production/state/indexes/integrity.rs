@@ -7,7 +7,8 @@ use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
 use crate::inventory::StockpileId;
 
-use super::ProductionIndexes;
+use super::super::validation::ProductionValidationError;
+use super::{CompletionRevisionDemand, ProductionIndexes, ProductionSuspensionReason};
 use crate::production::{ProductionJobId, ProductionJobRecord};
 
 type ProductionOccupancyMismatch<Resource> =
@@ -49,6 +50,55 @@ where
 }
 
 impl ProductionIndexes {
+    pub(in crate::production::state) fn validate_schedule_membership<'a>(
+        &self,
+        jobs: impl Iterator<Item = &'a ProductionJobRecord>,
+    ) -> Result<(), ProductionValidationError> {
+        let mut due = BTreeMap::new();
+        let mut suspended = BTreeSet::new();
+        let mut player_labor_suspended = BTreeSet::new();
+        let mut required_active_support = BTreeSet::new();
+        for job in jobs {
+            let id = job.id();
+            if let Some(suspension) = job.suspension() {
+                suspended.insert(id);
+                if suspension.reason() == ProductionSuspensionReason::PlayerLaborUnavailable {
+                    player_labor_suspended.insert(id);
+                }
+            } else {
+                due.insert(id, job.completes_at());
+            }
+            if job.has_required_active_support() {
+                required_active_support.insert(id);
+            }
+        }
+        if self.due_tick_by_job != due {
+            return Err(ProductionValidationError::InverseDueIndexMismatch);
+        }
+        if self.suspended_jobs != suspended {
+            return Err(ProductionValidationError::SuspendedJobIndexMismatch);
+        }
+        if self.player_labor_suspended_jobs != player_labor_suspended {
+            return Err(ProductionValidationError::PlayerLaborSuspendedJobIndexMismatch);
+        }
+        if self.required_active_support_jobs != required_active_support {
+            return Err(ProductionValidationError::RequiredActiveSupportIndexMismatch);
+        }
+        Ok(())
+    }
+
+    pub(in crate::production::state) fn completion_revision_demand_mismatch<'a>(
+        &self,
+        jobs: impl Iterator<Item = &'a ProductionJobRecord>,
+    ) -> Option<(CompletionRevisionDemand, CompletionRevisionDemand)> {
+        let expected = jobs.map(CompletionRevisionDemand::from_job).fold(
+            CompletionRevisionDemand::ZERO,
+            CompletionRevisionDemand::add,
+        );
+        (self.completion_revision_demand != expected)
+            .then_some((self.completion_revision_demand, expected))
+    }
+
     pub(in crate::production::state) fn future_material_lot_id_demand_mismatch<'a>(
         &self,
         jobs: impl Iterator<Item = &'a ProductionJobRecord>,

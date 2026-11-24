@@ -6,12 +6,15 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::time::SimulationTick;
 use crate::equipment::EquipmentId;
+use crate::inventory::StockpileId;
 
 use super::{MiningJobId, MiningJobRecord, MiningState};
 
 #[derive(Default)]
 struct ExpectedMiningIndexes {
     due: BTreeMap<SimulationTick, BTreeSet<MiningJobId>>,
+    awaiting: BTreeSet<MiningJobId>,
+    destinations: BTreeMap<StockpileId, BTreeSet<MiningJobId>>,
     equipment: BTreeMap<EquipmentId, MiningJobId>,
 }
 
@@ -62,6 +65,8 @@ pub enum MiningValidationError {
         current: SimulationTick,
     },
     DueIndexMismatch,
+    AwaitingSettlementIndexMismatch,
+    DestinationIndexMismatch,
     EquipmentOccupancyMismatch,
     EquipmentDoubleBooked {
         equipment: EquipmentId,
@@ -127,6 +132,12 @@ impl Display for MiningValidationError {
             Self::DueIndexMismatch => {
                 formatter.write_str("mining due-job index does not match jobs")
             }
+            Self::AwaitingSettlementIndexMismatch => {
+                formatter.write_str("mining awaiting-settlement index does not match jobs")
+            }
+            Self::DestinationIndexMismatch => {
+                formatter.write_str("mining destination index does not match retained jobs")
+            }
             Self::EquipmentOccupancyMismatch => {
                 formatter.write_str("mining equipment occupancy index does not match active jobs")
             }
@@ -155,6 +166,12 @@ pub(crate) fn validate_loaded_mining(
     if state.due_jobs != expected.due {
         return Err(MiningValidationError::DueIndexMismatch);
     }
+    if state.awaiting_settlement_jobs != expected.awaiting {
+        return Err(MiningValidationError::AwaitingSettlementIndexMismatch);
+    }
+    if state.jobs_by_destination != expected.destinations {
+        return Err(MiningValidationError::DestinationIndexMismatch);
+    }
     if state.equipment_occupancy != expected.equipment {
         return Err(MiningValidationError::EquipmentOccupancyMismatch);
     }
@@ -170,9 +187,15 @@ fn validate_mining_job(
 ) -> Result<(), MiningValidationError> {
     validate_mining_job_identity(state, key, job)?;
     validate_mining_job_schedule(job, current)?;
+    expected
+        .destinations
+        .entry(job.destination())
+        .or_default()
+        .insert(key);
     if job.is_working() {
         validate_working_mining_job(job, current, expected)
     } else {
+        expected.awaiting.insert(key);
         validate_awaiting_settlement_mining_job(job, current)
     }
 }

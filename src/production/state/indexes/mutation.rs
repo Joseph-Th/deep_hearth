@@ -114,10 +114,7 @@ impl ProductionIndexes {
         id: ProductionJobId,
         projection: &ProductionJobIndexProjection,
     ) {
-        self.future_material_lot_id_demand = self
-            .future_material_lot_id_demand
-            .checked_add(projection.future_material_lot_id_demand)
-            .unwrap_or_else(|| unreachable!("resident production output parcels fit u64"));
+        self.add_future_demand(projection);
         if let Some(due_tick) = projection.due_tick {
             self.insert_due_job(id, due_tick);
         }
@@ -171,10 +168,7 @@ impl ProductionIndexes {
         id: ProductionJobId,
         projection: &ProductionJobIndexProjection,
     ) {
-        self.future_material_lot_id_demand = self
-            .future_material_lot_id_demand
-            .checked_sub(projection.future_material_lot_id_demand)
-            .unwrap_or_else(|| panic!("production future lot-id demand underflowed"));
+        self.remove_future_demand(projection);
         if let Some(due_tick) = projection.due_tick {
             self.remove_due_job(id, due_tick);
         }

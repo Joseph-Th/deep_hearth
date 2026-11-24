@@ -120,11 +120,7 @@ pub(super) fn decide_automatic_mining_output(
 
     // Failed support can retain one output indefinitely. Its job identity must not prevent
     // independent, already-extracted outputs from landing in physically available storage.
-    for job in state
-        .mining()
-        .jobs()
-        .filter(|job| job.is_awaiting_settlement())
-    {
+    for job in state.mining().awaiting_settlement_jobs() {
         if let Some(settlement) = available_mining_settlement(
             validate_awaiting_mining_output_settlement(registries, state, job.id(), next_tick),
             structure_owner_busy,

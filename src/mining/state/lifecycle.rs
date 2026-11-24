@@ -67,6 +67,7 @@ impl MiningState {
             previous.is_none(),
             "prechecked mining equipment occupancy replaced an existing job"
         );
+        self.insert_destination_job(record.destination(), id);
         let previous = self.jobs.insert(id, record);
         assert!(previous.is_none(), "prechecked mining job ID was replaced");
         self.next_job_id = next_job_id;
@@ -202,6 +203,7 @@ impl MiningState {
             .unwrap_or_else(|| unreachable!("mining cancellation job was prechecked"));
         let due = record.completes_at();
         let equipment = record.equipment();
+        let destination = record.destination();
         let remove_due_bucket = {
             let jobs = self
                 .due_jobs
@@ -214,6 +216,7 @@ impl MiningState {
             self.due_jobs.remove(&due);
         }
         assert_eq!(self.equipment_occupancy.remove(&equipment), Some(id));
+        self.remove_destination_job(destination, id);
         assert!(
             self.jobs.remove(&id).is_some(),
             "prechecked mining cancellation job disappeared"
@@ -236,6 +239,7 @@ impl MiningState {
             self.awaiting_settlement_jobs.remove(&id),
             "settled mining job disappeared from its derived index"
         );
+        self.remove_destination_job(record.destination(), id);
         self.revision = next_revision;
         record
     }
