@@ -67,11 +67,21 @@ pub(crate) fn apply_kobold_scout_tick(
     let pressured = pressured_by_player || pressured_by_noise || pressured_by_light || recently_hit;
     let care = settle_scout_visit_care(registries, state, from, next_tick, observer, pressured);
     let pressured = pressured || care.heard_junk_alarm;
-    // Metal fitting and inventory raids occupy real grounded work slots at the
-    // scout's current cell. A mined-out source floor cannot authorize those
-    // actions just because ordinary patrol movement already stays put.
-    let optional_work_blocked =
-        pressured || care.water_deprived || !opening_resident_can_depart(registries, state, from);
+    // Due drinking trips reserve movement before optional industrial work.
+    // Decide once after care (including the watchman's movement), then reuse
+    // the same choice for the real patrol edge.
+    let water_trip = super::super::hydration::plan_water_trip(
+        registries,
+        state,
+        next_tick,
+        player_position,
+        pressured,
+    );
+    // Metal fitting and inventory raids also require real grounded footing.
+    let optional_work_blocked = pressured
+        || care.water_deprived
+        || water_trip.is_some()
+        || !opening_resident_can_depart(registries, state, from);
     if let Some(contact) =
         super::super::defense::attempt_worksite_counterstroke(registries, state, next_tick)
     {
@@ -134,6 +144,7 @@ pub(crate) fn apply_kobold_scout_tick(
             at: next_tick,
             forage_ready,
             player_position,
+            water_trip,
             observer,
             pressured,
             pressured_by_player,

@@ -184,6 +184,56 @@ pub(super) fn reachable_water_from_junction(
     best_route.map(|(_, _, std::cmp::Reverse(first), std::cmp::Reverse(goal))| (first, goal))
 }
 
+/// One viable water trip selected after actual drinking and den care.
+#[derive(Clone, Copy)]
+pub(super) enum ScoutWaterTrip {
+    Outbound(VoxelCoord, Option<VoxelCoord>),
+    Continue,
+}
+
+impl ScoutWaterTrip {
+    pub(super) const fn outbound_route(self) -> Option<(VoxelCoord, Option<VoxelCoord>)> {
+        match self {
+            Self::Outbound(first, goal) => Some((first, goal)),
+            Self::Continue => None,
+        }
+    }
+}
+
+/// Resolve the same urgent route before optional work and movement. A
+/// completed drink, unsafe approach or existing return cargo does not reserve
+/// an outbound work slot. Far targets are rechecked from the real waypoint.
+pub(super) fn plan_water_trip(
+    registries: &Registries,
+    state: &AppState,
+    at: SimulationTick,
+    player_position: Option<VoxelCoord>,
+    pressured: bool,
+) -> Option<ScoutWaterTrip> {
+    let colony = state.kobold_state().colony.as_ref()?;
+    if pressured || colony.returning || colony.scavenged_drop.is_some() || at < colony.next_drink_at
+    {
+        return None;
+    }
+    match colony.scout_step {
+        1 => reachable_water_from_junction(registries, state, colony, player_position)
+            .map(|(first, goal)| ScoutWaterTrip::Outbound(first, goal)),
+        2 => {
+            let goal = colony.detour_goal?;
+            (usable_water_at(registries, state, goal).is_some()
+                && scout_can_approach_visible_unlit_cell(
+                    registries,
+                    state,
+                    colony.scout_position(),
+                    goal,
+                    player_position,
+                ))
+            .then_some(ScoutWaterTrip::Continue)
+        }
+        _ => None,
+    }
+}
+
 /// The resident drinks at most the remaining part of one physical 60 mL
 /// serving. Every microliter enters terminal consumption accounting, including
 /// a partial drink that leaves the need overdue until another real visit.

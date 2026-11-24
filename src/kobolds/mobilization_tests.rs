@@ -33,6 +33,14 @@ fn scenario(
             Power::ZERO,
             Power::from_microwatts(10),
         ));
+    scenario_with_registry(registries, machine, machine_at)
+}
+
+fn scenario_with_registry(
+    registries: Registries,
+    machine: EnergyStoreDefinitionId,
+    machine_at: Option<VoxelCoord>,
+) -> (Registries, AppState, [VoxelCoord; 4]) {
     let mut state = AppState::new();
     let route = [
         VoxelCoord::new(-1, 0, 0),

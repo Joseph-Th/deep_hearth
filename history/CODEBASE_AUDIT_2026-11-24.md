@@ -278,3 +278,43 @@ Verification:
   ordinary-exact-local-after-disclosed-bootstrap evidence, roots
   `0x4DEEB6EE20A41495/0xA3ECAEFC23973508`.
 
+## Further resident priority and occupancy review
+
+Reviewed hydration, den care, optional work, patrol admission, watch movement,
+scavenging route selection and saved continuation, including the crossed
+inventory and fluid settlement boundaries. Also inspected production
+completion and availability, fast-forward, energy illumination and local
+warmth, and owner serialization for additional actionable defects.
+
+A due, fed scout could steal from a junction stockpile rather than follow a
+viable drinking route: optional industrial actions preceded the water-route
+decision. A normal simulation regression reproduced the wrong position at
+tick 985. The same ordering could interrupt the second edge of a water trip.
+The correction selects the viable water trip after care and watch movement,
+before fitting or extraction, and shares the choice with movement. The
+regression verifies both outbound edges, actual drinking, unchanged copper
+stocks, strict load validity, matter and fluid accounting, and saved replay.
+
+Scout resource planners could also target the exposed post occupied by the
+watchman even though physical movement would reject it. Scout route and
+movement admission now share the occupancy restriction while the watchman
+uses the common physical clearance rule and its separate scout exclusion.
+The den remains shared. The regression extends an actual ration-funded
+outer picket with equally adequate tip and side water sources and verifies
+that the side route wins without changing state. The scenario uses the
+production registry rather than the reduced machinery-only test registry.
+No persisted fields or compatibility layers were added.
+
+Verification:
+
+- `python ci.py quick`: PASS, four checks.
+- `cargo test --locked -j 4 --lib 'kobolds::'`: PASS, 397 tests after correcting the water fixture.
+- `python ci.py audit --all`: PASS, 2,768 core and 194 gameplay tests; workshop
+  controlled-capability sample, roots `0xCB176D10BF784E28/0xEF09378E58C34B2B`.
+  An earlier combined run was terminated by the connector stall watchdog;
+  the completed repeat is the broad evidence for this change.
+
+No new interactive playthrough or graphical inspection was performed in
+this pass. The changed resident contracts are exercised by production
+simulation ticks and the broad gameplay checkpoint.
+

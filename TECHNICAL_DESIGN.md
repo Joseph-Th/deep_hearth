@@ -605,6 +605,12 @@ is zero local yield, not a reason to skip that comparison: a reachable wild serv
 can outrank a tiny edible drop on a competing side route. An intact portable drop
 that completes the ration still avoids an unnecessary forage cooldown. Both
 choices retain normal sight, deterrence, route, den-space and material constraints.
+A due drink with a viable route takes precedence over optional metal fitting and
+stockpile theft, including at an intermediate waypoint of a two-edge trip. The
+scout selects that trip after resident care and watch movement, and rechecks
+its continuation against current supplies and safety. Scout route admission
+excludes the watchman's occupied exposed post, not the shared den. A missing
+or unsafe water route does not by itself reserve a work slot.
 
 Kobold junkworks use existing surface custody rather than minting an equipment instance: after a
 physical industrial sighting has reached the den, co-located precision-copper salvage plus

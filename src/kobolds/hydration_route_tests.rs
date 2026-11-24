@@ -415,3 +415,115 @@ fn thirsty_hungry_scout_takes_reachable_water_before_competing_forage() {
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
+
+#[test]
+fn due_water_trip_preempts_industrial_extraction_at_junction_and_waypoint() {
+    use crate::content::{ENERGY_ELECTRICAL_BUFFER, FORM_REINFORCEMENT, MATERIAL_COPPER};
+    use crate::core::quantity::Energy;
+    use crate::energy::add_energy_store_with_initial_for_fixture;
+    use crate::inventory::deposit_lot_for_test;
+    use crate::logistics::{place_energy_store_for_fixture, validate_allocate_ground_stockpile};
+
+    let (registries, mut state, [den, junction, _, side]) = water_route();
+    let far = VoxelCoord::new(side.x(), side.y(), side.z() + 1);
+    add_traversable_edge_for_test(&mut state, side, far);
+    let machine = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_ELECTRICAL_BUFFER,
+        Energy::ZERO,
+    )
+    .unwrap();
+    place_energy_store_for_fixture(&mut state, machine, junction);
+
+    while state.tick().value() < 979 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(colony.scout_position(), den);
+    assert!(colony.mobilized_at.is_some());
+    assert!(colony.hungry);
+
+    // One real meal makes the scout fit for industrial work on this trip.
+    // The watchman cannot take a second serving from an exhausted parcel.
+    let meal = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        den,
+        CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+        super::super::SCOUT_MEAL_MASS,
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_WILD_NUTS),
+    )
+    .unwrap();
+    validate_create_surface_resources(&registries, &state, [meal])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let water = place_water(&registries, &mut state, far, SCOUT_DRINK_VOLUME);
+    let commodity = CommodityKey::new(MATERIAL_COPPER, FORM_REINFORCEMENT);
+    let mass = Mass::from_milligrams(100_000);
+    let mut stores = Vec::new();
+    for position in [junction, side] {
+        let store = validate_allocate_ground_stockpile(&state, position, mass)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            store,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+        stores.push(store);
+    }
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let water_total = calculate_fluid_volume_accounting(&state).unwrap();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    for (tick, position) in [(980, junction), (985, side), (990, far), (995, side)] {
+        while state.tick().value() < tick {
+            assert_eq!(
+                advance_tick(&registries, &mut state).unwrap(),
+                advance_tick(&registries, &mut replay).unwrap()
+            );
+        }
+        let colony = state.kobold_state().colony.as_ref().unwrap();
+        assert_eq!(
+            colony.scout_position(),
+            position,
+            "water trip at tick {tick}"
+        );
+        assert!(!colony.hungry);
+        for &store in &stores {
+            assert_eq!(
+                state
+                    .inventory()
+                    .get_stockpile(store)
+                    .unwrap()
+                    .get_mass(commodity),
+                mass
+            );
+        }
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+    assert_eq!(
+        state.fluid().get_store(water).unwrap().stored_volume(),
+        Volume::ZERO
+    );
+    assert_eq!(state, replay);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(
+        calculate_fluid_volume_accounting(&state).unwrap(),
+        water_total
+    );
+}

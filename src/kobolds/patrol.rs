@@ -47,7 +47,20 @@ use cargo::{
 };
 use raid::{ScoutRaidInterest, choose_outbound_detour, scout_raid_interest};
 
+/// All scout route planners and actual movement honor the watchman's
+/// occupied exposed post. The shared den remains available to both residents.
 pub(super) fn scout_can_enter(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    player_position: Option<VoxelCoord>,
+) -> bool {
+    state.kobold_state().colony.as_ref().is_none_or(|colony| {
+        colony.watch_deployed_at.is_none() || position != colony.watch_position()
+    }) && opening_resident_can_enter(registries, state, position, player_position)
+}
+
+pub(super) fn opening_resident_can_enter(
     registries: &Registries,
     state: &AppState,
     position: VoxelCoord,
@@ -211,6 +224,7 @@ struct ScoutPatrolContext {
     at: SimulationTick,
     player_position: Option<VoxelCoord>,
     pressured: bool,
+    water_trip: Option<super::hydration::ScoutWaterTrip>,
 }
 
 /// Movement and retreat planning does not mutate the authoritative colony.
@@ -230,6 +244,7 @@ fn plan_scout_move(
         at: next_tick,
         player_position,
         pressured,
+        ..
     } = context;
     let wary_at_den = colony.scout_step == 0
         && !pressured
@@ -260,8 +275,7 @@ fn plan_scout_move(
     // the player's reach. This is checked only on the resident's slow clock.
     let ahead_is_guarded = proposed_step != colony.scout_step
         && scout_sees_guarded_cell(registries, state, from, proposed_position);
-    let ahead_is_blocked = !scout_can_enter(registries, state, proposed_position, player_position)
-        || (colony.watch_deployed_at.is_some() && proposed_position == colony.watch_position());
+    let ahead_is_blocked = !scout_can_enter(registries, state, proposed_position, player_position);
     // A detour chosen at the junction is not a reservation. Player pickup or
     // another canonical surface transaction can remove or alter the target
     // during the scout's intervening physical step. Recheck its neighboring
@@ -325,8 +339,7 @@ fn plan_scout_move(
             // guarded homeward edge; a panicked scout still uses its real exit.
             && (pressured
                 || !scout_sees_guarded_cell(registries, state, from, position))
-            && scout_can_enter(registries, state, position, player_position)
-            && !(colony.watch_deployed_at.is_some() && position == colony.watch_position()),
+            && scout_can_enter(registries, state, position, player_position),
     }
 }
 

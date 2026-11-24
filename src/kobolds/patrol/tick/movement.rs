@@ -10,6 +10,7 @@ pub(super) struct ScoutMovementFrame {
     pub(super) at: SimulationTick,
     pub(super) forage_ready: bool,
     pub(super) player_position: Option<VoxelCoord>,
+    pub(super) water_trip: Option<crate::kobolds::hydration::ScoutWaterTrip>,
     pub(super) observer: Option<VoxelCoord>,
     pub(super) pressured: bool,
     pub(super) pressured_by_player: bool,
@@ -52,6 +53,7 @@ pub(super) fn settle_scout_movement(
         at: next_tick,
         forage_ready,
         player_position,
+        water_trip,
         observer,
         pressured,
         pressured_by_player,
@@ -84,6 +86,7 @@ pub(super) fn settle_scout_movement(
         at: next_tick,
         player_position,
         pressured,
+        water_trip,
     };
     let raid_interest = scout_raid_interest(registries, state, colony, decision);
     let move_plan = plan_scout_move(registries, state, colony, decision, raid_interest);

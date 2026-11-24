@@ -51,6 +51,7 @@ fn preferred_hungry_forage(
         at,
         player_position,
         pressured,
+        ..
     } = context;
     if pressured
         || !colony.hungry
@@ -117,25 +118,12 @@ pub(super) fn scout_raid_interest(
         at,
         player_position,
         pressured,
+        water_trip,
     } = context;
-    // Water is the first outbound choice. Once a real water route is visible,
-    // speculative food and salvage searches cannot change this patrol beat.
-    // Do not traverse those unrelated resource indexes just to discard them.
-    let preferred_water = (at >= colony.next_drink_at
-        && colony.scout_step == 1
-        && !colony.returning
-        && !pressured
-        && colony.scavenged_drop.is_none())
-    .then(|| {
-        super::super::hydration::reachable_water_from_junction(
-            registries,
-            state,
-            colony,
-            player_position,
-        )
-    })
-    .flatten();
-    let pursuing_water = preferred_water.is_some();
+    // The tick coordinator already resolved the viable drinking route before
+    // optional work. Do not override it or repeat the same resource search.
+    let preferred_water = water_trip.and_then(|trip| trip.outbound_route());
+    let pursuing_water = water_trip.is_some();
     let water_deprived = super::super::hydration::prolonged_water_deprivation(colony, at);
     let inherited_target = (!pursuing_water
         && colony.mobilized_at.is_some()

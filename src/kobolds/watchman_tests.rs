@@ -1746,8 +1746,11 @@ fn blocked_guard_retreat_keeps_locally_seen_warning_pending_not_teleported() {
 
 #[test]
 fn physically_reported_intrusion_funds_one_two_edge_outer_picket() {
-    let (registries, mut alerted, route) =
-        scenario(EnergyCarrier::Electrical, Some(VoxelCoord::new(0, 0, 0)));
+    let (registries, mut alerted, route) = super::scenario_with_registry(
+        crate::content::build_registries(),
+        crate::content::ENERGY_ELECTRICAL_BUFFER,
+        Some(VoxelCoord::new(0, 0, 0)),
+    );
     advance_to(&registries, &mut alerted, 195);
     let food = ration(&registries, &mut alerted, route[0]);
     let original = calculate_matter_accounting(&alerted).unwrap().total();
@@ -1781,6 +1784,7 @@ fn physically_reported_intrusion_funds_one_two_edge_outer_picket() {
     assert_eq!(watcher.watch_position(), route[2]);
     assert!(!watcher.watch_counterpatrol_pending);
     assert_ne!(watcher.scout_position(), watcher.watch_position());
+    assert_scout_water_route_avoids_occupied_picket(&registries, &alerted, route);
     assert_eq!(
         alerted.surface().get(food).unwrap().remaining_mass(),
         Mass::from_milligrams(60_000),
@@ -1812,6 +1816,54 @@ fn physically_reported_intrusion_funds_one_two_edge_outer_picket() {
         original
     );
     assert_eq!(validate_loaded_state(&registries, &alerted), Ok(()));
+}
+
+/// The normal patrol tip would win an equal-water tie, but a real paid
+/// sentry standing there must not conceal an equally good, reachable side source.
+fn assert_scout_water_route_avoids_occupied_picket(
+    registries: &crate::Registries,
+    state: &crate::AppState,
+    route: [VoxelCoord; 4],
+) {
+    use crate::content::FLUID_WATER;
+    use crate::fluid::{GeneratedFluidStoreSpec, validate_generate_fluid_store};
+    use crate::kobolds::{SCOUT_DRINK_VOLUME, hydration::reachable_water_from_junction};
+    use crate::logistics::validate_place_fluid_store;
+
+    let mut world = state.clone();
+    for position in [route[2], route[3]] {
+        let source = validate_generate_fluid_store(
+            registries,
+            &world,
+            GeneratedFluidStoreSpec::new(
+                SCOUT_DRINK_VOLUME,
+                FLUID_WATER,
+                SCOUT_DRINK_VOLUME,
+                Temperature::from_millikelvin(293_150),
+            ),
+        )
+        .unwrap()
+        .commit(&mut world)
+        .unwrap();
+        validate_place_fluid_store(&world, source, position)
+            .unwrap()
+            .commit(&mut world)
+            .unwrap();
+    }
+    assert_eq!(validate_loaded_state(registries, &world), Ok(()));
+    let colony = world.kobold_state().colony.as_ref().unwrap();
+    let before = world.clone();
+    assert_eq!(
+        reachable_water_from_junction(
+            registries,
+            &world,
+            colony,
+            world.logistics().player().map(|player| player.position()),
+        ),
+        Some((route[3], None)),
+        "the watchman's occupied post must be excluded during water-route selection"
+    );
+    assert_eq!(world, before);
 }
 
 #[test]
