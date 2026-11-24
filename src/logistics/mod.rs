@@ -88,14 +88,14 @@ pub use kinematics::{
     project_player_standing_space, project_player_walk_path, project_player_walk_path_for_load,
 };
 pub(crate) use kinematics::{
-    apply_player_body_motion, decide_player_body_motion, first_player_body_collision,
-    first_player_body_collision_in_chunk, first_player_body_overlap_with_bounds,
-    first_player_structure_collision, first_player_temple_caste_collision,
-    player_body_fits_continuous_world, player_body_floor_structures,
-    player_body_footprint_intersects_chunk, player_body_has_fixed_floor, player_body_is_grounded,
-    player_body_is_grounded_at, player_body_occupies_voxel, player_body_stands_above_structure,
-    player_body_stands_above_temple_caste, player_body_uses_generated_world,
-    player_placement_has_fixed_floor,
+    apply_player_body_motion, body_has_fixed_placement_floor, decide_player_body_motion,
+    first_player_body_collision, first_player_body_collision_in_chunk,
+    first_player_body_overlap_with_bounds, first_player_structure_collision,
+    first_player_temple_caste_collision, player_body_fits_continuous_world,
+    player_body_floor_structures, player_body_footprint_intersects_chunk,
+    player_body_has_fixed_floor, player_body_is_grounded, player_body_occupies_voxel,
+    player_body_stands_above_structure, player_body_stands_above_temple_caste,
+    player_body_uses_generated_world, player_placement_has_fixed_floor,
 };
 pub use pending_primary::PlayerPendingPrimaryBreakError;
 pub(crate) use pending_primary::{

@@ -5,7 +5,7 @@
 
 use crate::content::BLOCK_STATE_STONE;
 use crate::core::state::AppState;
-use crate::logistics::{PlayerBodyState, player_body_is_grounded_at};
+use crate::logistics::{PlayerBodyState, body_has_fixed_placement_floor};
 use crate::player::{PlayerAdmissionState, player_admission_state, validate_admit_player};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -45,13 +45,15 @@ pub fn select_natural_world_spawn(
         }
         for y in (WORLD_MIN_Y + 1..WORLD_MAX_Y_EXCLUSIVE - 2).rev() {
             let foot = VoxelCoord::new(x, y, z);
-            if is_grounded_spawn_site(registries, state, foot)
-                && has_level_walking_exit(registries, state, chunk, foot)
-            {
-                if has_continuing_level_route(registries, state, chunk, foot) {
-                    return Some(foot);
+            if !is_grounded_spawn_site(registries, state, foot) {
+                continue;
+            }
+            match level_route(registries, state, chunk, foot) {
+                LevelRoute::Continuing => return Some(foot),
+                LevelRoute::SingleExit => {
+                    single_exit_fallback.get_or_insert(foot);
                 }
-                single_exit_fallback.get_or_insert(foot);
+                LevelRoute::NoExit => {}
             }
         }
     }
@@ -76,19 +78,10 @@ fn is_grounded_spawn_site(registries: &Registries, state: &AppState, foot: Voxel
         && validate_admit_player(registries, state, foot).is_ok()
 }
 
-/// Before admitting a new player, only the initial chunk has collision truth.
-/// Require one walkable neighbor inside that chunk. The startup neighborhood
-/// expansion then cannot turn an isolated cliff-top start into a forced jump
-/// or fall on the player's very first move.
-fn has_level_walking_exit(
-    registries: &Registries,
-    state: &AppState,
-    chunk: ChunkCoord,
-    foot: VoxelCoord,
-) -> bool {
+fn level_neighbors(chunk: ChunkCoord, foot: VoxelCoord) -> impl Iterator<Item = VoxelCoord> {
     [(1, 0), (-1, 0), (0, 1), (0, -1)]
         .into_iter()
-        .filter_map(|(dx, dz)| {
+        .filter_map(move |(dx, dz)| {
             let neighbor = VoxelCoord::new(
                 foot.x().checked_add(dx)?,
                 foot.y(),
@@ -96,7 +89,13 @@ fn has_level_walking_exit(
             );
             (ChunkCoord::containing(neighbor) == chunk).then_some(neighbor)
         })
-        .any(|neighbor| is_level_walking_exit(registries, state, neighbor))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LevelRoute {
+    NoExit,
+    SingleExit,
+    Continuing,
 }
 
 /// A first valid neighbor is not necessarily a traversable starting area.
@@ -104,42 +103,35 @@ fn has_level_walking_exit(
 /// a turn but not counting the spawn itself as forward progress. Only the
 /// already generated startup chunk is consulted; this cannot predict a route
 /// through undiscovered terrain or manufacture flat ground.
-fn has_continuing_level_route(
+fn level_route(
     registries: &Registries,
     state: &AppState,
     chunk: ChunkCoord,
     foot: VoxelCoord,
-) -> bool {
-    const DIRECTIONS: [(i64, i64); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
-    DIRECTIONS.into_iter().any(|(dx, dz)| {
-        let Some((x, z)) = foot.x().checked_add(dx).zip(foot.z().checked_add(dz)) else {
-            return false;
-        };
-        let neighbor = VoxelCoord::new(x, foot.y(), z);
-        if ChunkCoord::containing(neighbor) != chunk
-            || !is_level_walking_exit(registries, state, neighbor)
-        {
-            return false;
+) -> LevelRoute {
+    let mut route = LevelRoute::NoExit;
+    for neighbor in level_neighbors(chunk, foot) {
+        if !is_level_walking_exit(registries, state, neighbor) {
+            continue;
         }
-        DIRECTIONS.into_iter().any(|(next_dx, next_dz)| {
-            let Some((next_x, next_z)) = x.checked_add(next_dx).zip(z.checked_add(next_dz)) else {
-                return false;
-            };
-            let next = VoxelCoord::new(next_x, foot.y(), next_z);
-            next != foot
-                && ChunkCoord::containing(next) == chunk
-                && is_level_walking_exit(registries, state, next)
-        })
-    })
+        route = LevelRoute::SingleExit;
+        if level_neighbors(chunk, neighbor)
+            .any(|next| next != foot && is_level_walking_exit(registries, state, next))
+        {
+            return LevelRoute::Continuing;
+        }
+    }
+    route
 }
 
 /// A neighbor can be supported by ore or built full-cell matter as well as
 /// stone. Read the actual body-footprint grounding kernel instead of treating
-/// the spawn's natural-stone preference as a walking rule.
+/// the spawn's natural-stone preference as a walking rule. A moving resident
+/// cannot provide a dependable walking exit for a newly admitted player.
 fn is_level_walking_exit(registries: &Registries, state: &AppState, at: VoxelCoord) -> bool {
     validate_admit_player(registries, state, at).is_ok()
         && PlayerBodyState::centered_on_voxel_floor(at)
-            .is_some_and(|body| player_body_is_grounded_at(registries, state, body))
+            .is_some_and(|body| body_has_fixed_placement_floor(registries, state, body))
 }
 
 #[cfg(test)]

@@ -15,10 +15,11 @@ use crate::registry::Registries;
 use crate::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord};
 use crate::world::{WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y};
 
+use super::kinematics::player_cell_has_fixed_support;
 use super::{
-    PlayerBodyState, PlayerLogisticsRecord, first_player_body_collision,
-    first_player_structure_collision, first_player_temple_caste_collision,
-    player_body_fits_continuous_world, player_body_is_grounded_at, project_player_standing_space,
+    PlayerBodyState, PlayerLogisticsRecord, body_has_fixed_placement_floor,
+    first_player_body_collision, first_player_structure_collision,
+    first_player_temple_caste_collision, player_body_fits_continuous_world,
 };
 
 /// A destroyed spawn floor or an airborne corpse should not force a revived
@@ -51,11 +52,10 @@ fn grounded_respawn_body_at(
     position: VoxelCoord,
 ) -> Option<PlayerBodyState> {
     let body = PlayerBodyState::centered_on_voxel_floor(position)?;
-    if state.world().has_generated_terrain_at(position) {
-        project_player_standing_space(registries, state, position).then_some(body)
-    } else {
-        respawn_body_is_clear(registries, state, body).then_some(body)
-    }
+    (respawn_body_is_clear(registries, state, body)
+        && (!state.world().has_generated_terrain_at(position)
+            || body_has_fixed_placement_floor(registries, state, body)))
+    .then_some(body)
 }
 
 /// Ground formerly carried matter on the first physical floor in its death
@@ -77,14 +77,13 @@ fn death_cache_landing(
     let mut last_clear = None;
     for y in (WORLD_MIN_Y..=top).rev() {
         let at = VoxelCoord::new(death.x(), y, death.z());
-        let blocked_by_world =
-            state.world().full_cell_collision_at(registries.world(), at) != Some(false);
-        let blocked_by_structure = state.structures().elements_covering(at).any(|element| {
-            !element.embodied_material().is_empty()
-                && element.geometry().covers_horizontal_footprint()
-        });
-        if blocked_by_world || blocked_by_structure {
-            return last_clear;
+        if player_cell_has_fixed_support(registries, state, at) {
+            let landing = last_clear?;
+            if crate::kobolds::temple_caste_occupies_voxel(registries, state, landing) {
+                return nearby_supported_respawn_body(registries, state, landing)
+                    .map(PlayerBodyState::voxel_position);
+            }
+            return Some(landing);
         }
         last_clear = Some(at);
     }
@@ -376,7 +375,8 @@ pub(crate) fn validate_player_logistics_respawn(
         (body, true)
     } else {
         // Keep the exact corpse position if it remains clear and, where
-        // generated terrain owns the floor, physically supported.
+        // generated terrain owns the floor, supported by fixed geometry
+        // under the exact voxel that may also receive the death cache.
         let body = player.body();
         let corpse = body.with_motion(
             body.foot_position(),
@@ -386,7 +386,7 @@ pub(crate) fn validate_player_logistics_respawn(
         );
         let corpse_is_safe = respawn_body_is_clear(registries, state, corpse)
             && (!state.world().has_generated_terrain_at(player.position())
-                || player_body_is_grounded_at(registries, state, corpse));
+                || body_has_fixed_placement_floor(registries, state, corpse));
         let body = corpse_is_safe
             .then_some(corpse)
             .or_else(|| nearby_supported_respawn_body(registries, state, player.respawn_position()))
@@ -404,8 +404,8 @@ pub(crate) fn validate_player_logistics_respawn(
         respawn_body,
         used_spawn_anchor,
         death_position: player.position(),
-        // A fall without a supporting floor keeps all cargo recoverable at
-        // the safe respawn point rather than manufacturing a floating cache.
+        // If no unoccupied supported landing can be found, keep the cargo
+        // recoverable at the safe respawn point.
         death_cache_position: death_cache_landing(registries, state, player.position())
             .unwrap_or_else(|| respawn_body.voxel_position()),
         death_cache: player.carried_stockpile(),

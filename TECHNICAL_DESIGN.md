@@ -552,6 +552,9 @@ illuminated lower cell at the local horizontal limit remains visible when both
 eye-height and lower-height paths are clear. A low opening beneath an opaque
 overhang does not grant a separate feet-height viewpoint.
 
+Fresh-world walking-exit selection excludes movable resident support; a
+dependable exit requires fixed footing under the destination voxel.
+
 Resident water eligibility uses the same authored drink temperature range as player
 drinking, while finite withdrawal and its structural load remain owned by the
 fluid system.
@@ -856,15 +859,19 @@ and trusted loading likewise treat embodied, full-footprint structural cells
 as solid across the continuous body. Narrow posts and inert blueprints do not
 become voxel-wide walls. Player admission and respawn bind the structural
 revision so a panel erected after clearance validation invalidates commit.
-Respawn also rechecks physical grounding at the original spawn wherever terrain
-is generated. A collision-free anchor whose floor was excavated is not a safe
-recovery site. When the death body remains grounded, its exact position is the
-fallback. An unsupported generated-world death instead checks a supported position
+Generated-world respawn requires clear body space and fixed footing under the
+exact destination voxel. Neither a moving resident nor an adjacent ledge is a
+safe recovery platform. When the death body meets those requirements, its exact
+position is the fallback. An unsupported generated-world death instead checks a supported position
 directly above the original anchor first, followed by immediate collision-free,
 supported horizontal neighbors at the same height or one voxel above or below.
 Only then does it try the lower original column, followed by the death-cache
-neighborhood. The old death body is retained only if none of those physical
-sites is available.
+neighborhood. If none of those physical sites is available, respawn rejects
+without changing custody or survival.
+The death cache descends to the first fixed floor in its original column.
+If a heavy resident occupies that landing, the same bounded supported-site
+search checks nearby positions. If no safe landing exists, cargo is recovered
+at the supported respawn point instead of intersecting a resident or floating.
 This bounded search never materializes unknown terrain. The candidate check
 shares the control-rate floor solver, while ungenerated authored opening
 positions retain their non-terrain admission semantics. World revisions

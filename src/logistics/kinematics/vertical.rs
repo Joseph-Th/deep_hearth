@@ -275,7 +275,10 @@ pub(crate) fn player_body_has_fixed_floor(registries: &Registries, state: &AppSt
     let Some(player) = state.logistics().player() else {
         return false;
     };
-    let body = player.body();
+    body_has_fixed_floor(registries, state, player.body())
+}
+
+fn body_has_fixed_floor(registries: &Registries, state: &AppState, body: PlayerBodyState) -> bool {
     let locomotion = registries.survival().physiology().locomotion();
     let Some(bounds) = horizontal_voxel_bounds(body, locomotion) else {
         return false;
@@ -306,16 +309,26 @@ pub(crate) fn player_body_has_fixed_floor(registries: &Registries, state: &AppSt
 /// Use the same fixed collision authority and exact foot face as player
 /// physics; do not count movable residents as permanent support.
 pub(crate) fn player_placement_has_fixed_floor(registries: &Registries, state: &AppState) -> bool {
-    if !player_body_has_fixed_floor(registries, state) {
-        return false;
-    }
     let Some(player) = state.logistics().player() else {
         return false;
     };
-    let Some(below_foot) = player.body().foot_position().y_nanometers().checked_sub(1) else {
+    body_has_fixed_placement_floor(registries, state, player.body())
+}
+
+/// Evaluate a proposed body and its exact custody voxel, including respawn
+/// candidates which are not yet the current player body.
+pub(crate) fn body_has_fixed_placement_floor(
+    registries: &Registries,
+    state: &AppState,
+    body: PlayerBodyState,
+) -> bool {
+    if !body_has_fixed_floor(registries, state, body) {
+        return false;
+    }
+    let Some(below_foot) = body.foot_position().y_nanometers().checked_sub(1) else {
         return false;
     };
-    let position = player.position();
+    let position = body.voxel_position();
     player_cell_has_fixed_support(
         registries,
         state,

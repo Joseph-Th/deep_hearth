@@ -63,8 +63,8 @@ pub(crate) fn player_body_is_grounded(registries: &Registries, state: &AppState)
 }
 
 /// Evaluate a proposed body using the same generated-world floor geometry as
-/// live gravity. Respawn validates its candidate anchor, not the current corpse.
-pub(crate) fn player_body_is_grounded_at(
+/// live gravity, including transient support from resident occupancy.
+pub(super) fn player_body_is_grounded_at(
     registries: &Registries,
     state: &AppState,
     body: PlayerBodyState,
@@ -368,7 +368,7 @@ pub(super) fn player_cell_blocks_motion(
 /// Terrain, standing trunks and embodied structures remain in place between
 /// neutral control frames. Moving temple residents collide with the player,
 /// but must not be accepted as a permanent floor for scheduled attention work.
-pub(super) fn player_cell_has_fixed_support(
+pub(in crate::logistics) fn player_cell_has_fixed_support(
     registries: &Registries,
     state: &AppState,
     voxel: VoxelCoord,

@@ -5,6 +5,41 @@ use crate::content::build_registries;
 use crate::world::{WorldGenerationSeed, validate_generate_chunk};
 
 #[test]
+fn spawn_walking_exit_requires_fixed_footing_not_a_resident() {
+    use crate::world::{set_generated_block_for_test, temple_warden_route_at};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x0054_454D_504C_4553),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let post = temple_warden_route_at(&registries, &state, VoxelCoord::new(8, -19, 8)).unwrap()[0];
+    let exit = VoxelCoord::new(post.x(), post.y() + 2, post.z());
+    for y in exit.y()..=exit.y() + 2 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(exit.x(), y, exit.z()),
+            BlockStateId::AIR,
+        );
+    }
+    assert!(validate_admit_player(&registries, &state, exit).is_ok());
+    assert!(crate::logistics::project_player_standing_space(
+        &registries,
+        &state,
+        exit
+    ));
+    assert!(!is_level_walking_exit(&registries, &state, exit));
+}
+
+#[test]
 fn requested_habitat_searches_other_safe_cells_in_the_same_chunk() {
     let registries = build_registries();
     let seed = WorldGenerationSeed::new(0x4841_4249_5441_5453);
@@ -139,8 +174,9 @@ fn damp_hillside_spawn_prefers_a_route_beyond_the_first_neighbor() {
     let spawn =
         select_natural_world_spawn(&registries, &state, chunk, 0, Some(HabitatKind::DampGrove))
             .expect("the previously cramped damp district has physical starts");
-    assert!(
-        has_continuing_level_route(&registries, &state, chunk, spawn),
+    assert_eq!(
+        level_route(&registries, &state, chunk, spawn),
+        LevelRoute::Continuing,
         "a two-step walking start must win over a single-cell dead end: {spawn:?}"
     );
 }
