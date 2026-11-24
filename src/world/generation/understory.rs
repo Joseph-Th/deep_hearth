@@ -15,8 +15,9 @@ use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec};
 
+use super::occupancy::natural_site_is_clear;
 use super::terrain::{mix64, terrain_height};
-use super::{BlockStateId, ChunkCoord, HabitatKind, WorldChunk, WorldGenerationProfile};
+use super::{ChunkCoord, HabitatKind, WorldChunk, WorldGenerationProfile};
 
 const UNDERSTORY_SALT: u64 = 0x554E_4445_5253_5452;
 const AMBIENT_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
@@ -120,24 +121,7 @@ pub(super) fn seeded_understory_spec(
 ) -> Option<SurfaceResourceSpec> {
     let tree = super::super::generated_tree(profile, chunk);
     for (position, commodity, mass) in seeded_understory_candidates(profile, chunk.coord()) {
-        let (x, y, z) = (position.x(), position.y(), position.z());
-        let floor = VoxelCoord::new(x, y - 1, z);
-        let head = VoxelCoord::new(x, y + 1, z);
-        if chunk.block_at(floor) != BLOCK_STATE_STONE
-            || chunk.block_at(position) != BlockStateId::AIR
-            || chunk.block_at(head) != BlockStateId::AIR
-            || tree.is_some_and(|tree| tree.occupies_trunk(position))
-            || reserved.contains(&position)
-            || state.structures().blocks_full_cell(position)
-            || state.logistics().has_stationary_occupant_at(position)
-            || state.logistics().fluid_stores_at(position).next().is_some()
-            || state
-                .surface()
-                .available_resources_at(Some(position))
-                .next()
-                .is_some()
-            || state.surface().rooted_biomass_occupies_voxel(position)
-        {
+        if !natural_site_is_clear(state, chunk, tree, position, reserved) {
             continue;
         }
         if !registries.materials().has_commodity(commodity) {

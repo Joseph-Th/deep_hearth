@@ -15,7 +15,41 @@ use crate::logistics::{
 use crate::registry::Registries;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::surface::SurfaceResourceLifecycle;
-use crate::world::{BlockCollisionShape, WORLD_MAX_Y_EXCLUSIVE};
+use crate::world::{BlockCollisionShape, BlockStateId, TreeRecord, WORLD_MAX_Y_EXCLUSIVE};
+
+/// Shared admission for finite natural ground resources, including provisional
+/// trunks and sites reserved by earlier resource families in the same plan.
+/// Living roots retain their footprint even when no harvest is available.
+pub(super) fn natural_site_is_clear(
+    state: &AppState,
+    chunk: &WorldChunk,
+    tree: Option<TreeRecord>,
+    position: VoxelCoord,
+    reserved: &[VoxelCoord],
+) -> bool {
+    let (x, y, z) = (position.x(), position.y(), position.z());
+    let Some(floor_y) = y.checked_sub(1) else {
+        return false;
+    };
+    let Some(head_y) = y.checked_add(1) else {
+        return false;
+    };
+    ChunkCoord::containing(position) == chunk.coord()
+        && chunk.block_at(VoxelCoord::new(x, floor_y, z)) == crate::content::BLOCK_STATE_STONE
+        && chunk.block_at(position) == BlockStateId::AIR
+        && chunk.block_at(VoxelCoord::new(x, head_y, z)) == BlockStateId::AIR
+        && !tree.is_some_and(|tree| tree.occupies_trunk(position))
+        && state.world().tree_trunk_at(position).is_none()
+        && !reserved.contains(&position)
+        && !state.structures().blocks_full_cell(position)
+        && !state.logistics().has_stationary_occupant_at(position)
+        && state
+            .surface()
+            .available_resources_at(Some(position))
+            .next()
+            .is_none()
+        && !state.surface().rooted_biomass_occupies_voxel(position)
+}
 
 /// One shared physical admission for both direct and atomic neighborhood
 /// generation; future occupied-matter categories must be checked in both.

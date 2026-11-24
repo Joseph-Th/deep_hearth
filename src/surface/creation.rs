@@ -275,6 +275,14 @@ pub(crate) struct ValidatedSurfaceResourceCreation {
 }
 
 impl ValidatedSurfaceResourceCreation {
+    /// A natural generation plan can outlive its original unpicked crop.
+    /// The generation owner uses this to guard that lifecycle boundary.
+    pub(crate) fn has_available_perennial(&self) -> bool {
+        self.records
+            .iter()
+            .any(|record| record.perennial.is_some() && !record.remaining_mass().is_zero())
+    }
+
     pub(crate) fn precheck(
         &self,
         state: &AppState,

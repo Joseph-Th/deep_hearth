@@ -21,8 +21,9 @@ use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec};
 
+use super::occupancy::natural_site_is_clear;
 use super::terrain::{mix64, terrain_height};
-use super::{BlockStateId, ChunkCoord, WorldChunk, WorldGenerationProfile};
+use super::{ChunkCoord, WorldChunk, WorldGenerationProfile};
 
 const AMBIENT_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 
@@ -135,20 +136,7 @@ pub(super) fn seeded_forage_spec(
     }
     let tree = super::super::generated_tree(profile, chunk);
     for (position, commodity, mass) in seeded_forage_candidates(profile, coord) {
-        let floor = VoxelCoord::new(position.x(), position.y().checked_sub(1)?, position.z());
-        let head = VoxelCoord::new(position.x(), position.y().checked_add(1)?, position.z());
-        if chunk.block_at(floor) != BLOCK_STATE_STONE
-            || chunk.block_at(position) != BlockStateId::AIR
-            || chunk.block_at(head) != BlockStateId::AIR
-            || tree.is_some_and(|tree| tree.occupies_trunk(position))
-            || state.structures().blocks_full_cell(position)
-            || state.logistics().has_stationary_occupant_at(position)
-            || state
-                .surface()
-                .available_resources_at(Some(position))
-                .next()
-                .is_some()
-        {
+        if !natural_site_is_clear(state, chunk, tree, position, &[]) {
             continue;
         }
         if !registries.materials().has_commodity(commodity) {

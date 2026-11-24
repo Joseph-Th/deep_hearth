@@ -17,6 +17,7 @@ use crate::registry::Registries;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec};
 
+use super::occupancy::natural_site_is_clear;
 use super::terrain::{mix64, terrain_height};
 use super::{
     BlockStateId, CHUNK_SIDE, ChunkCoord, HabitatKind, WorldChunk, WorldGenerationProfile,
@@ -99,21 +100,7 @@ impl LooseSiteContext<'_> {
     }
 
     fn clear(&self, position: VoxelCoord, reserved: &[VoxelCoord]) -> bool {
-        let (x, y, z) = (position.x(), position.y(), position.z());
-        self.chunk.block_at(VoxelCoord::new(x, y - 1, z)) == BLOCK_STATE_STONE
-            && self.chunk.block_at(position) == BlockStateId::AIR
-            && self.chunk.block_at(VoxelCoord::new(x, y + 1, z)) == BlockStateId::AIR
-            && !self.tree.is_some_and(|tree| tree.occupies_trunk(position))
-            && !reserved.contains(&position)
-            && !self.state.structures().blocks_full_cell(position)
-            && !self.state.logistics().has_stationary_occupant_at(position)
-            && self
-                .state
-                .surface()
-                .available_resources_at(Some(position))
-                .next()
-                .is_none()
-            && !self.state.surface().rooted_biomass_occupies_voxel(position)
+        natural_site_is_clear(self.state, self.chunk, self.tree, position, reserved)
     }
 
     fn spec(

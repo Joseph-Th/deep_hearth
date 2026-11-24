@@ -269,6 +269,18 @@ impl ValidatedNaturalChunkGeneration {
         state: &mut AppState,
     ) -> Result<Vec<ChunkCoord>, ChunkGenerationCommitError> {
         self.guard.precheck(state, &self.chunks)?;
+        let senesced_at = SimulationTick::new(super::forage_cycle::FRUIT_SENESCENCE_TICKS);
+        if state.tick() >= senesced_at
+            && self
+                .surface
+                .as_ref()
+                .is_some_and(ValidatedSurfaceResourceCreation::has_available_perennial)
+        {
+            return Err(ChunkGenerationCommitError::OriginalCropExpired {
+                senesced_at,
+                actual: state.tick(),
+            });
+        }
         self.geology.precheck(state).map_err(|error| match error {
             GenerateGeologicalDepositCommitError::Tick { .. } => {
                 unreachable!("natural geology dates materialization at commit")
@@ -303,9 +315,9 @@ impl ValidatedNaturalChunkGeneration {
                 });
             }
         }
-        // The common terrain guard already binds surface, world and structure
-        // revisions. These source parcels are dated to tick zero, so a distant
-        // clock advance cannot stale their physical generation identity.
+        // The common terrain guard binds surface, world and structure
+        // revisions, and the crop guard above binds the only time-dependent
+        // surface lifecycle transition. The parcels themselves date to tick zero.
         self.geology.apply(state);
         if let Some(surface) = self.surface {
             surface.apply(state);

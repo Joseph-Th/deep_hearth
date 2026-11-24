@@ -787,12 +787,20 @@ enclosure obstruct the small scout's body.
 Prospective terrain generation checks the candidate chunk against indexed
 available surface parcels, depleted but still-living perennial roots, and located
 stockpile enclosures instead of scanning remote or inert historical custody for
-every new column. Seeded forage and natural-water sites likewise skip living
-root footprints, even when their previous fruit crop has been harvested.
+every new column. Shrubs, understory, loose materials, exposed copper and
+natural-water sites share one prospective ground-site clearance predicate for
+stone footing, open headroom, trunks, stationary custody, full-cell structures,
+reserved sites and living root footprints, including harvest-depleted roots.
 A district's single seed-derived perennial allocation is never rerolled if an
 earlier shrub record already exists, even after complete depletion. Trusted
 load also rejects duplicate individually seed-plausible perennial records in
 the same district rather than accepting manufactured extra biological mass.
+Natural generation tokens containing an available original perennial crop
+also expire at the first senescence boundary, even if no other owner revision
+changes and no spring is planned. Revalidating after that boundary materializes
+the same seed-bound biomass as dormant roots, not a refreshed harvest. Plans
+without an unexpired original crop retain their ordinary revision and spring
+clock guards; no additional per-tick invalidation is introduced.
 If several objects conflict,
 the earliest resource or stockpile identity still determines the reported cell.
 Chunk-column lookup remains valid at the extreme representable voxel boundary.

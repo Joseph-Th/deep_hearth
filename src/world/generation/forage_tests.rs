@@ -14,7 +14,7 @@ use crate::surface::{
     SurfaceResourceKind, player_surface_gathering_options,
     validate_start_player_surface_gathering_option,
 };
-use crate::world::validate_generate_chunk;
+use crate::world::{BlockStateId, validate_generate_chunk};
 
 #[test]
 fn obstructed_seeded_forage_uses_a_valid_alternate_without_changing_its_seed_identity() {

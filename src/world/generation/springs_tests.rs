@@ -3,7 +3,7 @@
 use super::super::{HabitatKind, habitat_at, terrain_height};
 use super::*;
 
-use crate::content::{FLUID_WATER, build_registries};
+use crate::content::{BLOCK_STATE_STONE, FLUID_WATER, build_registries};
 use crate::core::quantity::Mass;
 use crate::core::state::{AppState, StateValidationError, validate_loaded_state};
 use crate::equipment::EquipmentId;
@@ -13,9 +13,9 @@ use crate::player::validate_admit_player;
 use crate::simulation::advance_control_tick;
 use crate::survival::{available_local_drink_sources, validate_drink};
 use crate::world::{
-    BlockExcavationError, BlockExcavationRequest, ChunkCoord, available_visible_generated_water,
-    validate_generate_chunk, validate_generate_player_neighborhood,
-    validate_start_player_block_excavation,
+    BlockExcavationError, BlockExcavationRequest, BlockStateId, ChunkCoord,
+    available_visible_generated_water, validate_generate_chunk,
+    validate_generate_player_neighborhood, validate_start_player_block_excavation,
 };
 
 #[test]

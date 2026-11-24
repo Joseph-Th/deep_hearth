@@ -107,3 +107,107 @@ Verification on the working copy:
 - `python tools/check_authority_docs.py`: PASS.
 - `python ci.py gate --lint`: PASS after the lint cleanup.
 - `python ci.py audit --core`: PASS again after the lint cleanup.
+
+## Continued audit: natural generation and ordinary fieldwork
+
+The continuation began from the verified previous commit. Reviewed the
+natural resource generators, prospective occupancy, surface creation and
+clock binding, rooted biomass lifecycle, terrain and movement, survival
+assessment, neutral fast-forward admission, automatic pickup, exclusive
+work, equipment custody, and the terminal client's observation and travel
+paths. Felling's same-height adjacent reach rule prevents chopping the
+trunk underneath the player; no speculative change to fast-forward was
+made on that basis.
+
+Confirmed a stale natural chunk authorization: surface parcels are dated
+to world tick zero, but the planned original perennial crop depends on
+whether the first senescence has passed. The existing spring clock guard
+masked the issue in wet chunks. A springless, seed-derived chunk plan
+validated before the first senescence and committed after a real simulation
+boundary incorrectly succeeded. The regression reproduced that failure.
+The natural generation commit now rejects a still-available original
+perennial crop after its expiry, before applying any owner. Fresh validation
+produces dormant roots with the same physical biomass. Commits before the
+boundary and commits of already reconciled roots remain admissible when
+other owner guards permit them.
+
+Shrub, understory, loose material, exposed copper and spring generation
+now share one local candidate clearance rule. It checks provisional
+stone footing, clear cells, trunks, full-cell structures, stationary
+custody, earlier reservations, available resources and dormant living roots.
+Removed the redundant separate fluid-location check in understory:
+the stationary occupancy index already includes fluids. Seed-specific
+candidate order, commodity and mass policies remain in their existing
+owners. No new save field, compatibility adapter or dependency.
+
+### Natural-world replay
+
+Ran the production terminal client with `--natural --seed 1837596006
+--habitat damp`, no authored starter trail and no fixture-provided
+equipment. The following ordinary command sequence reached finite timber,
+stone, a working fire, and a spring, then used a hand-built pick to
+excavate adjacent terrain:
+
+```text
+trek e 1 steady
+trek s 8 steady
+trek e 2 steady
+begin gather 1 2030.42
+wait finish
+begin craft 8
+wait finish
+trek w 7 steady
+begin gather 1 5000
+wait finish
+craft 7
+wait finish
+assemble 6
+take 1
+equip 1
+build-fire
+feed-fire 1 2
+wait 7200
+trek e 7 steady
+trek s 1 steady
+trek e 2 steady
+trek s 4 steady
+drink 1
+wait finish
+trek n 1 steady
+break down repeat 3
+inventory
+look down
+quit
+```
+
+The 2,030.42 g timber source was exhausted exactly. The 5,910.16 g
+stone source retained 910.16 g. Handle and tool-head crafting preserved
+the 1,000 g batch totals in their component and chip outputs. The pick
+was assembled, picked up and equipped in ordinary custody. The fire
+consumed 500 g of chips for 5 MJ; at the weather interruption, 4.2872 MJ
+remained and warmth had recovered to 100%. The spring at
+(-212,-9,-246) decreased from 9,418.445 mL to 9,168.445 mL after drinking,
+with hydration restored to 100%. Three 200 g cuts at (-212,-10,-247)
+removed 600 g of terrain and transferred exactly that mass into the
+pack; the block retained 2,649,400 g. The pick was still carried and
+showed wear. Vitality remained 100% through this opening slice.
+A tree blocked a direct two-metre climb route to the spring, and the
+player reached it via an alternate normal foothold. No full progression
+or late-game playthrough is claimed.
+
+The replay used the terminal binary from the previous verified code
+before the generation admission edits; it is evidence of ordinary
+opening play, not a proof of the new transaction guard. The new exact
+regression reproduced the stale crop commit and passed after the fix.
+
+Verification after the continued production changes:
+
+- `python tools/run_test.py delayed_natural_plan_cannot_restore_original_fruit_across_senescence`: reproduced failure, then PASS after the crop guard.
+- `python ci.py quick`: PASS, four checks.
+- `python ci.py audit --core`: PASS, 2,767 tests.
+- `python ci.py gate --lint`: PASS.
+- `python ci.py audit --gameplay`: PASS, 194 tests; settlement sample,
+  ordinary-exact-local-after-disclosed-bootstrap evidence, roots
+  `0x70CA1B6DAA2BD7BD/0x9577CFF5A085CB2F`.
+- `python tools/check_authority_docs.py`: PASS.
+

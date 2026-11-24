@@ -13,6 +13,91 @@ use crate::world::{ChunkCoord, WorldGenerationSeed, validate_generate_chunk};
 
 const FIRST_SENESCENCE: u64 = super::super::super::forage_cycle::FRUIT_SENESCENCE_TICKS;
 
+#[test]
+fn delayed_natural_plan_cannot_restore_original_fruit_across_senescence() {
+    let registries = build_registries();
+    let before_front = SimulationTick::new(FIRST_SENESCENCE - 2);
+    let senesced_at = SimulationTick::new(FIRST_SENESCENCE);
+    let mut state = AppState::new();
+    apply_clock_advance(&mut state, before_front);
+    // A spring would independently reject the changed clock, masking the
+    // crop-plan bug. Select an actual springless natural chunk with roots.
+    let (seed, plan) = (0..128)
+        .find_map(|value| {
+            let seed = WorldGenerationSeed::new(value);
+            let plan = super::super::validate_generate_natural_chunk(
+                &registries,
+                &state,
+                seed,
+                ChunkCoord::new(0, 0),
+                BLOCK_STATE_STONE,
+            )
+            .unwrap();
+            if plan.springs.is_some() {
+                return None;
+            }
+            let mut materialized = state.clone();
+            plan.clone().commit(&mut materialized).unwrap();
+            materialized.surface().perennial_resources().next()?;
+            Some((seed, plan))
+        })
+        .expect("a springless seeded chunk with perennial forage");
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    let mut early = state.clone();
+    plan.clone().commit(&mut early).unwrap();
+    assert!(
+        early
+            .surface()
+            .perennial_resources()
+            .all(|plant| !plant.remaining_mass().is_zero())
+    );
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    let before_commit = state.clone();
+    assert_eq!(state.tick(), senesced_at);
+    assert_eq!(
+        plan.commit(&mut state),
+        Err(
+            super::super::ChunkGenerationCommitError::OriginalCropExpired {
+                senesced_at,
+                actual: senesced_at
+            }
+        )
+    );
+    assert_eq!(state, before_commit, "stale generation must be atomic");
+    let reconciled = super::super::validate_generate_natural_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap();
+    let mut delayed = state.clone();
+    let _ = advance_tick(&registries, &mut delayed).unwrap();
+    reconciled.clone().commit(&mut delayed).unwrap();
+    reconciled.commit(&mut state).unwrap();
+    assert!(state.surface().perennial_resources().next().is_some());
+    for plant in state.surface().perennial_resources() {
+        assert_eq!(plant.remaining_mass(), Mass::ZERO);
+        assert_eq!(plant.perennial_root_mass(), plant.initial_mass());
+        assert_eq!(plant.depleted_at(), Some(state.tick()));
+        assert_eq!(delayed.surface().get(plant.id()), Some(plant));
+    }
+    assert_eq!(validate_loaded_state(&registries, &delayed), Ok(()));
+    let _ = advance_tick(&registries, &mut early).unwrap();
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        calculate_matter_accounting(&early).unwrap().total()
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(loaded, state);
+}
+
 fn discover_at(at: SimulationTick) -> (Registries, AppState) {
     discover_seed_at(WorldGenerationSeed::new(0x464F_5241_4745_434F), at)
 }

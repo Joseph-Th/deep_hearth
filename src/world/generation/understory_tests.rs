@@ -11,7 +11,8 @@ use crate::surface::{
     player_surface_gathering_options, validate_start_player_surface_gathering_option,
 };
 use crate::world::{
-    WorldGenerationSeed, validate_generate_chunk, validate_generate_player_neighborhood,
+    BlockStateId, WorldGenerationSeed, validate_generate_chunk,
+    validate_generate_player_neighborhood,
 };
 use std::collections::BTreeSet;
 

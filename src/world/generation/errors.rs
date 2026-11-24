@@ -212,6 +212,10 @@ pub enum ChunkGenerationCommitError {
         expected: SimulationTick,
         actual: SimulationTick,
     },
+    OriginalCropExpired {
+        senesced_at: SimulationTick,
+        actual: SimulationTick,
+    },
     StaleFluidRevision {
         expected: u64,
         actual: u64,
@@ -271,6 +275,15 @@ impl Display for ChunkGenerationCommitError {
                 formatter,
                 "natural-water plan was built at tick {} but the current tick is {}",
                 expected.value(),
+                actual.value()
+            ),
+            Self::OriginalCropExpired {
+                senesced_at,
+                actual,
+            } => write!(
+                formatter,
+                "natural generation crop expired at tick {} before commit at tick {}",
+                senesced_at.value(),
                 actual.value()
             ),
             Self::StaleFluidRevision { expected, actual } => write!(
