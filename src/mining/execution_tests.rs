@@ -1417,6 +1417,54 @@ fn continuous_voxel_change_waits_for_pending_carried_mining_settlement() {
 }
 
 #[test]
+fn jump_waits_for_pending_carried_mining_settlement() {
+    let (registries, mut state, job, carried, _) = awaiting_carried_mining_settlement_fixture();
+    let origin = state.logistics().player().unwrap().position();
+    for y in origin.y() + 2..=origin.y() + 4 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(origin.x(), y, origin.z()),
+            BlockStateId::AIR,
+        );
+    }
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(
+        state
+            .mining()
+            .awaiting_settlement_destination_occupant(carried),
+        Some(job)
+    );
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    let jump = PlayerControlInput::NEUTRAL.with_jump(true);
+    loop {
+        let control = advance_control_tick_with_input(&registries, &mut state, jump).unwrap();
+        if let Some(settled) = control.simulation() {
+            assert_eq!(
+                settled.mining_output().map(|output| output.job()),
+                Some(job)
+            );
+            break;
+        }
+        assert!(
+            control.body_motion().is_none(),
+            "a jump must not launch while pending mining output pins the carried stockpile"
+        );
+    }
+    assert!(state.mining().get_job(job).is_none());
+    let control = advance_control_tick_with_input(&registries, &mut state, jump).unwrap();
+    assert!(
+        control.body_motion().is_some(),
+        "jumping should become available after settlement"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn obsolete_player_step_save_shape_is_rejected_at_schema_boundary() {
     let (registries, state, _job, _carried, movement_destination) =
         awaiting_carried_mining_settlement_fixture();

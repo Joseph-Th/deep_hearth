@@ -69,7 +69,7 @@ fn unavailable_output_support(state: &AppState, job: &ProductionJobRecord) -> Op
         })
 }
 
-fn current_physical_suspension_reason(
+pub(crate) fn current_physical_suspension_reason(
     state: &AppState,
     job: &ProductionJobRecord,
 ) -> Option<ProductionSuspensionReason> {

@@ -168,9 +168,9 @@ pub(super) fn automatic_surface_drop_pickup_preflight_ready(
 /// that boundary's final control-frame pickup. Inline work has its own
 /// schedule; production and mining keep theirs with the owning job.
 ///
-/// A suspended production job or unsettled mining job can resume or settle
-/// on that boundary. Conservatively retain the control sample rather than
-/// claim no pickup is possible from an incomplete future schedule.
+/// Production can also release attention before its due tick when a physical
+/// provider becomes unavailable. Use the production owner's suspension rule;
+/// unsettled mining may likewise release attention outside its original schedule.
 fn work_may_release_at_next_boundary(state: &AppState, next: SimulationTick) -> bool {
     let Some(work) = state.player_work().active() else {
         return false;
@@ -179,10 +179,14 @@ fn work_may_release_at_next_boundary(state: &AppState, next: SimulationTick) -> 
         return completes_at == next;
     }
     match work {
-        PlayerWork::ManualProduction { job } => state
-            .production()
-            .get_job(job)
-            .is_some_and(|record| record.completes_at() <= next || record.is_suspended()),
+        PlayerWork::ManualProduction { job } => {
+            state.production().get_job(job).is_some_and(|record| {
+                record.completes_at() <= next
+                    || record.is_suspended()
+                    || crate::production::current_physical_suspension_reason(state, record)
+                        .is_some()
+            })
+        }
         PlayerWork::Mining { job } => state
             .mining()
             .get_job(job)

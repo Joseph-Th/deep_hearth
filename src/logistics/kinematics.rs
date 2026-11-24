@@ -15,8 +15,10 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::{Mass, Speed};
 use crate::core::state::AppState;
 use crate::core::time::CONTROL_TICK_DURATION;
+use crate::equipment::equipment_occupancy;
+use crate::production::player_move_production_site_conflict;
 use crate::registry::Registries;
-use crate::spatial::WorldPoint;
+use crate::spatial::{VoxelCoord, WorldPoint};
 use crate::survival::{LocomotionDefinition, SurvivalExertion, Vitality};
 
 use super::state::LocomotionExertionAccumulator;
@@ -45,6 +47,33 @@ pub use horizontal::project_player_level_approach;
 pub use vertical::project_player_jump_rise_bound;
 pub(crate) use vertical::{player_body_has_fixed_floor, player_placement_has_fixed_floor};
 use vertical::{resolve_vertical_control, supporting_floor_y};
+
+/// Voluntary locomotion must preserve the site of outstanding work and custody.
+fn player_voxel_change_allowed(
+    state: &AppState,
+    player: PlayerLogisticsRecord,
+    destination: VoxelCoord,
+) -> bool {
+    if state.player_work().active().is_some() {
+        return false;
+    }
+    if player_move_production_site_conflict(state, player.carried_stockpile(), destination)
+        .is_some()
+    {
+        return false;
+    }
+    if state
+        .mining()
+        .awaiting_settlement_destination_occupant(player.carried_stockpile())
+        .is_some()
+    {
+        return false;
+    }
+    !state
+        .logistics()
+        .carried_equipment()
+        .any(|equipment| equipment_occupancy(state, equipment).is_some())
+}
 
 const MICROSECONDS_PER_SECOND: i128 = 1_000_000;
 const NANOMETERS_PER_MICROMETER: i128 = 1_000;

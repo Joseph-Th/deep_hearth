@@ -23,7 +23,9 @@ mod errors;
 mod planning;
 
 pub(crate) use application::apply_completion_plan;
-pub(crate) use availability::resumed_jobs_completing_next_tick;
+pub(crate) use availability::{
+    current_physical_suspension_reason, resumed_jobs_completing_next_tick,
+};
 pub(crate) use errors::{CompletionCommitError, CompletionPlanError};
 pub(crate) use planning::{decide_due_completions, plan_player_death_suspension};
 

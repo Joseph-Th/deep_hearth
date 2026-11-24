@@ -1,13 +1,11 @@
-//! Horizontal body sweep and locality-transition constraints.
+//! Horizontal body sweep against voxel faces.
 
 use crate::core::state::AppState;
-use crate::equipment::equipment_occupancy;
-use crate::production::player_move_production_site_conflict;
 use crate::registry::Registries;
 use crate::spatial::{HorizontalVelocity, NANOMETERS_PER_VOXEL, VoxelCoord, WorldPoint};
 use crate::survival::LocomotionDefinition;
 
-use crate::logistics::{PlayerBodyState, PlayerLogisticsRecord};
+use crate::logistics::PlayerBodyState;
 
 use super::{
     PlayerBodyMotionError, body_height, horizontal_voxel_bounds, integrate_velocity,
@@ -240,32 +238,6 @@ fn vertical_voxel_bounds(
             .ok_or(PlayerBodyMotionError::CoordinateOverflow)?
             .div_euclid(NANOMETERS_PER_VOXEL),
     ))
-}
-
-pub(super) fn player_voxel_change_allowed(
-    state: &AppState,
-    player: PlayerLogisticsRecord,
-    destination: VoxelCoord,
-) -> bool {
-    if state.player_work().active().is_some() {
-        return false;
-    }
-    if player_move_production_site_conflict(state, player.carried_stockpile(), destination)
-        .is_some()
-    {
-        return false;
-    }
-    if state
-        .mining()
-        .awaiting_settlement_destination_occupant(player.carried_stockpile())
-        .is_some()
-    {
-        return false;
-    }
-    !state
-        .logistics()
-        .carried_equipment()
-        .any(|equipment| equipment_occupancy(state, equipment).is_some())
 }
 
 #[cfg(test)]

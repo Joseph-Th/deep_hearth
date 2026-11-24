@@ -15,7 +15,8 @@ use super::super::{
 use super::collision::{
     first_player_body_collision_where, horizontal_voxel_bounds, player_cell_blocks_motion,
 };
-use super::horizontal::{player_voxel_change_allowed, resolve_horizontal_motion};
+use super::horizontal::resolve_horizontal_motion;
+use super::player_voxel_change_allowed;
 use super::vertical::supporting_floor_y;
 use super::{
     MICROSECONDS_PER_SECOND, NANOMETERS_PER_MICROMETER, PlayerBodyMotionError,

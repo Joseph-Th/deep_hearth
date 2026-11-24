@@ -6,7 +6,7 @@ use super::{
     PlayerControlInput, PlayerFallImpactOutcome, Registries, Speed, WorldPoint,
     assess_player_carrying, body_height, horizontal_chunks_generated, horizontal_voxel_bounds,
     integrate_velocity, length_nanometers, player_cell_blocks_motion,
-    player_cell_has_fixed_support,
+    player_cell_has_fixed_support, player_voxel_change_allowed,
 };
 use crate::spatial::{NANOMETERS_PER_VOXEL, VerticalVelocity, VoxelCoord};
 
@@ -81,6 +81,23 @@ fn jump_or_existing_vertical_velocity(
     input: PlayerControlInput,
 ) -> Result<VerticalVelocity, PlayerBodyMotionError> {
     if !availability.accepts_ground_control() || !input.jump() {
+        return Ok(body.vertical_velocity());
+    }
+    // Only voluntary launch is gated: gravity must still integrate an airborne body.
+    let player = state
+        .logistics()
+        .player()
+        .unwrap_or_else(|| unreachable!("generated body motion requires admitted player"));
+    let origin = body.voxel_position();
+    let above = VoxelCoord::new(
+        origin.x(),
+        origin
+            .y()
+            .checked_add(1)
+            .ok_or(PlayerBodyMotionError::CoordinateOverflow)?,
+        origin.z(),
+    );
+    if !player_voxel_change_allowed(state, *player, above) {
         return Ok(body.vertical_velocity());
     }
     let carrying = assess_player_carrying(state)

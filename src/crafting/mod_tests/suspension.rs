@@ -3,6 +3,122 @@
 use super::*;
 
 #[test]
+fn early_manual_craft_suspension_preserves_boundary_pickup() {
+    use crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
+    use crate::simulation::{TickError, advance_control_tick};
+    use crate::surface::{
+        SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources,
+    };
+
+    let (registries, mut state, source, lot, destination) = make_fixture();
+    let support = active_stockpile_support(&registries, &mut state);
+    let _ = validate_mount_stockpile(&registries, &state, destination, support)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let job = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(lot, Mass::from_milligrams(1_000_000)),
+            destination,
+        ),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert!(
+        state
+            .production()
+            .get_job(job)
+            .unwrap()
+            .completes_at()
+            .value()
+            > 1
+    );
+    let player = state.logistics().player().unwrap();
+    let carried = player.carried_stockpile();
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let mass = Mass::from_milligrams(60_000);
+    let creation = validate_create_surface_resources(
+        &registries,
+        &state,
+        [SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            player.position(),
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap()],
+    )
+    .unwrap();
+    let drop = creation.first_resource_id();
+    creation.commit(&mut state).unwrap();
+    let _ = validate_set_structural_load(
+        &registries,
+        &state,
+        support,
+        StructuralLoadKind::Snow,
+        Force::from_millinewtons(50_000_000),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let before = state.clone();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(
+        advance_tick(&registries, &mut state),
+        Err(TickError::ControlSteppingRequired {
+            current: before.control_tick(),
+        })
+    );
+    assert_eq!(state, before);
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for _ in 1..CONTROL_TICKS_PER_SIMULATION_TICK {
+        let frame = advance_control_tick(&registries, &mut state).unwrap();
+        assert_eq!(
+            frame,
+            advance_control_tick(&registries, &mut replay).unwrap()
+        );
+        assert!(frame.surface_drop_pickup().is_none());
+    }
+    let frame = advance_control_tick(&registries, &mut state).unwrap();
+    assert_eq!(
+        frame,
+        advance_control_tick(&registries, &mut replay).unwrap()
+    );
+    assert_eq!(frame.surface_drop_pickup().unwrap().resource(), drop);
+    assert_eq!(state.player_work().active(), None);
+    assert!(state.production().get_job(job).unwrap().is_suspended());
+    assert_eq!(
+        state.surface().get(drop).unwrap().remaining_mass(),
+        Mass::ZERO
+    );
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(commodity),
+        mass
+    );
+    assert_eq!(state, replay);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn suspended_manual_craft_resumes_at_a_real_control_boundary_and_replays() {
     use crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};

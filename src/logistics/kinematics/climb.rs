@@ -8,7 +8,8 @@ use crate::spatial::{
 };
 
 use super::collision::{first_player_body_collision_where, player_body_is_grounded_at};
-use super::horizontal::{HorizontalAxis, player_voxel_change_allowed, sweep_horizontal_axis};
+use super::horizontal::{HorizontalAxis, sweep_horizontal_axis};
+use super::player_voxel_change_allowed;
 use super::vertical::crossed_ceiling_y;
 use super::{
     AppState, HorizontalControlInput, LocomotionDefinition, PlayerBodyMotionError, PlayerBodyState,
