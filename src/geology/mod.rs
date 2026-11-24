@@ -49,5 +49,6 @@ pub(crate) use prospecting_action::{
     FieldProspectingInterruptionPlan, FieldProspectingTickError,
     apply_field_prospecting_interruption, apply_field_prospecting_tick,
     decide_field_prospecting_interruption, decide_field_prospecting_tick,
+    prospecting_region_has_authority,
 };
 pub(crate) use state::{GeologyState, validate_loaded_geology};

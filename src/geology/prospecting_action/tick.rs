@@ -160,11 +160,8 @@ pub(crate) fn decide_field_prospecting_tick(
     // separately for each cell and each of its three evidence projections.
     let local_deposits = state
         .geology()
-        .deposits()
-        .filter(|deposit| {
-            deposit.lifecycle() == GeologicalDepositLifecycle::Available
-                && deposit.bounds().has_intersection(work.region())
-        })
+        .deposits_intersecting(work.region())
+        .filter(|deposit| deposit.lifecycle() == GeologicalDepositLifecycle::Available)
         .collect::<Vec<_>>();
     let resolutions = prospecting_observation_regions(method, work.region())
         .into_iter()

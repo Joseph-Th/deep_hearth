@@ -27,7 +27,12 @@ pub fn visible_weathered_copper_sites(
     }
     let mut sites = state
         .geology()
-        .deposits()
+        .deposits_intersecting_columns(
+            from.x().saturating_sub(12),
+            from.x().saturating_add(12),
+            from.z().saturating_sub(12),
+            from.z().saturating_add(12),
+        )
         .filter_map(|deposit| {
             let bounds = deposit.bounds();
             let to = bounds.min();
@@ -37,9 +42,7 @@ pub fn visible_weathered_copper_sites(
                 && max.x().abs_diff(to.x()) == 1
                 && max.y().abs_diff(to.y()) == 1
                 && max.z().abs_diff(to.z()) == 1
-                && from.x().abs_diff(to.x()) <= 12
                 && from.y().abs_diff(to.y()) <= 6
-                && from.z().abs_diff(to.z()) <= 12
                 && state.world().has_standing_clearance(registries.world(), to)
                 && !state.structures().blocks_full_cell(to)
                 && crate::world::player_can_see_distant_cell(registries, state, to))

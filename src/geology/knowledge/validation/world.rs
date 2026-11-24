@@ -11,8 +11,8 @@ use super::super::{
 };
 use super::GeologicalKnowledgeValidationError;
 use crate::geology::prospecting_action::{
-    resolve_historical_region_abundance_bounds, resolve_historical_region_excavation_hardness,
-    resource_mass_band_matches_resolution,
+    resolve_region_abundance_bounds_from_deposits,
+    resolve_region_excavation_hardness_from_deposits, resource_mass_band_matches_resolution,
 };
 
 /// Validates persisted acquired evidence against authored methods and geological bodies that
@@ -39,29 +39,30 @@ pub(crate) fn validate_loaded_geological_evidence_against_world(
             );
         };
         let material = finding.material();
+        let historical_deposits: Vec<_> = geology
+            .deposits_intersecting(record.region)
+            .filter(|deposit| deposit.was_available_at(record.observed_at))
+            .collect();
         if let Some(hardness) = record.excavation_hardness {
             validate_loaded_hardness_against_geology(
-                geology,
+                &historical_deposits,
                 *observation,
-                record,
                 material,
                 hardness,
             )?;
         }
         if let Some(resource_mass) = record.resource_mass {
             validate_loaded_resource_mass_against_geology(
-                geology,
+                &historical_deposits,
                 *observation,
                 record,
                 material,
                 resource_mass,
             )?;
         }
-        if !labor
-            .prospecting_definitions()
-            .copied()
-            .any(|method| authored_method_can_emit_observation(method, geology, record, *finding))
-        {
+        if !labor.prospecting_definitions().copied().any(|method| {
+            authored_method_can_emit_observation(method, &historical_deposits, record, *finding)
+        }) {
             return Err(
                 GeologicalKnowledgeValidationError::ObservationCannotMatchAuthoredMethod {
                     observation: *observation,
@@ -75,30 +76,30 @@ pub(crate) fn validate_loaded_geological_evidence_against_world(
 
 fn authored_method_can_emit_observation(
     method: ProspectingDefinition,
-    geology: &GeologyState,
+    historical_deposits: &[&GeologicalDepositRecord],
     record: &GeologicalObservationRecord,
     finding: MaterialAbundanceEstimate,
 ) -> bool {
-    let expected_abundance = resolve_historical_region_abundance_bounds(
-        geology,
-        record.observed_at,
+    if method.evidence() != record.evidence
+        || method.resolve_region_observation_count(record.region) != Ok(1)
+    {
+        return false;
+    }
+    let expected_abundance = resolve_region_abundance_bounds_from_deposits(
+        historical_deposits.iter().copied(),
         record.region,
         finding.material(),
         method.abundance_uncertainty_ppm(),
     );
-    if method.evidence() != record.evidence
-        || method.resolve_region_observation_count(record.region) != Ok(1)
-        || (finding.lower_ppm(), finding.upper_ppm()) != expected_abundance
-    {
+    if (finding.lower_ppm(), finding.upper_ppm()) != expected_abundance {
         return false;
     }
     let expected_hardness = method
         .excavation_hardness_resolution()
         .filter(|_| finding.lower_ppm() > 0)
         .and_then(|resolution| {
-            resolve_historical_region_excavation_hardness(
-                geology,
-                record.observed_at,
+            resolve_region_excavation_hardness_from_deposits(
+                historical_deposits.iter().copied(),
                 record.region,
                 finding.material(),
                 resolution,
@@ -119,18 +120,17 @@ fn authored_method_can_emit_observation(
 }
 
 fn validate_loaded_hardness_against_geology(
-    geology: &GeologyState,
+    historical_deposits: &[&GeologicalDepositRecord],
     observation: GeologicalObservationId,
-    record: &GeologicalObservationRecord,
     material: MaterialId,
     hardness: ExcavationHardnessEstimate,
 ) -> Result<(), GeologicalKnowledgeValidationError> {
     let mut plausible_historical_match = false;
-    for deposit in geology.deposits().filter(|deposit| {
-        deposit.was_available_at(record.observed_at)
-            && deposit.bounds().has_intersection(record.region)
-            && deposit.composition().parts_per_million(material) > 0
-    }) {
+    for deposit in historical_deposits
+        .iter()
+        .copied()
+        .filter(|deposit| deposit.composition().parts_per_million(material) > 0)
+    {
         let actual = deposit.excavation_hardness();
         let inside_band = actual >= hardness.lower() && actual <= hardness.upper();
         if !inside_band {
@@ -160,7 +160,7 @@ fn validate_loaded_hardness_against_geology(
 }
 
 fn validate_loaded_resource_mass_against_geology(
-    geology: &GeologyState,
+    historical_deposits: &[&GeologicalDepositRecord],
     observation: GeologicalObservationId,
     record: &GeologicalObservationRecord,
     material: MaterialId,
@@ -173,14 +173,10 @@ fn validate_loaded_resource_mass_against_geology(
                 || (candidate.milligrams() == u64::MAX
                     && resource_mass.upper().milligrams() == u64::MAX))
     };
-    let available_at_observation = |deposit: &GeologicalDepositRecord| {
-        deposit.was_available_at(record.observed_at)
-            && deposit.composition().parts_per_million(material) > 0
-    };
-
-    let mut historical_matches = geology.deposits().filter(|deposit| {
-        available_at_observation(deposit) && deposit.bounds().has_intersection(record.region)
-    });
+    let mut historical_matches = historical_deposits
+        .iter()
+        .copied()
+        .filter(|deposit| deposit.composition().parts_per_million(material) > 0);
     if let Some(historical) = historical_matches.next() {
         let unique = historical_matches.next().is_none();
         if unique && historical.bounds() == record.region && can_match_mass(historical) {

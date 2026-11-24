@@ -29,6 +29,7 @@ pub enum FieldProspectingStartError {
         player_position: VoxelCoord,
         region: VoxelBounds,
     },
+    RegionOutsideGeneratedWorld,
     EquipmentRequired {
         method: ProspectingMethodId,
     },
@@ -104,6 +105,9 @@ impl Display for FieldProspectingStartError {
                     max.z()
                 )
             }
+            Self::RegionOutsideGeneratedWorld => formatter.write_str(
+                "prospecting region includes ungenerated or out-of-world cells",
+            ),
             Self::EquipmentRequired { method } => write!(
                 formatter,
                 "prospecting method {} requires a physical sampling instrument",
@@ -182,6 +186,7 @@ impl Error for FieldProspectingStartError {
             | Self::RegionVolumeOverflow
             | Self::RegionTooLarge { .. }
             | Self::PlayerOutsideRegion { .. }
+            | Self::RegionOutsideGeneratedWorld
             | Self::EquipmentRequired { .. }
             | Self::UnexpectedEquipment { .. }
             | Self::EquipmentMounted { .. }
@@ -201,6 +206,14 @@ impl Error for FieldProspectingStartError {
 pub enum FieldProspectingCommitError {
     Work(PlayerWorkCommitError),
     StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleWorldRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleStructureRevision {
         expected: u64,
         actual: u64,
     },
@@ -240,6 +253,14 @@ impl Display for FieldProspectingCommitError {
             Self::StaleEquipmentRevision { expected, actual } => write!(
                 formatter,
                 "prospecting equipment expected revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleWorldRevision { expected, actual } => write!(
+                formatter,
+                "prospecting expected world revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleStructureRevision { expected, actual } => write!(
+                formatter,
+                "prospecting expected structure revision {expected} but current revision is {actual}"
             ),
             Self::EquipmentBusyProduction { equipment, job } => write!(
                 formatter,
@@ -285,6 +306,8 @@ impl Error for FieldProspectingCommitError {
         match self {
             Self::Work(error) => Some(error),
             Self::StaleLogisticsRevision { .. }
+            | Self::StaleWorldRevision { .. }
+            | Self::StaleStructureRevision { .. }
             | Self::StaleEquipmentRevision { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }

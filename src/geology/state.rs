@@ -12,6 +12,9 @@ use crate::material::{CommodityKey, MaterialComposition};
 use crate::material::{CompositionError, MaterialId};
 use crate::spatial::VoxelBounds;
 
+mod spatial_index;
+use spatial_index::{DepositSpatialIndex, intersects_columns};
+
 /// Persistent identifier for one finite geological matter owner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct GeologicalDepositId(u32);
@@ -254,6 +257,8 @@ pub struct GeologyState {
     next_deposit_id: u32,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_btree_map_no_duplicates")]
     deposits: BTreeMap<GeologicalDepositId, GeologicalDepositRecord>,
+    #[serde(skip)]
+    spatial_index: DepositSpatialIndex,
 }
 
 impl GeologyState {
@@ -263,6 +268,7 @@ impl GeologyState {
             revision: 0,
             next_deposit_id: 1,
             deposits: BTreeMap::new(),
+            spatial_index: DepositSpatialIndex::new(),
         }
     }
 
@@ -284,6 +290,54 @@ impl GeologyState {
     /// Iterates deposits deterministically by persistent identity.
     pub fn deposits(&self) -> impl Iterator<Item = &GeologicalDepositRecord> {
         self.deposits.values()
+    }
+
+    /// All intersecting bodies, including depleted historical custody, in
+    /// the same persistent identity order as a complete owner scan.
+    pub(crate) fn deposits_intersecting(
+        &self,
+        region: VoxelBounds,
+    ) -> impl Iterator<Item = &GeologicalDepositRecord> {
+        let min = region.min();
+        let max = region.max_exclusive();
+        self.deposits_intersecting_columns(min.x(), max.x() - 1, min.z(), max.z() - 1)
+            .filter(move |deposit| deposit.bounds().has_intersection(region))
+    }
+
+    /// Inclusive horizontal limits also support the final representable
+    /// world column, which cannot be expressed by an exclusive i64 bound.
+    pub(crate) fn deposits_intersecting_columns(
+        &self,
+        min_x: i64,
+        max_x: i64,
+        min_z: i64,
+        max_z: i64,
+    ) -> impl Iterator<Item = &GeologicalDepositRecord> {
+        self.spatial_index
+            .candidates(min_x, max_x, min_z, max_z)
+            .into_iter()
+            .map(|id| {
+                self.deposits
+                    .get(&id)
+                    .expect("geological spatial index references missing deposit")
+            })
+            .filter(move |deposit| intersects_columns(deposit.bounds(), min_x, max_x, min_z, max_z))
+    }
+
+    fn derived_spatial_index(&self) -> DepositSpatialIndex {
+        let mut index = DepositSpatialIndex::new();
+        for (&id, record) in &self.deposits {
+            index.insert(id, record.bounds());
+        }
+        index
+    }
+
+    pub(crate) fn rebuild_derived_indexes(&mut self) {
+        self.spatial_index = self.derived_spatial_index();
+    }
+
+    pub(super) fn has_valid_spatial_index(&self) -> bool {
+        self.spatial_index == self.derived_spatial_index()
     }
 
     pub(crate) fn insert_deposit(
@@ -311,6 +365,7 @@ impl GeologyState {
             !self.deposits.contains_key(&record.id),
             "geological deposit ID allocation must be unique"
         );
+        self.spatial_index.insert(record.id, record.bounds());
         let previous = self.deposits.insert(record.id, record);
         assert!(
             previous.is_none(),

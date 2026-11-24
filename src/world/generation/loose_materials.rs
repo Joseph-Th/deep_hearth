@@ -259,18 +259,12 @@ pub(super) fn seeded_copper_spec(
     let last_x = min_x.checked_add(i64::try_from(CHUNK_SIDE - 1).ok()?)?;
     let last_z = min_z.checked_add(i64::try_from(CHUNK_SIDE - 1).ok()?)?;
     // Geological bodies are authoritative even after depletion, but remote
-    // bodies cannot intersect this chunk. Bound the owner-wide scan to one
-    // pass per generation, then test each of the at most 49 local candidates
-    // against only the bodies overlapping these horizontal columns.
+    // bodies cannot intersect this chunk. Query the owner's spatial index
+    // once, then test only these local candidates against exact bounds.
     let local_deposits = state
         .geology()
-        .deposits()
+        .deposits_intersecting_columns(min_x, last_x, min_z, last_z)
         .map(|deposit| deposit.bounds())
-        .filter(|bounds| {
-            let min = bounds.min();
-            let max = bounds.max_exclusive();
-            min.x() <= last_x && max.x() > min_x && min.z() <= last_z && max.z() > min_z
-        })
         .collect::<Vec<_>>();
     for index in 0..49_u64 {
         let offset = (index * 17 + (hash >> 8) % 49) % 49;

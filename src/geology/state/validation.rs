@@ -23,6 +23,9 @@ pub(crate) fn validate_loaded_geology(
     for (key, record) in &state.deposits {
         validate_geological_deposit(materials, *key, record, current)?;
     }
+    if !state.has_valid_spatial_index() {
+        return Err(GeologyValidationError::InvalidSpatialIndex);
+    }
     Ok(())
 }
 

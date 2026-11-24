@@ -159,6 +159,9 @@ pub(super) fn validate_prospecting_work(
         });
     }
     let observations = validate_target_replay(registries, method, work)?;
+    if !crate::geology::prospecting_region_has_authority(state, work.region()) {
+        return Err(PlayerWorkValidationError::ProspectingRegionOutsideGeneratedWorld);
+    }
     if state
         .geological_knowledge()
         .next_observation_id()

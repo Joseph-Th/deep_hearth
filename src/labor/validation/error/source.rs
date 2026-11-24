@@ -105,6 +105,7 @@ impl Error for PlayerWorkValidationError {
             | Self::ProspectingRegionVolumeOverflow
             | Self::ProspectingRegionTooLarge { .. }
             | Self::ProspectingPlayerOutsideRegion { .. }
+            | Self::ProspectingRegionOutsideGeneratedWorld
             | Self::ProspectingEquipmentMissing
             | Self::ProspectingUnexpectedEquipment { .. }
             | Self::ProspectingEquipmentDefinitionMismatch

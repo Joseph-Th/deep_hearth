@@ -417,6 +417,24 @@ impl WorldState {
         self.get_chunk(ChunkCoord::containing(position)).is_some()
     }
 
+    /// Every voxel of the bounded region has generated terrain authority.
+    /// Count existing columns rather than enumerating potentially huge missing spans.
+    pub(crate) fn has_generated_bounds(&self, bounds: crate::spatial::VoxelBounds) -> bool {
+        let min = bounds.min();
+        let max = bounds.max_exclusive();
+        if min.y() < WORLD_MIN_Y || max.y() > WORLD_MAX_Y_EXCLUSIVE {
+            return false;
+        }
+        let first_x = min.x().div_euclid(CHUNK_SIDE_I64);
+        let last_x = (max.x() - 1).div_euclid(CHUNK_SIDE_I64);
+        let first_z = min.z().div_euclid(CHUNK_SIDE_I64);
+        let last_z = (max.z() - 1).div_euclid(CHUNK_SIDE_I64);
+        let required =
+            (u128::from(last_x.abs_diff(first_x)) + 1) * (u128::from(last_z.abs_diff(first_z)) + 1);
+        required <= self.chunks.len() as u128
+            && self.chunks_intersecting_horizontal_bounds(bounds).count() as u128 == required
+    }
+
     /// Returns a block state only when the containing chunk is generated and the coordinate lies
     /// within the supported vertical world range.
     #[must_use]

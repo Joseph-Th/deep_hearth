@@ -13,6 +13,111 @@ fn bounds() -> VoxelBounds {
 }
 
 #[test]
+fn spatial_queries_preserve_exact_geometry_identity_order_and_historical_custody() {
+    let registries = build_registries();
+    let mut state = GeologyState::new();
+    let geometry = [
+        // Crosses the negative chunk boundary and spans multiple indexed chunks.
+        (VoxelCoord::new(-17, -3, -17), VoxelCoord::new(1, 2, 1)),
+        (VoxelCoord::new(-16, 4, -16), VoxelCoord::new(0, 5, 0)),
+        (VoxelCoord::new(0, -2, 0), VoxelCoord::new(16, 1, 16)),
+        // Same X but distant Z: not a local candidate.
+        (
+            VoxelCoord::new(0, -2, 100_000),
+            VoxelCoord::new(2, 1, 100_002),
+        ),
+        // Broad fallback must not enumerate this footprint.
+        (
+            VoxelCoord::new(i64::MIN, -2, i64::MIN),
+            VoxelCoord::new(i64::MAX, 1, i64::MAX),
+        ),
+        (
+            VoxelCoord::new(i64::MAX - 1, -2, i64::MAX - 1),
+            VoxelCoord::new(i64::MAX, 1, i64::MAX),
+        ),
+    ];
+    for (min, max) in geometry {
+        let id = GeologicalDepositId::new(state.next_deposit_id());
+        state.insert_deposit(
+            GeologicalDepositRecord {
+                id,
+                bounds: VoxelBounds::new(min, max).unwrap(),
+                commodity: CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+                initial_mass: Mass::from_milligrams(100),
+                remaining_mass: Mass::from_milligrams(100),
+                temperature: Temperature::from_millikelvin(300_000),
+                excavation_hardness: Pressure::from_pascals(350_000_000),
+                composition: MaterialComposition::pure(MATERIAL_COPPER),
+                lifecycle: GeologicalDepositLifecycle::Available,
+                generated_at: SimulationTick::ZERO,
+                depleted_at: None,
+            },
+            id.value() + 1,
+            state.revision() + 1,
+        );
+    }
+    state.apply_extraction(
+        GeologicalDepositId::new(1),
+        Mass::from_milligrams(100),
+        SimulationTick::new(1),
+        state.revision() + 1,
+    );
+    let regions = [
+        VoxelBounds::new(VoxelCoord::new(-16, -2, -16), VoxelCoord::new(2, 1, 2)).unwrap(),
+        VoxelBounds::new(VoxelCoord::new(-16, 4, -16), VoxelCoord::new(0, 5, 0)).unwrap(),
+        VoxelBounds::new(VoxelCoord::new(16, -2, 16), VoxelCoord::new(17, 1, 17)).unwrap(),
+        VoxelBounds::new(
+            VoxelCoord::new(0, -2, 100_000),
+            VoxelCoord::new(2, 1, 100_002),
+        )
+        .unwrap(),
+        VoxelBounds::new(geometry[4].0, geometry[4].1).unwrap(),
+        VoxelBounds::new(geometry[5].0, geometry[5].1).unwrap(),
+    ];
+    let assert_queries = |state: &GeologyState| {
+        for region in regions {
+            let indexed = state
+                .deposits_intersecting(region)
+                .map(|record| record.id())
+                .collect::<Vec<_>>();
+            let exhaustive = state
+                .deposits()
+                .filter(|record| record.bounds().has_intersection(region))
+                .map(|record| record.id())
+                .collect::<Vec<_>>();
+            assert_eq!(indexed, exhaustive);
+        }
+        let historical = state.deposits_intersecting(regions[0]).next().unwrap();
+        assert_eq!(historical.id(), GeologicalDepositId::new(1));
+        assert_eq!(historical.lifecycle(), GeologicalDepositLifecycle::Depleted);
+        assert!(historical.was_available_at(SimulationTick::ZERO));
+        assert!(!historical.was_available_at(SimulationTick::new(2)));
+        assert_eq!(
+            state
+                .deposits_intersecting_columns(i64::MAX, i64::MAX, i64::MAX, i64::MAX)
+                .count(),
+            0,
+            "inclusive query at the final coordinate must not overflow or invent coverage"
+        );
+    };
+    assert_queries(&state);
+    assert_eq!(
+        validate_loaded_geology(registries.materials(), &state, SimulationTick::new(2)),
+        Ok(())
+    );
+    let encoded = serde_json::to_value(&state).unwrap();
+    assert!(encoded.get("spatial_index").is_none());
+    let mut decoded: GeologyState = serde_json::from_value(encoded).unwrap();
+    assert_eq!(
+        validate_loaded_geology(registries.materials(), &decoded, SimulationTick::new(2)),
+        Err(GeologyValidationError::InvalidSpatialIndex)
+    );
+    decoded.rebuild_derived_indexes();
+    assert_eq!(decoded, state);
+    assert_queries(&decoded);
+}
+
+#[test]
 fn deposit_depletion_time_must_be_present_even_when_null() {
     for (mass, lifecycle) in [
         (
@@ -109,6 +214,7 @@ fn extraction_state(
                 .then_some(SimulationTick::ZERO),
         },
     );
+    state.rebuild_derived_indexes();
     (state, deposit)
 }
 

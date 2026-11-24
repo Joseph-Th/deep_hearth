@@ -3,17 +3,15 @@
 use crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
 #[cfg(test)]
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
 use crate::material::MaterialId;
 use crate::spatial::VoxelBounds;
 
 #[cfg(test)]
 use super::super::GeologicalDepositLifecycle;
-use super::super::GeologyState;
 use super::super::coverage::VoxelCoverage;
 use super::super::state::GeologicalDepositRecord;
 
-pub(super) fn resolve_region_abundance_bounds_from_deposits<'a>(
+pub(in crate::geology) fn resolve_region_abundance_bounds_from_deposits<'a>(
     deposits: impl Iterator<Item = &'a GeologicalDepositRecord>,
     region: VoxelBounds,
     material: MaterialId,
@@ -56,26 +54,8 @@ pub(super) fn resolve_region_abundance_bounds(
     resolve_region_abundance_bounds_from_deposits(
         state
             .geology()
-            .deposits()
+            .deposits_intersecting(region)
             .filter(|deposit| deposit.lifecycle() == GeologicalDepositLifecycle::Available),
-        region,
-        material,
-        uncertainty_ppm,
-    )
-}
-
-/// Replays the canonical abundance projection over bodies that existed when evidence was acquired.
-pub(in crate::geology) fn resolve_historical_region_abundance_bounds(
-    geology: &GeologyState,
-    observed_at: SimulationTick,
-    region: VoxelBounds,
-    material: MaterialId,
-    uncertainty_ppm: u32,
-) -> (u32, u32) {
-    resolve_region_abundance_bounds_from_deposits(
-        geology
-            .deposits()
-            .filter(|deposit| deposit.was_available_at(observed_at)),
         region,
         material,
         uncertainty_ppm,

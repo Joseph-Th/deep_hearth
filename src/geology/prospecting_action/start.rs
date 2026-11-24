@@ -91,6 +91,8 @@ pub struct ValidatedFieldProspectingStart {
     work: ProspectingWork,
     expected_equipment_revision: Option<u64>,
     expected_logistics_revision: u64,
+    expected_world_revision: u64,
+    expected_structure_revision: u64,
 }
 
 impl ValidatedFieldProspectingStart {
@@ -100,6 +102,20 @@ impl ValidatedFieldProspectingStart {
             return Err(FieldProspectingCommitError::StaleLogisticsRevision {
                 expected: self.expected_logistics_revision,
                 actual: actual_logistics_revision,
+            });
+        }
+        let actual = state.world().revision();
+        if actual != self.expected_world_revision {
+            return Err(FieldProspectingCommitError::StaleWorldRevision {
+                expected: self.expected_world_revision,
+                actual,
+            });
+        }
+        let actual = state.structures().revision();
+        if actual != self.expected_structure_revision {
+            return Err(FieldProspectingCommitError::StaleStructureRevision {
+                expected: self.expected_structure_revision,
+                actual,
             });
         }
         self.work_start
@@ -271,6 +287,15 @@ fn resolve_prospecting_equipment_plan(
     })
 }
 
+/// Authored abstract opening scenarios have no generated terrain requirement.
+/// A survey by a generated-world actor cannot interpret an ungenerated column as barren.
+pub(crate) fn prospecting_region_has_authority(state: &AppState, region: VoxelBounds) -> bool {
+    let world = state.world();
+    state.logistics().player().is_none_or(|player| {
+        !world.has_generated_terrain_at(player.position()) || world.has_generated_bounds(region)
+    })
+}
+
 pub fn validate_start_field_prospecting(
     registries: &Registries,
     state: &AppState,
@@ -302,6 +327,9 @@ pub fn validate_start_field_prospecting(
             player_position: player.position(),
             region: request.region,
         });
+    }
+    if !prospecting_region_has_authority(state, request.region) {
+        return Err(FieldProspectingStartError::RegionOutsideGeneratedWorld);
     }
     let equipment_plan = resolve_prospecting_equipment_plan(registries, state, request, method)?;
     state
@@ -343,5 +371,7 @@ pub fn validate_start_field_prospecting(
         work,
         expected_equipment_revision: equipment_plan.expected_revision,
         expected_logistics_revision: state.logistics().revision(),
+        expected_world_revision: state.world().revision(),
+        expected_structure_revision: state.structures().revision(),
     })
 }

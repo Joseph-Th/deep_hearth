@@ -278,15 +278,17 @@ pub fn resolve_mining_target(
         })
         .min()
         .unwrap_or_else(|| unreachable!("compatible geological assessment must contain evidence"));
-    let mut matching = state.geology().deposits().filter(|deposit| {
-        let abundance = deposit.composition().parts_per_million(request.material);
-        deposit.lifecycle() == GeologicalDepositLifecycle::Available
-            && deposit.generated_at() <= earliest_observed_at
-            && deposit.bounds().has_intersection(acquired_region)
-            && abundance != 0
-            && abundance >= lower_ppm
-            && abundance <= upper_ppm
-    });
+    let mut matching = state
+        .geology()
+        .deposits_intersecting(acquired_region)
+        .filter(|deposit| {
+            let abundance = deposit.composition().parts_per_million(request.material);
+            deposit.lifecycle() == GeologicalDepositLifecycle::Available
+                && deposit.generated_at() <= earliest_observed_at
+                && abundance != 0
+                && abundance >= lower_ppm
+                && abundance <= upper_ppm
+        });
     let Some(deposit) = matching.next() else {
         return Err(
             MiningTargetResolutionError::EvidenceInsufficientToResolveTarget {

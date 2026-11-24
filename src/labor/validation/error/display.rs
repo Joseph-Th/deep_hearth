@@ -284,6 +284,9 @@ impl Display for PlayerWorkValidationError {
                     max.z()
                 )
             }
+            Self::ProspectingRegionOutsideGeneratedWorld => formatter.write_str(
+                "active prospecting region includes ungenerated or out-of-world cells",
+            ),
             Self::ProspectingEquipmentMissing => formatter.write_str(
                 "player prospecting method requires a persisted physical sampling instrument",
             ),

@@ -9,17 +9,18 @@ mod resource_mass;
 mod start;
 mod tick;
 
-pub(in crate::geology) use abundance::resolve_historical_region_abundance_bounds;
+pub(in crate::geology) use abundance::resolve_region_abundance_bounds_from_deposits;
 pub use catalog::{
     PlayerProspectingInstrumentOption, PlayerProspectingOption, player_prospecting_options,
 };
 pub use errors::{FieldProspectingCommitError, FieldProspectingStartError};
-pub(in crate::geology) use hardness::resolve_historical_region_excavation_hardness;
+pub(in crate::geology) use hardness::resolve_region_excavation_hardness_from_deposits;
 pub(crate) use interruption::{
     FieldProspectingInterruptionPlan, apply_field_prospecting_interruption,
     decide_field_prospecting_interruption,
 };
 pub(in crate::geology) use resource_mass::resource_mass_band_matches_resolution;
+pub(crate) use start::prospecting_region_has_authority;
 pub use start::{
     FieldProspectingRequest, ValidatedFieldProspectingStart, validate_start_field_prospecting,
 };

@@ -38,6 +38,96 @@ fn one_voxel(x: i64) -> VoxelBounds {
 }
 
 #[test]
+fn generated_world_survey_requires_authority_over_the_entire_region() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::logistics::project_player_standing_space;
+    use crate::world::{
+        ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
+        validate_generate_chunk,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let seed = WorldGenerationSeed::new(7);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let foot = (WORLD_MIN_Y + 1..WORLD_MAX_Y_EXCLUSIVE - 2)
+        .rev()
+        .map(|y| VoxelCoord::new(15, y, 5))
+        .find(|&position| project_player_standing_space(&registries, &state, position))
+        .expect("generated boundary must have standing space");
+    validate_admit_player(&registries, &state, foot)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let local = VoxelBounds::new(foot, VoxelCoord::new(16, foot.y() + 1, 6)).unwrap();
+    let crossing = VoxelBounds::new(foot, VoxelCoord::new(17, foot.y() + 1, 6)).unwrap();
+    let request =
+        |region| FieldProspectingRequest::new(PROSPECTING_LOCAL_TRANSECT, region, MATERIAL_COPPER);
+    let before = state.clone();
+    assert_eq!(
+        validate_start_field_prospecting(&registries, &state, request(crossing)).err(),
+        Some(FieldProspectingStartError::RegionOutsideGeneratedWorld)
+    );
+    assert_eq!(state, before);
+
+    // Trusted loading must not admit the same invalid work through persistence.
+    let mut tampered = state.clone();
+    validate_start_field_prospecting(&registries, &tampered, request(local))
+        .unwrap()
+        .commit(&mut tampered)
+        .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &tampered), Ok(()));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &tampered)).unwrap();
+    encoded["state"]["systems"]["player_work"]["active"]["Prospecting"]["work"]["region"] =
+        serde_json::to_value(crossing).unwrap();
+    let loaded: LoadedSaveEnvelope = serde_json::from_value(encoded).unwrap();
+    assert_eq!(
+        loaded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::ProspectingRegionOutsideGeneratedWorld
+        )))
+    );
+
+    let stale = validate_start_field_prospecting(&registries, &state, request(local)).unwrap();
+    let expected = state.world().revision();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(1, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let actual = state.world().revision();
+    let before = state.clone();
+    assert_eq!(
+        stale.commit(&mut state),
+        Err(FieldProspectingCommitError::StaleWorldRevision { expected, actual })
+    );
+    assert_eq!(state, before);
+    let admitted =
+        validate_start_field_prospecting(&registries, &state, request(crossing)).unwrap();
+    let work = admitted.work();
+    admitted.commit(&mut state).unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let completed = complete_prospecting_work(&registries, &mut state, work, "cross-chunk survey");
+    assert_eq!(completed.region(), crossing);
+    assert_eq!(completed.material(), MATERIAL_COPPER);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn player_prospecting_catalog_exposes_real_region_tradeoffs_and_only_local_usable_instruments() {
     let registries = build_registries();
     let mut state = AppState::new();

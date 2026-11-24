@@ -14,6 +14,7 @@ use super::super::GeologicalDepositId;
 /// Persistent-state validation failure for geological matter ownership.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GeologyValidationError {
+    InvalidSpatialIndex,
     ZeroNextDepositId,
     NextIdNotAfterExisting {
         next: u32,
@@ -106,6 +107,9 @@ pub enum GeologyValidationError {
 impl Display for GeologyValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::InvalidSpatialIndex => {
+                formatter.write_str("geological spatial index disagrees with deposit custody")
+            }
             Self::ZeroNextDepositId => {
                 formatter.write_str("next geological deposit id must not be zero")
             }
@@ -266,7 +270,8 @@ impl Error for GeologyValidationError {
         match self {
             Self::InvalidComposition { error, .. } => Some(error),
             Self::InvalidPhaseState { error, .. } => Some(error),
-            Self::ZeroNextDepositId
+            Self::InvalidSpatialIndex
+            | Self::ZeroNextDepositId
             | Self::NextIdNotAfterExisting { .. }
             | Self::ZeroDepositId
             | Self::IdMismatch { .. }

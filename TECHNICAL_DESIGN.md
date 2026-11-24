@@ -752,6 +752,18 @@ placements and player death-cache creation update the stockpile index alongside
 their authoritative location custody. These indexes are never persisted:
 trusted loading rebuilds them from the canonical locations and validation
 rejects any live divergence. Multiple assets may still share one voxel.
+The geology owner likewise derives a horizontal chunk index over immutable
+deposit bounds. Local sight, survey, mining resolution, generation and
+historical evidence replay query both horizontal axes and then exact geometry.
+Depleted records remain indexed for historical evidence and generation overlap;
+live queries still require available matter. Broad deposits use a bounded-memory
+fallback, and result order remains persistent identity order. Trusted loading
+rebuilds the index from canonical deposit keys and validates it before use.
+Historical observation replay resolves its available deposits once and reuses
+that set for abundance, hardness and mass checks. In generated terrain, survey
+admission and active-work load validation require the entire requested region
+to have generated world authority. Unknown columns do not count as empty
+geology. Survey admission tokens also bind world and structure revisions.
 The stockpile position index also serves exact-local player ground-inventory
 presentation and opening-scout clearance; only stockpiles with a finished
 enclosure obstruct the small scout's body.

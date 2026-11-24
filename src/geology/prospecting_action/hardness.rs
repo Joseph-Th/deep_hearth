@@ -3,16 +3,15 @@
 use crate::core::quantity::Pressure;
 #[cfg(test)]
 use crate::core::state::AppState;
-use crate::core::time::SimulationTick;
 use crate::material::MaterialId;
 use crate::spatial::VoxelBounds;
 
+use super::super::ExcavationHardnessEstimate;
 #[cfg(test)]
 use super::super::GeologicalDepositLifecycle;
 use super::super::state::GeologicalDepositRecord;
-use super::super::{ExcavationHardnessEstimate, GeologyState};
 
-pub(super) fn resolve_region_excavation_hardness_from_deposits<'a>(
+pub(in crate::geology) fn resolve_region_excavation_hardness_from_deposits<'a>(
     deposits: impl Iterator<Item = &'a GeologicalDepositRecord>,
     region: VoxelBounds,
     material: MaterialId,
@@ -80,26 +79,8 @@ pub(super) fn resolve_region_excavation_hardness(
     resolve_region_excavation_hardness_from_deposits(
         state
             .geology()
-            .deposits()
+            .deposits_intersecting(region)
             .filter(|deposit| deposit.lifecycle() == GeologicalDepositLifecycle::Available),
-        region,
-        material,
-        resolution,
-    )
-}
-
-/// Replays the canonical hardness projection over bodies that existed when evidence was acquired.
-pub(in crate::geology) fn resolve_historical_region_excavation_hardness(
-    geology: &GeologyState,
-    observed_at: SimulationTick,
-    region: VoxelBounds,
-    material: MaterialId,
-    resolution: Pressure,
-) -> Option<ExcavationHardnessEstimate> {
-    resolve_region_excavation_hardness_from_deposits(
-        geology
-            .deposits()
-            .filter(|deposit| deposit.was_available_at(observed_at)),
         region,
         material,
         resolution,

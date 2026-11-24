@@ -87,7 +87,7 @@ pub(super) fn resolve_region_resource_mass(
     resolve_region_resource_mass_from_deposits(
         state
             .geology()
-            .deposits()
+            .deposits_intersecting(region)
             .filter(|deposit| deposit.lifecycle() == GeologicalDepositLifecycle::Available),
         region,
         material,

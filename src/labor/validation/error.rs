@@ -122,6 +122,7 @@ pub enum PlayerWorkValidationError {
         player_position: VoxelCoord,
         region: VoxelBounds,
     },
+    ProspectingRegionOutsideGeneratedWorld,
     ProspectingEquipmentMissing,
     ProspectingUnexpectedEquipment {
         equipment: EquipmentId,
