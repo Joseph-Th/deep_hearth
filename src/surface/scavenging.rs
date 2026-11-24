@@ -277,7 +277,7 @@ fn materialize_scavenged_portion(
         || origin.lifecycle() != SurfaceResourceLifecycle::Available
         || origin.position() != from
         || (source_kind == SurfaceResourceKind::Opportunity
-            && origin.commodity().form() != crate::content::FORM_FOOD)
+            && registries.survival().get_food(origin.commodity()).is_none())
     {
         return None;
     }

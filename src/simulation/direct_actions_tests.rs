@@ -79,7 +79,7 @@ fn busy_player_combat_controls_report_rejections_without_interrupting_active_wor
         ),
         (
             PrimaryControlIntent::release_strike(direction),
-            PrimaryActionOutcome::PreparedStrikeRejected(PrimitiveAttackError::NotPreparing),
+            PrimaryActionOutcome::PreparedStrikeRejected(PrimitiveAttackError::PlayerBusy),
         ),
         (
             PrimaryControlIntent::cancel_strike(),

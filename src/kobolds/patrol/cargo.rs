@@ -27,7 +27,7 @@ pub(super) fn full_bulk_ration_over_portable(
     portable: Option<SurfaceResourceId>,
 ) -> Option<(SurfaceResourceId, Mass)> {
     let whole = state.surface().get(portable?)?;
-    if whole.commodity().form() != crate::content::FORM_FOOD {
+    if registries.survival().get_food(whole.commodity()).is_none() {
         return None;
     }
     let shortage = super::super::SCOUT_MEAL_MASS
@@ -79,10 +79,12 @@ pub(super) fn plan_returning_cargo(
         });
     let switching_from_inert = choice.food_only
         && carried.is_some_and(|id| {
-            state
-                .surface()
-                .get(id)
-                .is_some_and(|resource| resource.commodity().form() != crate::content::FORM_FOOD)
+            state.surface().get(id).is_some_and(|resource| {
+                registries
+                    .survival()
+                    .get_food(resource.commodity())
+                    .is_none()
+            })
         });
     let candidate = if !choice.returning || choice.frightened {
         None

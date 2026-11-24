@@ -1,16 +1,15 @@
 //! Read-only player melee HUD projection; combat retains attack mutation ownership.
 
 use crate::core::state::AppState;
-use crate::equipment::{EquipmentId, MeleeWeaponProfile, equipment_occupancy};
+use crate::equipment::{EquipmentId, MeleeWeaponProfile};
 use crate::logistics::PlayerActiveSelection;
 use crate::maintenance::Condition;
-use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
 use crate::survival::can_admit_melee_exertion;
 
 use super::{
     PrimitiveAttackError, SHOVE_EXERTION, SHOVE_REACH_MILLIMETERS, SHOVE_RECOVERY_TICKS,
-    preparation, prepared_attack_exertion,
+    preparation, prepared_attack_exertion, resolve_melee_weapon, validate_combat_actor,
 };
 
 /// Player-local, renderer-neutral attack readiness for an input adapter or HUD.
@@ -73,40 +72,15 @@ pub fn assess_player_melee(
     registries: &Registries,
     state: &AppState,
 ) -> Result<PlayerMeleeAssessment, PrimitiveAttackError> {
-    validate_player_action(state).map_err(|error| match error {
-        PlayerActionValidationError::PlayerNotAdmitted => PrimitiveAttackError::PlayerNotAdmitted,
-        PlayerActionValidationError::PlayerDead => PrimitiveAttackError::PlayerDead,
-    })?;
-    if state.player_work().active().is_some() {
-        return Err(PrimitiveAttackError::PlayerBusy);
-    }
+    validate_combat_actor(state)?;
     let (weapon, profile, condition) = match state.logistics().active_selection() {
         None => (None, None, None),
         Some(PlayerActiveSelection::Material(_)) => {
             return Err(PrimitiveAttackError::UnsupportedWeapon);
         }
         Some(PlayerActiveSelection::Equipment(equipment)) => {
-            if !state.logistics().is_equipment_carried(equipment) {
-                return Err(PrimitiveAttackError::WeaponNotCarried);
-            }
-            let record = state
-                .equipment()
-                .get_equipment(equipment)
-                .ok_or(PrimitiveAttackError::WeaponNotCarried)?;
-            let definition = registries
-                .equipment()
-                .get_equipment(record.definition())
-                .ok_or(PrimitiveAttackError::UnsupportedWeapon)?;
-            let profile = definition
-                .melee_profile()
-                .ok_or(PrimitiveAttackError::UnsupportedWeapon)?;
-            if record.condition() == Condition::FAILED {
-                return Err(PrimitiveAttackError::BrokenWeapon);
-            }
-            if equipment_occupancy(state, equipment).is_some() {
-                return Err(PrimitiveAttackError::WeaponBusy);
-            }
-            (Some(equipment), Some(profile), Some(record.condition()))
+            let (profile, condition) = resolve_melee_weapon(registries, state, equipment)?;
+            (Some(equipment), Some(profile), Some(condition))
         }
     };
     let remaining_recovery_ticks = state.combat().last_attack_at.map_or(0, |last| {

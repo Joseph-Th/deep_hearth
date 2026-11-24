@@ -348,7 +348,10 @@ Side and far candidates use the same indexed-cell freshness, capacity, and
 ration ranking. The actual returning scout's portable pickup and bulk-source
 ranking use that same remaining meal requirement, rather than selecting a newer
 oversized parcel over an earlier sufficient one at the chosen cell. Non-food
-salvage retains its separate distance-first policy.
+salvage retains its separate distance-first policy. Food identity throughout
+resident planning, custody transfer, and den eviction comes from the authored
+survival food registry, not the raw-food form: winter provisions receive the
+same ration priority and purity, temperature, and freshness checks as raw food.
 The scout's short two-edge search is shared by water, wild food, loose parcels,
 and exposed stockpiles. It includes destinations reached by continuing past the
 normal patrol tip, not only side branches. The finite-water route planner uses

@@ -29,11 +29,8 @@ fn scout_can_extract_lot(
     {
         return false;
     }
-    if commodity.form() != crate::content::FORM_FOOD {
-        return true;
-    }
     let Some(food) = registries.survival().get_food(commodity) else {
-        return false;
+        return true;
     };
     lot.composition().pure_material() == Some(commodity.material())
         && food.consumption_temperature().contains(lot.temperature())
@@ -85,7 +82,7 @@ pub(in crate::kobolds) fn local_unenclosed_stockpile_target(
                     continue;
                 }
                 let priority = (
-                    commodity.form() != crate::content::FORM_FOOD,
+                    registries.survival().get_food(commodity).is_none(),
                     !is_servant_era_commodity(commodity),
                     source,
                     lot_id,

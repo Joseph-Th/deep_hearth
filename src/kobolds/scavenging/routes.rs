@@ -118,6 +118,7 @@ pub(in crate::kobolds) fn reachable_far_stockpile(
 type DropLootPriority = (bool, bool, bool, u64, SurfaceResourceId);
 
 fn detour_loot_priority(
+    registries: &Registries,
     resource: &crate::surface::SurfaceResourceRecord,
     capacity: Mass,
     food_shortage: Option<Mass>,
@@ -144,7 +145,7 @@ fn detour_loot_priority(
                 },
             )
         }
-        None => food_serving_priority(resource, SCOUT_MEAL_MASS),
+        None => food_serving_priority(registries, resource, SCOUT_MEAL_MASS),
     };
     if food_shortage.is_some() {
         (
@@ -157,7 +158,10 @@ fn detour_loot_priority(
     } else {
         (
             needs_split,
-            resource.commodity().form() != crate::content::FORM_FOOD,
+            registries
+                .survival()
+                .get_food(resource.commodity())
+                .is_none(),
             inadequate_food,
             partial_size,
             resource.id(),
@@ -183,9 +187,12 @@ fn best_local_drop_priority(
             is_contestable_drop(resource, capacity)
                 && scout_wants_loose_drop(registries, state, resource, at)
                 && (food_shortage.is_none()
-                    || resource.commodity().form() == crate::content::FORM_FOOD)
+                    || registries
+                        .survival()
+                        .get_food(resource.commodity())
+                        .is_some())
         })
-        .map(|resource| detour_loot_priority(resource, capacity, food_shortage))
+        .map(|resource| detour_loot_priority(registries, resource, capacity, food_shortage))
         .min()
 }
 
@@ -317,7 +324,10 @@ pub(in crate::kobolds) fn reachable_detour_drop(
                     && resource.remaining_mass() <= capacity
                     && resource.remaining_mass() >= minimum_mass
                     && scout_wants_loose_drop(registries, state, resource, at)
-                    && resource.commodity().form() == crate::content::FORM_FOOD
+                    && registries
+                        .survival()
+                        .get_food(resource.commodity())
+                        .is_some()
             })
     };
     // A genuinely complete distant intact ration justifies one extra edge.
@@ -337,7 +347,10 @@ pub(in crate::kobolds) fn reachable_detour_drop(
             .any(|resource| {
                 is_contestable_drop(resource, capacity)
                     && scout_wants_loose_drop(registries, state, resource, at)
-                    && resource.commodity().form() == crate::content::FORM_FOOD
+                    && registries
+                        .survival()
+                        .get_food(resource.commodity())
+                        .is_some()
                     && (!is_portable_drop(resource) || resource.remaining_mass() > capacity)
                     && resource
                         .remaining_mass()

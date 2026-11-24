@@ -41,7 +41,10 @@ pub(super) fn scout_wants_drop(
     resource: &SurfaceResourceRecord,
     at: SimulationTick,
 ) -> bool {
-    resource.commodity().form() != crate::content::FORM_FOOD
+    registries
+        .survival()
+        .get_food(resource.commodity())
+        .is_none()
         || matches!(
             assess_surface_food_freshness(registries, resource, at),
             Some(FoodFreshness::Fresh { .. })

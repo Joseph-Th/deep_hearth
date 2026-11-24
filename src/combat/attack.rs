@@ -136,20 +136,9 @@ pub(super) fn validate_attack(
     weapon_required: bool,
     powered: bool,
 ) -> Result<ValidatedPrimitiveAttack, PrimitiveAttackError> {
-    let player_action = validate_player_action(state).map_err(|error| match error {
-        PlayerActionValidationError::PlayerNotAdmitted => PrimitiveAttackError::PlayerNotAdmitted,
-        PlayerActionValidationError::PlayerDead => PrimitiveAttackError::PlayerDead,
-    })?;
-    if state.player_work().active().is_some() {
-        return Err(PrimitiveAttackError::PlayerBusy);
-    }
-    if powered
-        && state.combat().prepared.is_some_and(|prepared| {
-            state.logistics().active_selection()
-                != Some(PlayerActiveSelection::Equipment(prepared.weapon))
-        })
-    {
-        return Err(PrimitiveAttackError::PreparationWeaponChanged);
+    let player_action = validate_combat_actor(state)?;
+    if powered {
+        preparation::validate_release_context(state, direction)?;
     }
     let weapon = if weapon_required {
         let Some(PlayerActiveSelection::Equipment(equipment)) =
@@ -157,26 +146,7 @@ pub(super) fn validate_attack(
         else {
             return Err(PrimitiveAttackError::NoHeldWeapon);
         };
-        if !state.logistics().is_equipment_carried(equipment) {
-            return Err(PrimitiveAttackError::WeaponNotCarried);
-        }
-        let record = state
-            .equipment()
-            .get_equipment(equipment)
-            .ok_or(PrimitiveAttackError::WeaponNotCarried)?;
-        let definition = registries
-            .equipment()
-            .get_equipment(record.definition())
-            .ok_or(PrimitiveAttackError::UnsupportedWeapon)?;
-        let profile = definition
-            .melee_profile()
-            .ok_or(PrimitiveAttackError::UnsupportedWeapon)?;
-        if record.condition() == Condition::FAILED {
-            return Err(PrimitiveAttackError::BrokenWeapon);
-        }
-        if equipment_occupancy(state, equipment).is_some() {
-            return Err(PrimitiveAttackError::WeaponBusy);
-        }
+        let (profile, before) = resolve_melee_weapon(registries, state, equipment)?;
         // A background process or mine may have already reserved the last
         // equipment revision for its future wear settlement. Melee cannot
         // spend that promise even when the selected weapon is otherwise idle.
@@ -184,7 +154,6 @@ pub(super) fn validate_attack(
             return Err(PrimitiveAttackError::EquipmentRevisionExhausted);
         }
         let revision = state.equipment().revision();
-        let before = record.condition();
         let wear = profile.wear_ppm_per_swing() * if powered { 2 } else { 1 };
         let after = Condition::new(before.parts_per_million().saturating_sub(wear))
             .expect("saturating equipment wear fits condition");

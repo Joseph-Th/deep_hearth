@@ -85,13 +85,7 @@ impl ValidatedPrimitivePreparation {
 }
 
 fn preflight(state: &AppState) -> Result<(PlayerActionGuard, u64), PrimitiveAttackError> {
-    let action = validate_player_action(state).map_err(|error| match error {
-        PlayerActionValidationError::PlayerNotAdmitted => PrimitiveAttackError::PlayerNotAdmitted,
-        PlayerActionValidationError::PlayerDead => PrimitiveAttackError::PlayerDead,
-    })?;
-    if state.player_work().active().is_some() {
-        return Err(PrimitiveAttackError::PlayerBusy);
-    }
+    let action = validate_combat_actor(state)?;
     let revision = state.combat().revision();
     revision
         .checked_add(1)
@@ -113,10 +107,14 @@ pub fn validate_prepare_primitive_strike(
     if state.combat().prepared.is_some() {
         return Err(PrimitiveAttackError::AlreadyPreparing);
     }
-    let assessment = assess_player_melee(registries, state)?;
-    let weapon = assessment
-        .weapon()
-        .ok_or(PrimitiveAttackError::NoHeldWeapon)?;
+    let weapon = match state.logistics().active_selection() {
+        Some(PlayerActiveSelection::Equipment(weapon)) => weapon,
+        Some(PlayerActiveSelection::Material(_)) => {
+            return Err(PrimitiveAttackError::UnsupportedWeapon);
+        }
+        None => return Err(PrimitiveAttackError::NoHeldWeapon),
+    };
+    resolve_melee_weapon(registries, state, weapon)?;
     // A windup occupies the active hand and prevents ordinary work until release or
     // cancellation. Do not admit a stance whose eventual weapon wear already
     // lacks equipment-owner revision headroom (including promised job wear).
@@ -162,6 +160,14 @@ pub fn validate_release_prepared_strike(
     state: &AppState,
     direction: ViewDirection,
 ) -> Result<ValidatedPrimitiveAttack, PrimitiveAttackError> {
+    validate_attack(registries, state, direction, true, true)
+}
+
+/// Resolve the committed stance only after canonical actor admission.
+pub(super) fn validate_release_context(
+    state: &AppState,
+    direction: ViewDirection,
+) -> Result<(), PrimitiveAttackError> {
     let prepared = state
         .combat()
         .prepared
@@ -172,7 +178,12 @@ pub fn validate_release_prepared_strike(
     if dot < MIN_FACING_DOT {
         return Err(PrimitiveAttackError::PreparationAimChanged);
     }
-    validate_attack(registries, state, direction, true, true)
+    if state.logistics().active_selection()
+        != Some(PlayerActiveSelection::Equipment(prepared.weapon))
+    {
+        return Err(PrimitiveAttackError::PreparationWeaponChanged);
+    }
+    Ok(())
 }
 
 /// Deliberately lower the prepared weapon without producing an attack.

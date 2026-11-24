@@ -92,10 +92,14 @@ pub(super) fn scout_wants_loose_drop(
 /// that cannot finish it, take the largest available serving first. All
 /// adequate servings remain tied so stable identity controls equal-value food.
 fn food_serving_priority(
+    registries: &Registries,
     resource: &crate::surface::SurfaceResourceRecord,
     meal_shortage: Mass,
 ) -> (bool, u64) {
-    let inadequate = resource.commodity().form() == crate::content::FORM_FOOD
+    let inadequate = registries
+        .survival()
+        .get_food(resource.commodity())
+        .is_some()
         && resource.remaining_mass() < meal_shortage;
     (
         inadequate,
@@ -128,6 +132,7 @@ fn outstanding_scout_meal(state: &AppState) -> Mass {
 /// inherited service-work knowledge to recognize shaped precision copper.
 /// Stable surface identity breaks every equal-value tie.
 fn scout_loot_priority(
+    registries: &Registries,
     resource: &crate::surface::SurfaceResourceRecord,
     mobilized: bool,
     needs_striker: bool,
@@ -135,8 +140,12 @@ fn scout_loot_priority(
     wants_iron: bool,
     meal_shortage: Mass,
 ) -> (bool, bool, bool, bool, bool, u64, SurfaceResourceId) {
-    let not_food = resource.commodity().form() != crate::content::FORM_FOOD;
-    let (inadequate_food, partial_size) = food_serving_priority(resource, meal_shortage);
+    let not_food = registries
+        .survival()
+        .get_food(resource.commodity())
+        .is_none();
+    let (inadequate_food, partial_size) =
+        food_serving_priority(registries, resource, meal_shortage);
     (
         not_food,
         inadequate_food,
@@ -254,7 +263,11 @@ pub(super) fn has_local_scout_interest(
             let loose = is_contestable_drop(resource, space)
                 && scout_wants_loose_drop(registries, state, resource, at);
             if seeking_food {
-                (loose && resource.commodity().form() == crate::content::FORM_FOOD)
+                (loose
+                    && registries
+                        .survival()
+                        .get_food(resource.commodity())
+                        .is_some())
                     || (forage_ready
                         && !space.is_zero()
                         && scout_can_forage_resource(registries, state, resource, at))
@@ -296,10 +309,15 @@ pub(super) fn local_portable_source(
             is_portable_drop(resource)
                 && resource.remaining_mass() <= space
                 && scout_wants_loose_drop(registries, state, resource, at)
-                && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
+                && (!food_only
+                    || registries
+                        .survival()
+                        .get_food(resource.commodity())
+                        .is_some())
         })
         .min_by_key(|resource| {
             scout_loot_priority(
+                registries,
                 resource,
                 mobilized,
                 needs_striker,
@@ -330,11 +348,16 @@ pub(super) fn local_split_source(
         .filter(|resource| {
             is_contestable_drop(resource, space)
                 && scout_wants_loose_drop(registries, state, resource, at)
-                && (!food_only || resource.commodity().form() == crate::content::FORM_FOOD)
+                && (!food_only
+                    || registries
+                        .survival()
+                        .get_food(resource.commodity())
+                        .is_some())
                 && (!is_portable_drop(resource) || resource.remaining_mass() > space)
         })
         .min_by_key(|resource| {
             scout_loot_priority(
+                registries,
                 resource,
                 mobilized,
                 needs_striker,

@@ -4,17 +4,26 @@ use super::*;
 
 #[test]
 fn scout_prefers_later_food_over_earlier_stone_at_same_junction() {
-    use crate::content::{FORM_FOOD, MATERIAL_BERRIES};
+    use crate::content::{FORM_FOOD, FORM_WINTER_PROVISIONS, MATERIAL_BERRIES, MATERIAL_WILD_NUTS};
+    for commodity in [
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        CommodityKey::new(MATERIAL_WILD_NUTS, FORM_WINTER_PROVISIONS),
+    ] {
+        assert_scout_prefers_food(commodity);
+    }
+}
+
+fn assert_scout_prefers_food(commodity: CommodityKey) {
     let (registries, mut state, spawn) = generated_opening();
     let [den, junction, _] = colony(&state).route;
     let stone = place_loose_stone_drop(&registries, &mut state, junction);
     let food = SurfaceResourceSpec::new(
         SurfaceResourceKind::Drop,
         junction,
-        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        commodity,
         Mass::from_milligrams(250_000),
         Temperature::from_millikelvin(293_150),
-        MaterialComposition::pure(MATERIAL_BERRIES),
+        MaterialComposition::pure(commodity.material()),
     )
     .unwrap();
     let creation = validate_create_surface_resources(&registries, &state, [food]).unwrap();

@@ -4,7 +4,9 @@
 use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::ControlTick;
-use crate::equipment::{EquipmentId, EquipmentOperationConditionOutcome, equipment_occupancy};
+use crate::equipment::{
+    EquipmentId, EquipmentOperationConditionOutcome, MeleeWeaponProfile, equipment_occupancy,
+};
 use crate::kobolds::{
     KoboldRole, STAGGERED_BELOW_PPM, close_contact_at, opening_balance, record_close_contact,
 };
@@ -40,6 +42,45 @@ const SHOVE_EXERTION: SurvivalExertion = SurvivalExertion::new(
     Energy::from_nanojoules(90_000_000_000),
     Volume::from_microliters(6),
 );
+
+/// Shared actor admission for every combat action and readiness projection.
+fn validate_combat_actor(state: &AppState) -> Result<PlayerActionGuard, PrimitiveAttackError> {
+    let action = validate_player_action(state).map_err(|error| match error {
+        PlayerActionValidationError::PlayerNotAdmitted => PrimitiveAttackError::PlayerNotAdmitted,
+        PlayerActionValidationError::PlayerDead => PrimitiveAttackError::PlayerDead,
+    })?;
+    if state.player_work().active().is_some() {
+        return Err(PrimitiveAttackError::PlayerBusy);
+    }
+    Ok(action)
+}
+
+/// Resolve physical weapon eligibility for readiness, preparation and actual strikes.
+fn resolve_melee_weapon(
+    registries: &Registries,
+    state: &AppState,
+    equipment: EquipmentId,
+) -> Result<(MeleeWeaponProfile, Condition), PrimitiveAttackError> {
+    if !state.logistics().is_equipment_carried(equipment) {
+        return Err(PrimitiveAttackError::WeaponNotCarried);
+    }
+    let record = state
+        .equipment()
+        .get_equipment(equipment)
+        .ok_or(PrimitiveAttackError::WeaponNotCarried)?;
+    let profile = registries
+        .equipment()
+        .get_equipment(record.definition())
+        .and_then(|definition| definition.melee_profile())
+        .ok_or(PrimitiveAttackError::UnsupportedWeapon)?;
+    if record.condition() == Condition::FAILED {
+        return Err(PrimitiveAttackError::BrokenWeapon);
+    }
+    if equipment_occupancy(state, equipment).is_some() {
+        return Err(PrimitiveAttackError::WeaponBusy);
+    }
+    Ok((profile, record.condition()))
+}
 
 /// The actor's durable attack tempo; no client-controlled timer or virtual damage.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

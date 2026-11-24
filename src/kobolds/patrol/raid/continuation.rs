@@ -124,13 +124,13 @@ pub(super) fn continue_to_planned_far_raid(
     let (target_food, target_precision, target_mass, target_whole) =
         match (target_drop, target_forage) {
             (Some((drop, transferable)), Some((forage_mass, _)))
-                if drop.commodity().form() != crate::content::FORM_FOOD
+                if registries.survival().get_food(drop.commodity()).is_none()
                     || (transferable < meal_shortage && forage_mass > transferable) =>
             {
                 (true, false, forage_mass, false)
             }
             (Some((drop, transferable)), _) => (
-                drop.commodity().form() == crate::content::FORM_FOOD,
+                registries.survival().get_food(drop.commodity()).is_some(),
                 colony.mobilized_at.is_some() && matches_salvage_goal(drop, needs_striker),
                 transferable,
                 is_portable_drop(drop) && drop.remaining_mass() <= capacity,
@@ -204,8 +204,11 @@ pub(super) fn recoverable_local_food_serving(
         return allow_bulk_split.then_some(serving);
     }
     if let Some(portable) = local_whole.and_then(|id| state.surface().get(id)) {
-        return (portable.commodity().form() == crate::content::FORM_FOOD)
-            .then_some(portable.remaining_mass());
+        return (registries
+            .survival()
+            .get_food(portable.commodity())
+            .is_some())
+        .then_some(portable.remaining_mass());
     }
     let bulk = local_split_source(
         registries,
