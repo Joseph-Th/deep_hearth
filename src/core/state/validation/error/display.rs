@@ -489,9 +489,6 @@ impl Display for StateValidationError {
                 formatter,
                 "logistics revision {revision} cannot reserve {required} already-admitted future revisions"
             ),
-            Self::FutureLogisticsRevisionDemandOverflow => formatter.write_str(
-                "already-admitted future logistics revision demand exceeds the representable u64 range",
-            ),
             Self::FutureInventoryRevisionCapacityExhausted { revision, required } => write!(
                 formatter,
                 "inventory revision {revision} cannot reserve {required} already-admitted future revisions"

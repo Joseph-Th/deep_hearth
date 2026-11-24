@@ -21,13 +21,9 @@ impl AppState {
         Some(self.systems.player_work.future_world_revision_demand())
     }
 
-    pub(crate) fn checked_future_logistics_revision_demand(&self) -> Option<u64> {
-        self.systems
-            .player_work
-            .future_logistics_revision_demand()
-            .checked_add(u64::from(
-                self.systems.logistics.has_pending_direct_action(),
-            ))
+    /// A buffered direct action owns one future logistics revision; timed labor does not.
+    pub(crate) fn future_logistics_revision_demand(&self) -> u64 {
+        u64::from(self.systems.logistics.has_pending_direct_action())
     }
 
     pub(crate) fn checked_future_surface_revision_demand(&self) -> Option<u64> {
@@ -191,8 +187,10 @@ impl AppState {
     }
 
     pub(crate) fn can_spend_logistics_revisions(&self, immediate_steps: u64) -> bool {
-        self.checked_future_logistics_revision_demand()
-            .and_then(|future| self.systems.logistics.revision().checked_add(future))
+        self.systems
+            .logistics
+            .revision()
+            .checked_add(self.future_logistics_revision_demand())
             .and_then(|revision| revision.checked_add(immediate_steps))
             .is_some()
     }

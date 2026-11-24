@@ -237,9 +237,7 @@ fn validate_shared_future_capacity(state: &AppState) -> Result<(), StateValidati
             required: world_required,
         });
     }
-    let logistics_required = state
-        .checked_future_logistics_revision_demand()
-        .ok_or(StateValidationError::FutureLogisticsRevisionDemandOverflow)?;
+    let logistics_required = state.future_logistics_revision_demand();
     let logistics_revision = state.logistics().revision();
     if logistics_revision.checked_add(logistics_required).is_none() {
         return Err(

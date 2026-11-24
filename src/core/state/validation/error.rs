@@ -302,7 +302,6 @@ pub enum StateValidationError {
         revision: u64,
         required: u64,
     },
-    FutureLogisticsRevisionDemandOverflow,
     FutureInventoryRevisionCapacityExhausted {
         revision: u64,
         required: u64,

@@ -199,7 +199,6 @@ impl Error for StateValidationError {
             | Self::FutureWorldRevisionCapacityExhausted { .. }
             | Self::FutureWorldRevisionDemandOverflow
             | Self::FutureLogisticsRevisionCapacityExhausted { .. }
-            | Self::FutureLogisticsRevisionDemandOverflow
             | Self::FutureInventoryRevisionCapacityExhausted { .. }
             | Self::FutureInventoryRevisionDemandOverflow
             | Self::FutureEnergyRevisionCapacityExhausted { .. }

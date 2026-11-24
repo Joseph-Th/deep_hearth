@@ -95,14 +95,6 @@ impl PlayerWorkState {
     }
 
     #[must_use]
-    pub(crate) const fn future_logistics_revision_demand(&self) -> u64 {
-        match self.active {
-            Some(work) => work.future_logistics_revision_demand(),
-            None => 0,
-        }
-    }
-
-    #[must_use]
     pub(crate) const fn future_structure_revision_demand(&self) -> u64 {
         match self.active {
             Some(work) => work.future_structure_revision_demand(),

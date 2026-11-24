@@ -104,26 +104,6 @@ impl PlayerWork {
         }
     }
 
-    /// Future logistics-owner revisions still owed directly by this work record after admission.
-    #[must_use]
-    pub(in crate::labor) const fn future_logistics_revision_demand(self) -> u64 {
-        match self {
-            Self::SurfaceGathering { .. }
-            | Self::BlockExcavation { .. }
-            | Self::TreeFelling { .. }
-            | Self::ManualProduction { .. }
-            | Self::Mining { .. }
-            | Self::ManualPower { .. }
-            | Self::Prospecting { .. }
-            | Self::Eating { .. }
-            | Self::Drinking { .. }
-            | Self::EquipmentMaintenance { .. }
-            | Self::StorageEnclosureDismantling { .. }
-            | Self::StructuralConstruction { .. }
-            | Self::StructuralDismantling { .. } => 0,
-        }
-    }
-
     /// Future inventory-owner revisions still owed by this direct-work record after admission.
     ///
     /// Manual production and mining keep their delayed owner effects in their own durable job
