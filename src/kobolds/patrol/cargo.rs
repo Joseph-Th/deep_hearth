@@ -25,7 +25,7 @@ pub(super) fn full_bulk_ration_over_portable(
     den_space: Mass,
     at: SimulationTick,
     portable: Option<SurfaceResourceId>,
-) -> Option<Mass> {
+) -> Option<(SurfaceResourceId, Mass)> {
     let whole = state.surface().get(portable?)?;
     if whole.commodity().form() != crate::content::FORM_FOOD {
         return None;
@@ -50,7 +50,7 @@ pub(super) fn full_bulk_ration_over_portable(
         .remaining_mass()
         .min(colony.salvage_batch())
         .min(den_space);
-    (recoverable >= shortage).then_some(recoverable)
+    (recoverable >= shortage).then_some((bulk.id(), recoverable))
 }
 
 /// Existing carried matter must be checked for identity and location before

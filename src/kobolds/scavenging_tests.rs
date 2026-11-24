@@ -1238,6 +1238,81 @@ fn distant_forage_ranking_respects_recoverable_capacity_and_stable_ties() {
 }
 
 #[test]
+fn hungry_scout_continues_to_full_bulk_ration_despite_far_and_intermediate_crumbs() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let path = route(&mut state);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([path.den, path.junction, path.tip]);
+    while state.tick().value() < 580 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert!(state.kobold_state().colony.as_ref().unwrap().hungry);
+    let plan = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            drop(path.far_food, true, 1_000),
+            drop(path.far_food, true, 600_000),
+        ],
+    )
+    .unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut state).unwrap();
+    while state.tick().value() < 585 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        path.side_food
+    );
+    let plan =
+        validate_create_surface_resources(&registries, &state, [drop(path.side_food, true, 5_000)])
+            .unwrap();
+    let crumb = plan.first_resource_id();
+    plan.commit(&mut state).unwrap();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.tick().value() < 610 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        state.surface().get(crumb).unwrap().position(),
+        path.side_food
+    );
+    assert_eq!(
+        state.surface().get(ids[0]).unwrap().position(),
+        path.far_food
+    );
+    assert_eq!(
+        state.surface().get(ids[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(600_000)
+            .checked_sub(super::super::SCOUT_BULK_SPLIT_BATCH)
+            .unwrap()
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn fresh_intermediate_forage_shortens_a_hungry_scouts_whole_food_raid() {
     use crate::content::MATERIAL_WILD_NUTS;
     use crate::core::time::SimulationTick;

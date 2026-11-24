@@ -63,7 +63,7 @@ pub(super) fn continue_to_planned_far_raid(
         .filter(|food_only| !*food_only || colony.hungry)
         .filter(|food_only| !water_deprived || *food_only)
         .find_map(|food_only| {
-            local_portable_source(
+            let portable = local_portable_source(
                 registries,
                 state,
                 goal,
@@ -71,8 +71,15 @@ pub(super) fn continue_to_planned_far_raid(
                 at,
                 food_only,
                 colony.mobilized_at.is_some(),
-            )
-            .or_else(|| {
+            );
+            let full_bulk = food_only
+                .then(|| {
+                    full_bulk_ration_over_portable(
+                        registries, state, colony, goal, capacity, at, portable,
+                    )
+                })
+                .flatten();
+            full_bulk.map(|(id, _)| id).or(portable).or_else(|| {
                 local_split_source(
                     registries,
                     state,
@@ -191,7 +198,7 @@ pub(super) fn recoverable_local_food_serving(
         at,
         ..
     } = context;
-    if let Some(serving) =
+    if let Some((_, serving)) =
         full_bulk_ration_over_portable(registries, state, colony, from, den_space, at, local_whole)
     {
         return allow_bulk_split.then_some(serving);
