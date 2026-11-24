@@ -90,8 +90,7 @@ pub(super) fn apply_scheduled_den_care(
         // A local serving that finishes the remaining ration takes priority
         // over smaller fragments. Every consumed scrap remains credited toward
         // that same meal across actual den visits.
-        consume_den_meal(registries, state, from, at, remaining, remaining)
-            .or_else(|| consume_den_meal(registries, state, from, at, remaining, Mass::ZERO))
+        consume_den_meal(registries, state, from, at, remaining, Mass::ZERO)
     } else {
         None
     };
@@ -200,7 +199,8 @@ pub(super) fn consume_den_meal(
         // serving. Neither selection needs an intermediate allocation.
         .min_by_key(|(id, _, mass, _, available)| {
             (
-                if minimum_ration.is_zero() {
+                *mass < maximum_ration,
+                if *mass < maximum_ration {
                     u64::MAX - mass.milligrams()
                 } else {
                     available.milligrams()

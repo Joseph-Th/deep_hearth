@@ -15,7 +15,7 @@ use super::super::junkworks::{
 };
 use super::super::scavenging::{
     ScavengeRoute, best_local_forage, has_local_scout_interest, is_portable_drop,
-    local_portable_source, reachable_detour_drop, reachable_detour_food, reachable_far_stockpile,
+    local_portable_source, reachable_detour_drop, reachable_far_stockpile, reachable_forage_route,
     reachable_inherited_salvage, reachable_side_stockpile, scout_wants_loose_drop,
 };
 use super::super::scrap_tools::{is_needed_outer_tool_part, junction_awaits_better_head};
@@ -85,7 +85,7 @@ fn preferred_hungry_forage(
     if nearby >= shortage {
         return None;
     }
-    let chosen = reachable_detour_food(
+    let chosen = reachable_forage_route(
         registries,
         state,
         ScavengeRoute::new(colony.route, player_position),
@@ -293,24 +293,13 @@ pub(super) fn choose_outbound_detour(
             best_local_forage(registries, state, junction, at, maximum_mass).is_some();
         (forage_ready && !den_space.is_zero() && !local_food_remains)
             .then(|| {
-                reachable_detour_food(registries, state, route, at, maximum_mass, meal_shortage)
+                reachable_forage_route(registries, state, route, at, maximum_mass, meal_shortage)
             })
             .flatten()
     };
     let inherited_salvage = || inherited_target;
-    if super::super::hydration::prolonged_water_deprivation(colony, at) {
-        // The scout may still carry a meal, or follow its real water lead,
-        // but stops making optional ore and equipment salvage expeditions.
-        return colony
-            .hungry
-            .then(|| {
-                loose_cache(Some(meal_shortage))
-                    .or(preferred_forage)
-                    .or_else(wild_food)
-            })
-            .flatten();
-    }
-    if colony.hungry {
+    let water_deprived = super::super::hydration::prolonged_water_deprivation(colony, at);
+    let chosen = if colony.hungry {
         // A visibly larger wild serving can justify one extra edge, but an
         // adequate portable ration is simpler to recover and avoids the
         // foraging cooldown. Compare actual transfer yields, not mere presence.
@@ -350,7 +339,9 @@ pub(super) fn choose_outbound_detour(
                 state,
                 forage_goal,
                 at,
-                colony.forage_batch().min(den_space),
+                colony
+                    .forage_batch_in_world(registries, state, forage_goal, at)
+                    .min(den_space),
             )
             .map(|(mass, _)| mass);
             match (drop_yield, forage_yield) {
@@ -362,14 +353,21 @@ pub(super) fn choose_outbound_detour(
                 (None, None) => None,
             }
         };
-        // Food first, then the remembered machine-service salvage priority.
-        // Ordinary nearby scraps remain available when neither is reachable.
-        let priority_route = food_choice().or_else(wild_food).or_else(inherited_salvage);
-        if priority_route.is_some() || needed_tip_salvage {
-            priority_route
+        let food = food_choice().or_else(wild_food);
+        // Water deprivation suppresses optional salvage, not the normal
+        // comparison between physically recoverable food servings.
+        if water_deprived {
+            food
         } else {
-            loose_cache(None)
+            let priority_route = food.or_else(inherited_salvage);
+            if priority_route.is_some() || needed_tip_salvage {
+                priority_route
+            } else {
+                loose_cache(None)
+            }
         }
+    } else if water_deprived {
+        None
     } else {
         inherited_salvage()
             .or_else(|| loose_cache(None))
@@ -386,5 +384,7 @@ pub(super) fn choose_outbound_detour(
                     .flatten()
             })
             .or_else(wild_food)
-    }
+    };
+    // A normal patrol destination is a route choice, not a persisted detour.
+    chosen.filter(|route| *route != (colony.route[2], None))
 }

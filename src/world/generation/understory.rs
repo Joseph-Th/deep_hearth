@@ -62,7 +62,7 @@ fn understory_crop(habitat: HabitatKind, hash: u64) -> Option<(CommodityKey, Mas
                 (MATERIAL_EDIBLE_FUNGI, 120_000, 220_000)
             }
         }
-        _ => return None,
+        HabitatKind::DryScrub | HabitatKind::DampGrove | HabitatKind::MixedWoodland => return None,
     };
     Some((
         CommodityKey::new(material, FORM_FOOD),

@@ -379,7 +379,7 @@ pub(in crate::kobolds) fn reachable_detour_drop(
 
 /// When junction wild food is exhausted, prefer the largest real forage serving
 /// among adjacent traversable patches, with stable identity resolving equal yields.
-pub(in crate::kobolds) fn reachable_side_food(
+pub(in crate::kobolds) fn reachable_adjacent_food(
     registries: &Registries,
     state: &AppState,
     route: ScavengeRoute,
@@ -389,13 +389,13 @@ pub(in crate::kobolds) fn reachable_side_food(
     let ScavengeRoute {
         junction,
         den,
-        authored_tip,
         player_position,
+        ..
     } = route;
     state
         .logistics()
         .traversable_destinations(junction)
-        .filter(|destination| *destination != den && *destination != authored_tip)
+        .filter(|destination| *destination != den)
         .filter_map(|destination| {
             best_local_forage(registries, state, destination, at, maximum_mass)
                 .map(|(mass, id)| (mass, id, destination))
@@ -435,7 +435,7 @@ pub(in crate::kobolds) fn reachable_far_food(
 /// than a local crumb when a single forage triggers the same recovery clock.
 /// When both patches are insufficient, prefer the larger recoverable serving.
 /// Only previously admitted, sighted and guarded route candidates compete.
-pub(in crate::kobolds) fn reachable_detour_food(
+pub(in crate::kobolds) fn reachable_forage_route(
     registries: &Registries,
     state: &AppState,
     route: ScavengeRoute,
@@ -443,7 +443,7 @@ pub(in crate::kobolds) fn reachable_detour_food(
     maximum_mass: Mass,
     meal_shortage: Mass,
 ) -> Option<(VoxelCoord, Option<VoxelCoord>)> {
-    let side = reachable_side_food(registries, state, route, at, maximum_mass);
+    let side = reachable_adjacent_food(registries, state, route, at, maximum_mass);
     let far = reachable_far_food(registries, state, route, at, maximum_mass);
     match (side, far) {
         (Some(first), Some((second, goal))) => {

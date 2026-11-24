@@ -363,7 +363,12 @@ survival food registry, not the raw-food form: winter provisions receive the
 same ration priority and purity, temperature, and freshness checks as raw food.
 The scout's short two-edge search is shared by water, wild food, loose parcels,
 and exposed stockpiles. It includes destinations reached by continuing past the
-normal patrol tip, not only side branches. The finite-water route planner uses
+normal patrol tip, not only side branches. Wild-forage planning also compares
+food on the normal tip itself with junction, side-branch and two-edge servings;
+choosing that tip retains the ordinary patrol route rather than persisting a
+redundant detour. Prolonged water deprivation suppresses optional salvage but
+preserves the same food-serving comparison when no usable water route is
+available. The finite-water route planner uses
 the **current junction's** local sightline to judge player deterrence at both
 one-edge and two-edge destinations.
 A hypothetical intermediate step cannot reveal a player before the scout actually

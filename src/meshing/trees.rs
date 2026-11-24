@@ -121,7 +121,7 @@ impl TreeForm {
                     let Some(cell) = self.at(dx, center_y + dy, dz) else {
                         continue;
                     };
-                    let ragged = extent > 0.55 && cell_hash(self.seed, cell) % 4 == 0;
+                    let ragged = extent > 0.55 && cell_hash(self.seed, cell).is_multiple_of(4);
                     if extent <= 1.0 && !ragged {
                         out.entry(cell).or_insert(self.tint);
                     }
@@ -142,7 +142,7 @@ impl TreeForm {
                         continue;
                     };
                     let corner = dx.abs() == tier && dz.abs() == tier && tier > 0;
-                    if !corner || cell_hash(self.seed, cell) % 3 == 0 {
+                    if !corner || cell_hash(self.seed, cell).is_multiple_of(3) {
                         out.entry(cell).or_insert(self.tint);
                     }
                 }

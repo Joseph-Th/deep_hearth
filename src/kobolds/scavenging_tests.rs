@@ -716,7 +716,7 @@ fn hungry_scout_continues_to_a_distant_full_patch_past_a_nearby_crumb() {
     creation.commit(&mut state).unwrap();
     let capacity = super::super::SCOUT_FORAGE_BATCH;
     let choose = |state: &AppState| {
-        super::reachable_detour_food(
+        super::reachable_forage_route(
             &registries,
             state,
             super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
@@ -900,7 +900,7 @@ fn scout_forages_the_largest_recoverable_serving_not_the_oldest_crumb() {
     creation.commit(&mut state).unwrap();
     let maximum = super::super::SCOUT_FORAGE_BATCH;
     assert_eq!(
-        super::reachable_side_food(
+        super::reachable_adjacent_food(
             &registries,
             &state,
             super::ScavengeRoute::new([path.den, path.junction, path.tip], None),

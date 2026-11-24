@@ -251,8 +251,87 @@ fn hungry_scout_seeks_a_full_visible_ration_instead_of_a_junction_crumb() {
 }
 
 #[test]
-fn hungry_scout_compares_side_forage_with_side_food_when_junction_is_empty() {
+fn hungry_scout_prefers_full_patrol_tip_ration_to_junction_crumb() {
     let (registries, mut state, route) = setup();
+    let sources = seed(
+        &registries,
+        &mut state,
+        [
+            forage_spec(
+                &registries,
+                route.junction,
+                MATERIAL_BERRIES,
+                Mass::from_milligrams(1_000),
+                None,
+            ),
+            forage_spec(
+                &registries,
+                route.tip,
+                MATERIAL_WILD_NUTS,
+                Mass::from_milligrams(300_000),
+                None,
+            ),
+        ],
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 585);
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        route.tip,
+        "the ordinary patrol edge must compete with side routes for a full meal"
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for _ in 0..15 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(sources[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_000)
+    );
+    assert_eq!(
+        state.surface().get(sources[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(200_000)
+    );
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn hungry_scout_compares_side_forage_with_side_food_when_junction_is_empty() {
+    assert_scout_compares_forage_and_loose_food(579, false);
+}
+
+#[test]
+fn water_deprived_hungry_scout_still_prefers_a_full_forage_ration() {
+    assert_scout_compares_forage_and_loose_food(1_799, true);
+}
+
+fn assert_scout_compares_forage_and_loose_food(start: u64, water_deprived: bool) {
+    let (registries, mut state, route) = setup();
+    advance_to(&registries, &mut state, start);
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(colony.scout_position(), route.den);
+    assert_eq!(
+        super::hydration::prolonged_water_deprivation(colony, state.tick()),
+        water_deprived
+    );
     let wild_side = VoxelCoord::new(0, 0, -1);
     add_traversable_edge_for_test(&mut state, route.junction, wild_side);
     let small_drop = SurfaceResourceSpec::new(
@@ -293,9 +372,10 @@ fn hungry_scout_compares_side_forage_with_side_food_when_junction_is_empty() {
         .into_state(&registries)
         .unwrap();
 
-    advance_to(&registries, &mut state, 585);
-    advance_to(&registries, &mut replay, 585);
+    advance_to(&registries, &mut state, start + 6);
+    advance_to(&registries, &mut replay, start + 6);
     assert_eq!(state, replay);
+    assert!(state.kobold_state().colony.as_ref().unwrap().hungry);
     assert_eq!(
         state
             .kobold_state()
@@ -306,8 +386,8 @@ fn hungry_scout_compares_side_forage_with_side_food_when_junction_is_empty() {
         wild_side,
         "a full reachable forage ration must defeat a competing one-gram food cache"
     );
-    advance_to(&registries, &mut state, 600);
-    advance_to(&registries, &mut replay, 600);
+    advance_to(&registries, &mut state, start + 21);
+    advance_to(&registries, &mut replay, start + 21);
     assert_eq!(state, replay);
     assert_eq!(
         state.surface().get(sources[0]).unwrap().remaining_mass(),

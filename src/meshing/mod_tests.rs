@@ -85,9 +85,11 @@ fn exposed_faces(registries: &Registries, state: &AppState, chunk: ChunkCoord, y
 /// Total unit-face area covered by a mesh's quads (each quad is four consecutive vertices).
 fn covered_area(mesh: &SurfaceMesh) -> f32 {
     mesh.vertices()
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|quad| {
-            let [a, b, _, d] = [quad[0], quad[1], quad[2], quad[3]].map(|v| v.position());
+            let [a, b, _, d] = quad.map(|v| v.position());
             let edge = |p: [f32; 3], q: [f32; 3]| {
                 ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt()
             };
@@ -221,7 +223,9 @@ fn a_roof_shades_the_ground_beneath_it_while_open_ground_stays_sky_lit() {
         );
         mesh.opaque()
             .vertices()
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .find(|quad| {
                 let covers = |axis: usize, value: i64| {
                     let low = quad
@@ -288,7 +292,7 @@ fn first_tree_chunk(state: &AppState) -> ChunkCoord {
 fn tick_in(registries: &Registries, season: Season) -> SimulationTick {
     let calendar = registries.core().calendar();
     (0..)
-        .map(|day| SimulationTick::new(day * u64::from(calendar.ticks_per_day())))
+        .map(|day| SimulationTick::new(day * calendar.ticks_per_day()))
         .find(|&tick| calendar.season_at(tick) == season)
         .unwrap_or_else(|| panic!("calendar reaches every season"))
 }
