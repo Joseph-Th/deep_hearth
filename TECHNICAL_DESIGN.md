@@ -426,8 +426,11 @@ Beneath a roof that inlet must also see the sky. An actual windbreak or
 extended roof prevents that inlet, so sheltered caverns retain their
 unmuffled sound path. Player wind cooling samples the actual foot and
 stance-dependent eye voxels, including when airborne, against the same
-physical-air rule used by footfalls and scent. That rule carries distant
-windborne berry and nut scent, while nearby food remains smellable through
+physical-air rule used by footfalls and scent. Missing terrain proves neither
+an open airflow path nor a windbreak: sound and scent require confirmed airflow,
+while thermal cooling grants protection only for confirmed obstruction.
+The rule carries distant windborne berry and nut scent, while nearby food
+remains smellable through
 bounded face-connected air diffusion without revealing source coordinates.
 Sheltered food emits only two air steps of local scent; calm but exposed air
 can carry it one step farther without a directional plume.

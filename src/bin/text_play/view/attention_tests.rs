@@ -35,6 +35,58 @@ fn newly_defensive_resident_cannot_be_hidden_by_another_lowering_guard() {
 }
 
 #[test]
+fn stationary_defender_cannot_be_reused_to_explain_a_new_adjacent_defender() {
+    let player = VoxelCoord::new(0, 0, 0);
+    let before = [resident(3, true)];
+    let after = [resident(3, false), resident(4, true)];
+    assert_eq!(
+        resident_attention(&before, &after, player, player),
+        Some("A nearby resident is visibly defensive.")
+    );
+}
+
+#[test]
+fn exact_resident_matches_take_priority_independently_of_observation_order() {
+    let player = VoxelCoord::new(0, 0, 0);
+    let before = [resident(-1, true), resident(1, true)];
+    for after in [
+        [resident(0, true), resident(-1, true)],
+        [resident(-1, true), resident(0, true)],
+    ] {
+        assert_eq!(resident_attention(&before, &after, player, player), None);
+    }
+}
+
+#[test]
+fn ambiguous_patrol_steps_can_reassign_a_match_without_a_false_warning() {
+    let player = VoxelCoord::new(10, 0, 0);
+    for before in [
+        [resident(0, true), resident(2, true)],
+        [resident(2, true), resident(0, true)],
+    ] {
+        for after in [
+            [resident(1, true), resident(-1, true)],
+            [resident(-1, true), resident(1, true)],
+        ] {
+            assert_eq!(resident_attention(&before, &after, player, player), None);
+        }
+    }
+}
+
+#[test]
+fn co_located_observations_match_unchanged_posture_before_other_postures() {
+    let player = VoxelCoord::new(0, 0, 0);
+    let before = [resident(0, false), resident(0, true)];
+    let after = [resident(0, true), resident(0, false)];
+    assert_eq!(resident_attention(&before, &after, player, player), None);
+    let after = [resident(0, true), resident(0, true)];
+    assert_eq!(
+        resident_attention(&before, &after, player, player),
+        Some("A nearby resident is visibly defensive.")
+    );
+}
+
+#[test]
 fn ordinary_one_cell_patrol_does_not_interrupt_but_a_second_resident_does() {
     let player = VoxelCoord::new(0, 0, 0);
     for defending in [false, true] {

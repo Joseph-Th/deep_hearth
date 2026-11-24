@@ -208,7 +208,7 @@ impl PlayerWeather {
         };
         [player.position(), eye]
             .into_iter()
-            .filter(|&cell| !wind_reaches_cell(registries, state, cell, self))
+            .filter(|&cell| wind_reaches_cell(registries, state, cell, self) == Some(false))
             .count() as u8
     }
 
@@ -331,12 +331,15 @@ pub(super) fn weather_at(
     }
 }
 
-fn has_clear_air_cell(registries: &Registries, state: &AppState, position: VoxelCoord) -> bool {
+/// Unknown terrain is neither proven open air nor a physical obstruction.
+fn air_cell_clear(registries: &Registries, state: &AppState, position: VoxelCoord) -> Option<bool> {
+    if state.structures().blocks_full_cell(position) {
+        return Some(false);
+    }
     state
         .world()
         .full_cell_collision_at(registries.world(), position)
-        == Some(false)
-        && !state.structures().blocks_full_cell(position)
+        .map(|blocked| !blocked)
 }
 
 fn wind_reaches_cell(
@@ -344,34 +347,39 @@ fn wind_reaches_cell(
     state: &AppState,
     position: VoxelCoord,
     weather: PlayerWeather,
-) -> bool {
-    has_clear_air_cell(registries, state, position)
-        && wind_reaches_clear_cell(registries, state, position, weather)
+) -> Option<bool> {
+    if !air_cell_clear(registries, state, position)? {
+        return Some(false);
+    }
+    wind_reaches_clear_cell(registries, state, position, weather)
 }
 
 /// Wind touching one physically open generated cell.
 ///
-/// The same upwind wall, trunk, full-cell construction, or unknown chunk
-/// shelters the player and the local sources of sound and scent. Sky-exposed
-/// air still needs an unobstructed horizontal inlet when the front is windy;
-/// beneath a one-cell roof, that inlet must itself see the sky. This is a
-/// local one-face airflow rule, not underground ventilation simulation.
+/// A known wall, trunk or full-cell construction blocks airflow. An unknown
+/// inlet proves neither shelter for survival nor a path for sound and scent.
+/// Sky-exposed air still needs an unobstructed horizontal inlet when the
+/// front is windy; beneath a one-cell roof, that inlet must itself see the
+/// sky. This is a local one-face rule, not underground ventilation simulation.
 fn wind_reaches_clear_cell(
     registries: &Registries,
     state: &AppState,
     position: VoxelCoord,
     weather: PlayerWeather,
-) -> bool {
+) -> Option<bool> {
     let open_sky = super::sky::has_open_sky(registries, state, position);
     let Some((dx, dz)) = weather.wind_direction().map(WindDirection::delta) else {
-        return open_sky;
+        return Some(open_sky);
     };
-    let (Some(x), Some(z)) = (position.x().checked_sub(dx), position.z().checked_sub(dz)) else {
-        return false;
-    };
-    let upwind = VoxelCoord::new(x, position.y(), z);
-    has_clear_air_cell(registries, state, upwind)
-        && (open_sky || super::sky::has_open_sky(registries, state, upwind))
+    let upwind = VoxelCoord::new(
+        position.x().checked_sub(dx)?,
+        position.y(),
+        position.z().checked_sub(dz)?,
+    );
+    Some(
+        air_cell_clear(registries, state, upwind)?
+            && (open_sky || super::sky::has_open_sky(registries, state, upwind)),
+    )
 }
 
 pub(super) fn local_airflow_at(
@@ -382,12 +390,12 @@ pub(super) fn local_airflow_at(
 ) -> Option<PlayerWeather> {
     // Most queried sound/scent origins are not exposed air. Reject their
     // solid cells before resolving regional weather or tracing the sky.
-    if !has_clear_air_cell(registries, state, position) {
+    if air_cell_clear(registries, state, position) != Some(true) {
         return None;
     }
     let seed = state.world().generation_profile()?.seed().value();
     let weather = weather_at(registries, seed, position, at);
-    wind_reaches_clear_cell(registries, state, position, weather).then_some(weather)
+    (wind_reaches_clear_cell(registries, state, position, weather) == Some(true)).then_some(weather)
 }
 
 /// Source-local wind for physical sound attenuation. Caverns without a real

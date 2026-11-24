@@ -155,44 +155,114 @@ impl From<KoboldSighting> for ResidentAttentionRecord {
     }
 }
 
+/// One observable resident and whether it satisfies the current attention rule.
+/// Identity is intentionally not exposed by the sighting projection.
+type QualifiedResident = (ResidentAttentionRecord, bool);
+
+/// Reserve stationary matches globally, including residents that no longer qualify.
+/// For co-located same-role sightings, preserve equal qualification first: their
+/// individual identities cannot be distinguished by observation.
+fn reserve_stationary_matches(
+    previous: &mut [Option<QualifiedResident>],
+    next: &mut [Option<QualifiedResident>],
+) -> bool {
+    for same_qualification in [true, false] {
+        for sighting in &mut *next {
+            let Some((current, qualifies)) = *sighting else {
+                continue;
+            };
+            let matched = previous.iter_mut().find(|old| {
+                old.is_some_and(|(record, qualified)| {
+                    record.role == current.role
+                        && record.position == current.position
+                        && (!same_qualification || qualified == qualifies)
+                })
+            });
+            let Some(old) = matched else {
+                continue;
+            };
+            let (_, was_qualified) = old.take().expect("matched resident exists");
+            if qualifies && !was_qualified {
+                return true;
+            }
+            *sighting = None;
+        }
+    }
+    false
+}
+
+/// Find a one-to-one explanation for a moved sighting. Reassign an earlier
+/// ambiguous match if necessary instead of letting iteration order create
+/// a false warning. Every recursive step visits a previously unvisited old
+/// sighting, so the search is bounded by the actual local observations.
+fn match_patrol_step(
+    previous: &[ResidentAttentionRecord],
+    next: &[ResidentAttentionRecord],
+    current: usize,
+    assignments: &mut [Option<usize>],
+    visited: &mut [bool],
+) -> bool {
+    let sighting = next[current];
+    for (index, old) in previous.iter().enumerate() {
+        if visited[index]
+            || old.role != sighting.role
+            || !old.position.is_face_adjacent_to(sighting.position)
+        {
+            continue;
+        }
+        visited[index] = true;
+        if assignments[index].is_none_or(|assigned| {
+            match_patrol_step(previous, next, assigned, assignments, visited)
+        }) {
+            assignments[index] = Some(current);
+            return true;
+        }
+    }
+    false
+}
+
 /// Exact-position matches take precedence over plausible one-step patrol motion.
-/// Consuming each previous sighting once keeps multiple residents of one caste distinct.
+/// Each old sighting can explain at most one new sighting, regardless of order.
 fn newly_qualifying_resident<T: Copy + Into<ResidentAttentionRecord>>(
     previous: &[T],
     next: &[T],
     before_qualifies: impl Fn(ResidentAttentionRecord) -> bool,
     after_qualifies: impl Fn(ResidentAttentionRecord) -> bool,
 ) -> bool {
-    let mut matched = vec![false; previous.len()];
-    for current in next
+    let mut previous: Vec<_> = previous
         .iter()
         .copied()
         .map(Into::into)
-        .filter(|&record| after_qualifies(record))
-    {
-        if let Some((index, old)) = previous.iter().copied().map(Into::into).enumerate().find(
-            |(index, old): &(usize, ResidentAttentionRecord)| {
-                !matched[*index] && old.role == current.role && old.position == current.position
-            },
-        ) {
-            if !before_qualifies(old) {
-                return true;
-            }
-            matched[index] = true;
-            continue;
-        }
-        let moved = previous.iter().copied().map(Into::into).enumerate().find(
-            |(index, old): &(usize, ResidentAttentionRecord)| {
-                !matched[*index]
-                    && old.role == current.role
-                    && before_qualifies(*old)
-                    && old.position.is_face_adjacent_to(current.position)
-            },
-        );
-        let Some((index, _)) = moved else {
+        .map(|record| Some((record, before_qualifies(record))))
+        .collect();
+    let mut next: Vec<_> = next
+        .iter()
+        .copied()
+        .map(Into::into)
+        .map(|record| Some((record, after_qualifies(record))))
+        .collect();
+    if reserve_stationary_matches(&mut previous, &mut next) {
+        return true;
+    }
+    let remaining_qualified = |records: Vec<Option<QualifiedResident>>| {
+        records
+            .into_iter()
+            .flatten()
+            .filter_map(|(record, qualifies)| qualifies.then_some(record))
+            .collect::<Vec<_>>()
+    };
+    let previous = remaining_qualified(previous);
+    let next = remaining_qualified(next);
+    if next.len() > previous.len() {
+        return true;
+    }
+    let mut assignments = vec![None; previous.len()];
+    let mut visited = vec![false; previous.len()];
+    for current in 0..next.len() {
+        visited.fill(false);
+        if !match_patrol_step(&previous, &next, current, &mut assignments, &mut visited) {
             return true;
-        };
-        matched[index] = true;
+        }
     }
     false
 }

@@ -88,6 +88,80 @@ fn generated_player() -> (Registries, AppState, WorldGenerationSeed) {
 }
 
 #[test]
+fn unknown_upwind_terrain_does_not_provide_thermal_shelter() {
+    use crate::core::state::apply_clock_advance;
+    use crate::survival::PlayerWindShelter;
+    use crate::world::{BlockStateId, set_generated_block_for_test};
+
+    let (registries, mut state, seed) = generated_player();
+    let position = state.logistics().player().unwrap().position();
+    let front = (0..40)
+        .map(|index| SimulationTick::new(index * WEATHER_FRONT_TICKS))
+        .find(|&at| {
+            let weather = weather_at(&registries, seed.value(), position, at);
+            matches!(
+                weather.wind_direction(),
+                Some(WindDirection::East | WindDirection::South)
+            ) && weather.ambient_temperature().millikelvin() < 293_150
+        })
+        .expect("the boundary has a cold front blowing from an ungenerated chunk");
+    apply_clock_advance(&mut state, front);
+    let weather = assess_player_weather(&registries, &state).unwrap();
+    let (dx, dz) = weather.wind_direction().unwrap().delta();
+    let lower = VoxelCoord::new(position.x() - dx, position.y(), position.z() - dz);
+    let upper = VoxelCoord::new(lower.x(), lower.y() + 1, lower.z());
+    assert_eq!(
+        state
+            .world()
+            .full_cell_collision_at(registries.world(), lower),
+        None
+    );
+    assert_eq!(
+        local_airflow_at(&registries, &state, position, front),
+        None,
+        "unknown terrain does not authorize a sound or scent path"
+    );
+    assert_eq!(
+        assess_player_unheated_comfort_runway(&registries, &state)
+            .unwrap()
+            .wind_shelter(),
+        Some(PlayerWindShelter::Exposed),
+        "unknown terrain is not a physical windbreak"
+    );
+    assert_eq!(
+        weather.felt_cooling_multiplier_ppm(&registries, &state),
+        weather.cooling_multiplier_ppm()
+    );
+
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(-dx, -dz),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    for cell in [lower, upper] {
+        set_generated_block_for_test(registries.world(), &mut state, cell, BlockStateId::AIR);
+    }
+    assert_eq!(
+        local_airflow_at(&registries, &state, position, front),
+        Some(weather)
+    );
+    assert_eq!(
+        weather.felt_cooling_multiplier_ppm(&registries, &state),
+        weather.cooling_multiplier_ppm(),
+        "streaming an open inlet must not increase exposure"
+    );
+    set_generated_block_for_test(registries.world(), &mut state, lower, BLOCK_STATE_STONE);
+    assert_eq!(weather.sheltered_body_levels(&registries, &state), 1);
+    set_generated_block_for_test(registries.world(), &mut state, upper, BLOCK_STATE_STONE);
+    assert_eq!(weather.sheltered_body_levels(&registries, &state), 2);
+}
+
+#[test]
 fn generated_air_requires_real_vertical_world_truth_without_mutation() {
     let (registries, state, _) = generated_player();
     let position = state.logistics().player().unwrap().position();
