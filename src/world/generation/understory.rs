@@ -70,6 +70,26 @@ fn understory_crop(habitat: HabitatKind, hash: u64) -> Option<(CommodityKey, Mas
     ))
 }
 
+/// Enumerate the same seed-bound sites for natural generation and trusted load.
+/// A candidate's habitat may not support this district's crop even when a
+/// nearby alternative does.
+fn seeded_understory_candidates(
+    profile: WorldGenerationProfile,
+    coord: ChunkCoord,
+) -> impl Iterator<Item = (VoxelCoord, CommodityKey, Mass)> {
+    let origin = site_origin(profile, coord);
+    [(0, 0), (2, 0), (0, 2), (-2, 0), (0, -2)]
+        .into_iter()
+        .filter_map(move |(dx, dz)| {
+            let (hash, base_x, base_z) = origin?;
+            let x = base_x.checked_add(dx)?;
+            let z = base_z.checked_add(dz)?;
+            let y = terrain_height(profile.seed(), x, z).checked_add(1)?;
+            let (commodity, mass) = understory_crop(super::habitat_at(profile.seed(), x, z), hash)?;
+            Some((VoxelCoord::new(x, y, z), commodity, mass))
+        })
+}
+
 /// Trusted-load validation checks the original seed and species without
 /// trusting harvest history, elapsed seasons, or changed physical occupancy.
 pub(crate) fn seeded_fungal_colony_matches(
@@ -81,22 +101,11 @@ pub(crate) fn seeded_fungal_colony_matches(
     if commodity != CommodityKey::new(MATERIAL_EDIBLE_FUNGI, FORM_FOOD) {
         return false;
     }
-    let coord = ChunkCoord::containing(position);
-    let Some((hash, base_x, base_z)) = site_origin(profile, coord) else {
-        return false;
-    };
-    [(0, 0), (2, 0), (0, 2), (-2, 0), (0, -2)]
-        .into_iter()
-        .filter_map(|(dx, dz)| {
-            let x = base_x.checked_add(dx)?;
-            let z = base_z.checked_add(dz)?;
-            let y = terrain_height(profile.seed(), x, z).checked_add(1)?;
-            let (food, mass) = understory_crop(super::habitat_at(profile.seed(), x, z), hash)?;
-            Some((VoxelCoord::new(x, y, z), food, mass))
-        })
-        .any(|(candidate, food, mass)| {
+    seeded_understory_candidates(profile, ChunkCoord::containing(position)).any(
+        |(candidate, food, mass)| {
             candidate == position && food == commodity && mass == original_fruit
-        })
+        },
+    )
 }
 
 /// The same deterministic candidate geometry is used for generation and
@@ -109,18 +118,9 @@ pub(super) fn seeded_understory_spec(
     chunk: &WorldChunk,
     reserved: &[VoxelCoord],
 ) -> Option<SurfaceResourceSpec> {
-    let (hash, base_x, base_z) = site_origin(profile, chunk.coord())?;
     let tree = super::super::generated_tree(profile, chunk);
-    for (dx, dz) in [(0, 0), (2, 0), (0, 2), (-2, 0), (0, -2)] {
-        let x = base_x.checked_add(dx)?;
-        let z = base_z.checked_add(dz)?;
-        let y = terrain_height(profile.seed(), x, z).checked_add(1)?;
-        let position = VoxelCoord::new(x, y, z);
-        let Some((commodity, mass)) =
-            understory_crop(super::habitat_at(profile.seed(), x, z), hash)
-        else {
-            return None;
-        };
+    for (position, commodity, mass) in seeded_understory_candidates(profile, chunk.coord()) {
+        let (x, y, z) = (position.x(), position.y(), position.z());
         let floor = VoxelCoord::new(x, y - 1, z);
         let head = VoxelCoord::new(x, y + 1, z);
         if chunk.block_at(floor) != BLOCK_STATE_STONE

@@ -142,13 +142,18 @@ fn surface_local_radiance(
     normal: vec3<f32>,
     view_direction: vec3<f32>,
 ) -> vec3<f32> {
+    let available_lights = min(surface_frame.light_grid.z, arrayLength(&surface_point_lights));
+    // Adapters without a point-light producer bind only neutral dummy buffers.
+    // Do not index those buffers by the viewport tile when lighting is disabled.
+    if (available_lights == 0u) {
+        return vec3<f32>(0.0);
+    }
     let tile_coordinate = vec2<u32>(fragment_position.xy) / DH_SURFACE_TILE_SIZE;
     let tile_index = tile_coordinate.y * surface_frame.light_grid.x + tile_coordinate.x;
     let tile_count = min(
         surface_tile_light_counts[tile_index],
         DH_SURFACE_MAX_LIGHTS_PER_TILE,
     );
-    let available_lights = min(surface_frame.light_grid.z, arrayLength(&surface_point_lights));
     var radiance = vec3<f32>(0.0);
     var local_index = 0u;
     loop {

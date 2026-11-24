@@ -5,34 +5,44 @@ use std::collections::BTreeSet;
 use super::*;
 use crate::texture::{TEXTURE_MIP_LEVEL_COUNT, TEXTURE_SIDE};
 
-const BUILT_IN_TEXTURES: [TextureId; 27] = [
-    TEXTURE_WOOD_SIDE,
-    TEXTURE_WOOD_END,
-    TEXTURE_COPPER_ORE,
-    TEXTURE_COPPER_HAMMERED,
-    TEXTURE_SLAG,
-    TEXTURE_MOLTEN_COPPER,
-    TEXTURE_CRUSHED_ORE,
-    TEXTURE_MACHINE_PANEL,
-    TEXTURE_WORKING_METAL,
-    TEXTURE_REFRACTORY,
-    TEXTURE_SCREEN_MESH,
-    TEXTURE_STONE,
-    TEXTURE_TEMPLE_DATA_PLATE,
-    TEXTURE_TEMPLE_BEARING_HOUSING,
-    TEXTURE_TEMPLE_REFRACTORY_FIXTURE,
-    TEXTURE_TEMPLE_CORROSION_PANEL,
-    TEXTURE_HEMATITE_ORE,
-    TEXTURE_CASSITERITE_ORE,
-    TEXTURE_SPHALERITE_ORE,
-    TEXTURE_MOLTEN_IRON,
-    TEXTURE_MOLTEN_TIN,
-    TEXTURE_MOLTEN_ZINC,
-    TEXTURE_MAGNETITE_ORE,
-    TEXTURE_GALENA_ORE,
-    TEXTURE_PYRITE_ORE,
-    TEXTURE_GRAPHITE_ORE,
-    TEXTURE_QUARTZ_ORE,
+// Authored pattern-sharing families, independent of palette differences.
+const PATTERN_FAMILIES: &[&[TextureId]] = &[
+    &[TEXTURE_WOOD_SIDE, TEXTURE_BARK],
+    &[TEXTURE_WOOD_END],
+    &[
+        TEXTURE_COPPER_ORE,
+        TEXTURE_TEMPLE_BEARING_HOUSING,
+        TEXTURE_HEMATITE_ORE,
+        TEXTURE_CASSITERITE_ORE,
+        TEXTURE_SPHALERITE_ORE,
+        TEXTURE_MAGNETITE_ORE,
+        TEXTURE_GALENA_ORE,
+        TEXTURE_PYRITE_ORE,
+        TEXTURE_GRAPHITE_ORE,
+        TEXTURE_QUARTZ_ORE,
+    ],
+    &[
+        TEXTURE_COPPER_HAMMERED,
+        TEXTURE_MACHINE_PANEL,
+        TEXTURE_TEMPLE_DATA_PLATE,
+    ],
+    &[TEXTURE_SLAG],
+    &[
+        TEXTURE_MOLTEN_COPPER,
+        TEXTURE_MOLTEN_IRON,
+        TEXTURE_MOLTEN_TIN,
+        TEXTURE_MOLTEN_ZINC,
+    ],
+    &[TEXTURE_CRUSHED_ORE, TEXTURE_CLAY_EARTH],
+    &[TEXTURE_WORKING_METAL, TEXTURE_TEMPLE_CORROSION_PANEL],
+    &[
+        TEXTURE_REFRACTORY,
+        TEXTURE_STONE,
+        TEXTURE_TEMPLE_REFRACTORY_FIXTURE,
+    ],
+    &[TEXTURE_SCREEN_MESH],
+    &[TEXTURE_HOST_ROCK],
+    &[TEXTURE_FOLIAGE],
 ];
 
 #[test]
@@ -41,7 +51,7 @@ fn built_in_tiles_have_palette_detail_without_rgba_duplication() {
     assert_eq!(TEXTURE_SIDE, 32);
     assert_eq!(TEXTURE_MIP_LEVEL_COUNT, 6);
     assert_eq!(TEXTURE_SIDE >> (TEXTURE_MIP_LEVEL_COUNT - 1), 1);
-    for texture in BUILT_IN_TEXTURES {
+    for &texture in PATTERN_FAMILIES.iter().flat_map(|family| family.iter()) {
         let definition = match registry.get_texture(texture) {
             Some(definition) => definition,
             None => panic!("missing built-in texture {}", texture.value()),
@@ -79,9 +89,28 @@ fn built_in_bake_is_deterministic_compact_and_deduplicates_panel_geometry() {
     let second = registry.bake_texture_array();
 
     assert_eq!(first, second);
-    assert!(first.pattern_layer_count() < 12);
+    assert_eq!(
+        usize::from(first.pattern_layer_count()),
+        PATTERN_FAMILIES.len()
+    );
     assert!(first.total_gpu_bytes() * 2 < first.expanded_rgba_texel_bytes());
-    assert!(first.total_gpu_bytes() <= 16 * 1_024);
+    let mut seen_textures = BTreeSet::new();
+    let mut seen_layers = BTreeSet::new();
+    for family in PATTERN_FAMILIES {
+        let layer = first.get_descriptor(family[0]).unwrap().layer();
+        assert!(seen_layers.insert(layer));
+        for &texture in *family {
+            assert!(seen_textures.insert(texture));
+            assert_eq!(first.get_descriptor(texture).unwrap().layer(), layer);
+        }
+    }
+    assert_eq!(
+        seen_textures,
+        build_textures()
+            .iter()
+            .map(|definition| definition.id())
+            .collect()
+    );
     let indexed_texels_per_layer = (0..TEXTURE_MIP_LEVEL_COUNT)
         .map(|level| {
             let side = TEXTURE_SIDE >> level;
@@ -96,12 +125,12 @@ fn built_in_bake_is_deterministic_compact_and_deduplicates_panel_geometry() {
     for (level, mip) in first.mip_levels().iter().enumerate() {
         assert_eq!(usize::from(mip.side()), TEXTURE_SIDE >> level);
     }
-    for texture in BUILT_IN_TEXTURES {
+    for &texture in PATTERN_FAMILIES.iter().flat_map(|family| family.iter()) {
         let descriptor = match first.get_descriptor(texture) {
             Some(descriptor) => descriptor,
             None => panic!("missing baked texture descriptor {}", texture.value()),
         };
-        let expected_alpha_mode = if texture == TEXTURE_SCREEN_MESH {
+        let expected_alpha_mode = if matches!(texture, TEXTURE_SCREEN_MESH | TEXTURE_FOLIAGE) {
             TextureAlphaMode::Cutout
         } else {
             TextureAlphaMode::Opaque

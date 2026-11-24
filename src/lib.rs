@@ -48,6 +48,7 @@ pub mod simulation;
 pub mod world_generation;
 
 // Renderer-neutral presentation definitions and deterministic assembly.
+pub mod meshing;
 pub mod shader;
 pub mod texture;
 

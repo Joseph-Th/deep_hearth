@@ -11,8 +11,9 @@ mod bindings;
 mod patterns;
 
 use patterns::{
-    aggregate_pattern, molten_pattern, ore_pattern, panel_pattern, refractory_pattern,
-    screen_pattern, slag_pattern, wood_end_pattern, wood_side_pattern, working_metal_pattern,
+    aggregate_pattern, foliage_pattern, host_rock_pattern, molten_pattern, ore_pattern,
+    panel_pattern, refractory_pattern, screen_pattern, slag_pattern, wood_end_pattern,
+    wood_side_pattern, working_metal_pattern,
 };
 
 const RAMP_WOOD: PaletteRampId = PaletteRampId::new(1);
@@ -30,6 +31,8 @@ const RAMP_REFRACTORY: PaletteRampId = PaletteRampId::new(13);
 const RAMP_SOOT: PaletteRampId = PaletteRampId::new(14);
 const RAMP_TRANSPARENT: PaletteRampId = PaletteRampId::new(15);
 const RAMP_CLAY_EARTH: PaletteRampId = PaletteRampId::new(16);
+const RAMP_FOLIAGE: PaletteRampId = PaletteRampId::new(17);
+const RAMP_LIVING_BARK: PaletteRampId = PaletteRampId::new(18);
 
 pub const TEXTURE_WOOD_SIDE: TextureId = TextureId::new(1);
 pub const TEXTURE_WOOD_END: TextureId = TextureId::new(2);
@@ -59,6 +62,9 @@ pub const TEXTURE_GALENA_ORE: TextureId = TextureId::new(26);
 pub const TEXTURE_PYRITE_ORE: TextureId = TextureId::new(27);
 pub const TEXTURE_GRAPHITE_ORE: TextureId = TextureId::new(28);
 pub const TEXTURE_QUARTZ_ORE: TextureId = TextureId::new(29);
+pub const TEXTURE_HOST_ROCK: TextureId = TextureId::new(30);
+pub const TEXTURE_FOLIAGE: TextureId = TextureId::new(31);
+pub const TEXTURE_BARK: TextureId = TextureId::new(32);
 
 pub const BLOCK_TIMBER: BlockAppearanceId = BlockAppearanceId::new(1);
 pub const BLOCK_STONE: BlockAppearanceId = BlockAppearanceId::new(2);
@@ -76,6 +82,12 @@ pub const BLOCK_GALENA_ORE: BlockAppearanceId = BlockAppearanceId::new(13);
 pub const BLOCK_PYRITE_ORE: BlockAppearanceId = BlockAppearanceId::new(14);
 pub const BLOCK_GRAPHITE_ORE: BlockAppearanceId = BlockAppearanceId::new(15);
 pub const BLOCK_QUARTZ_ORE: BlockAppearanceId = BlockAppearanceId::new(16);
+/// Undressed in-situ terrain rock, distinct from the dressed stone block commodity.
+pub const BLOCK_HOST_ROCK: BlockAppearanceId = BlockAppearanceId::new(17);
+/// Living tree canopy presentation; crowns are not world blocks.
+pub const BLOCK_FOLIAGE: BlockAppearanceId = BlockAppearanceId::new(18);
+/// Living trunk presentation: bark sides around cut-ring ends.
+pub const BLOCK_TREE_TRUNK: BlockAppearanceId = BlockAppearanceId::new(19);
 
 pub const OBJECT_LOG: ObjectAppearanceId = ObjectAppearanceId::new(1);
 pub const OBJECT_COPPER_ORE: ObjectAppearanceId = ObjectAppearanceId::new(3);
@@ -295,6 +307,16 @@ fn build_palette_ramps() -> Vec<PaletteRampDefinition> {
             RAMP_CLAY_EARTH,
             "moist clay earth",
             [(36, 25, 25), (92, 58, 44), (157, 100, 68), (222, 176, 119)],
+        ),
+        ramp(
+            RAMP_LIVING_BARK,
+            "living gray-brown bark",
+            [(13, 12, 13), (38, 33, 30), (74, 64, 54), (124, 112, 94)],
+        ),
+        ramp(
+            RAMP_FOLIAGE,
+            "living foliage",
+            [(10, 18, 12), (26, 46, 24), (58, 86, 38), (128, 150, 74)],
         ),
         PaletteRampDefinition::new(
             RAMP_TRANSPARENT,
@@ -520,6 +542,28 @@ fn build_textures() -> Vec<TextureDefinition> {
             TextureAlphaMode::Opaque,
             molten_pattern(),
         ),
+        // Bark shares the wood-grain layer with a darker palette, so it adds no GPU layer.
+        texture(
+            TEXTURE_BARK,
+            "living bark",
+            &[RAMP_LIVING_BARK, RAMP_BARK],
+            TextureAlphaMode::Opaque,
+            wood_side_pattern(),
+        ),
+        texture(
+            TEXTURE_HOST_ROCK,
+            "fractured host rock",
+            &[RAMP_STONE, RAMP_DARK_MINERAL],
+            TextureAlphaMode::Opaque,
+            host_rock_pattern(),
+        ),
+        texture(
+            TEXTURE_FOLIAGE,
+            "leaf clusters",
+            &[RAMP_TRANSPARENT, RAMP_FOLIAGE],
+            TextureAlphaMode::Cutout,
+            foliage_pattern(),
+        ),
     ]
 }
 
@@ -611,6 +655,15 @@ fn build_block_appearances() -> Vec<BlockAppearanceDefinition> {
             TEXTURE_GRAPHITE_ORE,
         ),
         BlockAppearanceDefinition::uniform(BLOCK_QUARTZ_ORE, "quartz ore", TEXTURE_QUARTZ_ORE),
+        BlockAppearanceDefinition::uniform(BLOCK_HOST_ROCK, "host rock", TEXTURE_HOST_ROCK),
+        BlockAppearanceDefinition::uniform(BLOCK_FOLIAGE, "tree foliage", TEXTURE_FOLIAGE),
+        BlockAppearanceDefinition::top_side_bottom(
+            BLOCK_TREE_TRUNK,
+            "living tree trunk",
+            TEXTURE_WOOD_END,
+            TEXTURE_BARK,
+            TEXTURE_WOOD_END,
+        ),
     ]
 }
 

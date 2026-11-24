@@ -1943,6 +1943,21 @@ dependencies, explicit entry points/pipeline requirements, and bounded work. Gra
 and frame scheduling belong to adapters. [`assets/shaders/README.md`](assets/shaders/README.md) owns the
 concrete shader binding contract.
 
+The renderer-neutral mesher derives indexed opaque and cutout terrain geometry
+from generated sections. It culls occluded faces, merges uniformly shaded
+coplanar rectangles, and samples bounded presentation-only skylight and corner
+occlusion. Integer render origins keep local geometry precise without changing
+world coordinates; unavailable margin columns at the representable world edge
+are treated as ungenerated air. Tree meshes derive seasonal crowns and visual
+boles from living tree records, omitting cells intersecting opaque terrain.
+These meshes never become physical collision or persisted light authority.
+The optional `hearth-view` adapter generates a finite natural world using the
+canonical world operations, then draws it with the baked shader and texture
+registries. Free-camera movement and its display clock do not advance
+authoritative gameplay. The preview supports shadows, sky, tone mapping and
+offscreen PNG capture; point-light culling and bloom producers are disabled,
+with neutral resources bound to their consumers.
+
 ## Trusted load
 
 `LoadedSaveEnvelope::into_state(registries)` is the public decoded-save promotion boundary and

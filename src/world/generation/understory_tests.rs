@@ -16,6 +16,68 @@ use crate::world::{
 use std::collections::BTreeSet;
 
 #[test]
+fn biome_transition_does_not_discard_a_valid_understory_alternative() {
+    let registries = build_registries();
+    let state = AppState::new();
+    let mut recovered_species = BTreeSet::new();
+    'seeds: for seed_value in 0..8 {
+        let seed = WorldGenerationSeed::new(seed_value);
+        let profile = WorldGenerationProfile::new(seed, BLOCK_STATE_STONE);
+        for district_x in -24..24_i64 {
+            for district_z in -24..24_i64 {
+                let district = ChunkCoord::new(district_x * 2, district_z * 2);
+                let hash = district_hash(profile, district);
+                let coord = ChunkCoord::new(
+                    district.x() + (hash & 1) as i64,
+                    district.z() + ((hash >> 1) & 1) as i64,
+                );
+                let (_, x, z) = site_origin(profile, coord).unwrap();
+                if understory_crop(super::super::habitat_at(seed, x, z), hash).is_some() {
+                    continue;
+                }
+                if seeded_understory_candidates(profile, coord)
+                    .next()
+                    .is_none()
+                {
+                    continue;
+                }
+                let chunk = super::super::build_generated_chunk(registries.world(), profile, coord)
+                    .unwrap();
+                let Some(spec) = seeded_understory_spec(&registries, &state, profile, &chunk, &[])
+                else {
+                    continue;
+                };
+                let position = spec.position();
+                assert_ne!(
+                    (position.x(), position.z()),
+                    (x, z),
+                    "the first site has no suitable crop in this habitat"
+                );
+                let (_, commodity, mass) = seeded_understory_candidates(profile, coord)
+                    .find(|(candidate, _, _)| *candidate == position)
+                    .expect("world generation selects only seeded sites");
+                let material = commodity.material();
+                if material == MATERIAL_EDIBLE_FUNGI {
+                    assert!(
+                        seeded_fungal_colony_matches(profile, position, commodity, mass),
+                        "generated mycelium must have a valid seed-bound trusted-load identity"
+                    );
+                }
+                recovered_species.insert(material);
+                if recovered_species.len() == 2 {
+                    break 'seeds;
+                }
+            }
+        }
+    }
+    assert_eq!(
+        recovered_species,
+        BTreeSet::from([MATERIAL_WILD_TUBERS, MATERIAL_EDIBLE_FUNGI]),
+        "both understory crops should survive physical site fallback at habitat boundaries"
+    );
+}
+
+#[test]
 fn roots_and_fungi_offer_distinct_real_survival_tradeoffs() {
     use crate::survival::FoodCategory;
     let registries = build_registries();

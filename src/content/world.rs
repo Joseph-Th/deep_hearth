@@ -16,7 +16,7 @@ use super::materials::{
 };
 use super::textures::{
     BLOCK_CASSITERITE_ORE, BLOCK_COPPER, BLOCK_GALENA_ORE, BLOCK_GRAPHITE_ORE, BLOCK_HEMATITE_ORE,
-    BLOCK_MAGNETITE_ORE, BLOCK_PYRITE_ORE, BLOCK_QUARTZ_ORE, BLOCK_SPHALERITE_ORE, BLOCK_STONE,
+    BLOCK_HOST_ROCK, BLOCK_MAGNETITE_ORE, BLOCK_PYRITE_ORE, BLOCK_QUARTZ_ORE, BLOCK_SPHALERITE_ORE,
     BLOCK_TEMPLE_BEARING_HOUSING, BLOCK_TEMPLE_CORROSION_PANEL, BLOCK_TEMPLE_DATA_PLATE,
     BLOCK_TEMPLE_REFRACTORY_FIXTURE,
 };
@@ -88,7 +88,7 @@ pub(crate) fn build_world_registry(materials: &MaterialRegistry) -> WorldRegistr
                     CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
                     Temperature::from_millikelvin(293_150),
                 )),
-                Some(BLOCK_STONE),
+                Some(BLOCK_HOST_ROCK),
             ),
             // Buried servant-era devices are physically present but no longer powered.
             // Breaking them yields conserved copper scrap, not instant working machinery.

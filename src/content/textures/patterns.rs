@@ -55,12 +55,14 @@ fn squared_distance(x: usize, y: usize, center_x: usize, center_y: usize) -> usi
     dx * dx + dy * dy
 }
 
+mod natural;
 mod ore;
 mod panel;
 mod processed;
 mod wood;
 mod workshop;
 
+pub(super) use natural::{foliage_pattern, host_rock_pattern};
 pub(super) use ore::ore_pattern;
 pub(super) use panel::panel_pattern;
 pub(super) use processed::{aggregate_pattern, molten_pattern, slag_pattern};

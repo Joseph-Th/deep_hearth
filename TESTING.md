@@ -2,7 +2,7 @@
 
 **Role:** Local verification and test-organization authority.
 
-Use [`README.md`](README.md) for routing, [`STATUS.md`](STATUS.md) for scope, and [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) for automated-player evidence. Use the smallest lane that proves the changed contract.
+Use the smallest lane that proves the changed contract. See [`README.md`](README.md) for routing and [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) for gameplay evidence.
 
 ## Rust agent diagnostics
 
@@ -24,11 +24,13 @@ Diagnostics do not extend CI lanes, and mutation counts are not quality metrics.
 | One exact test | `python tools/run_test.py <qualified-name-or-unique-substring>` |
 | One owner/subsystem group | `python tools/run_test.py --suite <qualified-prefix-or-substring>` |
 | Text play | `cargo test --locked -j 4 --bin text-play` |
+| Graphics adapter | `cargo test --locked --bin hearth-view --features graphics` |
+| Graphics output | Run and inspect [desktop preview capture](assets/shaders/README.md#desktop-preview). |
 | Shared gameplay contracts | `python ci.py gate --gameplay contracts` |
 | Focused gameplay | `python ci.py gate --gameplay <scope>` |
 | Production-library type-check when no executable test fits | `python ci.py gate --production` |
 
-Iteration is `quick`, then **one** distinct proof. Prefer an executable proof; use `gate --production` only when none fits, and `--build` only when execution is intentionally deferred. Do not stack equivalent build lanes, all targets, or routine audits.
+Iterate with `quick`, then **one** distinct proof. Use `gate --production` only when no executable proof fits; `--build` defers execution.
 
 Use `run_test.py --list <substring>` for build-free discovery and choose the smallest authoritative target. Exact tests are deterministic; focused gameplay adds one replayable case and prints roots. Core stays feature-minimal; gameplay fixtures use `test-gameplay`. Keep Cargo serial and parallelize only build-free `quick`.
 
@@ -69,8 +71,6 @@ A local test does not establish a cross-owner or player-level claim. Projection 
 | Tick/job mismatch | Durable work record, schedule, owner state, `TickOutcome`. |
 | Gameplay choice changed | Focused scope first; replay sampled roots only when needed. |
 | Capability unreachable | [`STATUS.md`](STATUS.md) and the acquisition path. |
-
-Widen only when the evidence crosses another owner or runtime boundary.
 
 ## Complexity review
 

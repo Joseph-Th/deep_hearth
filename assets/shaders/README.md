@@ -22,6 +22,18 @@ At adapter startup, call `registries.shaders().bake_shader_set()` once, compile 
 programs, and retain the backend pipelines. Assembly expands each shared library once in stable shader-ID
 order.
 
+## Desktop preview
+
+```sh
+cargo run --locked --profile test --features graphics --bin hearth-view -- --help
+cargo run --locked --profile test --features graphics --bin hearth-view -- --seed 1
+cargo run --locked --profile test --features graphics --bin hearth-view -- --seed 1 --radius 2 --screenshot target/hearth-preview.png
+```
+
+Inspect the captured image when changing rendered output. The optional viewer
+uses a free camera over a generated world; it does not advance gameplay.
+Text play remains the gameplay interface.
+
 ## Frame order
 
 1. Render opaque casters with `SHADER_SHADOW` and cutout casters with `SHADER_SHADOW_CUTOUT` into a
@@ -99,6 +111,10 @@ entries per tile.
 Order the point-light buffer deterministically by visual priority plus stable light ID. The culler
 considers at most 512 lights and retains the first 32 overlaps in that order. `SurfaceFrame.light_grid.x`
 is tile columns and `.z` is the valid point-light count.
+When no point lights are provided, set `SurfaceFrame.light_grid.z` to zero and
+bind nonempty neutral storage buffers (one point-light record and one count/index
+each). The surface program returns before any tile-buffer reads in that case,
+so no viewport-dependent culling buffers or compute dispatch are required.
 
 ## Effect inputs
 

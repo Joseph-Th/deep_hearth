@@ -12,7 +12,7 @@ It owns simulation; adapters own platform and renderer IO.
 3. Read that owner and adjacent tests; consult [`STATUS.md`](STATUS.md) when scope or reachability matters.
 4. Verify with the smallest complete lane in [`TESTING.md`](TESTING.md).
 
-Read only crossed authorities; identify the owner, operation stage, flow, and proof before search.
+Identify the owner, stage, flow, and proof before widening scope.
 
 ## Authority map
 
@@ -29,7 +29,7 @@ Read only crossed authorities; identify the owner, operation stage, flow, and pr
 | How may automated gameplay actors reason and what can their evidence establish? | [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md) |
 | How are tests selected and work completed? | [`TESTING.md`](TESTING.md) |
 
-Code and tests own concrete behavior and typed edge cases. Design, direction, and [dated player-experience evidence](history/PLAYER_EXPERIENCE_REVIEW_2026-11.md) do not establish current reachability.
+Code and tests own concrete behavior. Design, direction, and [dated evidence](history/PLAYER_EXPERIENCE_REVIEW_2026-11.md) do not establish current reachability.
 
 ## Source role map
 
@@ -42,7 +42,7 @@ Code and tests own concrete behavior and typed edge cases. Design, direction, an
 | Transformation/resolution overlays | `src/crafting/`, `src/ore_processing/`, `src/thermal/` |
 | Cross-owner accounting | `src/matter/` |
 | Persistence and orchestration | `src/persistence/`, `src/simulation/`, `src/world_generation.rs` |
-| Renderer-neutral presentation definitions | `src/texture/`, `src/shader/` |
+| Renderer-neutral presentation definitions and derived geometry | `src/texture/`, `src/shader/`, `src/meshing/` |
 
 `src/core/state.rs` aggregates runtime owners as `AppState`; it does not absorb their ownership.
 `tools/check_authority_docs.py` keeps this map synchronized with public crate modules.
@@ -61,7 +61,8 @@ Code and tests own concrete behavior and typed edge cases. Design, direction, an
 | Structures and spatial support | `src/structural/`, `src/spatial/`; structural validators and analysis | [Structures](TECHNICAL_DESIGN.md#structures) |
 | World generation, targeting, gathering | `src/world/`, `src/world_generation.rs`, `src/spatial/`, `src/surface/`; generated terrain, block targeting, local resource projection and gathering admission | [Runtime owners](TECHNICAL_DESIGN.md#runtime-owners), [cross-owner edge atlas](TECHNICAL_DESIGN.md#cross-owner-edge-atlas) |
 | Player locality and carrying | `src/logistics/`, `src/simulation/`, `src/survival/`; body motion via `advance_control_tick_with_input`, neutral stepping via `advance_control_tick`, carrying and exertion | [cross-owner edge atlas](TECHNICAL_DESIGN.md#cross-owner-edge-atlas) |
-| Textures and shaders | `src/texture/`, `src/shader/`, `src/content/textures.rs`, `src/content/shaders.rs`, `assets/shaders/` | [Spatial and presentation boundaries](TECHNICAL_DESIGN.md#spatial-and-presentation-boundaries), [shader contract](assets/shaders/README.md) |
+| Textures, shaders and meshing | `src/texture/`, `src/shader/`, `src/meshing/`, `src/content/textures.rs`, `src/content/shaders.rs`, `assets/shaders/` | [Spatial and presentation boundaries](TECHNICAL_DESIGN.md#spatial-and-presentation-boundaries), [shader contract](assets/shaders/README.md) |
+| Graphics preview | `src/bin/hearth_view/`; optional `graphics` feature | [Viewer](assets/shaders/README.md#desktop-preview) |
 | Gameplay evaluation and text play | `tests/gameplay_harness/`, `src/bin/text_play/` | [`GAMEPLAY_EVALUATION.md`](GAMEPLAY_EVALUATION.md), [`TEXT_PLAY.md`](TEXT_PLAY.md) |
 | Verification tooling | `ci.py`, `.cargo/config.toml`, `tools/` | [`TESTING.md`](TESTING.md) |
 

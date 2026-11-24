@@ -1086,10 +1086,13 @@ class TestTopologyContractTests(unittest.TestCase):
 
     def test_gate_compiled_sources_avoid_wall_clock_nondeterminism(self) -> None:
         forbidden = re.compile(r"\bSystemTime\b|Instant::now|thread::sleep")
-        # Fresh organic sampling is report-only and prints its root before
-        # execution, so it stays replayable; routine gates never compile it.
+        # Organic sampling prints a replayable root. The optional viewer uses
+        # wall time only for generation/meshing diagnostics and presentation
+        # frame timing, never to advance authoritative simulation.
         allowed = {
             ROOT / "tests" / "gameplay_harness" / "fresh_seed.rs",
+            ROOT / "src" / "bin" / "hearth_view" / "scene.rs",
+            ROOT / "src" / "bin" / "hearth_view" / "window.rs",
         }
         offenders = [
             path.relative_to(ROOT).as_posix()
@@ -4138,8 +4141,18 @@ class AuthorityContractTests(unittest.TestCase):
                 *ci.GAMEPLAY_TARGETS.values(),
             },
         )
-        binaries = {definition["name"] for definition in manifest.get("bin", [])}
-        self.assertEqual(binaries, {"validate-shaders", "text-play"})
+        binaries = {
+            definition["name"]: definition.get("required-features", [])
+            for definition in manifest.get("bin", [])
+        }
+        self.assertEqual(
+            binaries,
+            {
+                "validate-shaders": ["test-shader-validation"],
+                "text-play": [],
+                "hearth-view": ["graphics"],
+            },
+        )
         examples = {definition["name"] for definition in manifest.get("example", [])}
         self.assertEqual(
             examples,

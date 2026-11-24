@@ -21,6 +21,11 @@ standard = "python ci.py quick"
 full = "python ci.py audit --all"
 
 [[bin]]
+name = "hearth-view"
+path = "src/bin/hearth_view/main.rs"
+required-features = ["graphics"]
+
+[[bin]]
 name = "validate-shaders"
 path = "src/bin/validate_shaders.rs"
 required-features = ["test-shader-validation"]
@@ -237,11 +242,17 @@ default = []
 test-gameplay = []
 test-shader-validation = ["dep:naga"]
 test-soak = []
+graphics = ["dep:wgpu", "dep:winit", "dep:pollster", "dep:png", "dep:glam"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 naga = { version = "30.0.0", features = ["wgsl-in"], optional = true }
+wgpu = { version = "30.0.1", optional = true }
+winit = { version = "0.30.13", optional = true }
+pollster = { version = "0.4.0", optional = true }
+png = { version = "0.18.1", optional = true }
+glam = { version = "0.33.12", optional = true }
 
 [lints.rust]
 unsafe_code = "forbid"

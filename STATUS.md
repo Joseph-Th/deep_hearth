@@ -1,8 +1,7 @@
 # Status
 
-**Role:** Current runtime scope and reachability authority.
-
-[`README.md`](README.md) routes tasks; [`GAME_DESIGN.md`](GAME_DESIGN.md) defines intent; [`DIRECTION.md`](DIRECTION.md) defines priority. Fixtures do not prove reachability.
+**Role:** Runtime scope and reachability. Fixtures do not prove ordinary reachability.
+See [`README.md`](README.md) for routing.
 
 ## Ordinary play
 
@@ -55,7 +54,7 @@ These canonical owners may lack ordinary acquisition.
 | Storage recovery | Timed dismantling of material-backed storage with preservation checkpointing and exact body recovery. |
 | Structures | Support/load/failure; timed posts, framing, cover and grounded timber roller; timed primary-break recovery. |
 | Block world | Terrain, mineral provinces, biome trees, shrubs, finite tubers and seasonal fungal fruiting, springs, ruins, excavation; finite water. |
-| Spatial and presentation | Checked coords/shaders; text play: motion, local crafting, copper work, ceramic firing/cooling, boxes, fire, saves. |
+| Spatial and presentation | Checked coordinates, baked textures/shaders, terrain and seasonal tree meshes; read-only desktop preview, daylight, shadows and PNG capture. Text play supports gameplay and saves. |
 
 ## Capability-only evaluation
 
@@ -72,7 +71,7 @@ These surfaces execute canonically after controlled setup but are not ordinarily
 | Area | Boundary |
 | --- | --- |
 | Wilderness opening | Full open-ended journey, precipitation, pathfinding, flowing water, propagated lighting, general enclosures and complete first-day loop. Terrain, weather and springs exist. |
-| Engine/platform | Graphics backend, window/input/audio integration, ECS, networking, and general engine shell. |
+| Engine/platform | Playable graphical client, audio, ECS, networking, and general engine shell. |
 | World representation | Residency, general terrain placement, partial shapes, regional geology/biomes and discovery beyond local clues. |
 | Logistics | General access generation, routing/haulage/transport, remote acquisition, graphical inventory UI, fluid transport, and mounted-production geometry. |
 | Advanced geology/mining | Mixed-grade world ore, regional topology, laboratory surveys, mechanized mining, drainage, ground control and tailings transport. |
