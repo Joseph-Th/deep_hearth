@@ -213,6 +213,14 @@ pub enum DrinkCommitError {
         expected: u64,
         actual: u64,
     },
+    StaleWorldRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleStructureRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleSurvivalRevision {
         expected: u64,
         actual: u64,
@@ -248,6 +256,14 @@ impl Display for DrinkCommitError {
                 formatter,
                 "validated drinking expected combat revision {expected} but current revision is {actual}"
             ),
+            Self::StaleWorldRevision { expected, actual } => write!(
+                formatter,
+                "validated drinking expected world revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleStructureRevision { expected, actual } => write!(
+                formatter,
+                "validated drinking expected structure revision {expected} but current revision is {actual}"
+            ),
             Self::StaleSurvivalRevision { expected, actual } => write!(
                 formatter,
                 "validated drinking expected survival revision {expected} but current revision is {actual}"
@@ -279,6 +295,8 @@ impl Error for DrinkCommitError {
             | Self::StaleLogisticsRevision { .. }
             | Self::StalePlayerWorkRevision { .. }
             | Self::StaleCombatRevision { .. }
+            | Self::StaleWorldRevision { .. }
+            | Self::StaleStructureRevision { .. }
             | Self::StaleSurvivalRevision { .. }
             | Self::StaleFluidRevision { .. }
             | Self::FluidSourceChanged { .. } => None,

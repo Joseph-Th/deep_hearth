@@ -287,6 +287,14 @@ pub enum EatCommitError {
         expected: u64,
         actual: u64,
     },
+    StaleWorldRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleStructureRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleSurvivalRevision {
         expected: u64,
         actual: u64,
@@ -319,6 +327,14 @@ impl Display for EatCommitError {
                 formatter,
                 "validated eating expected combat revision {expected} but current revision is {actual}"
             ),
+            Self::StaleWorldRevision { expected, actual } => write!(
+                formatter,
+                "validated eating expected world revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleStructureRevision { expected, actual } => write!(
+                formatter,
+                "validated eating expected structure revision {expected} but current revision is {actual}"
+            ),
             Self::StaleSurvivalRevision { expected, actual } => write!(
                 formatter,
                 "validated eating expected survival revision {expected} but current revision is {actual}"
@@ -343,6 +359,8 @@ impl Error for EatCommitError {
             | Self::StaleLogisticsRevision { .. }
             | Self::StalePlayerWorkRevision { .. }
             | Self::StaleCombatRevision { .. }
+            | Self::StaleWorldRevision { .. }
+            | Self::StaleStructureRevision { .. }
             | Self::StaleSurvivalRevision { .. }
             | Self::StaleInventoryRevision { .. } => None,
         }

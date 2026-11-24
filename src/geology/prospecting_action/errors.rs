@@ -205,18 +205,6 @@ impl Error for FieldProspectingStartError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FieldProspectingCommitError {
     Work(PlayerWorkCommitError),
-    StaleLogisticsRevision {
-        expected: u64,
-        actual: u64,
-    },
-    StaleWorldRevision {
-        expected: u64,
-        actual: u64,
-    },
-    StaleStructureRevision {
-        expected: u64,
-        actual: u64,
-    },
     StaleEquipmentRevision {
         expected: u64,
         actual: u64,
@@ -246,21 +234,9 @@ impl Display for FieldProspectingCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Work(error) => write!(formatter, "prospecting labor commit failed: {error}"),
-            Self::StaleLogisticsRevision { expected, actual } => write!(
-                formatter,
-                "prospecting expected logistics revision {expected} but current revision is {actual}"
-            ),
             Self::StaleEquipmentRevision { expected, actual } => write!(
                 formatter,
                 "prospecting equipment expected revision {expected} but current revision is {actual}"
-            ),
-            Self::StaleWorldRevision { expected, actual } => write!(
-                formatter,
-                "prospecting expected world revision {expected} but current revision is {actual}"
-            ),
-            Self::StaleStructureRevision { expected, actual } => write!(
-                formatter,
-                "prospecting expected structure revision {expected} but current revision is {actual}"
             ),
             Self::EquipmentBusyProduction { equipment, job } => write!(
                 formatter,
@@ -305,10 +281,7 @@ impl Error for FieldProspectingCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Work(error) => Some(error),
-            Self::StaleLogisticsRevision { .. }
-            | Self::StaleWorldRevision { .. }
-            | Self::StaleStructureRevision { .. }
-            | Self::StaleEquipmentRevision { .. }
+            Self::StaleEquipmentRevision { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }

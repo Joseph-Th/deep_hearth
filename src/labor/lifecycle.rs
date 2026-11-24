@@ -136,6 +136,18 @@ pub enum PlayerWorkCommitError {
         expected: u64,
         actual: u64,
     },
+    StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleWorldRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleStructureRevision {
+        expected: u64,
+        actual: u64,
+    },
 }
 
 impl Display for PlayerWorkCommitError {
@@ -159,6 +171,18 @@ impl Display for PlayerWorkCommitError {
                 formatter,
                 "player-work admission expected combat revision {expected} but current revision is {actual}"
             ),
+            Self::StaleLogisticsRevision { expected, actual } => write!(
+                formatter,
+                "player-work admission expected logistics revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleWorldRevision { expected, actual } => write!(
+                formatter,
+                "player-work admission expected world revision {expected} but current revision is {actual}"
+            ),
+            Self::StaleStructureRevision { expected, actual } => write!(
+                formatter,
+                "player-work admission expected structure revision {expected} but current revision is {actual}"
+            ),
         }
     }
 }
@@ -169,8 +193,6 @@ impl Error for PlayerWorkCommitError {}
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ValidatedPlayerWorkStart {
     attention: ValidatedPlayerAttentionHold,
-    expected_control_tick: ControlTick,
-    expected_survival_revision: u64,
     resource_budget: super::PlayerWorkResourceBudget,
 }
 
@@ -180,33 +202,31 @@ impl ValidatedPlayerWorkStart {
     }
 
     pub(crate) fn precheck(&self, state: &AppState) -> Result<(), PlayerWorkCommitError> {
-        let actual_control_tick = state.control_tick();
-        if state.tick() == self.expected_control_tick.simulation_tick()
-            && actual_control_tick != self.expected_control_tick
-        {
-            return Err(PlayerWorkCommitError::StaleControlTick {
-                expected: self.expected_control_tick,
-                actual: actual_control_tick,
-            });
-        }
         self.attention
             .precheck(state)
             .map_err(|conflict| match conflict {
+                super::PlayerAttentionConflict::ControlTick { expected, actual } => {
+                    PlayerWorkCommitError::StaleControlTick { expected, actual }
+                }
                 super::PlayerAttentionConflict::WorkRevision { expected, actual } => {
                     PlayerWorkCommitError::StaleRevision { expected, actual }
                 }
                 super::PlayerAttentionConflict::CombatRevision { expected, actual } => {
                     PlayerWorkCommitError::StaleCombatRevision { expected, actual }
                 }
-            })?;
-        let actual_survival_revision = state.survival().revision();
-        if actual_survival_revision != self.expected_survival_revision {
-            return Err(PlayerWorkCommitError::StaleSurvivalRevision {
-                expected: self.expected_survival_revision,
-                actual: actual_survival_revision,
-            });
-        }
-        Ok(())
+                super::PlayerAttentionConflict::SurvivalRevision { expected, actual } => {
+                    PlayerWorkCommitError::StaleSurvivalRevision { expected, actual }
+                }
+                super::PlayerAttentionConflict::LogisticsRevision { expected, actual } => {
+                    PlayerWorkCommitError::StaleLogisticsRevision { expected, actual }
+                }
+                super::PlayerAttentionConflict::WorldRevision { expected, actual } => {
+                    PlayerWorkCommitError::StaleWorldRevision { expected, actual }
+                }
+                super::PlayerAttentionConflict::StructureRevision { expected, actual } => {
+                    PlayerWorkCommitError::StaleStructureRevision { expected, actual }
+                }
+            })
     }
 
     pub(crate) fn apply(self, state: &mut AppState) {
@@ -366,8 +386,6 @@ fn validate_player_work_start_inner(
         .ok_or(PlayerWorkStartError::RevisionExhausted)?;
     Ok(ValidatedPlayerWorkStart {
         attention,
-        expected_control_tick: state.control_tick(),
-        expected_survival_revision: state.survival().revision(),
         resource_budget: budget,
     })
 }

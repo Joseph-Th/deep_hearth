@@ -199,6 +199,7 @@ impl Error for ChunkGenerationError {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ChunkGenerationCommitError {
+    GeologyRevisionExhausted,
     StaleGeologyRevision {
         expected: u64,
         actual: u64,
@@ -255,6 +256,9 @@ pub enum ChunkGenerationCommitError {
 impl Display for ChunkGenerationCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::GeologyRevisionExhausted => {
+                formatter.write_str("geology revision capacity is exhausted before chunk commit")
+            }
             Self::StaleGeologyRevision { expected, actual } => write!(
                 formatter,
                 "geology revision changed from {expected} to {actual} before chunk commit"

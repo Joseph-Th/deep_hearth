@@ -24,10 +24,8 @@ use super::{
 pub struct ValidatedManualPowerStart {
     work_start: ValidatedPlayerWorkStart,
     work: ManualPowerWork,
-    resource_budget: PlayerWorkResourceBudget,
     expected_equipment_revision: u64,
     expected_energy_revision: u64,
-    expected_logistics_revision: u64,
 }
 
 impl ValidatedManualPowerStart {
@@ -39,20 +37,13 @@ impl ValidatedManualPowerStart {
     /// Returns the authoritative survival reserve consumed if this work runs to completion.
     #[must_use]
     pub const fn resource_budget(&self) -> PlayerWorkResourceBudget {
-        self.resource_budget
+        self.work_start.resource_budget()
     }
 
     pub fn commit(self, state: &mut AppState) -> Result<ManualPowerWork, ManualPowerCommitError> {
         self.work_start
             .precheck(state)
             .map_err(ManualPowerCommitError::Work)?;
-        let actual_logistics_revision = state.logistics().revision();
-        if actual_logistics_revision != self.expected_logistics_revision {
-            return Err(ManualPowerCommitError::StaleLogisticsRevision {
-                expected: self.expected_logistics_revision,
-                actual: actual_logistics_revision,
-            });
-        }
         if state.equipment().revision() != self.expected_equipment_revision {
             return Err(ManualPowerCommitError::StaleEquipmentRevision {
                 expected: self.expected_equipment_revision,
@@ -210,13 +201,10 @@ pub(in crate::labor) fn validate_start_manual_power_with_bindings(
         schedule.exertion(),
     )
     .map_err(ManualPowerError::Work)?;
-    let resource_budget = work_start.resource_budget();
     Ok(ValidatedManualPowerStart {
         work_start,
         work,
-        resource_budget,
         expected_equipment_revision: equipment_use.expected_equipment_revision(),
         expected_energy_revision: state.energy().revision(),
-        expected_logistics_revision: state.logistics().revision(),
     })
 }

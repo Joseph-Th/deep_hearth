@@ -18,7 +18,7 @@ pub use projection::{
 
 use crate::core::quantity::{AggregateVolume, Temperature, Volume};
 use crate::core::state::AppState;
-use crate::core::time::{ControlTick, SimulationTick, TickSpan, require_simulation_boundary};
+use crate::core::time::{SimulationTick, TickSpan, require_simulation_boundary};
 use crate::fluid::{
     FluidDefinitionId, FluidEgressCommitError, FluidEgressError, FluidStoreId,
     ValidatedFluidEgress, validate_fluid_egress,
@@ -174,10 +174,8 @@ impl DrinkOutcome {
 #[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedDrink {
     attention: ValidatedPlayerAttentionHold,
-    expected_control_tick: ControlTick,
     expected_survival_revision: u64,
     next_survival_revision: u64,
-    expected_logistics_revision: u64,
     egress: ValidatedFluidEgress,
     pending: PendingDrinking,
     fluid: FluidDefinitionId,
@@ -248,10 +246,8 @@ pub(super) fn validate_drink_with_mode(
         .ok_or(DrinkError::ConsumedFluidOverflow)?;
     Ok(ValidatedDrink {
         attention,
-        expected_control_tick: state.control_tick(),
         expected_survival_revision,
         next_survival_revision,
-        expected_logistics_revision: state.logistics().revision(),
         egress,
         pending: PendingDrinking::new(
             source.fluid,
@@ -274,39 +270,31 @@ pub(super) fn validate_drink_with_mode(
 
 impl ValidatedDrink {
     pub fn commit(self, state: &mut AppState) -> Result<DrinkOutcome, DrinkCommitError> {
-        let actual_control_tick = state.control_tick();
-        if state.tick() == self.expected_control_tick.simulation_tick()
-            && actual_control_tick != self.expected_control_tick
-        {
-            return Err(DrinkCommitError::StaleControlTick {
-                expected: self.expected_control_tick,
-                actual: actual_control_tick,
-            });
-        }
-        let actual_logistics_revision = state.logistics().revision();
-        if actual_logistics_revision != self.expected_logistics_revision {
-            return Err(DrinkCommitError::StaleLogisticsRevision {
-                expected: self.expected_logistics_revision,
-                actual: actual_logistics_revision,
-            });
-        }
         self.attention
             .precheck(state)
             .map_err(|conflict| match conflict {
+                PlayerAttentionConflict::ControlTick { expected, actual } => {
+                    DrinkCommitError::StaleControlTick { expected, actual }
+                }
                 PlayerAttentionConflict::WorkRevision { expected, actual } => {
                     DrinkCommitError::StalePlayerWorkRevision { expected, actual }
                 }
                 PlayerAttentionConflict::CombatRevision { expected, actual } => {
                     DrinkCommitError::StaleCombatRevision { expected, actual }
                 }
+                PlayerAttentionConflict::SurvivalRevision { expected, actual } => {
+                    DrinkCommitError::StaleSurvivalRevision { expected, actual }
+                }
+                PlayerAttentionConflict::LogisticsRevision { expected, actual } => {
+                    DrinkCommitError::StaleLogisticsRevision { expected, actual }
+                }
+                PlayerAttentionConflict::WorldRevision { expected, actual } => {
+                    DrinkCommitError::StaleWorldRevision { expected, actual }
+                }
+                PlayerAttentionConflict::StructureRevision { expected, actual } => {
+                    DrinkCommitError::StaleStructureRevision { expected, actual }
+                }
             })?;
-        let actual_survival_revision = state.survival().revision();
-        if actual_survival_revision != self.expected_survival_revision {
-            return Err(DrinkCommitError::StaleSurvivalRevision {
-                expected: self.expected_survival_revision,
-                actual: actual_survival_revision,
-            });
-        }
         state.survival().assert_direct_consumption_begin_available(
             self.expected_survival_revision,
             self.next_survival_revision,

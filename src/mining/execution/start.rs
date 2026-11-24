@@ -51,7 +51,7 @@ struct MiningEquipmentPlan {
 
 struct MiningDestinationPlan {
     reservation: ValidatedInboundReservation,
-    expected_structure_revision: Option<u64>,
+    requires_structure_revision: bool,
 }
 
 fn validate_mining_target(
@@ -241,9 +241,10 @@ fn validate_mining_destination(
         output.particle_size_distribution(),
     )
     .map_err(MiningStartError::DestinationStorage)?;
-    let expected_structure_revision =
+    let requires_structure_revision =
         validate_stockpile_support_for_new_inbound(state, destination)
-            .map_err(MiningStartError::DestinationSupport)?;
+            .map_err(MiningStartError::DestinationSupport)?
+            .is_some();
     let requested_reservation =
         validate_inbound_reservation(state.inventory(), destination, requested_mass)
             .map_err(map_inbound_reservation_error)?;
@@ -255,7 +256,7 @@ fn validate_mining_destination(
     };
     Ok(MiningDestinationPlan {
         reservation,
-        expected_structure_revision,
+        requires_structure_revision,
     })
 }
 
@@ -268,9 +269,7 @@ struct RevisionTransition {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct MiningStartRevisions {
     equipment: u64,
-    logistics: u64,
     mining: RevisionTransition,
-    structure: Option<u64>,
 }
 
 fn validate_mining_revision_capacity(
@@ -292,15 +291,13 @@ fn validate_mining_revision_capacity(
     if !state.can_spend_inventory_revisions(2) {
         return Err(MiningStartError::InventoryRevisionExhausted);
     }
-    let future_structure_steps = u64::from(destination_plan.expected_structure_revision.is_some());
+    let future_structure_steps = u64::from(destination_plan.requires_structure_revision);
     if !state.can_spend_structure_revisions(future_structure_steps) {
         return Err(MiningStartError::StructureRevisionExhausted);
     }
-    state
-        .geology()
-        .revision()
-        .checked_add(1)
-        .ok_or(MiningStartError::GeologyRevisionExhausted)?;
+    if !state.can_spend_geology_revisions(1) {
+        return Err(MiningStartError::GeologyRevisionExhausted);
+    }
     let expected_mining_revision = state.mining().revision();
     // Admission, completion, and settlement retirement each consume a mining revision; retained
     // jobs also reserve their future revision demand.
@@ -312,12 +309,10 @@ fn validate_mining_revision_capacity(
         .unwrap_or_else(|| unreachable!("mining revision headroom includes admission"));
     Ok(MiningStartRevisions {
         equipment: expected_equipment_revision,
-        logistics: state.logistics().revision(),
         mining: RevisionTransition {
             expected: expected_mining_revision,
             next: next_mining_revision,
         },
-        structure: destination_plan.expected_structure_revision,
     })
 }
 

@@ -763,7 +763,13 @@ Historical observation replay resolves its available deposits once and reuses
 that set for abundance, hardness and mass checks. In generated terrain, survey
 admission and active-work load validation require the entire requested region
 to have generated world authority. Unknown columns do not count as empty
-geology. Survey admission tokens also bind world and structure revisions.
+geology. All exclusive player-attention admission tokens bind the control
+clock, survival, combat, work, logistics, world and structure revisions in
+the shared labor owner. This covers the physical support and movement
+checks for meals, drinks and timed work before any custody changes commit.
+Geological generation admission and commitment preserve revision capacity owed
+by the mining due-work index; mining admission rechecks this capacity before
+reserving its output. Remote generation cannot strand an admitted extraction.
 The stockpile position index also serves exact-local player ground-inventory
 presentation and opening-scout clearance; only stockpiles with a finished
 enclosure obstruct the small scout's body.

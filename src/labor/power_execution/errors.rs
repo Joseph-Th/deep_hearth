@@ -234,10 +234,6 @@ impl Error for ManualPowerError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ManualPowerCommitError {
     Work(PlayerWorkCommitError),
-    StaleLogisticsRevision {
-        expected: u64,
-        actual: u64,
-    },
     StaleEquipmentRevision {
         expected: u64,
         actual: u64,
@@ -274,10 +270,6 @@ impl Display for ManualPowerCommitError {
             Self::Work(error) => write!(
                 formatter,
                 "manual power labor changed after validation: {error}"
-            ),
-            Self::StaleLogisticsRevision { expected, actual } => write!(
-                formatter,
-                "manual power expected logistics revision {expected} but current revision is {actual}"
             ),
             Self::StaleEquipmentRevision { expected, actual } => write!(
                 formatter,
@@ -331,8 +323,7 @@ impl Error for ManualPowerCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Work(error) => Some(error),
-            Self::StaleLogisticsRevision { .. }
-            | Self::StaleEquipmentRevision { .. }
+            Self::StaleEquipmentRevision { .. }
             | Self::StaleEnergyRevision { .. }
             | Self::EquipmentBusyProduction { .. }
             | Self::EquipmentBusyMining { .. }

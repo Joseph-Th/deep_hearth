@@ -174,6 +174,15 @@ impl AppState {
             .is_some()
     }
 
+    pub(crate) fn can_spend_geology_revisions(&self, immediate_steps: u64) -> bool {
+        self.systems
+            .geology
+            .revision()
+            .checked_add(self.systems.mining.future_geology_revision_demand())
+            .and_then(|revision| revision.checked_add(immediate_steps))
+            .is_some()
+    }
+
     pub(crate) fn can_spend_world_revisions(&self, immediate_steps: u64) -> bool {
         self.checked_future_world_revision_demand()
             .and_then(|future| self.systems.world.revision().checked_add(future))

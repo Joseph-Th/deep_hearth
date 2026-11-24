@@ -113,7 +113,9 @@ fn generated_world_survey_requires_authority_over_the_entire_region() {
     let before = state.clone();
     assert_eq!(
         stale.commit(&mut state),
-        Err(FieldProspectingCommitError::StaleWorldRevision { expected, actual })
+        Err(FieldProspectingCommitError::Work(
+            crate::labor::PlayerWorkCommitError::StaleWorldRevision { expected, actual }
+        ))
     );
     assert_eq!(state, before);
     let admitted =
@@ -400,7 +402,9 @@ fn prospecting_token_rejects_logistics_change_before_commit() {
 
     assert_eq!(
         validated.commit(&mut state),
-        Err(FieldProspectingCommitError::StaleLogisticsRevision { expected, actual })
+        Err(FieldProspectingCommitError::Work(
+            crate::labor::PlayerWorkCommitError::StaleLogisticsRevision { expected, actual }
+        ))
     );
     assert_eq!(state, before);
 }

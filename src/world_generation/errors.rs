@@ -156,6 +156,7 @@ impl Error for InitialWildernessGenerationError {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InitialWildernessGenerationCommitError {
+    GeologyRevisionExhausted,
     ControlTickChanged {
         expected: ControlTick,
         actual: ControlTick,
@@ -236,6 +237,8 @@ impl Display for InitialWildernessGenerationCommitError {
                 formatter,
                 "surface revision changed from {expected} to {actual} before wilderness commit"
             ),
+            Self::GeologyRevisionExhausted => formatter
+                .write_str("geology revision capacity is exhausted before wilderness commit"),
             Self::StaleGeologyRevision { expected, actual } => write!(
                 formatter,
                 "geology revision changed from {expected} to {actual} before wilderness commit"

@@ -90,34 +90,10 @@ pub struct ValidatedFieldProspectingStart {
     work_start: ValidatedPlayerWorkStart,
     work: ProspectingWork,
     expected_equipment_revision: Option<u64>,
-    expected_logistics_revision: u64,
-    expected_world_revision: u64,
-    expected_structure_revision: u64,
 }
 
 impl ValidatedFieldProspectingStart {
     pub fn commit(self, state: &mut AppState) -> Result<(), FieldProspectingCommitError> {
-        let actual_logistics_revision = state.logistics().revision();
-        if actual_logistics_revision != self.expected_logistics_revision {
-            return Err(FieldProspectingCommitError::StaleLogisticsRevision {
-                expected: self.expected_logistics_revision,
-                actual: actual_logistics_revision,
-            });
-        }
-        let actual = state.world().revision();
-        if actual != self.expected_world_revision {
-            return Err(FieldProspectingCommitError::StaleWorldRevision {
-                expected: self.expected_world_revision,
-                actual,
-            });
-        }
-        let actual = state.structures().revision();
-        if actual != self.expected_structure_revision {
-            return Err(FieldProspectingCommitError::StaleStructureRevision {
-                expected: self.expected_structure_revision,
-                actual,
-            });
-        }
         self.work_start
             .precheck(state)
             .map_err(FieldProspectingCommitError::Work)?;
@@ -370,8 +346,5 @@ pub fn validate_start_field_prospecting(
         work_start,
         work,
         expected_equipment_revision: equipment_plan.expected_revision,
-        expected_logistics_revision: state.logistics().revision(),
-        expected_world_revision: state.world().revision(),
-        expected_structure_revision: state.structures().revision(),
     })
 }

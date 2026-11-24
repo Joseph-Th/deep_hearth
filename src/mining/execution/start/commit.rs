@@ -52,12 +52,6 @@ impl ValidatedMiningStart {
     }
 
     fn precheck_owner_revisions(&self, state: &AppState) -> Result<(), MiningStartCommitError> {
-        if state.logistics().revision() != self.revisions.logistics {
-            return Err(MiningStartCommitError::StaleLogistics {
-                expected: self.revisions.logistics,
-                actual: state.logistics().revision(),
-            });
-        }
         if state.inventory().revision() != self.reservation.expected_revision() {
             return Err(MiningStartCommitError::StaleInventory {
                 expected: self.reservation.expected_revision(),
@@ -76,14 +70,6 @@ impl ValidatedMiningStart {
                 actual: state.mining().revision(),
             });
         }
-        if let Some(expected) = self.revisions.structure
-            && state.structures().revision() != expected
-        {
-            return Err(MiningStartCommitError::StaleStructure {
-                expected,
-                actual: state.structures().revision(),
-            });
-        }
         Ok(())
     }
 
@@ -93,6 +79,9 @@ impl ValidatedMiningStart {
             .map_err(MiningStartCommitError::Work)?;
         self.precheck_target(state)?;
         self.precheck_owner_revisions(state)?;
+        if !state.can_spend_geology_revisions(1) {
+            return Err(MiningStartCommitError::GeologyRevisionExhausted);
+        }
         self.reservation.assert_matches_state(state.inventory());
         state.mining().assert_job_insertable(
             &self.record,

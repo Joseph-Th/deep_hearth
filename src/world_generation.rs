@@ -161,6 +161,9 @@ impl ValidatedInitialWildernessGeneration {
                 GenerateGeologicalDepositCommitError::Tick { expected, actual } => {
                     InitialWildernessGenerationCommitError::TickChanged { expected, actual }
                 }
+                GenerateGeologicalDepositCommitError::RevisionCapacityExhausted => {
+                    InitialWildernessGenerationCommitError::GeologyRevisionExhausted
+                }
                 GenerateGeologicalDepositCommitError::Revision { expected, actual } => {
                     InitialWildernessGenerationCommitError::StaleGeologyRevision {
                         expected,

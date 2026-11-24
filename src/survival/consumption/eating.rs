@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use crate::core::quantity::{AggregateMass, AggregateVolume, Energy, Mass};
 use crate::core::state::AppState;
-use crate::core::time::{ControlTick, SimulationTick, TickSpan, require_simulation_boundary};
+use crate::core::time::{SimulationTick, TickSpan, require_simulation_boundary};
 use crate::inventory::{
     ConsumptionSelection, ExplicitConsumptionSelectionError, MaterialEgressError, MaterialLotId,
     MaterialLotSelection, StockpileId, StockpileStoredMassChange, ValidatedMaterialEgress,
@@ -163,8 +163,6 @@ impl EatOutcome {
 #[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedEat {
     attention: ValidatedPlayerAttentionHold,
-    expected_control_tick: ControlTick,
-    expected_logistics_revision: u64,
     expected_survival_revision: u64,
     next_survival_revision: u64,
     egress: ValidatedMaterialEgress,
@@ -372,8 +370,6 @@ pub(super) fn validate_eat_with_mode(
 
     Ok(ValidatedEat {
         attention,
-        expected_control_tick: state.control_tick(),
-        expected_logistics_revision: state.logistics().revision(),
         expected_survival_revision,
         next_survival_revision,
         egress,
@@ -398,39 +394,31 @@ impl ValidatedEat {
     }
 
     pub fn commit(self, state: &mut AppState) -> Result<EatOutcome, EatCommitError> {
-        let actual_control_tick = state.control_tick();
-        if state.tick() == self.expected_control_tick.simulation_tick()
-            && actual_control_tick != self.expected_control_tick
-        {
-            return Err(EatCommitError::StaleControlTick {
-                expected: self.expected_control_tick,
-                actual: actual_control_tick,
-            });
-        }
-        let actual_logistics_revision = state.logistics().revision();
-        if actual_logistics_revision != self.expected_logistics_revision {
-            return Err(EatCommitError::StaleLogisticsRevision {
-                expected: self.expected_logistics_revision,
-                actual: actual_logistics_revision,
-            });
-        }
         self.attention
             .precheck(state)
             .map_err(|conflict| match conflict {
+                PlayerAttentionConflict::ControlTick { expected, actual } => {
+                    EatCommitError::StaleControlTick { expected, actual }
+                }
                 PlayerAttentionConflict::WorkRevision { expected, actual } => {
                     EatCommitError::StalePlayerWorkRevision { expected, actual }
                 }
                 PlayerAttentionConflict::CombatRevision { expected, actual } => {
                     EatCommitError::StaleCombatRevision { expected, actual }
                 }
+                PlayerAttentionConflict::SurvivalRevision { expected, actual } => {
+                    EatCommitError::StaleSurvivalRevision { expected, actual }
+                }
+                PlayerAttentionConflict::LogisticsRevision { expected, actual } => {
+                    EatCommitError::StaleLogisticsRevision { expected, actual }
+                }
+                PlayerAttentionConflict::WorldRevision { expected, actual } => {
+                    EatCommitError::StaleWorldRevision { expected, actual }
+                }
+                PlayerAttentionConflict::StructureRevision { expected, actual } => {
+                    EatCommitError::StaleStructureRevision { expected, actual }
+                }
             })?;
-        let actual_survival_revision = state.survival().revision();
-        if actual_survival_revision != self.expected_survival_revision {
-            return Err(EatCommitError::StaleSurvivalRevision {
-                expected: self.expected_survival_revision,
-                actual: actual_survival_revision,
-            });
-        }
         let actual_inventory_revision = state.inventory().revision();
         if actual_inventory_revision != self.egress.expected_revision() {
             return Err(EatCommitError::StaleInventoryRevision {

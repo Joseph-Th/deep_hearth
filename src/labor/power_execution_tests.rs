@@ -228,7 +228,9 @@ fn manual_power_token_rejects_logistics_change_before_commit() {
 
     assert_eq!(
         validated.commit(&mut state),
-        Err(ManualPowerCommitError::StaleLogisticsRevision { expected, actual })
+        Err(ManualPowerCommitError::Work(
+            crate::labor::PlayerWorkCommitError::StaleLogisticsRevision { expected, actual }
+        ))
     );
     assert_eq!(state, before);
 }

@@ -273,6 +273,9 @@ impl ValidatedNaturalChunkGeneration {
             GenerateGeologicalDepositCommitError::Tick { .. } => {
                 unreachable!("natural geology dates materialization at commit")
             }
+            GenerateGeologicalDepositCommitError::RevisionCapacityExhausted => {
+                ChunkGenerationCommitError::GeologyRevisionExhausted
+            }
             GenerateGeologicalDepositCommitError::Revision { expected, actual } => {
                 ChunkGenerationCommitError::StaleGeologyRevision { expected, actual }
             }

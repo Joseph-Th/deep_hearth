@@ -93,6 +93,7 @@ impl Error for InsertGeneratedDepositError {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum GenerateGeologicalDepositCommitError {
+    RevisionCapacityExhausted,
     Tick {
         expected: SimulationTick,
         actual: SimulationTick,
@@ -130,7 +131,11 @@ impl ValidatedGeologicalDepositGeneration {
                 actual: state.tick(),
             });
         }
-        self.precheck_ownership(state)
+        self.precheck_ownership(state)?;
+        if !state.can_spend_geology_revisions(1) {
+            return Err(GenerateGeologicalDepositCommitError::RevisionCapacityExhausted);
+        }
+        Ok(())
     }
 
     fn precheck_ownership(
@@ -168,6 +173,9 @@ pub(crate) fn validate_generate_geological_deposit(
     state: &AppState,
     spec: GeneratedDepositSpec,
 ) -> Result<ValidatedGeologicalDepositGeneration, InsertGeneratedDepositError> {
+    if !state.can_spend_geology_revisions(1) {
+        return Err(InsertGeneratedDepositError::RevisionExhausted);
+    }
     validate_at_cursor(
         registries,
         spec,
@@ -191,6 +199,11 @@ impl ValidatedNaturalGeologicalDeposits {
         if let Some(first) = self.0.first() {
             first.precheck_ownership(state)?;
         }
+        let steps = u64::try_from(self.0.len())
+            .unwrap_or_else(|_| unreachable!("resident deposit plan count fits u64"));
+        if !state.can_spend_geology_revisions(steps) {
+            return Err(GenerateGeologicalDepositCommitError::RevisionCapacityExhausted);
+        }
         Ok(())
     }
 
@@ -212,6 +225,13 @@ pub(crate) fn validate_generate_geological_deposits(
     let mut revision = state.geology().revision();
     let mut plans = Vec::new();
     for spec in specs {
+        let steps = u64::try_from(plans.len())
+            .ok()
+            .and_then(|count| count.checked_add(1))
+            .ok_or(InsertGeneratedDepositError::RevisionExhausted)?;
+        if !state.can_spend_geology_revisions(steps) {
+            return Err(InsertGeneratedDepositError::RevisionExhausted);
+        }
         let plan = validate_at_cursor(registries, spec, state.tick(), id, revision)?;
         id = plan.next_id;
         revision = plan.next_revision;

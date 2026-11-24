@@ -111,6 +111,59 @@ fn movable_temple_resident_is_not_a_stable_floor_for_exclusive_work() {
 }
 
 #[test]
+fn work_token_cannot_survive_materializing_terrain_beneath_an_airborne_actor() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_admit_player(&registries, &state, VoxelCoord::new(5, 250, 5))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let work = PlayerWork::ManualProduction {
+        job: ProductionJobId::new(1),
+    };
+    let token = validate_player_work_start(
+        &registries,
+        &state,
+        work,
+        TickSpan::new(1),
+        SurvivalExertion::REST,
+    )
+    .unwrap();
+    let expected = state.world().revision();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(7),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let actual = state.world().revision();
+    let before = state.clone();
+    assert_eq!(
+        token.precheck(&state),
+        Err(PlayerWorkCommitError::StaleWorldRevision { expected, actual })
+    );
+    assert_eq!(
+        validate_player_work_start(
+            &registries,
+            &state,
+            work,
+            TickSpan::new(1),
+            SurvivalExertion::REST
+        ),
+        Err(PlayerWorkStartError::PlayerAirborne)
+    );
+    assert_eq!(state, before);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
 fn slow_player_work_requires_ground_contact_in_generated_world() {
     let registries = build_registries();
     let mut state = AppState::new();

@@ -1741,7 +1741,9 @@ fn mining_token_rejects_logistics_change_before_commit() {
 
     assert_eq!(
         validated.commit(&mut state),
-        Err(MiningStartCommitError::StaleLogistics { expected, actual })
+        Err(MiningStartCommitError::Work(
+            crate::labor::PlayerWorkCommitError::StaleLogisticsRevision { expected, actual }
+        ))
     );
     assert_eq!(state, before);
 }

@@ -2,6 +2,82 @@
 
 use super::*;
 
+fn remote_geology_spec() -> GeneratedDepositSpec {
+    GeneratedDepositSpec::new(
+        VoxelBounds::new(VoxelCoord::new(80, -8, 80), VoxelCoord::new(81, -7, 81)).unwrap(),
+        CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+        Mass::from_milligrams(100_000),
+        Temperature::from_millikelvin(300_000),
+        Pressure::from_pascals(350_000_000),
+        MaterialComposition::pure(MATERIAL_COPPER),
+    )
+    .unwrap()
+}
+
+#[test]
+fn generation_cannot_consume_reserved_mining_extraction_revision() {
+    use crate::geology::{
+        GenerateGeologicalDepositCommitError, InsertGeneratedDepositError,
+        validate_generate_geological_deposit, validate_generate_geological_deposits,
+    };
+
+    let (registries, state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
+    let mut state = reload_with_owner_revision(&registries, &state, "geology", u64::MAX - 1);
+    let single =
+        validate_generate_geological_deposit(&registries, &state, remote_geology_spec()).unwrap();
+    let batch = validate_generate_geological_deposits(&registries, &state, [remote_geology_spec()])
+        .unwrap();
+    let job = validated_start(&registries, &state, deposit, destination, pick)
+        .commit(&mut state)
+        .unwrap();
+    let before = state.clone();
+    assert_eq!(
+        single.precheck(&state),
+        Err(GenerateGeologicalDepositCommitError::RevisionCapacityExhausted)
+    );
+    assert_eq!(
+        batch.precheck(&state),
+        Err(GenerateGeologicalDepositCommitError::RevisionCapacityExhausted)
+    );
+    assert_eq!(
+        validate_generate_geological_deposit(&registries, &state, remote_geology_spec()).err(),
+        Some(InsertGeneratedDepositError::RevisionExhausted)
+    );
+    assert_eq!(
+        validate_generate_geological_deposits(&registries, &state, [remote_geology_spec()]).err(),
+        Some(InsertGeneratedDepositError::RevisionExhausted)
+    );
+    assert_eq!(state, before);
+    let _ = complete_mining_job(
+        &registries,
+        &mut state,
+        job,
+        "reserved final geology revision",
+    );
+    assert_eq!(state.geology().revision(), u64::MAX);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn retained_mining_start_rechecks_geology_capacity_after_remote_generation() {
+    use crate::geology::validate_generate_geological_deposit;
+
+    let (registries, state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
+    let mut state = reload_with_owner_revision(&registries, &state, "geology", u64::MAX - 1);
+    let token = validated_start(&registries, &state, deposit, destination, pick);
+    let generation =
+        validate_generate_geological_deposit(&registries, &state, remote_geology_spec()).unwrap();
+    generation.precheck(&state).unwrap();
+    let _ = generation.apply(&mut state);
+    let before = state.clone();
+    assert_eq!(
+        token.commit(&mut state),
+        Err(MiningStartCommitError::GeologyRevisionExhausted)
+    );
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
 fn reload_with_owner_revision(
     registries: &Registries,
     state: &AppState,
@@ -103,10 +179,12 @@ fn mining_start_commit_rejects_stale_structural_support_revision_atomically() {
 
     assert_eq!(
         token.commit(&mut changed),
-        Err(MiningStartCommitError::StaleStructure {
-            expected,
-            actual: expected + 1,
-        })
+        Err(MiningStartCommitError::Work(
+            crate::labor::PlayerWorkCommitError::StaleStructureRevision {
+                expected,
+                actual: expected + 1,
+            }
+        ))
     );
     assert_eq!(changed, before, "stale structural commit must be atomic");
 }

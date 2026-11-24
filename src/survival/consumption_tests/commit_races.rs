@@ -3,6 +3,50 @@
 use super::*;
 
 #[test]
+fn retained_meal_and_drink_tokens_reject_changed_physical_authority() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{ChunkCoord, WorldGenerationSeed, validate_generate_chunk};
+
+    let registries = build_registries();
+    let (mut state, stockpile, food, water) = direct_consumption_fixture(&registries);
+    let meal_mass = minimum_meal_mass(&registries);
+    let drink_volume = minimum_drink_volume(&registries);
+    let eat = validate_eat(
+        &registries,
+        &state,
+        stockpile,
+        &[MaterialLotSelection::new(food, meal_mass)],
+    )
+    .unwrap();
+    let drink = validate_drink(&registries, &state, water, drink_volume).unwrap();
+    let expected = state.world().revision();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(7),
+        ChunkCoord::new(10, 10),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let actual = state.world().revision();
+    let before = state.clone();
+    assert_eq!(
+        eat.commit(&mut state),
+        Err(EatCommitError::StaleWorldRevision { expected, actual })
+    );
+    assert_eq!(
+        drink.commit(&mut state),
+        Err(DrinkCommitError::StaleWorldRevision { expected, actual })
+    );
+    assert_eq!(
+        state, before,
+        "stale attention cannot consume matter or fluid"
+    );
+}
+
+#[test]
 fn direct_consumption_requires_a_control_boundary_and_commit_cannot_cross_one() {
     let registries = build_registries();
     let (mut state, stockpile, food, water) = direct_consumption_fixture(&registries);

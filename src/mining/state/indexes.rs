@@ -134,9 +134,14 @@ impl MiningState {
     /// Each working due bucket needs one transition to awaiting-settlement, and every retained job
     /// needs one later settlement-retirement revision.
     pub(crate) fn checked_future_revision_demand(&self) -> Option<u64> {
-        let due = u64::try_from(self.due_jobs.len())
-            .unwrap_or_else(|_| unreachable!("resident mining due-bucket count fits u64"));
-        due.checked_add(self.future_settlement_count())
+        self.future_geology_revision_demand()
+            .checked_add(self.future_settlement_count())
+    }
+
+    /// Working completions reserve geological revisions; settlement does not.
+    pub(crate) fn future_geology_revision_demand(&self) -> u64 {
+        u64::try_from(self.due_jobs.len())
+            .unwrap_or_else(|_| unreachable!("resident mining due-bucket count fits u64"))
     }
 
     /// Returns the number of scheduled completion ticks that will mutate equipment condition.
