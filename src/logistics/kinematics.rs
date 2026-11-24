@@ -78,7 +78,10 @@ impl Display for PlayerBodyMotionError {
 
 impl Error for PlayerBodyMotionError {}
 
-pub use cover::{PlayerOverheadCoverAssessment, assess_player_overhead_cover};
+pub use cover::{
+    PlayerOverheadCoverAssessment, PlayerOverheadCoverFootprint, assess_player_overhead_cover,
+    project_player_overhead_cover_footprint,
+};
 pub use walk_projection::{
     PlayerWalkProjection, PlayerWalkProjectionError, project_player_adjacent_walk,
     project_player_walk_path, project_player_walk_path_for_load,

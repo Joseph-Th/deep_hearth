@@ -31,6 +31,7 @@ fn usage() -> &'static str {
      gather N [decimal grams] repeat COUNT (up to 32 batches; stops at interruptions),\n\
      eat STACK, drink, drink SOURCE,\n\
      recipes [all], craft PROCESS_ID [batches] [from STACK] [with TOOL | at STATION],\n\
+     begin craft|gather|prospect|mine|dress|build-at|heat ... (align to next work boundary),\n\
      surveys [width], prospect MATERIAL METHOD [width] [with TOOL], knowledge [width],\n\
      mine MATERIAL GRAMS with TOOL [using METHOD] [repeat COUNT], ore, dress PROCESS STACK GRAMS [repeat COUNT],\n\
      gear [all], assemble ID, take N, equip N, recover N,\n\

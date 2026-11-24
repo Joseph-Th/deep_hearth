@@ -638,7 +638,15 @@ fn exact_supported_placement_builds_usable_shelter_on_level_ground() {
         ("plan-at 3 8 1 11", "build-at 3 8 1 11"),
     ] {
         let before = snapshot(&session);
-        assert!(session.command(plan).unwrap().0.contains("Ready:"));
+        let (preview, _) = session.command(plan).unwrap();
+        assert!(preview.contains("Ready:"), "{preview}");
+        if plan == "plan-at 3 8 1 11" {
+            assert!(
+                preview.contains("above the entire current standing footprint"),
+                "the supported panel must be previewed as a prospective roof: {preview}"
+            );
+            assert!(preview.contains("wind from the sides"), "{preview}");
+        }
         assert_eq!(snapshot(&session), before, "preview is read-only");
         assert!(
             session
@@ -679,6 +687,133 @@ fn exact_supported_placement_builds_usable_shelter_on_level_ground() {
     assert_eq!(
         deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
         Ok(())
+    );
+}
+
+#[test]
+fn begin_scheduled_work_aligns_the_real_clock_and_preserves_normal_admission() {
+    fn prepared() -> Session {
+        let mut session = Session::new(24318).unwrap();
+        for command in [
+            "e 20",
+            "wait 10",
+            "s 20",
+            "wait 10",
+            "s 20",
+            "wait 10",
+            "gather 2 300",
+            "wait work",
+            "wait 1",
+        ] {
+            session
+                .command(command)
+                .unwrap_or_else(|error| panic!("{command}: {error}"));
+        }
+        assert_ne!(
+            session.state.control_tick().value() % CONTROL_TICKS_PER_SIMULATION_TICK,
+            0
+        );
+        session
+    }
+
+    let mut manual = prepared();
+    let mut aligned = prepared();
+    let before = snapshot(&aligned);
+    for invalid in ["begin", "begin wait boundary", "begin quit", "begin craft"] {
+        assert!(aligned.command(invalid).is_err(), "{invalid}");
+        assert_eq!(snapshot(&aligned), before, "{invalid} advanced time");
+    }
+    manual.command("wait boundary").unwrap();
+    let ordinary = manual.command("craft 99").unwrap().0;
+    let (convenient, _) = aligned.command("begin craft 99").unwrap();
+    assert!(
+        ordinary.contains("Started knap flint cutting head"),
+        "{ordinary}"
+    );
+    assert!(convenient.contains("Begin: advanced"), "{convenient}");
+    assert!(
+        convenient.contains("Started knap flint cutting head"),
+        "{convenient}"
+    );
+    assert_eq!(snapshot(&manual), snapshot(&aligned));
+    let busy = snapshot(&aligned);
+    assert!(aligned.command("begin craft 99").is_err());
+    assert_eq!(
+        snapshot(&aligned),
+        busy,
+        "busy work must not advance the clock"
+    );
+
+    let mut rejected = Session::new(24318).unwrap();
+    rejected.command("wait 1").unwrap();
+    let error = rejected.command("begin craft 999").unwrap_err();
+    assert!(
+        error.contains("rejected after advancing 71 control ticks"),
+        "{error}"
+    );
+    assert_eq!(rejected.state.control_tick().value(), 72);
+    assert!(rejected.state.player_work().active().is_none());
+}
+
+#[test]
+fn eat_rejects_shifted_non_food_inventory_rows_without_spending_time() {
+    use deep_hearth::content::{FORM_WINTER_PROVISIONS, MATERIAL_WILD_NUTS};
+    use deep_hearth::material::CommodityKey;
+
+    let mut session = Session::new(24318).unwrap();
+    for command in [
+        "e 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "gather 2 300",
+        "wait work",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    let inventory = project_player_inventory(&session.registries, &session.state).unwrap();
+    let (index, stack) = inventory
+        .carried()
+        .stacks()
+        .iter()
+        .enumerate()
+        .find(|(_, stack)| {
+            session
+                .registries
+                .survival()
+                .get_food(stack.commodity())
+                .is_none()
+        })
+        .expect("opening stone/flint should not be edible");
+    let name = session
+        .registries
+        .materials()
+        .commodity_name(stack.commodity())
+        .unwrap()
+        .to_owned();
+    let before = snapshot(&session);
+    let error = session.command(&format!("eat {}", index + 1)).unwrap_err();
+    assert!(
+        error.contains(&format!("({name}) is not edible")),
+        "{error}"
+    );
+    assert_eq!(snapshot(&session), before);
+
+    // Edibility is defined by the survival registry, not by the FORM_FOOD
+    // label alone: preserved winter provisions must remain valid food.
+    assert!(
+        session
+            .registries
+            .survival()
+            .get_food(CommodityKey::new(
+                MATERIAL_WILD_NUTS,
+                FORM_WINTER_PROVISIONS
+            ))
+            .is_some()
     );
 }
 

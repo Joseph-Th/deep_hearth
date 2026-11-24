@@ -3,6 +3,7 @@
 use std::fmt::Write as _;
 
 use super::{Session, activity, crafting, view};
+use deep_hearth::content::FORM_BOARD;
 #[path = "stepping/excavation.rs"]
 mod excavation;
 mod feedback;
@@ -11,7 +12,8 @@ mod travel;
 use deep_hearth::energy::project_player_nearby_warmth_sources;
 use deep_hearth::labor::PlayerWork;
 use deep_hearth::logistics::{
-    HorizontalControlInput, PlayerControlInput, project_player_standing_space,
+    HorizontalControlInput, PlayerControlInput, project_player_overhead_cover_footprint,
+    project_player_standing_space,
 };
 use deep_hearth::mining::MiningJobId;
 use deep_hearth::production::ProductionJobId;
@@ -71,12 +73,31 @@ impl Session {
             _ => feedback::secondary(&self.registries, &outcome),
         })?;
         if preview {
-            return Ok(format!(
+            let mut report = format!(
                 "Ready: supported timber at ({},{},{}); current material, support and work admission passed.\n",
                 position.x(),
                 position.y(),
                 position.z()
-            ));
+            );
+            if stack.commodity().form() == FORM_BOARD
+                && let Some(footprint) =
+                    project_player_overhead_cover_footprint(&self.registries, &self.state)
+            {
+                if !footprint.intersects_column(position) {
+                    report.push_str("Shelter preview: this panel is not over your current standing position; it will not provide overhead cover here.\n");
+                } else if position.y() < footprint.minimum_y() {
+                    let _ = writeln!(
+                        report,
+                        "Shelter preview: panel is below head clearance; overhead cover here requires a panel at height {} or higher. This placement may obstruct movement.",
+                        footprint.minimum_y(),
+                    );
+                } else if !footprint.fits_single_column() {
+                    report.push_str("Shelter preview: the player straddles multiple cells; one panel alone will not cover the complete standing footprint. Move toward the cell center or cover the other cells.\n");
+                } else {
+                    report.push_str("Shelter preview: this panel is above the entire current standing footprint and is positioned to provide overhead cover when completed. It does not block wind from the sides.\n");
+                }
+            }
+            return Ok(report);
         }
         validated
             .commit(&mut self.state)

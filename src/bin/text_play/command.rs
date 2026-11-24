@@ -2,6 +2,7 @@
 
 use super::{Session, crafting, equipment, fire, geology, ore, storage, thermal, view};
 use deep_hearth::logistics::{HorizontalControlInput, PlayerControlInput};
+use deep_hearth::simulation::PlayerDirectControlInput;
 use deep_hearth::spatial::{ViewDirection, VoxelCoord};
 use deep_hearth::world::aim_player_at_voxel;
 
@@ -129,6 +130,9 @@ impl Session {
             return Ok((String::new(), true));
         };
         let args = &tokens[1..];
+        if verb == "begin" {
+            return self.begin_aligned(args);
+        }
         if let Some(output) = self.control_command(verb, args)? {
             return Ok((output, true));
         }
@@ -270,6 +274,66 @@ impl Session {
             _ => return Err(format!("unknown command or arguments: {line}; type help")),
         };
         Ok((output, true))
+    }
+
+    /// Opt in to advancing the real clock to a scheduled-work boundary before
+    /// using the same validation and commitment path as the ordinary command.
+    /// A rejected command may still have spent up to one simulation tick.
+    fn begin_aligned(&mut self, args: &[&str]) -> Result<(String, bool), String> {
+        let Some((&verb, operands)) = args.split_first() else {
+            return Err(
+                "usage: begin craft|gather|prospect|mine|dress|build-at|heat ...".to_owned(),
+            );
+        };
+        if operands.is_empty()
+            || !matches!(
+                verb,
+                "craft" | "gather" | "prospect" | "mine" | "dress" | "build-at" | "heat"
+            )
+        {
+            return Err("begin accepts a scheduled craft, gather, prospect, mine, dress, build-at or heat request with arguments".to_owned());
+        }
+        if self.state.player_work().active().is_some()
+            || self.state.logistics().has_pending_direct_action()
+        {
+            return Err(
+                "finish existing work or a queued interaction before beginning a new task"
+                    .to_owned(),
+            );
+        }
+        let clock_before = self.state.control_tick().value();
+        let original_urgency = view::urgency(&self.registries, &self.state);
+        let scale = deep_hearth::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
+        let remainder = clock_before % scale;
+        let mut report = String::new();
+        if remainder != 0 {
+            report =
+                self.advance_many(PlayerDirectControlInput::NEUTRAL, scale - remainder, false)?;
+            if self.state.control_tick().value() % scale != 0
+                || view::urgency(&self.registries, &self.state) != original_urgency
+            {
+                report.push_str(
+                    "Begin interrupted during boundary alignment; requested work was not started.\n",
+                );
+                return Ok((report, true));
+            }
+        }
+        let aligned = self.state.control_tick().value() - clock_before;
+        match self.command(&args.join(" ")) {
+            Ok((started, _)) => {
+                if aligned != 0 {
+                    report.push_str(&format!(
+                        "Begin: advanced {aligned} control ticks to the next work boundary.\n"
+                    ));
+                }
+                report.push_str(&started);
+                Ok((report, true))
+            }
+            Err(error) if aligned == 0 => Err(error),
+            Err(error) => Err(format!(
+                "begin {verb} rejected after advancing {aligned} control ticks to the next boundary: {error}"
+            )),
+        }
     }
 }
 

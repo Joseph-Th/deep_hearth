@@ -545,6 +545,21 @@ impl Session {
             }
         };
         let stack = &stacks[index - 1];
+        if self
+            .registries
+            .survival()
+            .get_food(stack.commodity())
+            .is_none()
+        {
+            let name = self
+                .registries
+                .materials()
+                .commodity_name(stack.commodity())
+                .unwrap_or("unidentified material");
+            return Err(format!(
+                "carried stack {index} ({name}) is not edible; inspect inventory and select a food stack"
+            ));
+        }
         let mut output = String::new();
         // A boundary frame settles the slow owners before consuming input.
         // Advance that frame first, then reobserve the exact selected cohort.
