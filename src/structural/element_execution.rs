@@ -205,6 +205,7 @@ pub enum PlanPlayerStructuralElementError {
     DuplicateSupport { support: StructuralElementId },
     UnknownSupport { support: StructuralElementId },
     SupportNotActive { support: StructuralElementId },
+    SupportUnderDismantling { support: StructuralElementId },
     SupportOutOfContact { support: StructuralElementId },
     Element(AddStructuralElementError),
 }
@@ -248,6 +249,11 @@ impl Display for PlanPlayerStructuralElementError {
                 "structural support {} is not active",
                 support.value()
             ),
+            Self::SupportUnderDismantling { support } => write!(
+                formatter,
+                "structural support {} is being dismantled",
+                support.value()
+            ),
             Self::SupportOutOfContact { support } => write!(
                 formatter,
                 "new structural member lacks positive-area face contact with support {}",
@@ -271,6 +277,7 @@ impl Error for PlanPlayerStructuralElementError {
             | Self::DuplicateSupport { .. }
             | Self::UnknownSupport { .. }
             | Self::SupportNotActive { .. }
+            | Self::SupportUnderDismantling { .. }
             | Self::SupportOutOfContact { .. } => None,
         }
     }
@@ -295,6 +302,10 @@ pub enum PlanPlayerStructuralElementCommitError {
         actual: u64,
     },
     StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StalePlayerWorkRevision {
         expected: u64,
         actual: u64,
     },
@@ -332,6 +343,10 @@ impl Display for PlanPlayerStructuralElementCommitError {
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
                 "structural planning logistics revision changed from {expected} to {actual} before commit"
+            ),
+            Self::StalePlayerWorkRevision { expected, actual } => write!(
+                formatter,
+                "structural planning player-work revision changed from {expected} to {actual} before commit"
             ),
             Self::PlayerMoved {
                 expected,
@@ -375,6 +390,7 @@ pub struct ValidatedPlayerStructuralElementPlan {
     expected_world_revision: u64,
     expected_structure_revision: u64,
     expected_logistics_revision: u64,
+    expected_player_work_revision: u64,
     expected_player_position: VoxelCoord,
     expected_next_element_id: u32,
     next_element_id: u32,
@@ -435,6 +451,14 @@ impl ValidatedPlayerStructuralElementPlan {
                 PlanPlayerStructuralElementCommitError::StaleLogisticsRevision {
                     expected: self.expected_logistics_revision,
                     actual: state.logistics().revision(),
+                },
+            );
+        }
+        if state.player_work().revision() != self.expected_player_work_revision {
+            return Err(
+                PlanPlayerStructuralElementCommitError::StalePlayerWorkRevision {
+                    expected: self.expected_player_work_revision,
+                    actual: state.player_work().revision(),
                 },
             );
         }
@@ -537,6 +561,13 @@ fn validate_plan_player_structural_element(
         if support_record.lifecycle() != StructuralLifecycle::Active {
             return Err(PlanPlayerStructuralElementError::SupportNotActive { support });
         }
+        if state
+            .player_work()
+            .get_structural_dismantling_occupant(support)
+            .is_some()
+        {
+            return Err(PlanPlayerStructuralElementError::SupportUnderDismantling { support });
+        }
         if !bounds.has_face_contact(support_record.bounds()) {
             return Err(PlanPlayerStructuralElementError::SupportOutOfContact { support });
         }
@@ -561,6 +592,7 @@ fn validate_plan_player_structural_element(
         expected_world_revision: state.world().revision(),
         expected_structure_revision: state.structures().revision(),
         expected_logistics_revision: state.logistics().revision(),
+        expected_player_work_revision: state.player_work().revision(),
         expected_player_position: position,
         expected_next_element_id,
         next_element_id,

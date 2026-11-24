@@ -48,6 +48,17 @@ impl PlayerWorkState {
         }
     }
 
+    /// The admitted recovery owns this member until completion or interruption.
+    #[must_use]
+    pub(crate) fn get_structural_dismantling_occupant(
+        &self,
+        element: crate::structural::StructuralElementId,
+    ) -> Option<StructuralDismantlingWork> {
+        self.active
+            .and_then(PlayerWork::structural_dismantling)
+            .filter(|work| work.element() == element)
+    }
+
     /// Returns admitted structural-dismantling work that completes on `tick`, if any.
     #[must_use]
     pub(crate) fn structural_dismantling_due_at(

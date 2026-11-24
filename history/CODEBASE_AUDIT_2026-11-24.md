@@ -312,9 +312,46 @@ Verification:
 - `python ci.py audit --all`: PASS, 2,768 core and 194 gameplay tests; workshop
   controlled-capability sample, roots `0xCB176D10BF784E28/0xEF09378E58C34B2B`.
   An earlier combined run was terminated by the connector stall watchdog;
-  the completed repeat is the broad evidence for this change.
+  the completed repeat establishes the broad resident-priority evidence.
 
 No new interactive playthrough or graphical inspection was performed in
 this pass. The changed resident contracts are exercised by production
 simulation ticks and the broad gameplay checkpoint.
+
+## Structural dismantling reservation audit
+
+Inspected structural load propagation, cascade resolution, topology indexes,
+player construction and dismantling admission, placement projections,
+equipment and storage support assignment, labor occupancy, terrain footing,
+inventory coalescing, and maintenance ownership.
+
+A supported blueprint could acquire a dependency on an active member already
+reserved for timed dismantling. The resulting graph conflicts with the
+completion invariant and trusted-state validation. The regression
+`dismantling_reserves_member_against_new_support_plans` reproduced acceptance
+of the conflicting plan using a constructed member and canonical player work.
+
+The planning owner rejects a support occupied by dismantling with the typed
+`SupportUnderDismantling` error. Placement projection uses the same admission
+path. Planning tokens bind the player-work revision and reject stale labor
+state before commit. Dismantling completion checks the reverse dependency
+index directly instead of traversing the whole graph. No save fields or
+compatibility paths are needed.
+
+Ordinary equipment and storage mounting require the actor at the support
+voxel, whereas dismantling admission requires the actor outside the target.
+The attempted mounting fixtures did not establish an ordinary conflict;
+no mounting policy modification is warranted by that evidence.
+
+Validation: the targeted regression fails against the uncorrected planning
+path and passes with the fix. It verifies typed planning and projection
+rejections, stale-token rejection without mutation, exact recovered matter,
+conservation, and deterministic saved continuation. Full audit passed 2,769
+core and 194 gameplay tests, including a sampled wilderness opening.
+The audit history wording also received a correction for the documentation
+contract; the validator itself remains unchanged.
+
+No additional interactive or graphical playthrough was performed in this
+structural pass. The confirmed defect concerns canonical planning admission,
+not a demonstrated text-play command failure.
 

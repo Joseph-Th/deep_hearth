@@ -858,3 +858,93 @@ fn structural_dismantling_rejects_member_that_still_supports_a_stockpile() {
     );
     assert_eq!(state, before);
 }
+
+#[test]
+fn dismantling_reserves_member_against_new_support_plans() {
+    use crate::structural::{
+        MultiSupportedStructuralElementPlan, PlanPlayerStructuralElementCommitError,
+        PlanPlayerStructuralElementError, PlayerStructuralPlacementProjectionError,
+        project_player_multi_supported_structural_placement,
+        validate_plan_player_supported_structural_element,
+    };
+
+    let (registries, mut state, element, carried) = active_grounded_member();
+    let plan = SupportedStructuralElementPlan::new(
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry_at(VoxelCoord::new(1, 0, 1), "dismantling reservation"),
+        element,
+    );
+    let stale_plan =
+        validate_plan_player_supported_structural_element(&registries, &state, plan).unwrap();
+    let expected_revision = state.player_work().revision();
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    let work = validate_start_player_structural_dismantling(
+        &registries,
+        &state,
+        element,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let before = state.clone();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(
+        validate_plan_player_supported_structural_element(&registries, &state, plan).err(),
+        Some(PlanPlayerStructuralElementError::SupportUnderDismantling { support: element }),
+    );
+    assert_eq!(
+        project_player_multi_supported_structural_placement(
+            &registries,
+            &state,
+            MultiSupportedStructuralElementPlan::new(
+                STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+                MATERIAL_WOOD,
+                geometry_at(VoxelCoord::new(1, 0, 1), "dismantling reservation"),
+                vec![element],
+            ),
+        )
+        .err(),
+        Some(PlayerStructuralPlacementProjectionError::Plan(
+            PlanPlayerStructuralElementError::SupportUnderDismantling { support: element },
+        )),
+    );
+    let actual_revision = state.player_work().revision();
+    assert_eq!(
+        stale_plan.commit(&mut state),
+        Err(
+            PlanPlayerStructuralElementCommitError::StalePlayerWorkRevision {
+                expected: expected_revision,
+                actual: actual_revision,
+            }
+        ),
+    );
+    assert_eq!(state, before);
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.tick() < work.completes_at() {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert!(state.structures().get_element(element).is_none());
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(carried)
+            .unwrap()
+            .get_mass(CommodityKey::new(MATERIAL_WOOD, FORM_LOG)),
+        MEMBER_MASS
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}

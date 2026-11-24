@@ -1943,9 +1943,12 @@ Unusually large valid bounds use exact geometric fallbacks rather than allocatin
 per-column entries. The index does not change collision rules:
 only embodied members with a complete horizontal footprint block the player's body, whereas any embodied
 member can obstruct a heavy resident. Player-directed placement and opening-resident admission use those
-canonical local-occupancy predicates; structural dismantling uses the existing reverse support index to reject
-members with direct dependents rather than scanning the entire topology. A timed dismantling start
-reserves exact recovered matter in the player's inventory at admission. Its commit rejects
+canonical local-occupancy predicates; structural dismantling uses the existing reverse support index at
+admission and completion rather than scanning the entire topology. A timed dismantling start
+reserves exact recovered matter in the player's inventory and excludes its target from new supported
+blueprints until the work completes or is interrupted. Supported placement forecasts share that admission
+rule. Structural planning commits bind the player-work revision so a retained plan cannot add a dependent
+after a dismantling reservation begins. The dismantling start commit rejects
 subsequent inventory-revision changes with a typed stale-authorization error before any internal
 reservation assertions or owner mutation; a fresh admission can safely use the new custody state.
 

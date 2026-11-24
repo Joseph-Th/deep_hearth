@@ -328,14 +328,7 @@ pub(crate) fn decide_structural_dismantling_tick(
         .unwrap_or_else(|| panic!("active structural dismantling target disappeared"));
     assert_eq!(record.embodied_mass(), work.recovered_mass());
     assert!(
-        projected_structures
-            .elements()
-            .all(|candidate| candidate.id() == work.element()
-                || projected_structures
-                    .supports(candidate.id())
-                    .is_none_or(|supports| supports
-                        .into_iter()
-                        .all(|support| support != work.element()))),
+        !projected_structures.has_dependents(work.element()),
         "admitted simple structural dismantling acquired a dependent before completion"
     );
     let ingress = validate_reserved_material_ingress(
