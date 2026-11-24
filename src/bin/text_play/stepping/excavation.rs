@@ -37,7 +37,7 @@ impl Session {
             let wait = work
                 .duration_control_ticks()
                 .expect("authorized duration")
-                .min(72_000);
+                .min(crate::text_play::activity::COMPLETION_WAIT_LIMIT);
             let (received, interrupted) =
                 self.await_batch(BatchReceipt::Excavated(started.target()), wait, &mut output)?;
             completed += u64::from(received);

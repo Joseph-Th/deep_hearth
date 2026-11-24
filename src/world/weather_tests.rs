@@ -655,6 +655,19 @@ fn covered_player_needs_a_real_wind_inlet_at_each_exposed_body_level() {
         if !open_inlet {
             let celsius = (weather.ambient_temperature().millikelvin() as i32 - 273_150) / 1_000;
             assert_eq!(cooling, air_cooling_multiplier_ppm(celsius, 0));
+            let covered = assess_player_unheated_comfort_runway(&registries, &actor).unwrap();
+            let mut uncovered_actor = actor.clone();
+            set_generated_block_for_test(
+                registries.world(),
+                &mut uncovered_actor,
+                roof,
+                BlockStateId::AIR,
+            );
+            let uncovered =
+                assess_player_unheated_comfort_runway(&registries, &uncovered_actor).unwrap();
+            assert_eq!(uncovered.wind_shelter(), Some(PlayerWindShelter::Exposed));
+            assert_eq!(covered.if_open(), uncovered.current());
+            assert_eq!(uncovered.if_covered(), covered.current());
         }
         let before = actor.survival().player().unwrap().thermal_comfort_ppm();
         let loss = registries

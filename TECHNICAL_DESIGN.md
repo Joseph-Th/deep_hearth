@@ -593,9 +593,9 @@ The conditional unheated-comfort forecast advances the same integer cooling and
 resting regulation as survival: a comfortable equilibrium has no finite discomfort
 horizon (`None`), while an already chilly or cold player has an immediate
 zero-tick warning even when the current weather entails no additional cooling.
-Its alternative open/covered rates hold current wind-inlet geometry fixed;
-they compare insulation alone and do not predict the ventilation change from
-building or removing a specific roof.
+Its alternative open/covered rates assume open or closed sky above both player
+body samples and apply the same airflow rule with existing lateral obstacles
+and upwind sky. They do not predict the construction or removal of a specific roof.
 Actual roof availability remains separately visible, so missing terrain truth
 is distinguishable from a physically stable warmth reserve.
 

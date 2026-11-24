@@ -453,7 +453,7 @@ impl Session {
             }
             let wait = activity::remaining_work_control_ticks(&self.state)
                 .ok_or("gathering started without a scheduled completion")?
-                .min(7_200);
+                .min(activity::COMPLETION_WAIT_LIMIT);
             let (received, interrupted) = self.await_batch(
                 stepping::BatchReceipt::Gathered(original.resource()),
                 wait,
@@ -495,7 +495,7 @@ impl Session {
             output.push_str(&started);
             let wait = activity::remaining_work_control_ticks(&self.state)
                 .ok_or("mining started without a scheduled completion")?
-                .min(72_000);
+                .min(activity::COMPLETION_WAIT_LIMIT);
             let (received, interrupted) =
                 self.await_batch(stepping::BatchReceipt::Mined(job), wait, &mut output)?;
             completed += usize::from(received);

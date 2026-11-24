@@ -185,6 +185,7 @@ fn mined_copper_ore_can_be_broken_and_sorted_into_finite_native_metal() {
     let conserved = calculate_matter_accounting(&session.state).unwrap().total();
     let started = run(&mut session, &format!("dress 15 {first} 100"));
     assert!(started.contains("100 g from stack"));
+    assert!(started.contains("Use 'wait finish'"), "{started}");
     let checkpoint = snapshot(&session);
     let mut restored = Session {
         registries: build_registries(),
@@ -194,8 +195,10 @@ fn mined_copper_ore_can_be_broken_and_sorted_into_finite_native_metal() {
             .unwrap(),
         seed: None,
     };
-    let done = finish_work(&mut session);
-    let replay = finish_work(&mut restored);
+    let done = run(&mut session, "wait finish");
+    let replay = run(&mut restored, "wait finish");
+    assert!(session.state.player_work().active().is_none());
+    assert!(restored.state.player_work().active().is_none());
     assert_eq!(done, replay);
     assert_eq!(snapshot(&session), snapshot(&restored));
     assert!(done.contains("Ore processing completed: hand break ore"));

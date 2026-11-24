@@ -420,7 +420,7 @@ impl MiningOrder {
         Ok((
             job,
             format!(
-                "Started {} g {} extraction (job {}) with carried tool {}. Use 'wait work'.\n",
+                "Started {} g {} extraction (job {}) with carried tool {}. Use 'wait finish'.\n",
                 view::grams(self.mass),
                 material_name(registries, self.target.material()),
                 job.value(),

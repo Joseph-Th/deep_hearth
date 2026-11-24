@@ -13,7 +13,6 @@ use deep_hearth::simulation::{
 use deep_hearth::world::DayPhase;
 
 const MAX_MOVEMENT_TICKS: u64 = 240;
-const MAX_WAIT_TICKS: u64 = 7_200;
 
 impl Session {
     /// Only recognized valid-shape verbs are executed here; other command shapes
@@ -125,9 +124,9 @@ impl Session {
                 let count = activity::remaining_work_control_ticks(&self.state)
                     .ok_or("no active work with a scheduled completion; use wait [ticks]")?
                     .min(if args == ["finish"] {
-                        72_000
+                        activity::COMPLETION_WAIT_LIMIT
                     } else {
-                        MAX_WAIT_TICKS
+                        activity::SHORT_WAIT_LIMIT
                     });
                 self.advance_many_with_report(
                     PlayerDirectControlInput::NEUTRAL,
@@ -138,7 +137,7 @@ impl Session {
                 .output
             }
             "wait" if args.len() <= 1 => {
-                let count = parse_count(args.first().copied(), 72, MAX_WAIT_TICKS)?;
+                let count = parse_count(args.first().copied(), 72, activity::SHORT_WAIT_LIMIT)?;
                 self.advance_many(PlayerDirectControlInput::NEUTRAL, count, false)?
             }
             "use" => {
@@ -206,7 +205,7 @@ impl Session {
                 &self
                     .advance_many_with_report(
                         PlayerDirectControlInput::NEUTRAL,
-                        work_ticks.min(72_000),
+                        work_ticks.min(activity::COMPLETION_WAIT_LIMIT),
                         false,
                         TimedWaitMode::Work,
                     )?

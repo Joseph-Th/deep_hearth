@@ -205,19 +205,11 @@ fn advance_simulation_tick_unstaged(
         assess_player_overhead_cover(registries, state),
         Some(PlayerOverheadCoverAssessment::Covered)
     );
-    let thermal_exposure = match (
+    let thermal_exposure = ThermalExposure::from_local_conditions(
         covered,
-        assess_player_weather_at(registries, state, next_tick),
-    ) {
-        (true, Some(weather)) => ThermalExposure::GeneratedOverheadCover {
-            cooling_multiplier_ppm: weather.felt_cooling_multiplier_ppm(registries, state),
-        },
-        (false, Some(weather)) => ThermalExposure::GeneratedOpen {
-            cooling_multiplier_ppm: weather.felt_cooling_multiplier_ppm(registries, state),
-        },
-        (true, None) => ThermalExposure::OverheadCover,
-        (false, None) => ThermalExposure::Open,
-    };
+        assess_player_weather_at(registries, state, next_tick)
+            .map(|weather| weather.felt_cooling_multiplier_ppm(registries, state)),
+    );
     let survival_plan = decide_survival_tick_with_local_heat(
         registries,
         state,

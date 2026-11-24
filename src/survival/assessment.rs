@@ -15,9 +15,9 @@ use super::{
 /// Conditional warmth runway at the player's current position, assuming no local heat.
 ///
 /// This is an actionable forecast, not a promise about weather, travel or future fuel. The
-/// two cover alternatives show the physical value of securing a roof; only `current()`
-/// describes the player's actual terrain and active structures. Missing world authority
-/// cannot be mistaken for open sky or for shelter.
+/// cover alternatives model overhead sky and its effect on local airflow, while retaining
+/// the actual lateral inlets. Only `current()` describes the player's actual terrain and
+/// active structures. Missing world authority cannot be mistaken for open sky or for shelter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PlayerUnheatedComfortRunway {
     overhead_cover: PlayerOverheadCoverAssessment,
@@ -198,9 +198,9 @@ impl PlayerUnheatedComfortRunway {
 
 /// Combines real current cover, live survival reserve and resting thermal regulation.
 /// The projection is deliberately conditional on staying in place without a heat source.
-/// Alternative open/covered rates hold the current wind-inlet geometry fixed:
-/// they compare overhead insulation, not an unplanned roof demolition or construction
-/// that could also change which body levels receive regional wind.
+/// Alternatives assume open or closed sky above both body samples, retaining
+/// existing lateral obstacles and upwind sky. They do not assess whether a
+/// particular roof can be built or whether its footprint changes those inlets.
 #[must_use]
 pub fn assess_player_unheated_comfort_runway(
     registries: &Registries,
@@ -213,32 +213,39 @@ pub fn assess_player_unheated_comfort_runway(
     let cover = assess_player_overhead_cover(registries, state)?;
     let comfort = registries.survival().physiology().thermal_comfort();
     let weather = crate::world::assess_player_weather(registries, state);
-    let wind_shelter = weather.map(|weather| match weather.wind_direction() {
-        None => PlayerWindShelter::Calm,
-        Some(_) => match weather.sheltered_body_levels(registries, state) {
-            0 => PlayerWindShelter::Exposed,
-            1 => PlayerWindShelter::Partial,
-            2 => PlayerWindShelter::Sheltered,
-            _ => unreachable!("a standing body has exactly two wind-facing levels"),
-        },
-    });
-    let exposure_open = weather.map_or(ThermalExposure::Open, |weather| {
-        ThermalExposure::GeneratedOpen {
-            cooling_multiplier_ppm: weather.felt_cooling_multiplier_ppm(registries, state),
-        }
-    });
-    let exposure_covered = weather.map_or(ThermalExposure::OverheadCover, |weather| {
-        ThermalExposure::GeneratedOverheadCover {
-            cooling_multiplier_ppm: weather.felt_cooling_multiplier_ppm(registries, state),
-        }
-    });
-    let if_open =
-        comfort.ticks_until_unheated_discomfort(player.thermal_comfort_ppm(), exposure_open);
-    let if_covered =
-        comfort.ticks_until_unheated_discomfort(player.thermal_comfort_ppm(), exposure_covered);
+    let sheltered_levels = weather.map(|weather| weather.sheltered_body_levels(registries, state));
+    let wind_shelter =
+        weather
+            .zip(sheltered_levels)
+            .map(|(weather, levels)| match weather.wind_direction() {
+                None => PlayerWindShelter::Calm,
+                Some(_) => match levels {
+                    0 => PlayerWindShelter::Exposed,
+                    1 => PlayerWindShelter::Partial,
+                    2 => PlayerWindShelter::Sheltered,
+                    _ => unreachable!("there are exactly two wind-facing body samples"),
+                },
+            });
+    let runway = |covered, cooling| {
+        comfort.ticks_until_unheated_discomfort(
+            player.thermal_comfort_ppm(),
+            ThermalExposure::from_local_conditions(covered, cooling),
+        )
+    };
+    let open_cooling =
+        weather.map(|weather| weather.projected_cooling_multiplier_ppm(registries, state, true));
+    let covered_cooling =
+        weather.map(|weather| weather.projected_cooling_multiplier_ppm(registries, state, false));
+    let if_open = runway(false, open_cooling);
+    let if_covered = runway(true, covered_cooling);
+    let actual_cooling = weather
+        .zip(sheltered_levels)
+        .map(|(weather, levels)| weather.cooling_multiplier_for_sheltered_levels(levels));
     let current = match cover {
-        PlayerOverheadCoverAssessment::Open => if_open,
-        PlayerOverheadCoverAssessment::Covered => if_covered,
+        PlayerOverheadCoverAssessment::Open if actual_cooling == open_cooling => if_open,
+        PlayerOverheadCoverAssessment::Covered if actual_cooling == covered_cooling => if_covered,
+        PlayerOverheadCoverAssessment::Open => runway(false, actual_cooling),
+        PlayerOverheadCoverAssessment::Covered => runway(true, actual_cooling),
         PlayerOverheadCoverAssessment::WorldUnavailable => None,
     };
     Some(PlayerUnheatedComfortRunway {

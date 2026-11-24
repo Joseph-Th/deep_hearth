@@ -178,7 +178,7 @@ fn start_batch(
     Ok((
         job,
         format!(
-            "Started {} (job {}) on {} g from stack selection; {} in {} slow ticks. Use 'wait work' to complete.\n",
+            "Started {} (job {}) on {} g from stack selection; {} in {} slow ticks. Use 'wait finish' to await completion.\n",
             process_name(registries, process),
             job.value(),
             view::grams(mass),
@@ -212,7 +212,7 @@ impl Session {
             output.push_str(&started);
             let wait = activity::remaining_work_control_ticks(&self.state)
                 .ok_or("dressing started without a scheduled completion")?
-                .min(72_000);
+                .min(activity::COMPLETION_WAIT_LIMIT);
             let (received, interrupted) =
                 self.await_batch(stepping::BatchReceipt::Produced(job), wait, &mut output)?;
             completed += usize::from(received);

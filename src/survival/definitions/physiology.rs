@@ -332,6 +332,24 @@ pub enum ThermalExposure {
     },
 }
 
+impl ThermalExposure {
+    pub(crate) const fn from_local_conditions(
+        covered: bool,
+        cooling_multiplier_ppm: Option<u32>,
+    ) -> Self {
+        match (covered, cooling_multiplier_ppm) {
+            (false, None) => Self::Open,
+            (true, None) => Self::OverheadCover,
+            (false, Some(cooling_multiplier_ppm)) => Self::GeneratedOpen {
+                cooling_multiplier_ppm,
+            },
+            (true, Some(cooling_multiplier_ppm)) => Self::GeneratedOverheadCover {
+                cooling_multiplier_ppm,
+            },
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ThermalComfortDefinition {
     warning_below_ppm: u32,

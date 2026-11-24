@@ -199,6 +199,15 @@ impl PlayerWeather {
     /// also needs the directly sky-exposed inlet used by sound and scent.
     /// Missing terrain alone never counts as a protective outdoor wall.
     pub(crate) fn sheltered_body_levels(self, registries: &Registries, state: &AppState) -> u8 {
+        self.sheltered_body_levels_with_sky(registries, state, None)
+    }
+
+    fn sheltered_body_levels_with_sky(
+        self,
+        registries: &Registries,
+        state: &AppState,
+        open_sky: Option<bool>,
+    ) -> u8 {
         let (Some(_), Some(player), Some(eye)) = (
             self.wind_direction,
             state.logistics().player(),
@@ -208,7 +217,9 @@ impl PlayerWeather {
         };
         [player.position(), eye]
             .into_iter()
-            .filter(|&cell| wind_reaches_cell(registries, state, cell, self) == Some(false))
+            .filter(|&cell| {
+                wind_reaches_cell(registries, state, cell, self, open_sky) == Some(false)
+            })
             .count() as u8
     }
 
@@ -220,8 +231,27 @@ impl PlayerWeather {
         registries: &Registries,
         state: &AppState,
     ) -> u32 {
+        self.cooling_multiplier_for_sheltered_levels(self.sheltered_body_levels(registries, state))
+    }
+
+    /// Counterfactual sky above the two body samples, retaining the actual
+    /// lateral obstacles and upwind sky. No physical construction is implied.
+    pub(crate) fn projected_cooling_multiplier_ppm(
+        self,
+        registries: &Registries,
+        state: &AppState,
+        open_sky: bool,
+    ) -> u32 {
+        self.cooling_multiplier_for_sheltered_levels(self.sheltered_body_levels_with_sky(
+            registries,
+            state,
+            Some(open_sky),
+        ))
+    }
+
+    pub(crate) fn cooling_multiplier_for_sheltered_levels(self, sheltered_levels: u8) -> u32 {
         let wind = wind_cooling_ppm(self.wind);
-        let exposed_levels = 2 - u32::from(self.sheltered_body_levels(registries, state));
+        let exposed_levels = 2 - u32::from(sheltered_levels);
         let celsius = (i64::from(self.ambient_temperature.millikelvin()) - 273_150) / 1_000;
         air_cooling_multiplier_ppm(
             i32::try_from(celsius).expect("authored weather temperature fits i32 Celsius"),
@@ -347,11 +377,12 @@ fn wind_reaches_cell(
     state: &AppState,
     position: VoxelCoord,
     weather: PlayerWeather,
+    open_sky: Option<bool>,
 ) -> Option<bool> {
     if !air_cell_clear(registries, state, position)? {
         return Some(false);
     }
-    wind_reaches_clear_cell(registries, state, position, weather)
+    wind_reaches_clear_cell(registries, state, position, weather, open_sky)
 }
 
 /// Wind touching one physically open generated cell.
@@ -366,8 +397,10 @@ fn wind_reaches_clear_cell(
     state: &AppState,
     position: VoxelCoord,
     weather: PlayerWeather,
+    open_sky: Option<bool>,
 ) -> Option<bool> {
-    let open_sky = super::sky::has_open_sky(registries, state, position);
+    let open_sky =
+        open_sky.unwrap_or_else(|| super::sky::has_open_sky(registries, state, position));
     let Some((dx, dz)) = weather.wind_direction().map(WindDirection::delta) else {
         return Some(open_sky);
     };
@@ -395,7 +428,8 @@ pub(super) fn local_airflow_at(
     }
     let seed = state.world().generation_profile()?.seed().value();
     let weather = weather_at(registries, seed, position, at);
-    (wind_reaches_clear_cell(registries, state, position, weather) == Some(true)).then_some(weather)
+    (wind_reaches_clear_cell(registries, state, position, weather, None) == Some(true))
+        .then_some(weather)
 }
 
 /// Source-local wind for physical sound attenuation. Caverns without a real

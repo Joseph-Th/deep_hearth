@@ -6,6 +6,11 @@ use deep_hearth::labor::PlayerWork;
 use deep_hearth::surface::active_player_surface_gathering_commodity;
 use deep_hearth::{AppState, Registries};
 
+/// Six simulated minutes for ordinary waits and short work waits.
+pub(super) const SHORT_WAIT_LIMIT: u64 = 7_200;
+/// One simulated hour per completion attempt, including repeated work.
+pub(super) const COMPLETION_WAIT_LIMIT: u64 = 72_000;
+
 pub fn label(registries: &Registries, state: &AppState, work: PlayerWork) -> String {
     match work {
         PlayerWork::TreeFelling { .. } => "Felling a tree".to_owned(),
