@@ -18,8 +18,8 @@ use deep_hearth::logistics::{
 use deep_hearth::mining::MiningJobId;
 use deep_hearth::production::ProductionJobId;
 use deep_hearth::simulation::{
-    PlayerDirectControlInput, SecondaryActionOutcome, advance_control_tick_with_direct_input,
-    advance_neutral_control_span,
+    PlayerDirectControlInput, PrimaryActionOutcome, SecondaryActionOutcome, TickOutcome,
+    advance_control_tick_with_direct_input, advance_neutral_control_span,
 };
 use deep_hearth::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord};
 use deep_hearth::surface::{SurfaceGatheringError, SurfaceResourceId};
@@ -34,12 +34,53 @@ pub(super) enum BatchReceipt {
     Excavated(VoxelCoord),
 }
 
+#[derive(Clone, Copy)]
+struct BatchCompletion {
+    receipt: BatchReceipt,
+    surface: Option<SurfaceResourceId>,
+}
+
 pub(super) struct StepReport {
     noteworthy: bool,
     travel_interrupt: bool,
     other_event: bool,
-    batch_receipt: Option<BatchReceipt>,
+    direct_event: DirectEvent,
+    batch: Option<BatchCompletion>,
     pub(super) stale_gathering_option: bool,
+}
+
+impl StepReport {
+    fn interrupts_wait(&self, admitted: bool) -> bool {
+        self.other_event
+            || self.batch.is_some()
+            || (self.direct_event != DirectEvent::None && !admitted)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DirectEvent {
+    None,
+    WorkAdmitted,
+    Other,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum TimedWaitMode {
+    Ordinary,
+    Work,
+    QueuedAdmission,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum TimedStop {
+    HorizonReached,
+    WorkAdmitted,
+    Interrupted,
+}
+
+pub(super) struct TimedAdvanceReport {
+    pub(super) output: String,
+    pub(super) stop: TimedStop,
 }
 
 impl Session {
@@ -326,17 +367,8 @@ impl Session {
         limit: u64,
         walking: bool,
     ) -> Result<String, String> {
-        self.advance_many_with_work_wait(input, limit, walking, false)
-    }
-
-    pub(super) fn advance_many_with_work_wait(
-        &mut self,
-        input: PlayerDirectControlInput,
-        limit: u64,
-        walking: bool,
-        work_wait: bool,
-    ) -> Result<String, String> {
-        self.advance_many_with_report(input, limit, walking, work_wait)
+        self.advance_many_with_report(input, limit, walking, TimedWaitMode::Ordinary)
+            .map(|report| report.output)
     }
 
     /// Wait for the exact completion receipt. Work disappearing through
@@ -358,15 +390,21 @@ impl Session {
             let (report, elapsed) =
                 self.step_bounded(PlayerDirectControlInput::NEUTRAL, limit - actual, output)?;
             actual += elapsed;
-            completed = report.batch_receipt == Some(expected);
-            interrupted =
-                report.other_event || view::urgency(&self.registries, &self.state) != initial;
-            // The expected receipt can itself change the local observation
-            // (e.g. consuming the final fruit). Re-admission checks the source.
-            if !completed
-                && !interrupted
-                && self.state.tick() != previous
-                && let Some(description) = self.wait_attention(&mut visible, true)?
+            let matching = report.batch.filter(|batch| batch.receipt == expected);
+            completed = matching.is_some();
+            interrupted = report.other_event
+                || report.direct_event != DirectEvent::None
+                || view::urgency(&self.registries, &self.state) != initial;
+            // Ignore only the expected receipt's own resource change. A
+            // simultaneous new threat or other supply change still stops the
+            // repeat, even on an off-boundary excavation completion frame.
+            if !interrupted
+                && (completed || self.state.tick() != previous)
+                && let Some(description) = self.wait_attention(
+                    &mut visible,
+                    TimedWaitMode::Work,
+                    matching.and_then(|batch| batch.surface),
+                )?
             {
                 let _ = writeln!(output, "{description}");
                 interrupted = true;
@@ -387,13 +425,16 @@ impl Session {
         Ok((completed, interrupted))
     }
 
-    fn advance_many_with_report(
+    /// Return a typed interruption result even when the event occurred on the
+    /// requested final frame. Queued admission is an expected stop, not an
+    /// independent event authorizing an additional work wait.
+    pub(super) fn advance_many_with_report(
         &mut self,
         input: PlayerDirectControlInput,
         limit: u64,
         walking: bool,
-        work_wait: bool,
-    ) -> Result<String, String> {
+        mode: TimedWaitMode,
+    ) -> Result<TimedAdvanceReport, String> {
         let mut output = String::new();
         let starting_position = self.player_position()?;
         let before = view::urgency(&self.registries, &self.state);
@@ -404,6 +445,7 @@ impl Session {
         // sample. Nearby changes must not interrupt the first jump mid-ledge.
         let directional_jump = walking && input.movement().jump();
         let mut actual = 0;
+        let mut stop = TimedStop::HorizonReached;
         while actual < limit {
             let body_before = walking
                 .then(|| self.state.logistics().player().map(|player| player.body()))
@@ -416,16 +458,25 @@ impl Session {
             };
             let (report, elapsed) =
                 self.step_bounded(sampled_input, limit - actual, &mut output)?;
-            let noteworthy = report.noteworthy;
             actual += elapsed;
-            if noteworthy || view::urgency(&self.registries, &self.state) != before {
+            let admitted = mode == TimedWaitMode::QueuedAdmission
+                && report.direct_event == DirectEvent::WorkAdmitted;
+            if report.interrupts_wait(admitted)
+                || view::urgency(&self.registries, &self.state) != before
+            {
+                stop = TimedStop::Interrupted;
                 break;
             }
             if !directional_jump
                 && self.state.tick() != slow_tick_before
-                && let Some(description) = self.wait_attention(&mut visible, work_wait)?
+                && let Some(description) = self.wait_attention(&mut visible, mode, None)?
             {
                 let _ = writeln!(output, "{description}");
+                stop = TimedStop::Interrupted;
+                break;
+            }
+            if admitted {
+                stop = TimedStop::WorkAdmitted;
                 break;
             }
             // A held walk into a wall can make no continuous progress for the entire
@@ -444,6 +495,7 @@ impl Session {
                 && current.horizontal_velocity() == HorizontalVelocity::ZERO
             {
                 output.push_str("Movement stopped: no horizontal progress.\n");
+                stop = TimedStop::Interrupted;
                 break;
             }
             let position = self.player_position()?;
@@ -452,6 +504,7 @@ impl Session {
             if walking
                 && (position.x() != starting_position.x() || position.z() != starting_position.z())
             {
+                stop = TimedStop::Interrupted;
                 break;
             }
             if self
@@ -460,6 +513,7 @@ impl Session {
                 .player()
                 .is_some_and(|s| s.vitality() == Vitality::ZERO)
             {
+                stop = TimedStop::Interrupted;
                 break;
             }
         }
@@ -469,19 +523,21 @@ impl Session {
             actual * 50
         );
         output.push_str(&view::look(&self.registries, &self.state, None));
-        Ok(output)
+        Ok(TimedAdvanceReport { output, stop })
     }
 
     fn wait_attention(
         &self,
         previous: &mut view::LocalCues,
-        work_wait: bool,
+        mode: TimedWaitMode,
+        completed_surface: Option<SurfaceResourceId>,
     ) -> Result<Option<&'static str>, String> {
         let current = view::local_cues(&self.registries, &self.state);
-        let attention = if work_wait {
-            previous.work_attention(&current, self.player_position()?)
-        } else {
-            previous.changed(&current)
+        let attention = match mode {
+            TimedWaitMode::Ordinary => previous.changed(&current),
+            TimedWaitMode::Work | TimedWaitMode::QueuedAdmission => {
+                previous.work_attention(&current, self.player_position()?, completed_surface)
+            }
         };
         *previous = current;
         Ok(attention)
@@ -531,11 +587,33 @@ impl Session {
                 SurfaceGatheringError::StalePlayerOption { .. }
             ))
         );
+        let work_admitted = matches!(
+            outcome.primary_action(),
+            Some(
+                PrimaryActionOutcome::BlockExcavationStarted(_)
+                    | PrimaryActionOutcome::TreeFellingStarted(_)
+                    | PrimaryActionOutcome::StructuralDismantlingStarted(_)
+            )
+        ) || matches!(
+            outcome.secondary_action(),
+            Some(
+                SecondaryActionOutcome::EatingStarted(_)
+                    | SecondaryActionOutcome::DrinkingStarted(_)
+                    | SecondaryActionOutcome::SurfaceGatheringStarted(_)
+                    | SecondaryActionOutcome::StructuralConstructionStarted(_)
+            )
+        );
         // Physical motion and automatic custody transfer precede direct actions
         // in the control owner. Preserve that order when both occur in one frame.
-        let mut batch_receipt = outcome
-            .block_excavation()
-            .map(|receipt| BatchReceipt::Excavated(receipt.target()));
+        let mut batch = outcome.block_excavation().map(|receipt| BatchCompletion {
+            receipt: BatchReceipt::Excavated(receipt.target()),
+            surface: match receipt.output() {
+                deep_hearth::world::BlockExcavationOutputReceipt::Surface { resource } => {
+                    Some(resource)
+                }
+                deep_hearth::world::BlockExcavationOutputReceipt::Carried { .. } => None,
+            },
+        });
         let _ = note_text(
             output,
             "Excavated",
@@ -565,20 +643,20 @@ impl Session {
                 .surface_drop_pickup()
                 .map(|event| feedback::pickup(&self.registries, event)),
         );
-        interrupt |= note_text(
+        let mut direct_event = note_text(
             output,
             "Primary",
             outcome.primary_action().map(feedback::primary),
         );
-        interrupt |= note_secondary(output, &self.registries, outcome.secondary_action());
-        interrupt |= note_text(
+        direct_event |= note_secondary(output, &self.registries, outcome.secondary_action());
+        direct_event |= note_text(
             output,
             "Slot",
             outcome
                 .quick_access_selection()
                 .map(|event| feedback::slot(&self.registries, &self.state, event)),
         );
-        interrupt |= note_text(
+        direct_event |= note_text(
             output,
             "Drop",
             outcome
@@ -586,118 +664,15 @@ impl Session {
                 .map(|event| feedback::drop(&self.registries, event)),
         );
         if let Some(simulation) = outcome.simulation() {
-            if let Some(gathered) = simulation.surface_gathering() {
-                let _ = writeln!(
-                    output,
-                    "Gathered: {} g collected; {} g remains at the source.",
-                    view::grams(gathered.gathered_mass()),
-                    view::grams(gathered.remaining_mass()),
-                );
-                batch_receipt = Some(BatchReceipt::Gathered(gathered.resource()));
-            }
-            interrupt |= note_text(
-                output,
-                "Tree felled",
-                simulation.tree_felling().map(feedback::tree_felled),
-            );
-            interrupt |= note_text(
-                output,
-                "Construction finished",
-                simulation
-                    .structural_construction()
-                    .map(|element| feedback::construction_finished(&self.state, element)),
-            );
-            interrupt |= note_text(
-                output,
-                "Construction interrupted",
-                simulation.structural_construction_interrupted().map(|_| {
-                    "The member lost its active support before activation; its material remains recoverable."
-                        .to_owned()
-                }),
-            );
-            interrupt |= note_text(
-                output,
-                "Dismantling finished",
-                simulation
-                    .structural_dismantling()
-                    .map(|_| match previous_work {
-                        Some(PlayerWork::StructuralDismantling { work }) => format!(
-                            "Recovered {} g of structural materials into your pack.",
-                            view::grams(work.recovered_mass()),
-                        ),
-                        _ => "Structural materials recovered into your pack.".to_owned(),
-                    }),
-            );
-            interrupt |= note_text(
-                output,
-                "Storage recovered",
-                simulation
-                    .storage_enclosure_dismantling()
-                    .map(|_| "Enclosure materials recovered into storage.".to_owned()),
-            );
-            if let Some(survey) = simulation.field_prospecting() {
-                let material = self
-                    .registries
-                    .materials()
-                    .get_material(survey.material())
-                    .map_or("unknown material", |definition| definition.name());
-                let _ = writeln!(
-                    output,
-                    "Prospecting finished: {} {:?} observation(s) of {material}. Use 'knowledge' or 'knowledge 2' to inspect acquired evidence.",
-                    survey.observation_count(),
-                    survey.evidence(),
-                );
-                interrupt = true;
-            }
-            interrupt |= note_text(
-                output,
-                "Maintenance finished",
-                simulation
-                    .equipment_maintenance()
-                    .map(|event| feedback::maintenance(&self.registries, &self.state, event)),
-            );
-            interrupt |= note_text(
-                output,
-                "Manual power produced",
-                simulation.manual_power().map(feedback::power),
-            );
-            if let Some(mining) = simulation.mining_output() {
-                let material = self
-                    .registries
-                    .materials()
-                    .commodity_name(mining.output().commodity())
-                    .unwrap_or("unidentified ore");
-                let _ = writeln!(
-                    output,
-                    "Mining produced: {} g {material} entered inventory.",
-                    view::grams(mining.output().mass()),
-                );
-                batch_receipt = Some(BatchReceipt::Mined(mining.job()));
-            }
-            if let Some(deep_hearth::labor::PlayerWork::ManualProduction { job }) = previous_work {
-                for completion in simulation
-                    .production_completions()
-                    .iter()
-                    .filter(|receipt| receipt.job() == job)
-                {
-                    output.push_str(&crafting::completion(
-                        &self.registries,
-                        &self.state,
-                        completion,
-                    ));
-                    batch_receipt = Some(BatchReceipt::Produced(job));
-                }
-            }
-            if let Some(scout) = simulation.kobold_scout() {
-                interrupt |= note_text(output, "Scout", feedback::scout(scout));
-            }
-            for pulse in simulation.kobold_alarm_pulses() {
-                interrupt |= note_text(output, "Heard alarm", Some(feedback::alarm(*pulse)));
-            }
+            let (slow_interrupt, slow_batch) =
+                self.note_simulation_events(simulation, previous_work, output);
+            interrupt |= slow_interrupt;
+            batch = slow_batch.or(batch);
         }
         if !interrupt
+            && !direct_event
             && !landed
-            && batch_receipt.is_none()
+            && batch.is_none()
             && let Some(work) = previous_work
             && self.state.player_work().active().is_none()
         {
@@ -713,16 +688,158 @@ impl Session {
         }
         Ok((
             StepReport {
-                noteworthy: interrupt || landed || batch_receipt.is_some(),
+                noteworthy: interrupt || direct_event || landed || batch.is_some(),
                 travel_interrupt: interrupt
-                    || batch_receipt.is_some()
+                    || direct_event
+                    || batch.is_some()
                     || fall.is_some_and(|impact| impact.vitality_loss_ppm() > 0),
                 other_event: interrupt || landed,
-                batch_receipt,
+                direct_event: if work_admitted {
+                    DirectEvent::WorkAdmitted
+                } else if direct_event {
+                    DirectEvent::Other
+                } else {
+                    DirectEvent::None
+                },
+                batch,
                 stale_gathering_option,
             },
             elapsed,
         ))
+    }
+
+    fn note_simulation_events(
+        &self,
+        simulation: &TickOutcome,
+        previous_work: Option<PlayerWork>,
+        output: &mut String,
+    ) -> (bool, Option<BatchCompletion>) {
+        let mut interrupt = false;
+        let mut batch = None;
+        if let Some(gathered) = simulation.surface_gathering() {
+            let _ = writeln!(
+                output,
+                "Gathered: {} g collected; {} g remains at the source.",
+                view::grams(gathered.gathered_mass()),
+                view::grams(gathered.remaining_mass()),
+            );
+            batch = Some(BatchCompletion {
+                receipt: BatchReceipt::Gathered(gathered.resource()),
+                surface: Some(gathered.resource()),
+            });
+        }
+        interrupt |= note_text(
+            output,
+            "Tree felled",
+            simulation.tree_felling().map(feedback::tree_felled),
+        );
+        interrupt |= note_text(
+            output,
+            "Construction finished",
+            simulation
+                .structural_construction()
+                .map(|element| feedback::construction_finished(&self.state, element)),
+        );
+        interrupt |= note_text(
+            output,
+            "Construction interrupted",
+            simulation.structural_construction_interrupted().map(|_| {
+                "The member lost its active support before activation; its material remains recoverable."
+                    .to_owned()
+            }),
+        );
+        interrupt |= note_text(
+            output,
+            "Dismantling finished",
+            simulation
+                .structural_dismantling()
+                .map(|_| match previous_work {
+                    Some(PlayerWork::StructuralDismantling { work }) => format!(
+                        "Recovered {} g of structural materials into your pack.",
+                        view::grams(work.recovered_mass()),
+                    ),
+                    _ => "Structural materials recovered into your pack.".to_owned(),
+                }),
+        );
+        interrupt |= note_text(
+            output,
+            "Storage recovered",
+            simulation
+                .storage_enclosure_dismantling()
+                .map(|_| "Enclosure materials recovered into storage.".to_owned()),
+        );
+        if let Some(survey) = simulation.field_prospecting() {
+            let material = self
+                .registries
+                .materials()
+                .get_material(survey.material())
+                .map_or("unknown material", |definition| definition.name());
+            let _ = writeln!(
+                output,
+                "Prospecting finished: {} {:?} observation(s) of {material}. Use 'knowledge' or 'knowledge 2' to inspect acquired evidence.",
+                survey.observation_count(),
+                survey.evidence(),
+            );
+            interrupt = true;
+        }
+        interrupt |= note_text(
+            output,
+            "Maintenance finished",
+            simulation
+                .equipment_maintenance()
+                .map(|event| feedback::maintenance(&self.registries, &self.state, event)),
+        );
+        interrupt |= note_text(
+            output,
+            "Manual power produced",
+            simulation.manual_power().map(feedback::power),
+        );
+        if let Some(mining) = simulation.mining_output() {
+            let material = self
+                .registries
+                .materials()
+                .commodity_name(mining.output().commodity())
+                .unwrap_or("unidentified ore");
+            let _ = writeln!(
+                output,
+                "Mining produced: {} g {material} entered inventory.",
+                view::grams(mining.output().mass()),
+            );
+            if matches!(previous_work, Some(PlayerWork::Mining { job }) if job == mining.job()) {
+                batch = Some(BatchCompletion {
+                    receipt: BatchReceipt::Mined(mining.job()),
+                    surface: None,
+                });
+            } else {
+                // Settlement of an earlier job is independent of the
+                // current batch; do not overwrite its completion receipt.
+                interrupt = true;
+            }
+        }
+        if let Some(deep_hearth::labor::PlayerWork::ManualProduction { job }) = previous_work {
+            for completion in simulation
+                .production_completions()
+                .iter()
+                .filter(|receipt| receipt.job() == job)
+            {
+                output.push_str(&crafting::completion(
+                    &self.registries,
+                    &self.state,
+                    completion,
+                ));
+                batch = Some(BatchCompletion {
+                    receipt: BatchReceipt::Produced(job),
+                    surface: None,
+                });
+            }
+        }
+        if let Some(scout) = simulation.kobold_scout() {
+            interrupt |= note_text(output, "Scout", feedback::scout(scout));
+        }
+        for pulse in simulation.kobold_alarm_pulses() {
+            interrupt |= note_text(output, "Heard alarm", Some(feedback::alarm(*pulse)));
+        }
+        (interrupt, batch)
     }
 }
 

@@ -315,13 +315,7 @@ fn gathering_reprojects_the_same_rooted_source_after_automatic_loose_pickup() {
     );
 }
 
-#[test]
-fn shallow_aim_completes_an_overhead_timber_cover_on_the_played_seed() {
-    use deep_hearth::core::state::validate_loaded_state;
-    use deep_hearth::matter::calculate_matter_accounting;
-
-    let mut session = Session::new(80705).unwrap();
-    let original_matter = calculate_matter_accounting(&session.state).unwrap().total();
+fn prepare_timber_panel_materials(session: &mut Session) {
     for command in [
         "s 20",
         "wait 10",
@@ -357,6 +351,16 @@ fn shallow_aim_completes_an_overhead_timber_cover_on_the_played_seed() {
     assert!(session.state.player_work().active().is_none());
     let (inventory, _) = session.command("inventory").unwrap();
     assert!(inventory.contains("timber board | 7200 g"), "{inventory}");
+}
+
+#[test]
+fn shallow_aim_completes_an_overhead_timber_cover_on_the_played_seed() {
+    use deep_hearth::core::state::validate_loaded_state;
+    use deep_hearth::matter::calculate_matter_accounting;
+
+    let mut session = Session::new(80705).unwrap();
+    let original_matter = calculate_matter_accounting(&session.state).unwrap().total();
+    prepare_timber_panel_materials(&mut session);
     session.command("select 3").unwrap();
     let before_preview = snapshot(&session);
     let (preview, _) = session.command("look e-shallow").unwrap();
@@ -753,6 +757,105 @@ fn begin_scheduled_work_aligns_the_real_clock_and_preserves_normal_admission() {
     );
     assert_eq!(rejected.state.control_tick().value(), 72);
     assert!(rejected.state.player_work().active().is_none());
+}
+
+#[test]
+fn queued_finish_stops_at_admission_when_pickup_occurs_on_the_same_frame() {
+    use deep_hearth::content::{FORM_BOARD, FORM_CHIP, MATERIAL_WOOD};
+    use deep_hearth::material::CommodityKey;
+
+    let mut session = Session::new(80705).unwrap();
+    prepare_timber_panel_materials(&mut session);
+    let select = |session: &mut Session, form| {
+        let inventory = project_player_inventory(&session.registries, &session.state).unwrap();
+        let index = inventory
+            .carried()
+            .stacks()
+            .iter()
+            .position(|stack| stack.commodity() == CommodityKey::new(MATERIAL_WOOD, form))
+            .unwrap()
+            + 1;
+        session.command(&format!("select {index}")).unwrap();
+    };
+    select(&mut session, FORM_CHIP);
+    for command in ["wait boundary", "wait 31", "drop"] {
+        session.command(command).unwrap();
+    }
+    assert_eq!(
+        session.state.control_tick().value() % CONTROL_TICKS_PER_SIMULATION_TICK,
+        32
+    );
+    select(&mut session, FORM_BOARD);
+    let (queued, _) = session.command("use e-shallow").unwrap();
+    assert!(queued.contains("Action queued"), "{queued}");
+    let before = snapshot(&session);
+    let mut reference = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&before)
+            .unwrap()
+            .into_state(&session.registries)
+            .unwrap(),
+        seed: None,
+    };
+    let (admission, _) = reference.command("wait work").unwrap();
+    assert!(admission.contains("Picked up:"), "{admission}");
+    assert!(
+        admission.contains("Structural construction started"),
+        "{admission}"
+    );
+    let (report, _) = session.command("wait finish").unwrap();
+    assert!(report.contains("Picked up:"), "{report}");
+    assert!(
+        report.contains("Structural construction started"),
+        "{report}"
+    );
+    assert!(!report.contains("Construction finished"), "{report}");
+    assert!(session.state.player_work().active().is_some());
+    assert_eq!(snapshot(&session), snapshot(&reference));
+}
+
+#[test]
+fn begin_does_not_start_work_after_pickup_on_the_alignment_boundary() {
+    let mut session = Session::new(24318).unwrap();
+    for command in [
+        "e 20",
+        "wait 10",
+        "gather 1 100",
+        "wait work",
+        "select 1",
+        "wait boundary",
+        "wait 31",
+        "drop",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    assert_eq!(
+        session.state.control_tick().value() % CONTROL_TICKS_PER_SIMULATION_TICK,
+        32,
+        "the dropped parcel's 40-control-tick grace period ends on the next boundary"
+    );
+    let before = snapshot(&session);
+    let mut reference = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&before)
+            .unwrap()
+            .into_state(&session.registries)
+            .unwrap(),
+        seed: None,
+    };
+    let (ordinary, _) = reference.command("wait boundary").unwrap();
+    assert!(ordinary.contains("Picked up:"), "{ordinary}");
+    assert_eq!(
+        reference.state.control_tick().value() % CONTROL_TICKS_PER_SIMULATION_TICK,
+        0
+    );
+    let (report, _) = session.command("begin gather 1 100").unwrap();
+    assert!(report.contains("Picked up:"), "{report}");
+    assert!(report.contains("Begin interrupted"), "{report}");
+    assert!(session.state.player_work().active().is_none());
+    assert_eq!(snapshot(&session), snapshot(&reference));
 }
 
 #[test]

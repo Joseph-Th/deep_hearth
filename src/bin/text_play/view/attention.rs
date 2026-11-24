@@ -10,7 +10,7 @@ use deep_hearth::kobolds::{
     available_nearby_kobold_scouts, available_nearby_kobold_tracks,
 };
 use deep_hearth::spatial::VoxelCoord;
-use deep_hearth::surface::AdjacentSurfaceResource;
+use deep_hearth::surface::{AdjacentSurfaceResource, SurfaceResourceId};
 use deep_hearth::survival::{
     HungerState, HydrationState, LocalDrinkSource, ThermalComfortState, Vitality, assess_survival,
     available_local_drink_sources,
@@ -82,9 +82,23 @@ impl LocalCues {
     /// scents. A new close approach, defensive resident, or changing physical
     /// supply remains actionable; canonical events and survival warnings are
     /// handled by the control-step owner independently of these observations.
-    pub fn work_attention(&self, next: &Self, player: VoxelCoord) -> Option<&'static str> {
+    /// A completed batch may change its own exact resource without interrupting
+    /// repetition; no unrelated sighting or supply change is suppressed.
+    pub fn work_attention(
+        &self,
+        next: &Self,
+        player: VoxelCoord,
+        completed_resource: Option<SurfaceResourceId>,
+    ) -> Option<&'static str> {
+        let other_resources =
+            |resource: &&AdjacentSurfaceResource| Some(resource.resource()) != completed_resource;
         self.watch_attention(next, player).or_else(|| {
-            if self.resources != next.resources {
+            if self
+                .resources
+                .iter()
+                .filter(other_resources)
+                .ne(next.resources.iter().filter(other_resources))
+            {
                 Some("Nearby loose resources have changed.")
             } else if self
                 .local_water

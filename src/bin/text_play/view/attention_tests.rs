@@ -136,7 +136,7 @@ fn daylight_watch_tolerates_passive_footprints_but_not_a_new_close_resident() {
     passive.weather = None;
     assert!(initial.changed(&passive).is_some());
     assert_eq!(initial.watch_attention(&passive, player), None);
-    assert_eq!(initial.work_attention(&passive, player), None);
+    assert_eq!(initial.work_attention(&passive, player, None), None);
 
     // A newly close resident is still a real reason to stop watching.
     let mut unseen = initial.clone();
@@ -157,7 +157,7 @@ fn daylight_watch_tolerates_passive_footprints_but_not_a_new_close_resident() {
         "daylight watches must use the same attention policy without surveying unrelated cues"
     );
     assert_eq!(
-        unseen.work_attention(&initial, resident_position),
+        unseen.work_attention(&initial, resident_position, None),
         Some("A resident is now visible near your immediate position.")
     );
 }
@@ -185,7 +185,7 @@ fn watch_attention_counts_same_role_residents_instead_of_treating_roles_as_ident
         Some("A resident is now visible near your immediate position.")
     );
     assert_eq!(
-        before.work_attention(&after, position),
+        before.work_attention(&after, position, None),
         Some("A resident is now visible near your immediate position.")
     );
     assert_eq!(after.watch_attention(&after, position), None);
@@ -259,19 +259,19 @@ fn work_wait_still_notices_changes_to_physical_food_and_water() {
     let mut changed = initial.clone();
     changed.resources.clear();
     assert_eq!(
-        initial.work_attention(&changed, player),
+        initial.work_attention(&changed, player, None),
         Some("Nearby loose resources have changed.")
     );
     changed = initial.clone();
     changed.water.clear();
     assert!(!initial.water.is_empty());
-    assert_eq!(initial.work_attention(&changed, player), None);
+    assert_eq!(initial.work_attention(&changed, player, None), None);
     assert_eq!(
         initial.changed(&changed),
         Some("Nearby water sightings have changed.")
     );
     assert_eq!(
-        changed.work_attention(&initial, player),
+        changed.work_attention(&initial, player, None),
         Some("New nearby water is visible.")
     );
 
@@ -287,8 +287,76 @@ fn work_wait_still_notices_changes_to_physical_food_and_water() {
     let mut lost_supply = at_water.clone();
     lost_supply.local_water.clear();
     assert_eq!(
-        at_water.work_attention(&lost_supply, player),
+        at_water.work_attention(&lost_supply, player, None),
         Some("Drinkable water at your position has changed.")
+    );
+}
+
+#[test]
+fn completed_batch_exempts_only_its_own_surface_resource_from_attention() {
+    let mut session = super::super::super::Session::new(24318).unwrap();
+    session.command("e 20").unwrap();
+    session.command("wait 10").unwrap();
+    let player = session.player_position().unwrap();
+    let initial = super::local_cues(&session.registries, &session.state);
+    let source =
+        deep_hearth::surface::player_surface_gathering_options(&session.registries, &session.state)
+            .unwrap()[0]
+            .resource();
+    assert!(
+        initial
+            .resources
+            .iter()
+            .any(|resource| resource.resource() == source)
+    );
+    assert!(initial.resources.len() > 1);
+    // Combine actual observations to isolate what the receipt exemption may
+    // suppress. It excuses the depleted source, not another local parcel,
+    // a new close resident, or newly available drinking water.
+    let mut completed = initial.clone();
+    completed
+        .resources
+        .retain(|resource| resource.resource() != source);
+    assert_eq!(
+        initial.work_attention(&completed, player, Some(source)),
+        None,
+    );
+    assert_eq!(
+        initial.work_attention(&completed, player, None),
+        Some("Nearby loose resources have changed."),
+    );
+    let mut other_resource = completed.clone();
+    let _ = other_resource.resources.pop().unwrap();
+    assert_eq!(
+        initial.work_attention(&other_resource, player, Some(source)),
+        Some("Nearby loose resources have changed."),
+    );
+
+    session.command("s 20").unwrap();
+    session.command("wait 10").unwrap();
+    let at_water = super::local_cues(&session.registries, &session.state);
+    assert!(!at_water.local_water.is_empty());
+    let mut water_changed = completed.clone();
+    water_changed.local_water = at_water.local_water;
+    assert_eq!(
+        initial.work_attention(&water_changed, player, Some(source)),
+        Some("Drinkable water at your position has changed."),
+    );
+
+    let mut resident_session = super::super::super::Session::new(1170684742).unwrap();
+    resident_session.command("s 20").unwrap();
+    resident_session.command("wait 10").unwrap();
+    let resident =
+        super::local_resident_sightings(&resident_session.registries, &resident_session.state)
+            .into_iter()
+            .find(|resident| !resident.is_defending())
+            .unwrap();
+    let mut before = initial;
+    before.kobolds.clear();
+    completed.kobolds = vec![resident];
+    assert_eq!(
+        before.work_attention(&completed, resident.position(), Some(source)),
+        Some("A resident is now visible near your immediate position."),
     );
 }
 

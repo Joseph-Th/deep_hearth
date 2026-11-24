@@ -302,16 +302,18 @@ impl Session {
             );
         }
         let clock_before = self.state.control_tick().value();
-        let original_urgency = view::urgency(&self.registries, &self.state);
         let scale = deep_hearth::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
         let remainder = clock_before % scale;
         let mut report = String::new();
         if remainder != 0 {
-            report =
-                self.advance_many(PlayerDirectControlInput::NEUTRAL, scale - remainder, false)?;
-            if self.state.control_tick().value() % scale != 0
-                || view::urgency(&self.registries, &self.state) != original_urgency
-            {
+            let alignment = self.advance_many_with_report(
+                PlayerDirectControlInput::NEUTRAL,
+                scale - remainder,
+                false,
+                super::stepping::TimedWaitMode::Ordinary,
+            )?;
+            report = alignment.output;
+            if alignment.stop != super::stepping::TimedStop::HorizonReached {
                 report.push_str(
                     "Begin interrupted during boundary alignment; requested work was not started.\n",
                 );

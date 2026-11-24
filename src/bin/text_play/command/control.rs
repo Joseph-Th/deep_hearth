@@ -1,7 +1,10 @@
 //! Direct-control locomotion, interaction, and time-step commands.
 //! These operations share the authoritative control-clock path.
 
-use super::super::{activity, view};
+use super::super::{
+    activity,
+    stepping::{TimedStop, TimedWaitMode},
+};
 use super::{Direction, Session, parse_index};
 use deep_hearth::logistics::{PlayerControlInput, PlayerQuickAccessSlot};
 use deep_hearth::simulation::{
@@ -126,12 +129,13 @@ impl Session {
                     } else {
                         MAX_WAIT_TICKS
                     });
-                self.advance_many_with_work_wait(
+                self.advance_many_with_report(
                     PlayerDirectControlInput::NEUTRAL,
                     count,
                     false,
-                    true,
+                    TimedWaitMode::Work,
                 )?
+                .output
             }
             "wait" if args.len() <= 1 => {
                 let count = parse_count(args.first().copied(), 72, MAX_WAIT_TICKS)?;
@@ -182,27 +186,32 @@ impl Session {
 
     /// Resolve buffered physical input at its real admission boundary. A work
     /// wait stops there; a finish wait continues through the scheduled job,
-    /// unless admission failed or the player's survival urgency changed.
+    /// unless admission failed or a distinct interruption occurred, including
+    /// on the admission frame itself.
     fn wait_queued_action(&mut self, finish: bool) -> Result<String, String> {
-        let before = view::urgency(&self.registries, &self.state);
         let scale = deep_hearth::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
         let remaining = scale - self.state.control_tick().value() % scale;
-        let mut output = self.advance_many_with_work_wait(
+        let admission = self.advance_many_with_report(
             PlayerDirectControlInput::NEUTRAL,
             remaining,
             false,
-            true,
+            TimedWaitMode::QueuedAdmission,
         )?;
+        let mut output = admission.output;
         if finish
-            && view::urgency(&self.registries, &self.state) == before
+            && admission.stop == TimedStop::WorkAdmitted
             && let Some(work_ticks) = activity::remaining_work_control_ticks(&self.state)
         {
-            output.push_str(&self.advance_many_with_work_wait(
-                PlayerDirectControlInput::NEUTRAL,
-                work_ticks.min(72_000),
-                false,
-                true,
-            )?);
+            output.push_str(
+                &self
+                    .advance_many_with_report(
+                        PlayerDirectControlInput::NEUTRAL,
+                        work_ticks.min(72_000),
+                        false,
+                        TimedWaitMode::Work,
+                    )?
+                    .output,
+            );
         }
         Ok(output)
     }
