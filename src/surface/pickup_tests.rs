@@ -1046,6 +1046,108 @@ fn automatic_pickup_waits_for_eating_until_the_completion_frame() {
 }
 
 #[test]
+fn due_craft_can_make_a_previously_unallocatable_drop_mergeable() {
+    use crate::content::{FORM_LUMP, PROCESS_KNAP_STONE_TOOL};
+    use crate::crafting::{ManualCraftStartRequest, validate_start_manual_craft};
+    use crate::inventory::MaterialLotSelection;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, 0, 0);
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let temperature = Temperature::from_millikelvin(293_150);
+    let mass = Mass::from_milligrams(50_000);
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let batch = Mass::from_milligrams(1_000_000);
+    let input = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+        batch,
+        temperature,
+    )
+    .unwrap();
+    let job = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            carried,
+            MaterialLotSelection::new(input, batch),
+            carried,
+        ),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let due = state.production().get_job(job).unwrap().completes_at();
+    let drop = insert_surface_resource_for_test(
+        &registries,
+        &mut state,
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            commodity,
+            mass,
+            temperature,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    // Reserve exactly the output identities promised to the admitted job.
+    // The loose parcel cannot acquire another identity before completion.
+    let demand = state.checked_future_material_lot_id_demand().unwrap();
+    assert!(demand > 0);
+    let mut saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    saved["state"]["systems"]["inventory"]["next_lot_id"] = serde_json::json!(u64::MAX - demand);
+    let mut state = serde_json::from_value::<LoadedSaveEnvelope>(saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    while state.tick().value() + 1 < due.value() {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    let before = state.clone();
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    let mut replay = state.clone();
+    for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK - 1 {
+        assert!(
+            advance_control_tick(&registries, &mut replay)
+                .unwrap()
+                .surface_drop_pickup()
+                .is_none()
+        );
+    }
+    let boundary = advance_control_tick(&registries, &mut replay).unwrap();
+    assert_eq!(replay.tick(), due);
+    assert_eq!(boundary.surface_drop_pickup().unwrap().resource(), drop);
+    assert_eq!(
+        replay.surface().get(drop).unwrap().remaining_mass(),
+        Mass::ZERO
+    );
+    assert_eq!(
+        calculate_matter_accounting(&replay).unwrap().total(),
+        matter
+    );
+    assert_eq!(validate_loaded_state(&registries, &replay), Ok(()));
+
+    assert_eq!(
+        advance_tick(&registries, &mut state),
+        Err(TickError::ControlSteppingRequired {
+            current: before.control_tick(),
+        }),
+        "the completion frame creates the first compatible inventory lot"
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn exhausted_lot_id_only_requires_control_stepping_for_mergeable_drops() {
     for mergeable in [false, true] {
         let registries = build_registries();

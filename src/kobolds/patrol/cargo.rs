@@ -27,9 +27,7 @@ pub(super) fn full_bulk_ration_over_portable(
     portable: Option<SurfaceResourceId>,
 ) -> Option<(SurfaceResourceId, Mass)> {
     let whole = state.surface().get(portable?)?;
-    if registries.survival().get_food(whole.commodity()).is_none() {
-        return None;
-    }
+    registries.survival().get_food(whole.commodity())?;
     let shortage = super::super::SCOUT_MEAL_MASS
         .checked_sub(colony.partial_meal)
         .expect("trusted scout's credited partial ration is below one full meal");

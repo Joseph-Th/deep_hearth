@@ -47,10 +47,10 @@ impl MiningState {
         self.due_jobs.keys().next().copied()
     }
 
-    /// Only work completing now and already-extracted parcels can load a
-    /// mounted destination on the next slow boundary. Reading the due and
-    /// settlement indexes avoids scanning unrelated future mining work.
-    pub(crate) fn structurally_settling_jobs_at(
+    /// Jobs that may settle output on this boundary: due extraction and
+    /// previously extracted parcels awaiting inventory ingress. The due and
+    /// settlement indexes avoid scanning unrelated future mining work.
+    pub(crate) fn settlement_candidates_at(
         &self,
         tick: SimulationTick,
     ) -> impl Iterator<Item = &super::MiningJobRecord> {

@@ -88,7 +88,10 @@ do not pay this copying cost; the public `AppState` and global surface owner
 still expose no production `Clone` or whole-world data access to adapters.
 
 A known due tick is a bound, not permission to skip intervening semantics. Semantic fast-forward requires a
-separate authoritative transition with proved equivalence across every skipped phase.
+separate authoritative transition with proved equivalence across every skipped phase. For automatic pickup,
+current inventory admission alone does not prove that a slow boundary is inert: due output may create a
+compatible lot or release reserved identity and revision headroom. If an eligible local drop remains blocked
+only by ingress availability and scheduled inventory settlement may change it, retain the boundary control sample.
 
 Control-rate excavation exertion is settled at slow boundaries and at off-boundary completion. Active-work
 reserve validation therefore accounts for all exertion after the last settled boundary, including elapsed but

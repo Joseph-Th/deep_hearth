@@ -110,6 +110,126 @@ fn same_tick_completions_are_emitted_in_stable_job_id_order() {
 }
 
 #[test]
+fn batched_completions_can_release_inventory_revision_for_boundary_pickup() {
+    use crate::content::{FORM_CHIP, MATERIAL_STONE};
+    use crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
+    use crate::matter::calculate_matter_accounting;
+    use crate::simulation::TickError;
+    use crate::surface::{
+        SurfaceResourceKind, SurfaceResourceSpec, insert_surface_resource_for_test,
+    };
+
+    let (registries, mut state, source, carried, first) = carried_output_process_fixture();
+    let position = state.logistics().player().unwrap().position();
+    let duration = first.duration();
+    validate_start_player_process(&registries, &state, &first, source, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let resources = add_test_heating_resources(&registries, &mut state);
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_equipment_placement(
+        revision,
+        revision + 1,
+        resources.equipment,
+        position,
+    );
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_energy_store_placement(
+        revision,
+        revision + 1,
+        resources.energy,
+        position,
+    );
+    let second = resolve_test_heating(
+        &registries,
+        &state,
+        TEST_PROCESS,
+        source,
+        resources,
+        TEST_TARGET_TEMPERATURE,
+    );
+    assert_eq!(second.duration(), duration);
+    validate_start_player_process(&registries, &state, &second, source, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(state.player_work().active().is_none());
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let mass = Mass::from_milligrams(50_000);
+    let drop = insert_surface_resource_for_test(
+        &registries,
+        &mut state,
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    // Each retained job reserves an inventory revision. Completing together
+    // uses one revision, releasing the other to the final control sample.
+    assert_eq!(state.checked_future_inventory_revision_demand(), Some(2));
+    let mut saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    saved["state"]["systems"]["inventory"]["revision"] = serde_json::json!(u64::MAX - 2);
+    let mut state = serde_json::from_value::<LoadedSaveEnvelope>(saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert!(!state.can_spend_inventory_revisions(1));
+    for _ in 1..duration.value() {
+        assert!(
+            advance_tick(&registries, &mut state)
+                .unwrap()
+                .production_completions()
+                .is_empty()
+        );
+    }
+    let before = state.clone();
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    let mut replay = state.clone();
+    for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK - 1 {
+        assert!(
+            advance_control_tick(&registries, &mut replay)
+                .unwrap()
+                .surface_drop_pickup()
+                .is_none()
+        );
+    }
+    let boundary = advance_control_tick(&registries, &mut replay).unwrap();
+    assert_eq!(
+        boundary
+            .simulation()
+            .unwrap()
+            .production_completions()
+            .len(),
+        2
+    );
+    assert_eq!(boundary.surface_drop_pickup().unwrap().resource(), drop);
+    assert_eq!(replay.inventory().revision(), u64::MAX);
+    assert_eq!(
+        replay.surface().get(drop).unwrap().remaining_mass(),
+        Mass::ZERO
+    );
+    assert_eq!(
+        calculate_matter_accounting(&replay).unwrap().total(),
+        matter
+    );
+    assert_eq!(validate_loaded_state(&registries, &replay), Ok(()));
+    assert_eq!(
+        advance_tick(&registries, &mut state),
+        Err(TickError::ControlSteppingRequired {
+            current: before.control_tick(),
+        })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn compatible_nonperishable_production_outputs_coalesce_and_preserve_provenance_range() {
     let registries = make_test_registries();
     let mut state = AppState::new();

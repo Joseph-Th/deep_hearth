@@ -61,7 +61,7 @@ fn settlement_index_tracks_completion_retirement_and_rebuild_without_future_jobs
     let mut state = MiningState::new();
     let candidates = |state: &MiningState, at| {
         state
-            .structurally_settling_jobs_at(at)
+            .settlement_candidates_at(at)
             .map(MiningJobRecord::id)
             .collect::<BTreeSet<_>>()
     };

@@ -159,7 +159,7 @@ fn collect_due_mining_supports(
     next_tick: SimulationTick,
     supports: &mut BTreeSet<StructuralElementId>,
 ) {
-    for job in state.mining().structurally_settling_jobs_at(next_tick) {
+    for job in state.mining().settlement_candidates_at(next_tick) {
         if let Some(support) = state
             .inventory()
             .get_stockpile(job.destination())

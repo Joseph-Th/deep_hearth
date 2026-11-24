@@ -3,7 +3,7 @@
 use crate::content::{FORM_LOG, MATERIAL_WOOD};
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
-use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, ControlTick, SimulationTick, TickSpan};
+use crate::core::time::{ControlTick, SimulationTick, TickSpan};
 use crate::inventory::{
     MaterialIngressEntry, MaterialIngressError, MaterialLotId, StockpileId,
     ValidatedMaterialIngress, apply_material_ingress, validate_material_ingress,
@@ -78,14 +78,15 @@ fn available_pickup_destination(state: &AppState) -> Option<(StockpileId, VoxelC
         // is chopping, crafting, building, servicing tools, or consuming.
         return None;
     }
-    available_pickup_destination_when_hands_free(state)
+    if !state.can_spend_inventory_revisions(1) || !state.can_spend_surface_revisions(1) {
+        return None;
+    }
+    pickup_physical_destination(state)
 }
 
-/// Shared physical and revision eligibility, also used to check the frame
-/// immediately after any due exclusive work releases the player's hands.
-fn available_pickup_destination_when_hands_free(
-    state: &AppState,
-) -> Option<(StockpileId, VoxelCoord, Mass)> {
+/// Physical eligibility independent of current inventory revision headroom.
+/// Fast-forward must consider headroom released by the upcoming settlement.
+fn pickup_physical_destination(state: &AppState) -> Option<(StockpileId, VoxelCoord, Mass)> {
     let player = state.logistics().player().copied()?;
     if !state
         .survival()
@@ -95,8 +96,6 @@ fn available_pickup_destination_when_hands_free(
         // melee windup occupies that hand just as it does for explicit
         // ground transfers; automatic collection cannot bypass the stance.
         || state.combat().has_prepared_strike()
-        || !state.can_spend_inventory_revisions(1)
-        || !state.can_spend_surface_revisions(1)
     {
         return None;
     }
@@ -207,30 +206,48 @@ fn work_may_release_at_next_boundary(state: &AppState, next: SimulationTick) -> 
     }
 }
 
-/// A full pack, dead player, unallocatable parcel, or drop whose pickup delay
-/// extends beyond the next slow boundary cannot produce a control-rate pickup
-/// during a skipped interval. A merge into an existing lot remains possible
-/// even if no new lot identities can be allocated.
+/// Inventory ingress and released reservations can make a previously blocked
+/// parcel collectible on the boundary's final control sample. Direct work
+/// has already passed the release check; autonomous jobs retain their own
+/// due and settlement indexes. No compatible-lot guess can prove a skip safe
+/// until those owners have settled.
+fn boundary_inventory_may_change(
+    registries: &Registries,
+    state: &AppState,
+    next: SimulationTick,
+) -> bool {
+    state.player_work().future_inventory_revision_demand() != 0
+        || state.production().earliest_due_tick() == Some(next)
+        || state
+            .mining()
+            .settlement_candidates_at(next)
+            .next()
+            .is_some()
+        || !crate::production::resumed_jobs_completing_next_tick(registries, state, next)
+            .is_ok_and(|jobs| jobs.is_empty())
+}
+
+/// A full pack, dead player, or drop whose pickup delay extends beyond the
+/// next boundary cannot produce a control-rate pickup during a skipped interval.
+/// At lot or inventory-revision exhaustion, allow skipping only if no eligible
+/// parcel can enter now or become collectible through scheduled inventory ingress.
 pub(crate) fn automatic_surface_pickup_requires_control_stepping(
     registries: &Registries,
     state: &AppState,
 ) -> bool {
-    let destination = match state.player_work().active() {
-        None => available_pickup_destination(state),
-        Some(_) => {
-            let releases = state
-                .tick()
-                .checked_add_executable_span(TickSpan::new(1))
-                .is_some_and(|next| work_may_release_at_next_boundary(state, next));
-            if !releases {
-                return false;
-            }
-            available_pickup_destination_when_hands_free(state)
-        }
-    };
-    let Some((destination, position, available_capacity)) = destination else {
+    let Some(next) = state.tick().checked_add_executable_span(TickSpan::new(1)) else {
         return false;
     };
+    if state.player_work().active().is_some() && !work_may_release_at_next_boundary(state, next) {
+        return false;
+    }
+    let Some((destination, position, available_capacity)) = pickup_physical_destination(state)
+    else {
+        return false;
+    };
+    if !state.can_spend_surface_revisions(1) {
+        return false;
+    }
     // A reserved loose parcel cannot be picked up during hand gathering.
     // On the due boundary the final control sample releases its reservation
     // and must be retained to collect any unclaimed remainder immediately.
@@ -240,40 +257,45 @@ pub(crate) fn automatic_surface_pickup_requires_control_stepping(
         && !requires_deliberate_pickup(resource)
         && resource.remaining_mass() > work.gathered_mass()
         && resource.temperature() <= MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE
-        && work.completes_at().value() == state.tick().value().saturating_add(1)
+        && work.completes_at() == next
     {
         return true;
     }
-    let remaining = CONTROL_TICKS_PER_SIMULATION_TICK
-        - state.control_tick().value() % CONTROL_TICKS_PER_SIMULATION_TICK;
-    let Some(next_boundary) = state.control_tick().checked_add_steps(remaining) else {
-        return true;
-    };
+    let next_boundary = ControlTick::from_simulation_tick(next)
+        .expect("executable simulation tick has a control boundary");
     let mut drops = state
         .surface()
         .available_resources_at(Some(position))
         .filter(|resource| {
             resource.kind() == SurfaceResourceKind::Drop
                 && pickup_eligible_at(state, resource, next_boundary)
-        });
-    // With one available identity after reserving all future obligations,
-    // any currently available local drop can be picked up on a control step.
-    if state.has_material_lot_id_headroom_from(state.inventory().next_lot_id(), 1) {
-        return drops.next().is_some();
+        })
+        .peekable();
+    if drops.peek().is_none() {
+        return false;
     }
-    // At identity exhaustion only parcels which coalesce with an existing lot
-    // can transfer. This must use inventory's actual merge admission policy.
-    drops.any(|resource| {
-        validate_pickup_ingress(
-            registries,
-            state,
-            destination,
-            available_capacity,
-            resource,
-            state.tick(),
-        )
-        .is_some()
-    })
+    if state.can_spend_inventory_revisions(1) {
+        // With one available identity after reserving all future obligations,
+        // any eligible local drop can be picked up on a control step.
+        if state.has_material_lot_id_headroom_from(state.inventory().next_lot_id(), 1) {
+            return true;
+        }
+        // At identity exhaustion, ask the actual merge admission policy.
+        if drops.any(|resource| {
+            validate_pickup_ingress(
+                registries,
+                state,
+                destination,
+                available_capacity,
+                resource,
+                state.tick(),
+            )
+            .is_some()
+        }) {
+            return true;
+        }
+    }
+    boundary_inventory_may_change(registries, state, next)
 }
 
 fn validate_pickup_ingress(
