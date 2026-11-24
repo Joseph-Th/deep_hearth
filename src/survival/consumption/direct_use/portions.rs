@@ -9,10 +9,10 @@ use crate::core::state::AppState;
 use crate::inventory::{
     MaterialLotId, MaterialLotSelection, MaterialStackProjection, MaterialStackProjectionError,
 };
-use crate::logistics::validate_player_stockpile_access;
 use crate::registry::Registries;
 
-use super::super::{EatError, ValidatedEat, validate_eat};
+use super::super::eating::{validate_admitted_meal, validate_eating_admission};
+use super::super::{EatError, ValidatedEat};
 
 #[must_use]
 #[derive(Clone, Copy, Debug)]
@@ -94,10 +94,10 @@ pub fn validate_eat_stack_portions(
         .first()
         .map(|portion| portion.stack().stockpile())
         .ok_or(EatStackPortionsError::EmptyMeal)?;
-    // A displayed stack is not proof of current player access. Reject remote
-    // custody before inspecting sizes, freshness cohorts, or lot membership.
-    validate_player_stockpile_access(state, source)
-        .map_err(|error| EatStackPortionsError::Eat(EatError::Access(error)))?;
+    // Use the same admission order as exact-lot eating. A displayed stack is
+    // not proof of available attention or current source access.
+    let attention = validate_eating_admission(registries, state, source, false)
+        .map_err(EatStackPortionsError::Eat)?;
     // Multiple requested portions of the same projected stack must share one
     // allocation across its underlying lots. Resolving each portion separately
     // starts at the first lot every time and can overdraw it even when the
@@ -160,5 +160,6 @@ pub fn validate_eat_stack_portions(
             Ok(MaterialLotSelection::new(lot, Mass::from_milligrams(mass)))
         })
         .collect::<Result<Vec<_>, EatStackPortionsError>>()?;
-    validate_eat(registries, state, source, &selections).map_err(EatStackPortionsError::Eat)
+    validate_admitted_meal(registries, state, source, &selections, attention)
+        .map_err(EatStackPortionsError::Eat)
 }

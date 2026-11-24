@@ -1192,9 +1192,6 @@ fn dead_player_full_reserve_use_rejects_before_reporting_no_meal_or_drink_needed
         Temperature::from_millikelvin(293_150),
     )
     .unwrap();
-    let stack = project_material_stacks(&registries, &state, carried)
-        .unwrap()
-        .remove(0);
     let water = add_fluid_store_with_contents_for_fixture(
         &registries,
         &mut state,
@@ -1208,6 +1205,26 @@ fn dead_player_full_reserve_use_rejects_before_reporting_no_meal_or_drink_needed
         .unwrap()
         .commit(&mut state)
         .unwrap();
+    let remote = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000)).unwrap();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        remote,
+        CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+        Mass::from_milligrams(100_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_place_ground_stockpile(&state, remote, VoxelCoord::new(1, 0, 0))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let remote_stack = project_material_stacks(&registries, &state, remote)
+        .unwrap()
+        .remove(0);
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap()
+        .remove(0);
     let player = state.survival().player().copied().unwrap();
     let physiology = registries.survival().physiology();
     let revision = state.survival().revision();
@@ -1236,6 +1253,20 @@ fn dead_player_full_reserve_use_rejects_before_reporting_no_meal_or_drink_needed
             validate_eat_lot_to_full(&registries, candidate, lot).err(),
             Some(EatLotToTargetError::Eat(EatError::PlayerDead)),
         );
+        for selected in [&stack, &remote_stack] {
+            assert_eq!(
+                validate_eat_stack_portions(
+                    &registries,
+                    candidate,
+                    &[FoodStackPortion::new(
+                        selected,
+                        Mass::from_milligrams(200_000)
+                    )],
+                )
+                .err(),
+                Some(EatStackPortionsError::Eat(EatError::PlayerDead)),
+            );
+        }
         assert_eq!(
             validate_eat_lot_to_metabolic_target(
                 &registries,

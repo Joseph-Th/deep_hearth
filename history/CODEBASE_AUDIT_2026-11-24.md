@@ -211,3 +211,70 @@ Verification after the continued production changes:
   `0x70CA1B6DAA2BD7BD/0x9577CFF5A085CB2F`.
 - `python tools/check_authority_docs.py`: PASS.
 
+## Further survival and custody review
+
+Reviewed manual-production suspension and retained-site validation, carried
+equipment and stockpile movement guards, attention admission and commit
+snapshots, direct consumption, food preservation, and structural floor
+collision. Retained production endpoints are already constrained to the same
+site; failed but embodied full-cell members still provide collision. Neither
+path warranted a speculative behavior change.
+
+The multi-portion meal defect involved inspecting stack mass and remote
+custody before checking actor attention. The dead-player regression
+reproduced a MassExceedsStack result instead of PlayerDead. Exact-lot and
+multi-portion meal validation now share the same timing, attention and
+source admission, then resolve exact selections and reserve consumption.
+The regression covers oversized local and remote selections against both
+live memory and trusted-load snapshots and verifies no mutation.
+
+Natural dry-scrub replay, seed 24318, using the previous verified terminal
+binary:
+
+```text
+trek w 3 steady
+trek n 2 steady
+begin gather 1 5000
+wait finish
+trek e 4 steady
+trek s 1 steady
+gather 1 500 repeat 3
+begin craft 109 3 from 2
+wait finish
+eat 3
+wait finish
+begin craft 29
+wait finish
+trek n 1 steady
+place-store 6
+stash 1 3 1000
+withdraw 1 1 250
+inventory
+quit
+```
+
+Collected 5,000 g stone, leaving 356.688 g at the source, and 1,500 g
+wild nuts, leaving 248.795 g. Sorting took 43 minutes 12 seconds and
+returned 1,350 g preserved nuts and 150 g rejected fragments. Eating
+152.134 g restored the food reserve to 100%, leaving 1,197.866 g.
+Shaping 3,000 g stone returned a 2,400 g crock body and 600 g chips.
+Storage admission correctly blocked placement on the rooted food patch;
+moving one voxel north admitted the crock. Depositing 1,000 g and
+withdrawing 250 g left 750 g stored and 447.866 g carried. The displayed
+spoilage estimates were 10,797 hours 12 minutes in the crock and
+4,318 hours 53 minutes outside it, consistent with slower storage
+exposure, not a reset of food age. Vitality remained 100% throughout.
+This is a natural opening and preservation route, not a seasonal
+survival or complete progression claim.
+
+Verification:
+
+- `python tools/run_test.py dead_player_full_reserve_use_rejects_before_reporting_no_meal_or_drink_needed`: reproduced failure; PASS after shared meal admission.
+- `python ci.py quick`: PASS, four checks.
+- `python ci.py audit --core`: PASS, 2,767 tests.
+- `python ci.py gate --lint`: PASS.
+- `python tools/check_authority_docs.py`: PASS.
+- `python ci.py audit --gameplay`: PASS, 194 tests; settlement sample,
+  ordinary-exact-local-after-disclosed-bootstrap evidence, roots
+  `0x4DEEB6EE20A41495/0xA3ECAEFC23973508`.
+

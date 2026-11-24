@@ -188,7 +188,10 @@ multiple viable cohorts remain ambiguous and require an explicit stack choice.
 An already-satisfied reserve creates no executable meal, even if several
 fresh stacks are present; it reports the canonical no-op rather than a false
 physical-choice ambiguity. One observed but inadmissible cohort still reports
-its canonical rejection.
+its canonical rejection. Exact-lot and explicit multi-portion meals share
+one admission path for the clock boundary, player attention, and source access
+before resolving material selections. A dead or otherwise unavailable player
+cannot inspect stack mass or lot membership through meal validation.
 When selected fuel is usable by multiple co-located combustion stores, direct
 use selects a store only if the canonical fuel validator admits exactly one.
 Full or occupied stores cannot mask that sole usable destination; multiple

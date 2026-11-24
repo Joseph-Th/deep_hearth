@@ -18,7 +18,7 @@ use crate::inventory::{
 };
 use crate::labor::{
     EatingWork, PlayerAttentionConflict, PlayerAttentionError, PlayerWork,
-    ValidatedPlayerAttentionHold, validate_player_attention,
+    ValidatedPlayerAttention, ValidatedPlayerAttentionHold, validate_player_attention,
 };
 use crate::logistics::validate_player_stockpile_access;
 use crate::material::MaterialId;
@@ -282,6 +282,17 @@ pub(super) fn validate_eat_with_mode(
     selections: &[MaterialLotSelection],
     preview_off_boundary: bool,
 ) -> Result<ValidatedEat, EatError> {
+    let attention = validate_eating_admission(registries, state, source, preview_off_boundary)?;
+    validate_admitted_meal(registries, state, source, selections, attention)
+}
+
+/// Establish actor attention and source access before inspecting any meal selection.
+pub(super) fn validate_eating_admission(
+    registries: &Registries,
+    state: &AppState,
+    source: StockpileId,
+    preview_off_boundary: bool,
+) -> Result<ValidatedPlayerAttention, EatError> {
     if !preview_off_boundary {
         require_simulation_boundary(state.control_tick()).map_err(EatError::SimulationBoundary)?;
     }
@@ -294,6 +305,17 @@ pub(super) fn validate_eat_with_mode(
         PlayerAttentionError::PreparedStrikeActive => EatError::PreparedStrikeActive,
     })?;
     validate_player_stockpile_access(state, source).map_err(EatError::Access)?;
+    Ok(attention)
+}
+
+/// Resolve and reserve an exact meal in the same immutable state used for admission.
+pub(super) fn validate_admitted_meal(
+    registries: &Registries,
+    state: &AppState,
+    source: StockpileId,
+    selections: &[MaterialLotSelection],
+    attention: ValidatedPlayerAttention,
+) -> Result<ValidatedEat, EatError> {
     let exact_selection =
         validate_explicit_consumption_selection(state.inventory(), source, selections)
             .map_err(map_eat_selection_error)?;

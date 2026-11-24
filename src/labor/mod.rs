@@ -44,8 +44,8 @@ pub use work::{
 pub use work_resources::PlayerWorkResourceBudget;
 
 pub(crate) use attention::{
-    PlayerAttentionConflict, PlayerAttentionError, ValidatedPlayerAttentionHold,
-    validate_player_attention,
+    PlayerAttentionConflict, PlayerAttentionError, ValidatedPlayerAttention,
+    ValidatedPlayerAttentionHold, validate_player_attention,
 };
 pub(crate) use definitions::ProspectingRegionError;
 pub(crate) use lifecycle::{
