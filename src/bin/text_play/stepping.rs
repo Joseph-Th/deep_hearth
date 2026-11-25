@@ -43,17 +43,70 @@ struct BatchCompletion {
 pub(super) struct StepReport {
     noteworthy: bool,
     travel_interrupt: bool,
-    other_event: bool,
+    independent_event: bool,
+    pickup: Option<SurfaceResourceId>,
     direct_event: DirectEvent,
     batch: Option<BatchCompletion>,
     pub(super) stale_gathering_option: bool,
 }
 
 impl StepReport {
-    fn interrupts_wait(&self, admitted: bool) -> bool {
-        self.other_event
+    fn other_event(&self) -> bool {
+        self.independent_event || self.pickup.is_some()
+    }
+
+    pub(super) fn interrupts_wait(&self, admitted: bool) -> bool {
+        self.other_event()
             || self.batch.is_some()
             || (self.direct_event != DirectEvent::None && !admitted)
+    }
+
+    /// A pickup that invalidated this exact option may be recovered, but
+    /// never at the expense of a separate event on the same control frame.
+    pub(super) fn gathering_retry_pickup(&self) -> Option<SurfaceResourceId> {
+        self.pickup.filter(|_| self.stale_gathering_option)
+    }
+
+    pub(super) fn interrupts_gathering_admission(&self) -> bool {
+        self.independent_event
+            || self.batch.is_some()
+            || (self.pickup.is_some() && self.gathering_retry_pickup().is_none())
+    }
+}
+
+/// Observations taken before an adapter-managed admission frame. A follow-up
+/// input or automatic wait must not absorb a new warning into its baseline.
+pub(super) struct AdmissionWatch {
+    urgency: Option<view::Urgency>,
+    cues: view::LocalCues,
+}
+
+impl AdmissionWatch {
+    pub(super) fn capture(session: &Session) -> Self {
+        Self {
+            urgency: view::urgency(&session.registries, &session.state),
+            cues: view::local_cues(&session.registries, &session.state),
+        }
+    }
+
+    pub(super) fn changed(
+        &self,
+        session: &Session,
+        expected_pickup: Option<SurfaceResourceId>,
+        output: &mut String,
+    ) -> Result<bool, String> {
+        if view::urgency(&session.registries, &session.state) != self.urgency {
+            return Ok(true);
+        }
+        let current = view::local_cues(&session.registries, &session.state);
+        if let Some(description) =
+            self.cues
+                .work_attention(&current, session.player_position()?, expected_pickup)
+        {
+            let _ = writeln!(output, "{description}");
+            return Ok(true);
+        }
+        Ok(false)
     }
 }
 
@@ -392,7 +445,7 @@ impl Session {
             actual += elapsed;
             let matching = report.batch.filter(|batch| batch.receipt == expected);
             completed = matching.is_some();
-            interrupted = report.other_event
+            interrupted = report.other_event()
                 || report.direct_event != DirectEvent::None
                 || view::urgency(&self.registries, &self.state) != initial;
             // Ignore only the expected receipt's own resource change. A
@@ -636,12 +689,11 @@ impl Session {
             fall.filter(|impact| impact.vitality_loss_ppm() > 0)
                 .map(feedback::landing),
         );
-        interrupt |= note_text(
+        let pickup = outcome.surface_drop_pickup();
+        let picked_up = note_text(
             output,
             "Picked up",
-            outcome
-                .surface_drop_pickup()
-                .map(|event| feedback::pickup(&self.registries, event)),
+            pickup.map(|event| feedback::pickup(&self.registries, event)),
         );
         let mut direct_event = note_text(
             output,
@@ -670,6 +722,7 @@ impl Session {
             batch = slow_batch.or(batch);
         }
         if !interrupt
+            && !picked_up
             && !direct_event
             && !landed
             && batch.is_none()
@@ -688,12 +741,14 @@ impl Session {
         }
         Ok((
             StepReport {
-                noteworthy: interrupt || direct_event || landed || batch.is_some(),
+                noteworthy: interrupt || picked_up || direct_event || landed || batch.is_some(),
                 travel_interrupt: interrupt
+                    || picked_up
                     || direct_event
                     || batch.is_some()
                     || fall.is_some_and(|impact| impact.vitality_loss_ppm() > 0),
-                other_event: interrupt || landed,
+                independent_event: interrupt || landed,
+                pickup: pickup.map(|event| event.resource()),
                 direct_event: if work_admitted {
                     DirectEvent::WorkAdmitted
                 } else if direct_event {

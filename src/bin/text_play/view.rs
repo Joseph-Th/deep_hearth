@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use super::{DefaultGatheringBatch, activity};
+use super::{activity, gathering::DefaultGatheringBatch};
 mod actor_inventory;
 mod attention;
 mod sensory;

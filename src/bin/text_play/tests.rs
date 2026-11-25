@@ -2,7 +2,10 @@
 
 use super::*;
 use deep_hearth::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
+use deep_hearth::labor::PlayerWork;
 use deep_hearth::logistics::{HorizontalControlInput, PlayerControlInput};
+use deep_hearth::simulation::PlayerDirectControlInput;
+use deep_hearth::surface::player_surface_gathering_options;
 use deep_hearth::survival::{ThermalComfortState, assess_survival};
 
 fn snapshot(session: &Session) -> Vec<u8> {
@@ -112,6 +115,73 @@ fn eating_at_slow_boundary_refreshes_the_exact_selected_cohort() {
         deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
         Ok(())
     );
+}
+
+/// Arrange a real slow-boundary warning without replacing runtime stepping.
+fn prepare_thirst_warning_boundary() -> Session {
+    let mut session = Session::new(24318).unwrap();
+    for command in [
+        "e 20",
+        "wait 10",
+        "gather 1 500",
+        "wait work",
+        "wait boundary",
+    ] {
+        session.command(command).unwrap();
+    }
+    for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK - 1 {
+        session
+            .step(PlayerDirectControlInput::NEUTRAL, &mut String::new())
+            .unwrap();
+    }
+    assert!(
+        session
+            .state
+            .control_tick()
+            .checked_next()
+            .unwrap()
+            .is_simulation_boundary()
+    );
+    let mut saved: serde_json::Value = serde_json::from_slice(&snapshot(&session)).unwrap();
+    saved["state"]["systems"]["survival"]["player"]["hydration"] = serde_json::json!(
+        session
+            .registries
+            .survival()
+            .physiology()
+            .thirsty_below()
+            .microliters()
+    );
+    session.state = serde_json::from_value::<LoadedSaveEnvelope>(saved)
+        .unwrap()
+        .into_state(&session.registries)
+        .unwrap();
+    session
+}
+
+#[test]
+fn eating_alignment_does_not_continue_past_a_new_survival_warning() {
+    let mut session = prepare_thirst_warning_boundary();
+    let before = session.state.control_tick();
+    let output = session.command("eat 1").unwrap().0;
+    assert_eq!(
+        session.state.control_tick(),
+        before.checked_next().unwrap(),
+        "{output}"
+    );
+    assert!(session.state.player_work().active().is_none(), "{output}");
+}
+
+#[test]
+fn repeated_gathering_does_not_wait_through_a_warning_on_its_admission_frame() {
+    let mut session = prepare_thirst_warning_boundary();
+    let before = session.state.control_tick();
+    let output = session.command("gather 1 100 repeat 2").unwrap().0;
+    assert_eq!(
+        session.state.control_tick(),
+        before.checked_next().unwrap(),
+        "{output}"
+    );
+    assert!(output.contains("0 batches completed"), "{output}");
 }
 
 #[test]
