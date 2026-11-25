@@ -378,9 +378,11 @@ whether den eviction is necessary. Den food eviction considers that same bounded
 route envelope, checking the scout's den-relative visibility and safe access to
 both the intermediate step and the destination before discarding inert stock.
 Choosing the tip alone retains the ordinary patrol route rather than persisting
-a redundant detour. Prolonged water deprivation suppresses optional salvage but
-preserves the same food-serving comparison when no usable water route is
-available. The finite-water route planner uses
+a redundant detour. Prolonged water deprivation suppresses optional salvage and
+industrial den eviction, but preserves food-serving comparison and food-driven
+den eviction when no usable water route is available. Drinking settles before
+den care, so a completed ration can restore industrial eviction eligibility on
+that same visit. The finite-water route planner uses
 the **current junction's** local sightline to judge player deterrence at both
 one-edge and two-edge destinations.
 A hypothetical intermediate step cannot reveal a player before the scout actually

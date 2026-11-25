@@ -198,6 +198,12 @@ pub(super) fn clear_inert_cache_for_industry(
 ) -> Option<SurfaceResourceId> {
     let colony = state.kobold_state().colony.as_ref()?;
     colony.mobilized_at?;
+    // Industrial preparation must obey the same hydration limit as the
+    // actual raid. Den care runs after local drinking, so a completed drink
+    // can restore this option immediately without delaying food eviction.
+    if crate::kobolds::hydration::prolonged_water_deprivation(colony, at) {
+        return None;
+    }
     let route = ScavengeRoute::new(
         colony.route,
         state.logistics().player().map(|record| record.position()),

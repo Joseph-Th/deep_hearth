@@ -1928,6 +1928,154 @@ fn a_partly_free_industrial_den_only_evicts_if_intact_salvage_does_not_fit() {
 }
 
 #[test]
+fn water_deprived_scout_preserves_den_stock_until_drinking_recovers_industrial_work() {
+    use crate::content::{ENERGY_ELECTRICAL_BUFFER, FLUID_WATER, build_registries};
+    use crate::core::quantity::Volume;
+    use crate::fluid::{
+        add_fluid_store_with_contents_for_fixture, calculate_fluid_volume_accounting,
+    };
+    use crate::logistics::validate_place_fluid_store;
+
+    let (registries, mut state, route) = scenario_with_registry(
+        build_registries(),
+        ENERGY_ELECTRICAL_BUFFER,
+        Some(route_machinery()),
+    );
+    advance_to(&registries, &mut state, 1_779);
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(colony.scout_position(), route[0]);
+    assert_eq!(colony.next_meal_at, SimulationTick::new(1_780));
+    assert!(colony.mobilized_at.is_some());
+    assert!(crate::kobolds::hydration::prolonged_water_deprivation(
+        colony,
+        SimulationTick::new(1_780)
+    ));
+    let stone = cache_stone(&registries, &mut state, route[0]);
+    let winding = copper_winding(&registries, &mut state, route[3]);
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    for _ in 0..400 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(stone).unwrap().position(),
+        route[0],
+        "a resident unable to start an industrial raid must not discard its den stock for one"
+    );
+    assert_eq!(state.surface().get(winding).unwrap().position(), route[3]);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    for continuation in [&mut state, &mut replay] {
+        let water = add_fluid_store_with_contents_for_fixture(
+            &registries,
+            continuation,
+            Volume::from_microliters(60_000),
+            FLUID_WATER,
+            Volume::from_microliters(60_000),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+        validate_place_fluid_store(continuation, water, route[0])
+            .unwrap()
+            .commit(continuation)
+            .unwrap();
+    }
+    let water_total = calculate_fluid_volume_accounting(&state).unwrap();
+    for _ in 0..16 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert_eq!(state.surface().get(stone).unwrap().position(), route[1]);
+    assert_eq!(state.surface().get(winding).unwrap().position(), route[0]);
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(colony.last_drink_at, Some(SimulationTick::new(2_180)));
+    assert!(!crate::kobolds::hydration::prolonged_water_deprivation(
+        colony,
+        state.tick()
+    ));
+    assert_eq!(
+        calculate_fluid_volume_accounting(&state).unwrap(),
+        water_total
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn water_deprived_scout_still_clears_a_full_den_for_edible_forage() {
+    let (registries, mut state, route) =
+        scenario(EnergyCarrier::Mechanical, Some(route_machinery()));
+    advance_to(&registries, &mut state, 1_779);
+    let stone = cache_stone(&registries, &mut state, route[0]);
+    let winding = copper_winding(&registries, &mut state, route[2]);
+    let patch = validate_create_surface_resources(
+        &registries,
+        &state,
+        [SurfaceResourceSpec::new(
+            SurfaceResourceKind::Opportunity,
+            route[3],
+            CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+            Mass::from_milligrams(300_000),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_WILD_NUTS),
+        )
+        .unwrap()],
+    )
+    .unwrap();
+    let food = patch.first_resource_id();
+    patch.commit(&mut state).unwrap();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for _ in 0..21 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    assert!(crate::kobolds::hydration::prolonged_water_deprivation(
+        colony,
+        state.tick()
+    ));
+    assert!(!colony.hungry);
+    assert_eq!(state.surface().get(stone).unwrap().position(), route[1]);
+    assert_eq!(state.surface().get(winding).unwrap().position(), route[2]);
+    assert_eq!(
+        state.surface().get(food).unwrap().remaining_mass(),
+        Mass::from_milligrams(100_000)
+    );
+    // The fed scout has priority; the second ration funds the watchman's
+    // subsequent real departure on this same den visit.
+    assert_eq!(colony.watch_deployed_at, Some(SimulationTick::new(1_800)));
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        40_000
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn industrial_den_frees_just_enough_raw_stock_for_an_intact_component() {
     let (registries, mut state, route) =
         scenario(EnergyCarrier::Mechanical, Some(route_machinery()));

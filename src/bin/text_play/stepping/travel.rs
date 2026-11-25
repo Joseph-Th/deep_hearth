@@ -150,7 +150,99 @@ impl TravelObservations {
     }
 }
 
+/// Convert a physical centering error to a bounded ordinary movement input.
+fn centering_input(dx: i64, dz: i64, cap: i64) -> Result<HorizontalControlInput, String> {
+    let component = |delta: i64| {
+        if delta.abs() <= CENTER_TOLERANCE {
+            0
+        } else {
+            (delta / 1_000).clamp(-cap, cap) as i32
+        }
+    };
+    HorizontalControlInput::new(component(dx), component(dz)).map_err(|error| error.to_string())
+}
+
 impl Session {
+    /// Move toward the centre of the current grounded cell with sampled
+    /// low-amplitude input. Never snap, teleport, or bypass the motion owner.
+    pub(in crate::text_play) fn center_in_cell(&mut self) -> Result<String, String> {
+        if self
+            .state
+            .survival()
+            .player()
+            .is_none_or(|player| player.vitality() == Vitality::ZERO)
+        {
+            return Err("a living admitted player is required to center".to_owned());
+        }
+        let origin = self.player_position()?;
+        let body = self
+            .state
+            .logistics()
+            .player()
+            .ok_or("no player admitted")?
+            .body();
+        if self.state.player_work().active().is_some()
+            || body.horizontal_velocity() != HorizontalVelocity::ZERO
+            || body.vertical_velocity() != VerticalVelocity::ZERO
+        {
+            return Err("finish work and settle movement before centering".to_owned());
+        }
+        let center = WorldPoint::centered_on_voxel_floor(origin)
+            .ok_or("cell centre is outside the continuous world")?;
+        if center.y_nanometers() != body.foot_position().y_nanometers()
+            || !project_player_standing_space(&self.registries, &self.state, origin)
+        {
+            return Err("no grounded standing space at the centre of this cell".to_owned());
+        }
+        let initial = view::urgency(&self.registries, &self.state);
+        let mut output = String::new();
+        for _ in 0..STEP_TICK_LIMIT {
+            let body = self
+                .state
+                .logistics()
+                .player()
+                .ok_or("no player admitted")?
+                .body();
+            let foot = body.foot_position();
+            let dx = center.x_nanometers() - foot.x_nanometers();
+            let dz = center.z_nanometers() - foot.z_nanometers();
+            let settled = body.horizontal_velocity() == HorizontalVelocity::ZERO;
+            if dx.abs() <= CENTER_TOLERANCE && dz.abs() <= CENTER_TOLERANCE && settled {
+                output.push_str("Centred in the current cell (within 3 cm).\n");
+                output.push_str(&view::look(&self.registries, &self.state, None));
+                return Ok(output);
+            }
+            let horizontal = centering_input(dx, dz, 150_000)?;
+            let input = PlayerDirectControlInput::new(PlayerControlInput::new(horizontal));
+            let report = self.step(input, &mut output)?;
+            if report.noteworthy
+                || view::urgency(&self.registries, &self.state) != initial
+                || self.player_position()? != origin
+            {
+                output.push_str("Centering interrupted by a physical event or condition change.\n");
+                output.push_str(&view::look(&self.registries, &self.state, None));
+                return Ok(output);
+            }
+            let next = self
+                .state
+                .logistics()
+                .player()
+                .ok_or("no player admitted")?
+                .body();
+            if !horizontal.is_neutral()
+                && next.foot_position() == foot
+                && next.horizontal_velocity() == HorizontalVelocity::ZERO
+            {
+                break;
+            }
+        }
+        output.push_str(
+            "Centering stopped: could not reach the centre with the current clearance.\n",
+        );
+        output.push_str(&view::look(&self.registries, &self.state, None));
+        Ok(output)
+    }
+
     /// Travel one to 32 cells in a chosen cardinal direction. Stop before
     /// a cliff, an obstructed step, an unexpected fall, or a new discovery.
     pub(in crate::text_play) fn trek(
@@ -350,15 +442,7 @@ impl Session {
             } else {
                 300_000
             };
-            let component = |delta: i64| {
-                if delta.abs() <= CENTER_TOLERANCE {
-                    0
-                } else {
-                    (delta / 1_000).clamp(-cap, cap) as i32
-                }
-            };
-            let horizontal = HorizontalControlInput::new(component(dx), component(dz))
-                .map_err(|e| e.to_string())?;
+            let horizontal = centering_input(dx, dz, cap)?;
             let input = if let Some(direction) = climb
                 && (position.x(), position.z()) == (origin.x(), origin.z())
             {

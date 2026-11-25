@@ -3,7 +3,7 @@
 use std::fmt::Write as _;
 
 use super::{Session, activity, crafting, view};
-use deep_hearth::content::FORM_BOARD;
+mod construction;
 #[path = "stepping/excavation.rs"]
 mod excavation;
 mod feedback;
@@ -11,10 +11,6 @@ mod feedback;
 mod travel;
 use deep_hearth::energy::project_player_nearby_warmth_sources;
 use deep_hearth::labor::PlayerWork;
-use deep_hearth::logistics::{
-    HorizontalControlInput, PlayerControlInput, project_player_overhead_cover_footprint,
-    project_player_standing_space,
-};
 use deep_hearth::mining::MiningJobId;
 use deep_hearth::production::{ProductionAvailabilityChange, ProductionJobId};
 use deep_hearth::simulation::{
@@ -137,162 +133,6 @@ pub(super) struct TimedAdvanceReport {
 }
 
 impl Session {
-    pub(super) fn build_at(
-        &mut self,
-        index: usize,
-        position: VoxelCoord,
-        preview: bool,
-    ) -> Result<String, String> {
-        let inventory =
-            deep_hearth::logistics::project_player_inventory(&self.registries, &self.state)
-                .map_err(|error| error.to_string())?;
-        let stack = inventory
-            .carried()
-            .stacks()
-            .get(index - 1)
-            .ok_or("no carried stack at that index")?;
-        let validated = deep_hearth::simulation::validate_start_player_supported_timber_at(
-            &self.registries,
-            &self.state,
-            stack,
-            position,
-        )
-        .map_err(|outcome| match outcome {
-            SecondaryActionOutcome::NoStructuralPlacementTarget => {
-                "destination is not a clear cell within pointing reach".to_owned()
-            }
-            SecondaryActionOutcome::MaterialNotContextual => {
-                "build-at requires a timber log or timber board stack".to_owned()
-            }
-            _ => feedback::secondary(&self.registries, &outcome),
-        })?;
-        if preview {
-            let mut report = format!(
-                "Ready: supported timber at ({},{},{}); current material, support and work admission passed.\n",
-                position.x(),
-                position.y(),
-                position.z()
-            );
-            if stack.commodity().form() == FORM_BOARD
-                && let Some(footprint) =
-                    project_player_overhead_cover_footprint(&self.registries, &self.state)
-            {
-                if !footprint.intersects_column(position) {
-                    report.push_str("Shelter preview: this panel is not over your current standing position; it will not provide overhead cover here.\n");
-                } else if position.y() < footprint.minimum_y() {
-                    let _ = writeln!(
-                        report,
-                        "Shelter preview: panel is below head clearance; overhead cover here requires a panel at height {} or higher. This placement may obstruct movement.",
-                        footprint.minimum_y(),
-                    );
-                } else if !footprint.fits_single_column() {
-                    report.push_str("Shelter preview: the player straddles multiple cells; one panel alone will not cover the complete standing footprint. Move toward the cell center or cover the other cells.\n");
-                } else {
-                    report.push_str("Shelter preview: this panel is above the entire current standing footprint and is positioned to provide overhead cover when completed. It does not block wind from the sides.\n");
-                }
-            }
-            return Ok(report);
-        }
-        validated
-            .commit(&mut self.state)
-            .map_err(|error| error.to_string())?;
-        Ok(format!(
-            "Structural construction started at ({},{},{}).\n{}",
-            position.x(),
-            position.y(),
-            position.z(),
-            view::status(&self.registries, &self.state)
-        ))
-    }
-
-    /// Move toward the centre of the current grounded cell with sampled
-    /// low-amplitude input. Never snap, teleport, or bypass the motion owner.
-    pub(super) fn center_in_cell(&mut self) -> Result<String, String> {
-        if self
-            .state
-            .survival()
-            .player()
-            .is_none_or(|player| player.vitality() == Vitality::ZERO)
-        {
-            return Err("a living admitted player is required to center".to_owned());
-        }
-        let origin = self.player_position()?;
-        let body = self
-            .state
-            .logistics()
-            .player()
-            .ok_or("no player admitted")?
-            .body();
-        if self.state.player_work().active().is_some()
-            || body.horizontal_velocity() != HorizontalVelocity::ZERO
-            || body.vertical_velocity() != VerticalVelocity::ZERO
-        {
-            return Err("finish work and settle movement before centering".to_owned());
-        }
-        let center = deep_hearth::spatial::WorldPoint::centered_on_voxel_floor(origin)
-            .ok_or("cell centre is outside the continuous world")?;
-        if center.y_nanometers() != body.foot_position().y_nanometers()
-            || !project_player_standing_space(&self.registries, &self.state, origin)
-        {
-            return Err("no grounded standing space at the centre of this cell".to_owned());
-        }
-        let initial = view::urgency(&self.registries, &self.state);
-        let mut output = String::new();
-        for _ in 0..240 {
-            let body = self
-                .state
-                .logistics()
-                .player()
-                .ok_or("no player admitted")?
-                .body();
-            let foot = body.foot_position();
-            let dx = center.x_nanometers() - foot.x_nanometers();
-            let dz = center.z_nanometers() - foot.z_nanometers();
-            let settled = body.horizontal_velocity() == HorizontalVelocity::ZERO;
-            if dx.abs() <= 30_000_000 && dz.abs() <= 30_000_000 && settled {
-                output.push_str("Centred in the current cell (within 3 cm).\n");
-                output.push_str(&view::look(&self.registries, &self.state, None));
-                return Ok(output);
-            }
-            let component = |delta: i64| {
-                if delta.abs() <= 30_000_000 {
-                    0
-                } else {
-                    (delta / 1_000).clamp(-150_000, 150_000) as i32
-                }
-            };
-            let horizontal = HorizontalControlInput::new(component(dx), component(dz))
-                .map_err(|error| error.to_string())?;
-            let input = PlayerDirectControlInput::new(PlayerControlInput::new(horizontal));
-            let report = self.step(input, &mut output)?;
-            if report.noteworthy
-                || view::urgency(&self.registries, &self.state) != initial
-                || self.player_position()? != origin
-            {
-                output.push_str("Centering interrupted by a physical event or condition change.\n");
-                output.push_str(&view::look(&self.registries, &self.state, None));
-                return Ok(output);
-            }
-            let next = self
-                .state
-                .logistics()
-                .player()
-                .ok_or("no player admitted")?
-                .body();
-            if !horizontal.is_neutral()
-                && next.foot_position() == foot
-                && next.horizontal_velocity() == HorizontalVelocity::ZERO
-            {
-                break;
-            }
-        }
-        output.push_str(
-            "Centering stopped: could not reach the centre with the current clearance.\n",
-        );
-        output.push_str(&view::look(&self.registries, &self.state, None));
-        Ok(output)
-    }
-
     /// Wait awake for the next requested daylight phase, eliding only neutral
     /// control intervals proven inert by simulation. Events, changing local threats, expired heat and new
     /// survival warnings end the watch before its requested horizon.
