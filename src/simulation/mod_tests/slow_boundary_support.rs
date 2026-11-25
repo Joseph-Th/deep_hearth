@@ -14,8 +14,7 @@ use crate::structural::{
     validate_activate_structural_element, validate_start_player_structural_dismantling,
 };
 
-#[test]
-fn due_dismantling_of_the_player_floor_must_replay_control_rate_gravity() {
+fn player_on_panel() -> (Registries, AppState, crate::structural::StructuralElementId) {
     let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
     let floor = VoxelCoord::new(0, floor_y - 1, 0);
     set_generated_block_for_test(registries.world(), &mut state, floor, BlockStateId::AIR);
@@ -41,7 +40,153 @@ fn due_dismantling_of_the_player_floor_must_replay_control_rate_gravity() {
         .unwrap();
     assert!(player_body_is_grounded(&registries, &state));
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    (registries, state, panel)
+}
 
+#[test]
+fn dismantling_cannot_leave_a_player_dropped_parcel_without_footing() {
+    use crate::surface::validate_drop_player_material;
+
+    let (registries, mut state, panel) = player_on_panel();
+    let commodity = CommodityKey::new(crate::content::MATERIAL_STONE, crate::content::FORM_CHIP);
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        Mass::from_milligrams(100_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let dropped = validate_drop_player_material(&registries, &state, commodity)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        dropped.position(),
+        state.logistics().player().unwrap().position()
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_start_player_structural_dismantling(
+            &registries,
+            &state,
+            panel,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        )
+        .err(),
+        Some(
+            crate::structural::PlayerStructuralDismantlingError::ElementSupportsFixedFooting {
+                element: panel,
+            }
+        ),
+        "a real dropped parcel would remain suspended after its floor is removed"
+    );
+    assert_eq!(state, before);
+    let matter_before = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    // The real control path picks up the parcel when its delay expires.
+    // No permanent floor veto survives depleted surface custody.
+    for _ in 0..CONTROL_TICKS_PER_SIMULATION_TICK {
+        assert_eq!(
+            advance_control_tick(&registries, &mut state).unwrap(),
+            advance_control_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert!(
+        dropped.resources().iter().all(|&id| state
+            .surface()
+            .get(id)
+            .unwrap()
+            .remaining_mass()
+            .is_zero())
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        matter_before
+    );
+    assert!(
+        validate_start_player_structural_dismantling(
+            &registries,
+            &state,
+            panel,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        )
+        .is_ok(),
+        "clearing the physical parcel restores ordinary dismantling"
+    );
+}
+
+#[test]
+fn dismantling_rechecks_fixed_custody_before_commit_and_on_load() {
+    use crate::content::{FORM_CHIP, MATERIAL_STONE};
+    use crate::material::MaterialComposition;
+    use crate::structural::PlayerStructuralDismantlingCommitError;
+    use crate::surface::{
+        SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources,
+    };
+
+    let (registries, mut state, panel) = player_on_panel();
+    let position = state.logistics().player().unwrap().position();
+    let make_parcel = || {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(100_000),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap()
+    };
+    let start = |state: &AppState| {
+        validate_start_player_structural_dismantling(
+            &registries,
+            state,
+            panel,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        )
+        .unwrap()
+    };
+    let token = start(&state);
+    let mut forged = state.clone();
+    let _ = start(&forged).commit(&mut forged).unwrap();
+
+    // Model an intervening surface owner mutation independently of inventory,
+    // then a malformed saved reservation over the same physical custody.
+    for actor in [&mut state, &mut forged] {
+        validate_create_surface_resources(&registries, actor, [make_parcel()])
+            .unwrap()
+            .commit(actor)
+            .unwrap();
+    }
+    let before = state.clone();
+    assert_eq!(
+        token.commit(&mut state),
+        Err(PlayerStructuralDismantlingCommitError::ElementSupportsFixedFooting { element: panel }),
+    );
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &forged)).unwrap();
+    assert!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .is_err(),
+        "trusted load must reject an admitted floor removal over stationary matter"
+    );
+}
+
+#[test]
+fn due_dismantling_of_the_player_floor_must_replay_control_rate_gravity() {
+    let (registries, mut state, panel) = player_on_panel();
     let work = validate_start_player_structural_dismantling(
         &registries,
         &state,

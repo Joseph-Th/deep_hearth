@@ -574,6 +574,119 @@ fn embodied_structural_floor_restores_grounded_scout_movement_but_blueprints_do_
 }
 
 #[test]
+fn scout_cannot_acquire_a_floor_reserved_for_structural_dismantling() {
+    use crate::content::{
+        BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS, BLOCK_STATE_STONE,
+        FORM_BOARD, MATERIAL_WOOD, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    };
+    use crate::core::state::validate_loaded_state;
+    use crate::spatial::VoxelBounds;
+    use crate::structural::{
+        StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
+        validate_activate_structural_element, validate_start_player_structural_dismantling,
+    };
+    use crate::world::{BlockStateId, set_generated_block_for_test};
+
+    let (registries, mut state, _) = generated_terrain_scout_opening();
+    let [den, junction, tip] = colony(&state).route;
+    advance_to_tick(&registries, &mut state, 179);
+    let floor = VoxelCoord::new(junction.x(), junction.y() - 1, junction.z());
+    set_generated_block_for_test(registries.world(), &mut state, floor, BlockStateId::AIR);
+    let member = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        StructuralElementGeometry::new(
+            VoxelBounds::new(
+                floor,
+                VoxelCoord::new(floor.x() + 1, floor.y() + 1, floor.z() + 1),
+            )
+            .unwrap(),
+            BASIC_TIMBER_COVER_PANEL_THICKNESS,
+            BASIC_TIMBER_COVER_PANEL_AREA,
+        )
+        .unwrap(),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, member, FORM_BOARD);
+    let _ = validate_activate_structural_element(&registries, &state, member)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    // Work from the level beside the panel, one metre below the patrol.
+    // Both branches have the same player and collision truth; fear of a
+    // same-level player cannot explain a difference in the scout's step.
+    let player_at = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+        .into_iter()
+        .map(|(dx, dz)| VoxelCoord::new(floor.x() + dx, floor.y(), floor.z() + dz))
+        .find(|position| {
+            let upper = VoxelCoord::new(position.x(), junction.y(), position.z());
+            upper != den
+                && upper != tip
+                && state.world().has_generated_terrain_at(*position)
+                && [*position, upper].into_iter().all(|voxel| {
+                    state.world().tree_trunk_at(voxel).is_none()
+                        && !state.logistics().has_stationary_occupant_at(voxel)
+                        && state
+                            .surface()
+                            .available_resources_at(Some(voxel))
+                            .next()
+                            .is_none()
+                        && !state.surface().rooted_biomass_occupies_voxel(voxel)
+                })
+        })
+        .expect("adjacent unoccupied work column");
+    for (dy, block) in [
+        (-1, BLOCK_STATE_STONE),
+        (0, BlockStateId::AIR),
+        (1, BlockStateId::AIR),
+    ] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(player_at.x(), player_at.y() + dy, player_at.z()),
+            block,
+        );
+    }
+    validate_admit_player(&registries, &state, player_at)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let mut open = state.clone();
+    let work = validate_start_player_structural_dismantling(
+        &registries,
+        &state,
+        member,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert!(work.completes_at().value() > 180);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to_tick(&registries, &mut open, 180);
+    assert_eq!(colony(&open).scout_position(), junction);
+    assert_eq!(
+        advance_tick(&registries, &mut state).unwrap(),
+        advance_tick(&registries, &mut replay).unwrap(),
+    );
+    assert_eq!(colony(&state).scout_position(), den);
+    assert_eq!(state, replay);
+    assert!(state.structures().get_element(member).is_some());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn unsupported_scout_retains_exact_stolen_cargo_until_its_real_return_edge_is_restored() {
     use crate::content::BLOCK_STATE_STONE;
     use crate::core::state::validate_loaded_state;

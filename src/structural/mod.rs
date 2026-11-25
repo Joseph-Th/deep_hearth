@@ -36,7 +36,8 @@ pub(crate) use dismantling::{
     StructuralDismantlingCancellationPlan, StructuralDismantlingTickError,
     StructuralDismantlingTickPlan, apply_structural_dismantling_cancellation,
     apply_structural_dismantling_tick, decide_structural_dismantling_cancellation,
-    decide_structural_dismantling_tick,
+    decide_structural_dismantling_tick, dismantling_floor_reserved_at,
+    member_has_fixed_footing_claim,
 };
 pub use geometry::{
     StructuralGeometryError, calculate_prismatic_material_mass_ceiling,

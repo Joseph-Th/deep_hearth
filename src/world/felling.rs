@@ -28,6 +28,9 @@ pub enum TreeFellingError {
     TreeUnavailable {
         root: VoxelCoord,
     },
+    TreeSupportsFixedFooting {
+        root: VoxelCoord,
+    },
     TooFar {
         root: VoxelCoord,
         player: VoxelCoord,
@@ -54,6 +57,7 @@ pub enum TreeFellingCommitError {
     StaleSurfaceRevision { expected: u64, actual: u64 },
     StaleSurfaceResourceId { expected: u32, actual: u32 },
     StaleEquipmentRevision { expected: u64, actual: u64 },
+    TreeSupportsFixedFooting { root: VoxelCoord },
 }
 
 #[must_use]
@@ -152,6 +156,11 @@ impl ValidatedTreeFelling {
                     TreeFellingCommitError::SurfaceResourceIdChanged
                 }
             })?;
+        if super::tree_has_fixed_footing_claim(state, self.outcome.root) {
+            return Err(TreeFellingCommitError::TreeSupportsFixedFooting {
+                root: self.outcome.root,
+            });
+        }
         state.world_state_mut().remove_felled_tree(
             self.outcome.root,
             self.expected_world_revision,
@@ -314,6 +323,11 @@ impl ValidatedTreeFellingStart {
         self.work_start
             .precheck(state)
             .map_err(|_| TreeFellingCommitError::WorkChanged)?;
+        if super::tree_has_fixed_footing_claim(state, self.work.root()) {
+            return Err(TreeFellingCommitError::TreeSupportsFixedFooting {
+                root: self.work.root(),
+            });
+        }
         self.work_start.apply(state);
         Ok(self.work)
     }
@@ -463,6 +477,9 @@ fn validate_fell_tree_at(
         .world()
         .tree_at(root)
         .ok_or(TreeFellingError::TreeUnavailable { root })?;
+    if super::tree_has_fixed_footing_claim(state, root) {
+        return Err(TreeFellingError::TreeSupportsFixedFooting { root });
+    }
     if state.world().assimilated_wood_at(at).is_none() {
         return Err(TreeFellingError::AtmosphericInputOverflow);
     }

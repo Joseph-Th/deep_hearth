@@ -17,12 +17,43 @@ use crate::logistics::validate_player_stockpile_access;
 use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
+use crate::world::FixedFootingOwner;
 
 use super::{StructuralElementId, StructuralLoadKind, bounds_are_within_player_reach};
 
 mod errors;
 
 pub use errors::{PlayerStructuralDismantlingCommitError, PlayerStructuralDismantlingError};
+
+/// Simple player recovery admits only one-cell members. A materialized
+/// full-footprint member in generated terrain is an actual collision floor.
+fn removable_floor(state: &AppState, element: StructuralElementId) -> Option<VoxelCoord> {
+    let record = state.structures().get_element(element)?;
+    let floor = record.bounds().min();
+    (record.bounds().voxel_count() == Some(1)
+        && !record.embodied_material().is_empty()
+        && record.geometry().covers_horizontal_footprint()
+        && state.world().has_generated_terrain_at(floor))
+    .then_some(floor)
+}
+
+pub(crate) fn member_has_fixed_footing_claim(
+    state: &AppState,
+    element: StructuralElementId,
+) -> bool {
+    removable_floor(state, element)
+        .is_some_and(|floor| FixedFootingOwner::at(state, floor).is_some())
+}
+
+/// Opening residents (including their dragged cargo) must not acquire a
+/// floor that an admitted player operation has already reserved for removal.
+pub(crate) fn dismantling_floor_reserved_at(state: &AppState, floor: VoxelCoord) -> bool {
+    state
+        .player_work()
+        .active()
+        .and_then(PlayerWork::structural_dismantling)
+        .is_some_and(|work| removable_floor(state, work.element()) == Some(floor))
+}
 
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -121,6 +152,13 @@ impl ValidatedPlayerStructuralDismantlingStart {
         self.work_start
             .precheck(state)
             .map_err(PlayerStructuralDismantlingCommitError::Work)?;
+        if member_has_fixed_footing_claim(state, self.element) {
+            return Err(
+                PlayerStructuralDismantlingCommitError::ElementSupportsFixedFooting {
+                    element: self.element,
+                },
+            );
+        }
         self.reservation.apply(state.inventory_state_mut());
         self.work_start.apply(state);
         Ok(self.outcome)
@@ -172,6 +210,9 @@ fn recoverable_target<'a>(
     }
     if state.fluid().supported_stores(element).next().is_some() {
         return Err(PlayerStructuralDismantlingError::ElementSupportsFluidStore { element });
+    }
+    if member_has_fixed_footing_claim(state, element) {
+        return Err(PlayerStructuralDismantlingError::ElementSupportsFixedFooting { element });
     }
     Ok(record)
 }

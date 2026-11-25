@@ -9,6 +9,7 @@ impl Display for PlayerWorkValidationError {
         match self {
             Self::TreeFellingTargetMissing => formatter.write_str("active tree felling references missing standing timber"),
             Self::TreeFellingTargetRemote => formatter.write_str("active tree felling requires an adjacent player"),
+            Self::TreeFellingTargetSupportsFixedFooting => formatter.write_str("active tree felling conflicts with stationary custody on the trunk"),
             Self::TreeFellingEquipmentInvalid => formatter.write_str("active tree felling requires a carried woodcutting adze"),
             Self::TreeFellingEquipmentConditionMismatch => formatter.write_str("active tree chopping has a forged equipment-condition trace"),
             Self::TreeFellingEquipmentTooWorn => formatter.write_str("active chopping equipment cannot survive its required work duration"),
@@ -501,7 +502,7 @@ impl Display for PlayerWorkValidationError {
                 "simple structural dismantling cannot remove a member carrying external load",
             ),
             Self::StructuralDismantlingElementSupportsResource => formatter.write_str(
-                "simple structural dismantling cannot remove a member supporting mounted resources",
+                "simple structural dismantling cannot remove a member supporting mounted resources or fixed-footing custody",
             ),
             Self::StructuralDismantlingRecoveryMismatch => formatter.write_str(
                 "structural dismantling recovery custody no longer matches the player or member matter",

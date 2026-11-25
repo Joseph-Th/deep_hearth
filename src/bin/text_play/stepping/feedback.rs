@@ -125,6 +125,9 @@ fn tree_felling_blocker(error: &TreeFellingStartError) -> String {
         Start::Tree(Tree::PlayerDead) => "Cannot fell trees while dead.",
         Start::Tree(Tree::PlayerBusy) => "Finish the current hand work first.",
         Start::Tree(Tree::TreeUnavailable { .. }) => "No standing tree at that target.",
+        Start::Tree(Tree::TreeSupportsFixedFooting { .. }) => {
+            "The tree supports material or a resident. Clear its upper trunk before felling."
+        }
         Start::Tree(Tree::TooFar { .. }) => "Move next to the tree before felling it.",
         Start::Tree(Tree::WorldRevisionExhausted) => "World state cannot admit the felling.",
         Start::Tree(Tree::AtmosphericInputOverflow) => "Tree energy accounting exceeds capacity.",

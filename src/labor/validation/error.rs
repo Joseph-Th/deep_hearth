@@ -17,6 +17,7 @@ mod source;
 pub enum PlayerWorkValidationError {
     TreeFellingTargetMissing,
     TreeFellingTargetRemote,
+    TreeFellingTargetSupportsFixedFooting,
     TreeFellingEquipmentInvalid,
     TreeFellingEquipmentConditionMismatch,
     TreeFellingEquipmentTooWorn,

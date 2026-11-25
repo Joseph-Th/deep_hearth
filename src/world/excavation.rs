@@ -5,7 +5,7 @@ mod footing;
 mod runtime;
 mod selection;
 
-use footing::TerrainFootingOwner;
+use super::FixedFootingOwner;
 pub(crate) use runtime::{
     BlockExcavationCancellationPlan, BlockExcavationTickError, apply_block_excavation_cancellation,
     apply_block_excavation_tick, decide_block_excavation_cancellation,
@@ -184,7 +184,7 @@ impl ValidatedPlayerBlockExcavationStart {
             return Err(BlockExcavationCommitError::TargetChanged);
         }
         if self.work.excavated_mass() == self.work.source_mass_before()
-            && let Some(owner) = TerrainFootingOwner::at(state, self.work.target())
+            && let Some(owner) = FixedFootingOwner::at(state, self.work.target())
         {
             return Err(owner.commit_error(self.work.target()));
         }
@@ -257,7 +257,7 @@ fn validate_start_player_block_excavation_targeted(
     // Partial excavation retains a collidable block; complete removal must
     // honor existing material-backed stationary ownership of its footing.
     if request.mass == source_mass
-        && let Some(owner) = TerrainFootingOwner::at(state, target.voxel())
+        && let Some(owner) = FixedFootingOwner::at(state, target.voxel())
     {
         return Err(owner.admission_error(target.voxel()));
     }

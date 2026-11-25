@@ -32,6 +32,22 @@ fn validate_opening_resident_infrastructure(
         }) {
             return Err("opening kobold occupies an active excavation's reserved floor");
         }
+        if resident.y().checked_sub(1).is_some_and(|floor_y| {
+            crate::structural::dismantling_floor_reserved_at(
+                state,
+                VoxelCoord::new(resident.x(), floor_y, resident.z()),
+            )
+        }) {
+            return Err("opening kobold occupies an active dismantling's reserved floor");
+        }
+        if resident.y().checked_sub(1).is_some_and(|floor_y| {
+            crate::world::tree_felling_floor_reserved_at(
+                state,
+                VoxelCoord::new(resident.x(), floor_y, resident.z()),
+            )
+        }) {
+            return Err("opening kobold occupies an active tree felling's reserved floor");
+        }
         let head_y = resident
             .y()
             .checked_add(1)

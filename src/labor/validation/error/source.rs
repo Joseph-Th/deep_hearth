@@ -24,6 +24,7 @@ impl Error for PlayerWorkValidationError {
             Self::WorkWithoutPlayer
             | Self::TreeFellingTargetMissing
             | Self::TreeFellingTargetRemote
+            | Self::TreeFellingTargetSupportsFixedFooting
             | Self::TreeFellingEquipmentInvalid
             | Self::TreeFellingEquipmentConditionMismatch
             | Self::TreeFellingEquipmentTooWorn

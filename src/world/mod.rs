@@ -3,6 +3,7 @@
 mod definitions;
 mod excavation;
 mod felling;
+mod footing;
 mod forage_cycle;
 mod forage_scent;
 mod generation;
@@ -40,6 +41,9 @@ pub use felling::{
 pub(crate) use felling::{
     apply_tree_felling_wear, decide_tree_felling_wear, tree_felling_condition_after,
     tree_felling_duration, tree_felling_exertion, validate_due_player_tree_felling,
+};
+pub(crate) use footing::{
+    FixedFootingOwner, tree_felling_floor_reserved_at, tree_has_fixed_footing_claim,
 };
 pub(crate) use forage_cycle::{
     NaturalForageCycleError, apply_natural_forage_cycle,

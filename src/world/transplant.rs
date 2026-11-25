@@ -19,6 +19,7 @@ pub enum SaplingTransplantError {
     PlayerAirborne,
     PreparedStrikeActive,
     SourceUnavailable { root: VoxelCoord },
+    SourceSupportsFixedFooting { root: VoxelCoord },
     TooMature { root: VoxelCoord },
     SourceRemote { root: VoxelCoord },
     DestinationRemote { root: VoxelCoord },
@@ -219,6 +220,9 @@ pub fn validate_transplant_juvenile(
     let wood = tree.wood_at(state.tick());
     if wood.milligrams() >= 10_000_000 {
         return Err(SaplingTransplantError::TooMature { root: from });
+    }
+    if super::tree_has_fixed_footing_claim(state, from) {
+        return Err(SaplingTransplantError::SourceSupportsFixedFooting { root: from });
     }
     if !destination_clear(registries, state, to) {
         return Err(SaplingTransplantError::DestinationBlocked { root: to });

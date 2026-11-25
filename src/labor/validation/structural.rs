@@ -67,6 +67,7 @@ pub(super) fn validate_structural_dismantling_work(
             .supported_stores(work.element())
             .next()
             .is_some()
+        || crate::structural::member_has_fixed_footing_claim(state, work.element())
     {
         return Err(PlayerWorkValidationError::StructuralDismantlingElementSupportsResource);
     }

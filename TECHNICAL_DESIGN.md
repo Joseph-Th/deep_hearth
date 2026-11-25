@@ -1976,9 +1976,17 @@ admission and completion rather than scanning the entire topology. A timed disma
 reserves exact recovered matter in the player's inventory and excludes its target from new supported
 blueprints until the work completes or is interrupted. Supported placement forecasts share that admission
 rule. Structural planning commits bind the player-work revision so a retained plan cannot add a dependent
-after a dismantling reservation begins. The dismantling start commit rejects
-subsequent inventory-revision changes with a typed stale-authorization error before any internal
-reservation assertions or owner mutation; a fresh admission can safely use the new custody state.
+after a dismantling reservation begins. Terrain excavation, full-cell member recovery, tree felling
+and sapling transplantation share the
+local fixed-footing assessment: stationary material-backed custody, inbound stockpile promises,
+rooted biomass, and opening residents cannot lose their floor through these operations. The upper
+trunk is the relevant external footing for a standing tree. Scheduled removal rechecks the claim at
+start commit and during trusted-load admission; opening patrol movement rejects
+entry onto a floor reserved for removal, including when hauling a loose parcel. Depleted loose drops
+and empty unenclosed stockpile markers do not reserve footing. A player body may still fall when its
+otherwise unclaimed floor is dismantled. The dismantling start commit rejects subsequent inventory-revision
+changes with a typed stale-authorization error before any internal reservation assertions or owner mutation;
+a fresh admission can safely use the new custody state.
 
 ## Spatial and presentation boundaries
 

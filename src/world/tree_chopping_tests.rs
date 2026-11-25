@@ -104,6 +104,47 @@ fn equipped_young_tree() -> (crate::registry::Registries, AppState, VoxelCoord) 
 }
 
 #[test]
+fn chopping_cannot_remove_a_trunk_supporting_a_dropped_parcel() {
+    use crate::content::FORM_CHIP;
+    use crate::logistics::{player_body_is_grounded, relocate_player_for_test};
+    use crate::surface::validate_drop_player_material;
+
+    let (registries, mut state, root) = equipped_young_tree();
+    let work_at = state.logistics().player().unwrap().position();
+    assert!(validate_start_player_tree_felling(&registries, &state, root).is_ok());
+    let perch = VoxelCoord::new(root.x(), root.y() + 2, root.z());
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        Mass::from_milligrams(100_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    relocate_player_for_test(&mut state, perch);
+    assert!(player_body_is_grounded(&registries, &state));
+    let parcel = validate_drop_player_material(&registries, &state, commodity)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(parcel.position(), perch);
+    relocate_player_for_test(&mut state, work_at);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_start_player_tree_felling(&registries, &state, root).err(),
+        Some(TreeFellingStartError::Tree(
+            TreeFellingError::TreeSupportsFixedFooting { root }
+        )),
+        "chopping a supporting trunk would suspend the real dropped parcel"
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn remote_felling_rejects_reach_before_revealing_tree_presence() {
     let (registries, state, root) = equipped_young_tree();
     let player = state.logistics().player().unwrap().position();

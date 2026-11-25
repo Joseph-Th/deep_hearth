@@ -67,6 +67,46 @@ fn tree_fixture(
 }
 
 #[test]
+fn sapling_cannot_be_relocated_from_beneath_a_dropped_parcel() {
+    use crate::content::{FORM_CHIP, MATERIAL_STONE};
+    use crate::core::quantity::Temperature;
+    use crate::inventory::deposit_lot_for_test;
+    use crate::logistics::{player_body_is_grounded, relocate_player_for_test};
+    use crate::material::CommodityKey;
+    use crate::surface::validate_drop_player_material;
+
+    let (registries, mut state, from, to) = sapling_fixture();
+    let work_at = state.logistics().player().unwrap().position();
+    let perch = VoxelCoord::new(from.x(), from.y() + 2, from.z());
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        Mass::from_milligrams(100_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    relocate_player_for_test(&mut state, perch);
+    assert!(player_body_is_grounded(&registries, &state));
+    let parcel = validate_drop_player_material(&registries, &state, commodity)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(parcel.position(), perch);
+    relocate_player_for_test(&mut state, work_at);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_transplant_juvenile(&registries, &state, from, to).err(),
+        Some(SaplingTransplantError::SourceSupportsFixedFooting { root: from })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn locally_transplanted_sapling_keeps_its_growth_clock_and_exact_wood() {
     let (registries, mut state, from, to) = sapling_fixture();
     let tree_before = *state.world().tree_at(from).unwrap();

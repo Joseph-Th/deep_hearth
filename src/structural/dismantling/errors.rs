@@ -37,6 +37,9 @@ pub enum PlayerStructuralDismantlingError {
     ElementSupportsFluidStore {
         element: StructuralElementId,
     },
+    ElementSupportsFixedFooting {
+        element: StructuralElementId,
+    },
     UnknownMethod {
         method: StructuralConstructionMethodId,
     },
@@ -101,6 +104,11 @@ impl Display for PlayerStructuralDismantlingError {
                 "structural member {} still supports a fluid store",
                 element.value()
             ),
+            Self::ElementSupportsFixedFooting { element } => write!(
+                formatter,
+                "structural member {} still provides fixed footing for stationary matter or a resident; clear the floor before dismantling",
+                element.value()
+            ),
             Self::UnknownMethod { method } => write!(
                 formatter,
                 "unknown structural dismantling method {}",
@@ -154,6 +162,7 @@ impl Error for PlayerStructuralDismantlingError {
             | Self::ElementSupportsEquipment { .. }
             | Self::ElementSupportsStockpile { .. }
             | Self::ElementSupportsFluidStore { .. }
+            | Self::ElementSupportsFixedFooting { .. }
             | Self::UnknownMethod { .. }
             | Self::MemberTooHeavy { .. }
             | Self::CompletionTickOverflow
@@ -189,6 +198,9 @@ pub enum PlayerStructuralDismantlingCommitError {
         actual: Option<VoxelCoord>,
     },
     ElementChanged {
+        element: StructuralElementId,
+    },
+    ElementSupportsFixedFooting {
         element: StructuralElementId,
     },
     Work(PlayerWorkCommitError),
@@ -237,6 +249,11 @@ impl Display for PlayerStructuralDismantlingCommitError {
                 "structural dismantling member {} changed before commit",
                 element.value()
             ),
+            Self::ElementSupportsFixedFooting { element } => write!(
+                formatter,
+                "structural member {} acquired a fixed-footing claim before dismantling commit",
+                element.value()
+            ),
             Self::Work(error) => write!(
                 formatter,
                 "structural dismantling player-work authorization became stale: {error}"
@@ -254,7 +271,8 @@ impl Error for PlayerStructuralDismantlingCommitError {
             | Self::StaleLogisticsRevision { .. }
             | Self::StaleInventoryRevision { .. }
             | Self::PlayerMoved { .. }
-            | Self::ElementChanged { .. } => None,
+            | Self::ElementChanged { .. }
+            | Self::ElementSupportsFixedFooting { .. } => None,
         }
     }
 }

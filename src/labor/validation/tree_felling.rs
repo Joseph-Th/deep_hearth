@@ -39,6 +39,9 @@ pub(super) fn validate_tree_felling_work(
     {
         return Err(PlayerWorkValidationError::TreeFellingTargetRemote);
     }
+    if crate::world::tree_has_fixed_footing_claim(state, work.root()) {
+        return Err(PlayerWorkValidationError::TreeFellingTargetSupportsFixedFooting);
+    }
     crate::logistics::validate_player_equipment_access(state, work.equipment())
         .map_err(|_| PlayerWorkValidationError::TreeFellingEquipmentInvalid)?;
     let equipment = state
