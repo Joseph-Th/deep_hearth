@@ -8,6 +8,7 @@ use crate::inventory::{StockpileId, StockpileStorageError};
 use crate::labor::{PlayerWorkStartError, SurfaceGatheringMethodId};
 use crate::logistics::PlayerStockpileAccessError;
 use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE};
+use crate::spatial::VoxelCoord;
 
 use super::super::SurfaceResourceId;
 
@@ -50,6 +51,14 @@ pub enum SurfaceGatheringError {
     },
     DestinationMounted {
         stockpile: StockpileId,
+    },
+    DestinationSolidTerrain {
+        stockpile: StockpileId,
+        position: VoxelCoord,
+    },
+    DestinationRequiresFixedFloor {
+        stockpile: StockpileId,
+        position: VoxelCoord,
     },
     DestinationStorage(StockpileStorageError),
     DestinationMassOverflow {
@@ -158,6 +167,22 @@ impl Display for SurfaceGatheringError {
                 "surface gathering destination stockpile {} is mounted and cannot receive direct gathering",
                 stockpile.value()
             ),
+            Self::DestinationSolidTerrain {
+                stockpile,
+                position,
+            } => write!(
+                formatter,
+                "surface gathering destination stockpile {} occupies solid terrain at {position:?}",
+                stockpile.value()
+            ),
+            Self::DestinationRequiresFixedFloor {
+                stockpile,
+                position,
+            } => write!(
+                formatter,
+                "surface gathering destination stockpile {} requires fixed footing at {position:?}",
+                stockpile.value()
+            ),
             Self::DestinationStorage(error) => write!(
                 formatter,
                 "surface gathering destination cannot store the resource: {error}"
@@ -220,6 +245,8 @@ impl Error for SurfaceGatheringError {
             | Self::ResourceTooHot { .. }
             | Self::DestinationMissing { .. }
             | Self::DestinationMounted { .. }
+            | Self::DestinationSolidTerrain { .. }
+            | Self::DestinationRequiresFixedFloor { .. }
             | Self::DestinationMassOverflow { .. }
             | Self::DestinationCapacityExceeded { .. }
             | Self::MaterialLotIdExhausted

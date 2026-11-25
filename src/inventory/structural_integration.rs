@@ -360,13 +360,9 @@ pub fn validate_unmount_stockpile(
     validate_not_busy(state, stockpile)?;
     let expected_unmount_world_revision = if record.enclosure().is_none()
         && let Some(position) = state.logistics().stationary_stockpile_position(stockpile)
-        && state
-            .production()
-            .retained_output_jobs(stockpile)
-            .next()
-            .is_some()
+        && !record.reserved_inbound().is_zero()
     {
-        if crate::production::generated_output_position_lacks_footing(registries, state, position) {
+        if crate::world::generated_position_lacks_fixed_footing(registries, state, position) {
             return Err(StockpileSupportError::ReservedOutputRequiresFixedFloor {
                 stockpile,
                 position,

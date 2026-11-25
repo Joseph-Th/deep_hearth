@@ -225,7 +225,7 @@ impl Display for StockpileSupportError {
                 position,
             } => write!(
                 formatter,
-                "cannot unmount production output stockpile {} at ({},{},{}) without fixed ground footing",
+                "cannot unmount reserved output stockpile {} at ({},{},{}) without fixed ground footing",
                 stockpile.value(),
                 position.x(),
                 position.y(),

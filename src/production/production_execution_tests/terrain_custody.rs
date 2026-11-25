@@ -280,7 +280,7 @@ fn production_output_footing_is_rechecked_at_commit_and_trusted_load() {
     };
     let admitted = plan(&state);
     let mut forged = state.clone();
-    let job = plan(&forged).commit(&mut forged).unwrap();
+    plan(&forged).commit(&mut forged).unwrap();
     let expected = state.world().revision();
     set_generated_block_for_test(registries.world(), &mut state, floor, BlockStateId::AIR);
     let actual = state.world().revision();
@@ -293,13 +293,12 @@ fn production_output_footing_is_rechecked_at_commit_and_trusted_load() {
     set_generated_block_for_test(registries.world(), &mut forged, floor, BlockStateId::AIR);
     assert_eq!(
         validate_loaded_state(&registries, &forged),
-        Err(
-            crate::core::state::StateValidationError::JobOutputDestinationRequiresFixedFloor {
-                job,
+        Err(crate::core::state::StateValidationError::Logistics(
+            crate::logistics::LogisticsValidationError::ReservedGroundMatterRequiresFixedFloor {
                 stockpile: destination,
-                position: at,
+                voxel: at,
             }
-        )
+        ))
     );
 }
 

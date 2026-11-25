@@ -153,7 +153,7 @@ pub(super) fn validate_generated_chunk_occupancy(
     Ok(())
 }
 
-/// A production reservation admitted in abstract space must retain a real
+/// A material reservation admitted in abstract space must retain a real
 /// floor when its column acquires terrain authority. Include the prospective
 /// trunk as well as terrain and existing full-cell structural members.
 fn first_unsupported_reserved_output_in_generated_chunk(
@@ -166,8 +166,11 @@ fn first_unsupported_reserved_output_in_generated_chunk(
         .logistics()
         .stockpiles_in_chunk(chunk.coord())
         .filter(|&(id, position)| {
-            crate::production::loose_output_destination_position(state, id) == Some(position)
-                && state.production().retained_output_jobs(id).next().is_some()
+            crate::world::loose_stockpile_position(state, id) == Some(position)
+                && state
+                    .inventory()
+                    .get_stockpile(id)
+                    .is_some_and(|pile| !pile.reserved_inbound().is_zero())
                 && !position.y().checked_sub(1).is_some_and(|y| {
                     let floor = VoxelCoord::new(position.x(), y, position.z());
                     (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&floor.y())

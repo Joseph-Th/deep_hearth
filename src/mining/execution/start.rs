@@ -207,6 +207,20 @@ fn validate_mining_destination(
             stockpile: destination,
         },
     )?;
+    if let Some(position) = crate::world::solid_stockpile_position(state, destination) {
+        return Err(MiningStartError::DestinationSolidTerrain {
+            stockpile: destination,
+            position,
+        });
+    }
+    if let Some(position) =
+        crate::world::unsupported_loose_stockpile_position(registries, state, destination)
+    {
+        return Err(MiningStartError::DestinationRequiresFixedFloor {
+            stockpile: destination,
+            position,
+        });
+    }
     if state
         .player_work()
         .get_storage_dismantling_stockpile_occupant(destination)

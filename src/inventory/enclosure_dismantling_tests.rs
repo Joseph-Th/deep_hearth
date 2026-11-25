@@ -105,6 +105,50 @@ fn fixture() -> (
 }
 
 #[test]
+fn enclosure_dismantling_cannot_reserve_recovery_without_fixed_footing() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{ChunkCoord, WorldGenerationSeed, validate_generate_chunk};
+
+    let (registries, mut state, target, construction, recovery, _food) = fixture();
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+        target,
+        construction,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x5052_4F43_524F_434B),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let position = VoxelCoord::new(5, 100, 5);
+    validate_place_ground_stockpile(&state, recovery, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let before = state.clone();
+    assert_eq!(
+        validate_start_storage_enclosure_dismantling(&registries, &state, target, recovery).err(),
+        Some(
+            StorageEnclosureDismantlingError::RecoveryDestinationRequiresFixedFloor {
+                stockpile: recovery,
+                position,
+            }
+        )
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn storage_dismantling_rejects_known_remote_enclosure() {
     let (registries, mut state, target, construction, recovery, _food) = fixture();
     validate_build_storage_enclosure(

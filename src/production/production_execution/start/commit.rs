@@ -8,8 +8,8 @@ use crate::equipment::{EquipmentOccupancy, equipment_occupancy};
 use crate::inventory::apply_prechecked_consumption_reservation;
 
 use super::ValidatedStartProcess;
-use super::routing::solid_output_destination;
 use crate::production::{ProductionJobId, ProductionJobRecord};
+use crate::world::solid_stockpile_position;
 
 mod errors;
 
@@ -56,7 +56,7 @@ impl ValidatedStartProcess {
         // without changing inventory or logistics revisions. Reject before
         // creating a physical inbound reservation or durable job.
         for stream in job.output_streams() {
-            if let Some(position) = solid_output_destination(state, stream.destination()) {
+            if let Some(position) = solid_stockpile_position(state, stream.destination()) {
                 return Err(StartProcessCommitError::OutputDestinationSolidTerrain {
                     stockpile: stream.destination(),
                     position,

@@ -41,6 +41,22 @@ pub(super) fn validate_ground_terrain(
     {
         return Err(LogisticsValidationError::GroundMatterIntersectsSolidTerrain { voxel });
     }
+    for (stockpile, _) in state.logistics().stockpile_locations() {
+        if state
+            .inventory()
+            .get_stockpile(stockpile)
+            .is_some_and(|pile| !pile.reserved_inbound().is_zero())
+            && let Some(voxel) =
+                crate::world::unsupported_loose_stockpile_position(registries, state, stockpile)
+        {
+            return Err(
+                LogisticsValidationError::ReservedGroundMatterRequiresFixedFloor {
+                    stockpile,
+                    voxel,
+                },
+            );
+        }
+    }
     Ok(())
 }
 

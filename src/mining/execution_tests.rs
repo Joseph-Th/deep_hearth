@@ -1959,3 +1959,6 @@ fn assemble_reinforced_pick_for_test(registries: &Registries, state: &mut AppSta
 
 #[path = "execution_tests/gameplay.rs"]
 mod gameplay;
+
+#[path = "execution_tests/terrain_custody.rs"]
+mod terrain_custody;

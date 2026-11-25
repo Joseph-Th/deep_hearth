@@ -144,7 +144,7 @@ impl Display for ChunkGenerationError {
             ),
             Self::ReservedOutputRequiresFixedFloor { voxel } => write!(
                 formatter,
-                "terrain generation would leave reserved production output without fixed footing at voxel ({},{},{})",
+                "terrain generation would leave reserved material output without fixed footing at voxel ({},{},{})",
                 voxel.x(), voxel.y(), voxel.z()
             ),
             Self::FluidStoreBuriedByTerrain { voxel } => write!(

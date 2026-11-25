@@ -72,6 +72,14 @@ pub enum MiningStartError {
         stockpile: StockpileId,
     },
     DestinationAccess(PlayerStockpileAccessError),
+    DestinationSolidTerrain {
+        stockpile: StockpileId,
+        position: VoxelCoord,
+    },
+    DestinationRequiresFixedFloor {
+        stockpile: StockpileId,
+        position: VoxelCoord,
+    },
     DestinationBusyStorageDismantling {
         stockpile: StockpileId,
     },
@@ -205,6 +213,16 @@ impl Display for MiningStartError {
             Self::DestinationAccess(error) => {
                 write!(formatter, "mining destination access failed: {error}")
             }
+            Self::DestinationSolidTerrain { stockpile, position } => write!(
+                formatter,
+                "mining destination stockpile {} intersects solid terrain at {position:?}",
+                stockpile.value()
+            ),
+            Self::DestinationRequiresFixedFloor { stockpile, position } => write!(
+                formatter,
+                "mining destination stockpile {} lacks fixed footing at {position:?}",
+                stockpile.value()
+            ),
             Self::DestinationBusyStorageDismantling { stockpile } => write!(
                 formatter,
                 "stockpile {} is being dismantled and cannot reserve mining output",
@@ -293,6 +311,8 @@ impl Error for MiningStartError {
             | Self::ZeroThroughput
             | Self::CompletionTickOverflow
             | Self::UnknownDestination { .. }
+            | Self::DestinationSolidTerrain { .. }
+            | Self::DestinationRequiresFixedFloor { .. }
             | Self::DestinationBusyStorageDismantling { .. }
             | Self::DestinationTemperatureNotAcquired { .. }
             | Self::DestinationMassOverflow { .. }

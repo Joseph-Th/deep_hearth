@@ -161,11 +161,6 @@ impl Display for StateValidationError {
                 job.value(),
                 stockpile.value()
             ),
-            Self::JobOutputDestinationRequiresFixedFloor { job, stockpile, position } => write!(
-                formatter,
-                "production job {} reserves output at unsupported loose stockpile {} at ({},{},{})",
-                job.value(), stockpile.value(), position.x(), position.y(), position.z()
-            ),
             Self::JobSpatialEndpointMismatch {
                 job,
                 first,

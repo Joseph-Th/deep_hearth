@@ -134,6 +134,8 @@ fn validate_completion_replay(
         | StorageEnclosureDismantlingError::UnknownRecoveryDestination { .. }
         | StorageEnclosureDismantlingError::RecoveryDestinationIsTarget { .. }
         | StorageEnclosureDismantlingError::RecoveryDestinationMounted { .. }
+        | StorageEnclosureDismantlingError::RecoveryDestinationSolidTerrain { .. }
+        | StorageEnclosureDismantlingError::RecoveryDestinationRequiresFixedFloor { .. }
         | StorageEnclosureDismantlingError::RecoveryDestinationStorage(_)
         | StorageEnclosureDismantlingError::RecoveryCapacityExceeded { .. }
         | StorageEnclosureDismantlingError::RecoveryMassOverflow { .. }

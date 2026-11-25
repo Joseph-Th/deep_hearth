@@ -8,6 +8,7 @@ use crate::core::time::{SimulationTick, TickSpan};
 use crate::inventory::{MaterialLotId, StockpileId, StockpileStorageError, StorageDefinitionId};
 use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError};
 use crate::logistics::PlayerStockpileAccessError;
+use crate::spatial::VoxelCoord;
 use crate::structural::StructuralElementId;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,6 +40,14 @@ pub enum StorageEnclosureDismantlingError {
     RecoveryDestinationMounted {
         stockpile: StockpileId,
         element: StructuralElementId,
+    },
+    RecoveryDestinationSolidTerrain {
+        stockpile: StockpileId,
+        position: VoxelCoord,
+    },
+    RecoveryDestinationRequiresFixedFloor {
+        stockpile: StockpileId,
+        position: VoxelCoord,
     },
     TargetContentsIncompatible {
         lot: MaterialLotId,
@@ -113,6 +122,22 @@ impl Display for StorageEnclosureDismantlingError {
                 stockpile.value(),
                 element.value()
             ),
+            Self::RecoveryDestinationSolidTerrain {
+                stockpile,
+                position,
+            } => write!(
+                formatter,
+                "recovery stockpile {} occupies solid terrain at {position:?}",
+                stockpile.value()
+            ),
+            Self::RecoveryDestinationRequiresFixedFloor {
+                stockpile,
+                position,
+            } => write!(
+                formatter,
+                "recovery stockpile {} requires fixed footing at {position:?}",
+                stockpile.value()
+            ),
             Self::TargetContentsIncompatible { lot, error } => write!(
                 formatter,
                 "material lot {} cannot remain in ambient storage after enclosure dismantling: {error}",
@@ -173,6 +198,8 @@ impl Error for StorageEnclosureDismantlingError {
             | Self::UnknownRecoveryDestination { .. }
             | Self::RecoveryDestinationIsTarget { .. }
             | Self::RecoveryDestinationMounted { .. }
+            | Self::RecoveryDestinationSolidTerrain { .. }
+            | Self::RecoveryDestinationRequiresFixedFloor { .. }
             | Self::RecoveryCapacityExceeded { .. }
             | Self::RecoveryMassOverflow { .. }
             | Self::RecoveryLotIdExhausted

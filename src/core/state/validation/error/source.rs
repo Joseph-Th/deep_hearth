@@ -67,7 +67,6 @@ impl Error for StateValidationError {
             | Self::JobEnergyTopologyMismatch { .. }
             | Self::JobEquipmentTopologyMismatch { .. }
             | Self::UnknownJobDestination { .. }
-            | Self::JobOutputDestinationRequiresFixedFloor { .. }
             | Self::JobSpatialEndpointMismatch { .. } => None,
             Self::UnknownJobEnergySource {
                 job: _job,

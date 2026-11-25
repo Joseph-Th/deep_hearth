@@ -12,6 +12,10 @@ use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::player::validate_admit_player;
 use crate::simulation::advance_control_tick;
 use crate::spatial::VoxelCoord;
+use crate::surface::{
+    SurfaceGatheringError, SurfaceGatheringRequest, insert_surface_resource_for_test,
+    validate_start_surface_gathering,
+};
 use crate::world::{
     ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed, validate_generate_chunk,
 };
@@ -168,7 +172,7 @@ fn movable_resident_is_not_permanent_footing_for_a_player_drop() {
 }
 
 #[test]
-fn an_adjacent_ledge_under_the_body_cannot_support_a_drop_in_an_open_shaft() {
+fn an_adjacent_ledge_under_the_body_cannot_support_stationary_custody_in_an_open_shaft() {
     use crate::logistics::player_body_has_fixed_floor;
     use crate::spatial::{NANOMETERS_PER_VOXEL, WorldPoint};
     use crate::world::{BlockStateId, set_generated_block_for_test};
@@ -261,6 +265,46 @@ fn an_adjacent_ledge_under_the_body_cannot_support_a_drop_in_an_open_shaft() {
         validate_drop_player_material(&registries, &state, commodity).err(),
         Some(PlayerMaterialDropError::PlayerAirborne),
         "support at the edge of the body cannot anchor a parcel over the empty center"
+    );
+    assert_eq!(state, before);
+    let stockpile =
+        crate::inventory::add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
+            .unwrap();
+    crate::logistics::validate_place_ground_stockpile(&state, stockpile, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let resource = insert_surface_resource_for_test(
+        &registries,
+        &mut state,
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Opportunity,
+            spawn,
+            commodity,
+            Mass::from_milligrams(100_000),
+            Temperature::from_millikelvin(293_150),
+            crate::material::MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let before = state.clone();
+    assert_eq!(
+        validate_start_surface_gathering(
+            &registries,
+            &state,
+            SurfaceGatheringRequest::new(
+                crate::content::SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
+                resource,
+                stockpile,
+                Mass::from_milligrams(100_000),
+            ),
+        )
+        .err(),
+        Some(SurfaceGatheringError::DestinationRequiresFixedFloor {
+            stockpile,
+            position: spawn,
+        })
     );
     assert_eq!(state, before);
 }

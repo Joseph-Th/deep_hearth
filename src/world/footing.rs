@@ -3,9 +3,69 @@
 use crate::core::state::AppState;
 use crate::equipment::EquipmentId;
 use crate::inventory::StockpileId;
+use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::structural::StructuralElementId;
 use crate::surface::{SurfaceResourceId, SurfaceResourceKind};
+
+/// The ground voxel of an unenclosed, unmounted, stationary stockpile.
+/// Carried custody and explicit supports have their own physical owners.
+pub(crate) fn loose_stockpile_position(
+    state: &AppState,
+    stockpile: StockpileId,
+) -> Option<VoxelCoord> {
+    let pile = state.inventory().get_stockpile(stockpile)?;
+    if pile.enclosure().is_some() || pile.supported_by().is_some() {
+        return None;
+    }
+    state.logistics().stationary_stockpile_position(stockpile)
+}
+
+/// An empty marker can exist inside rock, but a new inbound reservation
+/// makes its location physical.
+pub(crate) fn solid_stockpile_position(
+    state: &AppState,
+    stockpile: StockpileId,
+) -> Option<VoxelCoord> {
+    let position = state.logistics().stationary_stockpile_position(stockpile)?;
+    (state
+        .world()
+        .block_at(position)
+        .is_some_and(|block| block != super::BlockStateId::AIR)
+        || state.world().tree_trunk_at(position).is_some())
+    .then_some(position)
+}
+
+/// Abstract locations have no terrain authority. In generated space, fixed
+/// custody needs an exact, persistent floor rather than an actor's footprint.
+pub(crate) fn generated_position_lacks_fixed_footing(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+) -> bool {
+    if !state.world().has_generated_terrain_at(position) {
+        return false;
+    }
+    !position.y().checked_sub(1).is_some_and(|y| {
+        let floor = VoxelCoord::new(position.x(), y, position.z());
+        (super::WORLD_MIN_Y..super::WORLD_MAX_Y_EXCLUSIVE).contains(&floor.y())
+            && !fixed_floor_reserved_for_removal(state, floor)
+            && (state
+                .world()
+                .full_cell_collision_at(registries.world(), floor)
+                == Some(true)
+                || state.structures().blocks_full_cell(floor))
+    })
+}
+
+pub(crate) fn unsupported_loose_stockpile_position(
+    registries: &Registries,
+    state: &AppState,
+    stockpile: StockpileId,
+) -> Option<VoxelCoord> {
+    let position = loose_stockpile_position(state, stockpile)?;
+    generated_position_lacks_fixed_footing(registries, state, position).then_some(position)
+}
 
 /// Physical custody without independent falling motion. Terrain excavation,
 /// structural recovery and tree removal share this ordered local assessment.

@@ -11,8 +11,9 @@ use crate::material::MaterialLotSpec;
 use crate::production::resolution::{ProcessResolution, sum_lot_spec_mass};
 use crate::production::state::ProductionOutputStream;
 use crate::registry::Registries;
-use crate::spatial::VoxelCoord;
-use crate::world::BlockStateId;
+use crate::world::{
+    loose_stockpile_position, solid_stockpile_position, unsupported_loose_stockpile_position,
+};
 
 use super::{ProcessOutputRoute, StartProcessError};
 
@@ -22,23 +23,6 @@ pub(super) struct ValidatedOutputRouting {
     pub(super) inbound_by_destination: BTreeMap<StockpileId, Mass>,
     pub(super) destination_structure_revision: Option<u64>,
     pub(super) destination_footing_revisions: Option<(u64, u64)>,
-}
-
-/// A located output destination becomes physical as soon as production reserves
-/// incoming matter. Empty ground markers may exist in ungenerated terrain or rock.
-pub(super) fn solid_output_destination(
-    state: &AppState,
-    destination: StockpileId,
-) -> Option<VoxelCoord> {
-    let position = state
-        .logistics()
-        .stationary_stockpile_position(destination)?;
-    (state
-        .world()
-        .block_at(position)
-        .is_some_and(|block| block != BlockStateId::AIR)
-        || state.world().tree_trunk_at(position).is_some())
-    .then_some(position)
 }
 
 fn bind_output_routes(
@@ -142,14 +126,13 @@ fn build_routed_output_streams(
                 stockpile: destination,
             });
         };
-        if let Some(position) = solid_output_destination(state, destination) {
+        if let Some(position) = solid_stockpile_position(state, destination) {
             return Err(StartProcessError::OutputDestinationSolidTerrain {
                 stockpile: destination,
                 position,
             });
         }
-        if let Some(position) =
-            crate::production::unsupported_output_destination(registries, state, destination)
+        if let Some(position) = unsupported_loose_stockpile_position(registries, state, destination)
         {
             return Err(StartProcessError::OutputDestinationRequiresFixedFloor {
                 stockpile: destination,
@@ -235,9 +218,7 @@ pub(super) fn validate_output_routing(
         validate_output_destination_supports(state, &inbound_by_destination)?;
     let destination_footing_revisions = inbound_by_destination
         .keys()
-        .any(|&destination| {
-            crate::production::loose_output_destination_position(state, destination).is_some()
-        })
+        .any(|&destination| loose_stockpile_position(state, destination).is_some())
         .then_some((state.world().revision(), state.structures().revision()));
 
     Ok(ValidatedOutputRouting {

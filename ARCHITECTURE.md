@@ -153,9 +153,13 @@ contents or world occupancy. Standing tree trunks are a separate world-owned
 obstruction: unlike rock, they reject even an otherwise empty ground-location marker,
 matching the tree-generation and trusted-load occupancy contract. Empty-location
 allocation rejects a living trunk at admission and before inventory mutation at
-commit. Production output admission and commit likewise reject a located ground
+commit. Production and mining output admission and commit likewise reject a located ground
 destination in generated rock before reserving physical inbound output; once
 reserved, incoming matter prevents later terrain from burying that destination.
+An inbound reservation into an unenclosed, unmounted stationary stockpile also
+requires fixed footing in generated terrain. World footing owns this shared
+assessment; generation, unmounting, and trusted-load admission enforce it
+against the inventory reservation itself, regardless of which work owns it.
 Player-originated persistent voxel custody (loose material drops, ground caches,
 portable equipment drops, equipment or energy-store assembly, and the ground
 overflow destination of timed block excavation) requires

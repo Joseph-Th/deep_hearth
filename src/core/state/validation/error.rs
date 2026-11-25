@@ -114,11 +114,6 @@ pub enum StateValidationError {
         job: ProductionJobId,
         stockpile: StockpileId,
     },
-    JobOutputDestinationRequiresFixedFloor {
-        job: ProductionJobId,
-        stockpile: StockpileId,
-        position: VoxelCoord,
-    },
     JobSpatialEndpointMismatch {
         job: ProductionJobId,
         first: ProductionSiteEndpoint,

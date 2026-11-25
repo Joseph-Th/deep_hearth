@@ -109,6 +109,7 @@ fn validate_dismantling_target(
 }
 
 fn validate_dismantling_recovery_destination(
+    registries: &Registries,
     state: &AppState,
     target: StockpileId,
     recovery_destination: StockpileId,
@@ -131,6 +132,24 @@ fn validate_dismantling_recovery_destination(
             StorageEnclosureDismantlingError::RecoveryDestinationMounted {
                 stockpile: recovery_destination,
                 element,
+            },
+        );
+    }
+    if let Some(position) = crate::world::solid_stockpile_position(state, recovery_destination) {
+        return Err(
+            StorageEnclosureDismantlingError::RecoveryDestinationSolidTerrain {
+                stockpile: recovery_destination,
+                position,
+            },
+        );
+    }
+    if let Some(position) =
+        crate::world::unsupported_loose_stockpile_position(registries, state, recovery_destination)
+    {
+        return Err(
+            StorageEnclosureDismantlingError::RecoveryDestinationRequiresFixedFloor {
+                stockpile: recovery_destination,
+                position,
             },
         );
     }
@@ -191,7 +210,7 @@ pub fn validate_start_storage_enclosure_dismantling(
     validate_player_stockpile_access(state, recovery_destination)
         .map_err(StorageEnclosureDismantlingError::Access)?;
     let (target_record, enclosure) = validate_dismantling_target(state, target)?;
-    validate_dismantling_recovery_destination(state, target, recovery_destination)?;
+    validate_dismantling_recovery_destination(registries, state, target, recovery_destination)?;
     let definition = enclosure.definition();
     let definition_record = registries
         .storage()
