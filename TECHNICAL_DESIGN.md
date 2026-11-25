@@ -440,7 +440,7 @@ a current remote scout location, cargo manifest, or hidden resource inventory.
 
 `available_nearby_kobold_footfalls` also derives short-lived auditory clues
 from those same authoritative scout/watchman step records and the scout's
-persisted drink event, distinguishing walking, hauling, foraging, splashing
+persisted water intake, distinguishing walking, hauling, foraging, splashing
 and flight without exposing a hidden resident position or route. Movement
 scuffs originate at the actual arrival cell; foraging and drinking originate
 at the source cell where food or water was taken before that movement.
@@ -448,7 +448,12 @@ A real step after foraging or drinking has both arrival-cell footsteps and
 source-cell activity, so a listener outside the shorter action-sound radius
 can still hear the departing resident. A drink while hauling likewise remains
 a separate splash instead of being lost under the hauling trail; an immobile
-drink is audible without fabricating footsteps. The real drink time prevents
+drink is audible without fabricating footsteps. A partial water serving records
+its latest real intake independently of the completed-ration deadline, so
+drinking while stationary or hauling is audible even before the full need is
+met. Trusted load requires that unfinished intake time to agree with the
+credited water, due time and actual scout cadence; completing the ration
+clears the unfinished timestamp. The real intake time prevents
 duplicates when the track already records that splash. Sound follows bounded
 face-connected air corridors, not rock, standing trunks, built walls or
 unknown generated terrain. Only events up to two slow ticks old can be

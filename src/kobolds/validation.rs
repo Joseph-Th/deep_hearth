@@ -152,6 +152,19 @@ fn validate_water_schedule(colony: &KoboldColony, state: &AppState) -> Result<()
     {
         return Err("kobold credited drinking does not match finite consumed water");
     }
+    let partial_history_valid = match colony.last_partial_drink_at {
+        None => colony.partial_drink.is_zero(),
+        Some(last) => {
+            !colony.partial_drink.is_zero()
+                && last >= colony.next_drink_at
+                && last.value() >= first_drink
+                && last.value() <= current
+                && (last.value() - FIRST_SCOUT_TICK).is_multiple_of(SCOUT_STEP_TICKS)
+        }
+    };
+    if !partial_history_valid {
+        return Err("kobold unfinished water ration lacks a valid intake time");
+    }
     let valid_history = match (colony.last_drink_at, colony.last_drink_interval_ticks) {
         (None, None) => consumed < serving && colony.next_drink_at.value() == first_drink,
         (Some(last), Some(interval)) => {

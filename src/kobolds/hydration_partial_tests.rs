@@ -7,6 +7,7 @@ use crate::core::state::validate_loaded_state;
 use crate::fluid::{
     GeneratedFluidStoreSpec, calculate_fluid_volume_accounting, validate_generate_fluid_store,
 };
+use crate::kobolds::SCOUT_STEP_TICKS;
 use crate::logistics::{add_traversable_edge_for_test, validate_place_fluid_store};
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::simulation::advance_tick;
@@ -89,6 +90,7 @@ fn two_partial_pools_complete_one_real_scout_drink_across_saved_patrols() {
     );
     let partial = state.kobold_state().colony.as_ref().unwrap();
     assert_eq!(partial.partial_drink, half);
+    assert_eq!(partial.last_partial_drink_at, Some(first_drink_at));
     assert_eq!(partial.last_drink_at, None);
     assert!(
         partial.next_drink_at <= first_drink_at,
@@ -97,6 +99,30 @@ fn two_partial_pools_complete_one_real_scout_drink_across_saved_patrols() {
     assert_eq!(calculate_fluid_volume_accounting(&state).unwrap(), original);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     let saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    for invalid_time in [
+        serde_json::Value::Null,
+        serde_json::json!(first_drink_at.value() + SCOUT_STEP_TICKS),
+        serde_json::json!(first_drink_at.value() - 1),
+        serde_json::json!(0),
+    ] {
+        let mut forged = saved.clone();
+        forged["state"]["systems"]["kobolds"]["colony"]["last_partial_drink_at"] = invalid_time;
+        let decoded: LoadedSaveEnvelope = serde_json::from_value(forged).unwrap();
+        assert_eq!(
+            decoded.into_state(&registries),
+            Err(crate::persistence::LoadError::InvalidState(
+                crate::core::state::StateValidationError::Kobolds(
+                    "kobold unfinished water ration lacks a valid intake time"
+                )
+            ))
+        );
+    }
+    let mut missing_time = saved.clone();
+    missing_time["state"]["systems"]["kobolds"]["colony"]
+        .as_object_mut()
+        .unwrap()
+        .remove("last_partial_drink_at");
+    assert!(serde_json::from_value::<LoadedSaveEnvelope>(missing_time).is_err());
     for invalid_credit in [0_u64, SCOUT_DRINK_VOLUME.microliters()] {
         let mut forged = saved.clone();
         forged["state"]["systems"]["kobolds"]["colony"]["partial_drink"] =
@@ -153,6 +179,7 @@ fn two_partial_pools_complete_one_real_scout_drink_across_saved_patrols() {
     );
     let colony = state.kobold_state().colony.as_ref().unwrap();
     assert_eq!(colony.partial_drink, Volume::ZERO);
+    assert_eq!(colony.last_partial_drink_at, None);
     assert_eq!(colony.last_drink_at, Some(completed_at));
     assert_eq!(
         colony.next_drink_at.value(),
@@ -160,6 +187,113 @@ fn two_partial_pools_complete_one_real_scout_drink_across_saved_patrols() {
     );
     assert_eq!(calculate_fluid_volume_accounting(&state).unwrap(), original);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
+fn stationary_partial_drink_makes_one_short_lived_source_local_sound() {
+    use crate::content::{FORM_BOARD, MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION};
+    use crate::core::quantity::{Area, Length};
+    use crate::kobolds::{KoboldFootfallKind, available_nearby_kobold_footfalls};
+    use crate::player::validate_admit_player;
+    use crate::spatial::VoxelBounds;
+    use crate::structural::{
+        StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let den = VoxelCoord::new(0, 0, 0);
+    let junction = VoxelCoord::new(1, 0, 0);
+    let tip = VoxelCoord::new(2, 0, 0);
+    for (from, to) in [(den, junction), (junction, tip)] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    let wall = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        StructuralElementGeometry::new(
+            VoxelBounds::new(junction, VoxelCoord::new(2, 1, 1)).unwrap(),
+            Length::from_micrometers(1_000_000),
+            Area::from_square_millimeters(1_000_000),
+        )
+        .unwrap(),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, wall, FORM_BOARD);
+    let half = Volume::from_microliters(SCOUT_DRINK_VOLUME.microliters() / 2);
+    let water = validate_generate_fluid_store(
+        &registries,
+        &state,
+        GeneratedFluidStoreSpec::new(
+            SCOUT_DRINK_VOLUME,
+            FLUID_WATER,
+            half,
+            Temperature::from_millikelvin(293_150),
+        ),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    validate_place_fluid_store(&state, water, den)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let due = state.kobold_state().colony.as_ref().unwrap().next_drink_at;
+    while state.tick().value() + 1 < due.value() {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 3))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let conserved = calculate_fluid_volume_accounting(&state).unwrap();
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(colony.scout_position(), den);
+    assert!(colony.tracks.is_empty());
+    assert_eq!(colony.partial_drink, half);
+    assert_eq!(colony.last_drink_at, None);
+    assert_eq!(colony.next_drink_at, due);
+    assert_eq!(
+        state.fluid().get_store(water).unwrap().stored_volume(),
+        Volume::ZERO
+    );
+    let heard = available_nearby_kobold_footfalls(&registries, &state);
+    assert_eq!(
+        heard.len(),
+        1,
+        "a stationary partial drink is still audible"
+    );
+    assert_eq!(heard[0].kind(), KoboldFootfallKind::Splashing);
+    assert_eq!(heard[0].occurred_at(), due);
+    assert_eq!(
+        calculate_fluid_volume_accounting(&state).unwrap(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(
+        available_nearby_kobold_footfalls(&registries, &replay),
+        heard
+    );
+    for _ in 0..3 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert!(available_nearby_kobold_footfalls(&registries, &state).is_empty());
 }
 
 #[test]

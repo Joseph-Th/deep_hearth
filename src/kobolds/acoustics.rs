@@ -215,7 +215,7 @@ pub fn available_nearby_kobold_footfalls(
     // cell. The physical track records hauling, but the separate persisted
     // drinking event remains audible; neither action suppresses the other.
     // An unmoving drink also has a source even when no step trace was recorded.
-    if let Some(drink_at) = colony.last_drink_at
+    if let Some(drink_at) = colony.last_partial_drink_at.or(colony.last_drink_at)
         && state
             .tick()
             .checked_duration_since(drink_at)
@@ -390,9 +390,16 @@ fn audible_with_reach(
         if distance == reach {
             continue;
         }
+        let next_distance = distance + 1;
         for neighbor in neighbors(current) {
-            if visited.insert(neighbor) && passable(neighbor) {
-                queue.push_back((neighbor, distance + 1));
+            // Even an unobstructed continuation cannot beat its Manhattan
+            // lower bound. Skip cells outside the remaining acoustic budget
+            // before consulting terrain and structural occupancy.
+            if within_manhattan_reach(neighbor, listener, u64::from(reach - next_distance))
+                && visited.insert(neighbor)
+                && passable(neighbor)
+            {
+                queue.push_back((neighbor, next_distance));
             }
         }
     }

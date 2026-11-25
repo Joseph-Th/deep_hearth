@@ -281,6 +281,7 @@ pub(super) fn drink_on_scout_visit(
     } else {
         next_partial
     };
+    colony.last_partial_drink_at = (!completed).then_some(at);
     if let Some((interval, next_due)) = next_schedule {
         colony.next_drink_at = next_due;
         colony.last_drink_at = Some(at);
