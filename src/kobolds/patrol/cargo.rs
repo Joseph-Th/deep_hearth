@@ -14,10 +14,17 @@ pub(super) struct CargoDecision {
     pub(super) at: SimulationTick,
 }
 
-/// Actual return-edge handling favors an intact meal, but never a tiny intact
-/// crumb over a full serving obtainable by one local split. Route planning must
-/// consult this same rule rather than forecast a transfer the edge will not make.
-pub(super) fn full_bulk_ration_over_portable(
+/// The actual loose-food transfer available at a cell, before considering forage.
+#[derive(Clone, Copy)]
+pub(super) struct LocalFoodDrop {
+    pub(super) source: SurfaceResourceId,
+    pub(super) mass: Mass,
+    pub(super) whole: bool,
+}
+
+/// An intact ration avoids splitting, but a complete split beats a fragment.
+/// Forecast and actual cargo handling must use the same local decision.
+pub(super) fn local_food_drop(
     registries: &Registries,
     state: &AppState,
     colony: &KoboldColony,
@@ -25,14 +32,20 @@ pub(super) fn full_bulk_ration_over_portable(
     den_space: Mass,
     at: SimulationTick,
     portable: Option<SurfaceResourceId>,
-) -> Option<(SurfaceResourceId, Mass)> {
-    let whole = state.surface().get(portable?)?;
-    registries.survival().get_food(whole.commodity())?;
+) -> Option<LocalFoodDrop> {
+    let whole = portable
+        .and_then(|id| state.surface().get(id))
+        .filter(|drop| registries.survival().get_food(drop.commodity()).is_some())
+        .map(|drop| LocalFoodDrop {
+            source: drop.id(),
+            mass: drop.remaining_mass(),
+            whole: true,
+        });
     let shortage = super::super::SCOUT_MEAL_MASS
         .checked_sub(colony.partial_meal)
         .expect("trusted scout's credited partial ration is below one full meal");
-    if whole.remaining_mass() >= shortage {
-        return None;
+    if whole.is_some_and(|drop| drop.mass >= shortage) {
+        return whole;
     }
     let bulk = local_split_source(
         registries,
@@ -43,23 +56,52 @@ pub(super) fn full_bulk_ration_over_portable(
         true,
         colony.mobilized_at.is_some(),
     )
-    .and_then(|id| state.surface().get(id))?;
-    let recoverable = bulk
-        .remaining_mass()
-        .min(colony.salvage_batch())
-        .min(den_space);
-    (recoverable >= shortage).then_some((bulk.id(), recoverable))
+    .and_then(|id| state.surface().get(id))
+    .map(|drop| LocalFoodDrop {
+        source: drop.id(),
+        mass: drop
+            .remaining_mass()
+            .min(colony.salvage_batch())
+            .min(den_space),
+        whole: false,
+    });
+    if whole.is_none() || bulk.is_some_and(|drop| drop.mass >= shortage) {
+        bulk.or(whole)
+    } else {
+        whole
+    }
+}
+
+/// Foraging costs a recovery interval. Spend it instead of handling a loose
+/// parcel only when the loose parcel cannot finish the meal and forage yields more.
+pub(super) fn forage_beats_loose_food(
+    colony: &KoboldColony,
+    loose: Option<Mass>,
+    forage: Mass,
+) -> bool {
+    let shortage = super::super::SCOUT_MEAL_MASS
+        .checked_sub(colony.partial_meal)
+        .expect("trusted scout's credited partial ration is below one full meal");
+    loose.is_none_or(|mass| mass < shortage && forage > mass)
+}
+
+struct ScoutCargoPlan {
+    carried: Option<SurfaceResourceId>,
+    blocked_at_den: bool,
+    candidate: Option<SurfaceResourceId>,
+    prefer_forage: bool,
 }
 
 /// Existing carried matter must be checked for identity and location before
 /// selecting new loot. Capacity limits the last den edge, not intermediate
 /// carriage: a newly filled den cannot cause a parcel to drop miles away.
-pub(super) fn plan_returning_cargo(
+fn plan_returning_cargo(
     registries: &Registries,
     state: &AppState,
     colony: &KoboldColony,
     choice: CargoDecision,
-) -> (Option<SurfaceResourceId>, bool, Option<SurfaceResourceId>) {
+    forage: Option<Mass>,
+) -> ScoutCargoPlan {
     let carried = colony.scavenged_drop.filter(|id| {
         state.surface().get(*id).is_some_and(|resource| {
             resource.position() == choice.from
@@ -84,56 +126,48 @@ pub(super) fn plan_returning_cargo(
                     .is_none()
             })
         });
-    let candidate = if !choice.returning || choice.frightened {
-        None
-    } else if switching_from_inert {
-        // The scout may leave an inert parcel here to take fresh food at its
-        // actual position. A loose portable serving goes first; otherwise
-        // the return operation can split a local food pile or forage a patch.
-        // If no food transfer succeeds, the old parcel is hauled as before.
-        local_portable_source(
-            registries,
-            state,
-            choice.from,
-            choice.den_space,
-            choice.at,
-            true,
-            choice.mobilized,
-        )
-    } else if let Some(id) = carried {
-        (!blocked_at_den).then_some(id)
-    } else {
-        local_portable_source(
-            registries,
-            state,
-            choice.from,
-            choice.den_space,
-            choice.at,
-            choice.food_only,
-            choice.mobilized,
-        )
-    };
-    // This edge can transfer only one parcel. Release a partial whole candidate
-    // when a single real split yields the full remaining meal instead.
-    let prioritize_bulk_meal = choice.returning
-        && !choice.frightened
-        && choice.food_only
-        && (carried.is_none() || switching_from_inert)
-        && full_bulk_ration_over_portable(
-            registries,
-            state,
-            colony,
-            choice.from,
-            choice.den_space,
-            choice.at,
-            candidate,
-        )
-        .is_some();
-    (
+    let mut plan = ScoutCargoPlan {
         carried,
         blocked_at_den,
-        candidate.filter(|_| !prioritize_bulk_meal),
-    )
+        candidate: None,
+        prefer_forage: false,
+    };
+    if !choice.returning || choice.frightened {
+        return plan;
+    }
+    if let Some(id) = carried
+        && !switching_from_inert
+    {
+        plan.candidate = (!blocked_at_den).then_some(id);
+        return plan;
+    }
+    let portable = local_portable_source(
+        registries,
+        state,
+        choice.from,
+        choice.den_space,
+        choice.at,
+        choice.food_only,
+        choice.mobilized,
+    );
+    if !choice.food_only {
+        plan.candidate = portable;
+        return plan;
+    }
+    let loose = local_food_drop(
+        registries,
+        state,
+        colony,
+        choice.from,
+        choice.den_space,
+        choice.at,
+        portable,
+    );
+    plan.candidate = loose.filter(|drop| drop.whole).map(|drop| drop.source);
+    plan.prefer_forage = colony.hungry
+        && forage
+            .is_some_and(|mass| forage_beats_loose_food(colony, loose.map(|drop| drop.mass), mass));
+    plan
 }
 
 fn scout_releases_cargo(frightened: bool, den_full: bool, can_move: bool) -> bool {
@@ -271,15 +305,11 @@ fn finish_return_cargo_exchange(
 }
 
 /// One physically ordered return-edge transfer. Observe external drops before moving the
-/// scout's existing parcel; later splits/forage must see the committed earlier custody
-/// changes, not an independent pre-movement snapshot.
+/// scout's existing parcel, and commit at most one successful cargo exchange.
 #[derive(Clone, Copy)]
 pub(super) struct ScoutReturnCargoRequest {
     pub(super) choice: CargoDecision,
     pub(super) physically_clear: bool,
-    pub(super) carried_drop: Option<SurfaceResourceId>,
-    pub(super) cargo_blocked_at_den: bool,
-    pub(super) dragged_candidate: Option<SurfaceResourceId>,
     pub(super) may_forage_on_return: bool,
     pub(super) forage_ready: bool,
     pub(super) forage_batch: Mass,
@@ -316,15 +346,33 @@ pub(super) fn execute_scout_return_cargo(
                 at,
             },
         physically_clear,
-        carried_drop,
-        cargo_blocked_at_den,
-        dragged_candidate,
         may_forage_on_return,
         forage_ready,
         forage_batch,
         salvage_batch,
         ignored_external,
     } = request;
+    let forage =
+        (physically_clear && returning && may_forage_on_return && !frightened && forage_ready)
+            .then(|| best_local_forage(registries, state, from, at, forage_batch.min(den_space)))
+            .flatten();
+    let colony = state
+        .kobold_state()
+        .colony
+        .as_ref()
+        .expect("scout cargo requires a colony");
+    let ScoutCargoPlan {
+        carried: carried_drop,
+        blocked_at_den: cargo_blocked_at_den,
+        candidate: dragged_candidate,
+        prefer_forage,
+    } = plan_returning_cargo(
+        registries,
+        state,
+        colony,
+        request.choice,
+        forage.map(|(mass, _)| mass),
+    );
     let (can_move, continuing_carried_custody) = scout_cargo_movement_allowed(
         state,
         physically_clear,
@@ -334,19 +382,42 @@ pub(super) fn execute_scout_return_cargo(
         carried_drop,
         dragged_candidate,
     );
-    // Do not mistake the parcel dragged into the destination for new player loot.
+    // Observe the destination before any cargo moves.
     let discovered =
         can_move && finds_external_drop(registries, state, to, den_space, at, ignored_external);
-    let first_relocated = if can_move {
+    let try_forage = |state: &mut AppState| {
+        forage.and_then(|(_, source)| {
+            forage_food_to_adjacent_den(
+                registries,
+                state,
+                source,
+                from,
+                to,
+                at,
+                forage_batch.min(den_space),
+            )
+        })
+    };
+    // An unsuccessful preferred harvest changes no custody. The original
+    // whole/split/fallback order remains available, including old cargo.
+    let first_forage = if can_move && prefer_forage {
+        try_forage(state)
+    } else {
+        None
+    };
+    let first_relocated = if can_move && first_forage.is_none() {
         dragged_candidate
             .filter(|id| relocate_scavenged_drop_step(registries, state, *id, from, to))
     } else {
         None
     };
-    // Whole parcels retain identity; bulky piles yield one conserved daughter parcel.
-    let bulk_source = (can_move && returning && !frightened && first_relocated.is_none())
-        .then(|| local_split_source(registries, state, from, den_space, at, food_only, mobilized))
-        .flatten();
+    let bulk_source = (can_move
+        && returning
+        && !frightened
+        && first_forage.is_none()
+        && first_relocated.is_none())
+    .then(|| local_split_source(registries, state, from, den_space, at, food_only, mobilized))
+    .flatten();
     let split_drop = bulk_source.and_then(|source| {
         split_scavenged_bulk_with_available_tool(
             registries,
@@ -361,29 +432,12 @@ pub(super) fn execute_scout_return_cargo(
             },
         )
     });
-    // Forage only if the whole/split drop transactions left the return edge unused.
-    let forage_source = (can_move
-        && returning
-        && may_forage_on_return
-        && first_relocated.is_none()
-        && split_drop.is_none()
-        && !frightened
-        && forage_ready)
-        .then(|| {
-            best_local_forage(registries, state, from, at, forage_batch.min(den_space))
-                .map(|(_, id)| id)
-        })
-        .flatten();
-    let foraged_food = forage_source.and_then(|source| {
-        forage_food_to_adjacent_den(
-            registries,
-            state,
-            source,
-            from,
-            to,
-            at,
-            forage_batch.min(den_space),
-        )
+    let foraged_food = first_forage.or_else(|| {
+        if can_move && !prefer_forage && first_relocated.is_none() && split_drop.is_none() {
+            try_forage(state)
+        } else {
+            None
+        }
     });
     // Failed food exchanges must not abandon already-held cargo.
     let (relocated_drop, switched_cargo) = finish_return_cargo_exchange(

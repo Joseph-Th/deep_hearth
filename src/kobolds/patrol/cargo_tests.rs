@@ -1,8 +1,9 @@
-//! A failed tool-assisted split leaves matter untouched and permits a smaller hand split.
+//! Failed preferred cargo operations leave matter untouched and permit legal alternatives.
 
 use super::*;
 use crate::content::{
-    FORM_CHIP, FORM_HANDLE, FORM_LUMP, MATERIAL_STONE, MATERIAL_WOOD, build_registries,
+    FORM_CHIP, FORM_FOOD, FORM_HANDLE, FORM_LUMP, MATERIAL_BERRIES, MATERIAL_STONE,
+    MATERIAL_WILD_NUTS, MATERIAL_WOOD, build_registries,
 };
 use crate::core::quantity::Temperature;
 use crate::core::state::validate_loaded_state;
@@ -10,6 +11,7 @@ use crate::logistics::add_traversable_edge_for_test;
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+use crate::simulation::advance_tick;
 use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources};
 
 const DEN: VoxelCoord = VoxelCoord::new(-1, 0, 0);
@@ -70,6 +72,86 @@ fn with_surface_revision(registries: &Registries, state: &AppState, revision: u6
         .unwrap()
         .into_state(registries)
         .unwrap()
+}
+
+#[test]
+fn hungry_scout_preserves_intact_meal_and_falls_back_when_harvest_cannot_commit() {
+    for (loose_mass, limited) in [(25_000, false), (1_000, true)] {
+        let registries = build_registries();
+        let mut state = AppState::new();
+        add_traversable_edge_for_test(&mut state, DEN, JUNCTION);
+        add_traversable_edge_for_test(&mut state, JUNCTION, TIP);
+        state
+            .kobold_state_mut()
+            .apply_opening_colony([DEN, JUNCTION, TIP]);
+        while state.tick().value() < 584 {
+            let _ = advance_tick(&registries, &mut state).unwrap();
+        }
+        let colony = state.kobold_state().colony.as_ref().unwrap();
+        assert!(colony.hungry);
+        assert_eq!(colony.scout_position(), JUNCTION);
+        let next_forage_at = colony.next_forage_at;
+        let spec = |kind, material, mass| {
+            SurfaceResourceSpec::new(
+                kind,
+                JUNCTION,
+                CommodityKey::new(material, FORM_FOOD),
+                Mass::from_milligrams(mass),
+                TEMPERATURE,
+                MaterialComposition::pure(material),
+            )
+            .unwrap()
+        };
+        let planned = validate_create_surface_resources(
+            &registries,
+            &state,
+            [
+                spec(SurfaceResourceKind::Drop, MATERIAL_BERRIES, loose_mass),
+                spec(
+                    SurfaceResourceKind::Opportunity,
+                    MATERIAL_WILD_NUTS,
+                    300_000,
+                ),
+            ],
+        )
+        .unwrap();
+        let ids = planned.resource_ids().collect::<Vec<_>>();
+        planned.commit(&mut state).unwrap();
+        if limited {
+            state = with_surface_revision(&registries, &state, u64::MAX - 1);
+            assert!(state.can_spend_surface_revisions(1));
+            assert!(!state.can_spend_surface_revisions(2));
+        }
+        let conserved = calculate_matter_accounting(&state).unwrap().total();
+        let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(
+            &serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap(),
+        )
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+        assert_eq!(state, replay);
+        let colony = state.kobold_state().colony.as_ref().unwrap();
+        assert_eq!(colony.scout_position(), DEN);
+        assert_eq!(colony.next_forage_at, next_forage_at);
+        assert_eq!(state.surface().get(ids[0]).unwrap().position(), DEN);
+        assert_eq!(
+            state.surface().get(ids[0]).unwrap().remaining_mass(),
+            Mass::from_milligrams(loose_mass)
+        );
+        assert_eq!(
+            state.surface().get(ids[1]).unwrap().remaining_mass(),
+            Mass::from_milligrams(300_000)
+        );
+        assert_eq!(
+            calculate_matter_accounting(&state).unwrap().total(),
+            conserved
+        );
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
 }
 
 #[test]

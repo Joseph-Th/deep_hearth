@@ -325,6 +325,75 @@ fn assert_full_tip_drop_beats_crumb(at_junction: bool) {
 }
 
 #[test]
+fn hungry_scout_harvests_full_patch_instead_of_colocated_crumb() {
+    for distance in 0..=2 {
+        let (registries, mut state, route) = setup();
+        let far = VoxelCoord::new(2, 0, 0);
+        add_traversable_edge_for_test(&mut state, route.side, far);
+        let position = [route.junction, route.side, far][distance];
+        let crumb = SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+            Mass::from_milligrams(1_000),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_BERRIES),
+        )
+        .unwrap();
+        let sources = seed(
+            &registries,
+            &mut state,
+            [
+                crumb,
+                forage_spec(
+                    &registries,
+                    position,
+                    MATERIAL_WILD_NUTS,
+                    Mass::from_milligrams(300_000),
+                    None,
+                ),
+            ],
+        );
+        let conserved = calculate_matter_accounting(&state).unwrap().total();
+        let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        while state.tick().value() < 610 {
+            assert_eq!(
+                advance_tick(&registries, &mut state).unwrap(),
+                advance_tick(&registries, &mut replay).unwrap()
+            );
+            if !state.kobold_state().colony.as_ref().unwrap().hungry && state.tick().value() >= 580
+            {
+                break;
+            }
+        }
+        assert_eq!(state, replay);
+        assert_eq!(
+            state.surface().get(sources[0]).unwrap().position(),
+            position,
+            "distance {distance}: a full available forage serving should beat the crumb"
+        );
+        assert_eq!(
+            state.surface().get(sources[0]).unwrap().remaining_mass(),
+            Mass::from_milligrams(1_000)
+        );
+        assert_eq!(
+            state.surface().get(sources[1]).unwrap().remaining_mass(),
+            Mass::from_milligrams(200_000)
+        );
+        assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+        assert_eq!(
+            calculate_matter_accounting(&state).unwrap().total(),
+            conserved
+        );
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+}
+
+#[test]
 fn hungry_scout_prefers_full_patrol_tip_ration_to_junction_crumb() {
     let (registries, mut state, route) = setup();
     let sources = seed(

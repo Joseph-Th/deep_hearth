@@ -43,7 +43,6 @@ use super::{
 
 use cargo::{
     CargoDecision, ScoutReturnCargoOutcome, ScoutReturnCargoRequest, execute_scout_return_cargo,
-    plan_returning_cargo,
 };
 use raid::{ScoutRaidInterest, choose_outbound_detour, scout_raid_interest};
 

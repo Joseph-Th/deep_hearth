@@ -125,8 +125,6 @@ pub(super) fn settle_scout_movement(
         mobilized,
         at: next_tick,
     };
-    let (carried_drop, cargo_blocked_at_den, dragged_candidate) =
-        plan_returning_cargo(registries, state, colony, cargo_choice);
     let ScoutReturnCargoOutcome {
         can_move,
         discovered,
@@ -141,9 +139,6 @@ pub(super) fn settle_scout_movement(
         ScoutReturnCargoRequest {
             choice: cargo_choice,
             physically_clear,
-            carried_drop,
-            cargo_blocked_at_den,
-            dragged_candidate,
             may_forage_on_return,
             forage_ready,
             forage_batch,

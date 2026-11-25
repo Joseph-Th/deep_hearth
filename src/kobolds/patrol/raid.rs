@@ -109,10 +109,7 @@ fn preferred_hungry_food_route(
             let chosen =
                 reachable_forage_route(registries, state, route, at, maximum_mass, shortage)?;
             let goal = chosen.1.unwrap_or(chosen.0);
-            let far_maximum = colony
-                .forage_batch_in_world(registries, state, goal, at)
-                .min(den_space);
-            let mass = best_local_forage(registries, state, goal, at, far_maximum)?.0;
+            let mass = serving_at(goal, true)?;
             (mass > nearby).then_some((chosen, mass))
         })
         .flatten();

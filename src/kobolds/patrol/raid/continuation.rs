@@ -12,7 +12,7 @@ use super::super::super::scavenging::{
     local_split_source, matches_salvage_goal,
 };
 use super::super::super::{KoboldColony, SCOUT_MEAL_MASS};
-use super::super::cargo::full_bulk_ration_over_portable;
+use super::super::cargo::{forage_beats_loose_food, local_food_drop};
 use super::super::{ScoutPatrolContext, scout_can_approach_visible_unlit_cell};
 
 /// Do not abandon a viable distant ration for an insufficient local crumb, or
@@ -72,24 +72,22 @@ pub(super) fn continue_to_planned_far_raid(
                 food_only,
                 colony.mobilized_at.is_some(),
             );
-            let full_bulk = food_only
-                .then(|| {
-                    full_bulk_ration_over_portable(
-                        registries, state, colony, goal, capacity, at, portable,
+            if food_only {
+                local_food_drop(registries, state, colony, goal, capacity, at, portable)
+                    .map(|drop| drop.source)
+            } else {
+                portable.or_else(|| {
+                    local_split_source(
+                        registries,
+                        state,
+                        goal,
+                        capacity,
+                        at,
+                        false,
+                        colony.mobilized_at.is_some(),
                     )
                 })
-                .flatten();
-            full_bulk.map(|(id, _)| id).or(portable).or_else(|| {
-                local_split_source(
-                    registries,
-                    state,
-                    goal,
-                    capacity,
-                    at,
-                    food_only,
-                    colony.mobilized_at.is_some(),
-                )
-            })
+            }
         })
         .and_then(|id| state.surface().get(id))
         .map(|drop| {
@@ -124,8 +122,14 @@ pub(super) fn continue_to_planned_far_raid(
     let (target_food, target_precision, target_mass, target_whole) =
         match (target_drop, target_forage) {
             (Some((drop, transferable)), Some((forage_mass, _)))
-                if registries.survival().get_food(drop.commodity()).is_none()
-                    || (transferable < meal_shortage && forage_mass > transferable) =>
+                if forage_beats_loose_food(
+                    colony,
+                    registries
+                        .survival()
+                        .get_food(drop.commodity())
+                        .map(|_| transferable),
+                    forage_mass,
+                ) =>
             {
                 (true, false, forage_mass, false)
             }
@@ -181,8 +185,8 @@ pub(super) fn continue_to_planned_far_raid(
 
 /// Compare only the ration the next return edge would actually transfer.
 /// A whole meal wins intact, but a complete bulk split outranks a tiny crumb;
-/// remaining partial drops and forage respect the actual exchange order.
-/// Taking the maximum of all sources can promise food the edge will not move.
+/// a larger forage serving beats an insufficient loose parcel. This matches
+/// cargo execution rather than projecting an independent maximum.
 pub(super) fn recoverable_local_food_serving(
     registries: &Registries,
     state: &AppState,
@@ -198,49 +202,27 @@ pub(super) fn recoverable_local_food_serving(
         at,
         ..
     } = context;
-    if let Some((_, serving)) =
-        full_bulk_ration_over_portable(registries, state, colony, from, den_space, at, local_whole)
+    let loose = local_food_drop(registries, state, colony, from, den_space, at, local_whole);
+    let forage = forage_ready
+        .then(|| {
+            best_local_forage(
+                registries,
+                state,
+                from,
+                at,
+                colony
+                    .forage_batch_in_world(registries, state, from, at)
+                    .min(den_space),
+            )
+        })
+        .flatten();
+    if let Some((mass, _)) = forage
+        && forage_beats_loose_food(colony, loose.map(|drop| drop.mass), mass)
     {
-        return allow_bulk_split.then_some(serving);
+        return Some(mass);
     }
-    if let Some(portable) = local_whole.and_then(|id| state.surface().get(id)) {
-        return (registries
-            .survival()
-            .get_food(portable.commodity())
-            .is_some())
-        .then_some(portable.remaining_mass());
-    }
-    let bulk = local_split_source(
-        registries,
-        state,
-        from,
-        den_space,
-        at,
-        true,
-        colony.mobilized_at.is_some(),
-    )
-    .and_then(|id| state.surface().get(id));
-    if let Some(bulk) = bulk {
-        // A distant intact serving is still cheaper to handle than a local
-        // split. Otherwise a real split at this waypoint saves an extra edge.
-        return allow_bulk_split.then(|| {
-            bulk.remaining_mass()
-                .min(colony.salvage_batch())
-                .min(den_space)
-        });
-    }
-    if forage_ready {
-        best_local_forage(
-            registries,
-            state,
-            from,
-            at,
-            colony
-                .forage_batch_in_world(registries, state, from, at)
-                .min(den_space),
-        )
-        .map(|(mass, _)| mass)
-    } else {
-        None
-    }
+    // A distant intact serving is cheaper to handle than a local split.
+    loose
+        .filter(|drop| allow_bulk_split || drop.whole)
+        .map(|drop| drop.mass)
 }
