@@ -188,7 +188,7 @@ pub(super) fn apply_watchman_tick(
         .colony
         .as_ref()
         .is_some_and(|resident| resident.scout_step == 2);
-    let signaled = relay_watch_alarm(state, at);
+    let signaled = relay_watch_alarm(registries, state, at);
     let audible = locally_audible_alarm_pulses(
         registries,
         state,

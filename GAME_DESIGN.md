@@ -375,7 +375,9 @@ one adjacent route edge. Bare stone clatters less reliably than a timber-braced 
 parts or an unsuccessful beat leave the warning untransmitted. A successfully warned scout
 retreats using the ordinary route rules. A second copper core and shaped striker can now
 make a separate junction repeater: on a synchronized clatter beat, the den's warning reaches
-a scout two connected route edges away. An industrially mobilized scavenger physically
+a scout two connected and acoustically passable route edges away, including a temporary
+detour from the junction. A blocked sound path leaves the warning pending.
+An industrially mobilized scavenger physically
 delivers the extra copper to the junction, keeps the staged part there, then seeks the
 missing striker. It does not strip its own assembled repeater while the den source works.
 The player can intercept or take any component, breaking the relay without destroying or

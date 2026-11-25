@@ -959,6 +959,76 @@ fn offbeat_missing_relay_and_remote_listener_emit_no_spurious_alarm_pulses() {
 }
 
 #[test]
+fn alarm_cannot_cross_an_unloaded_patrol_boundary() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{
+        BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
+        validate_generate_chunk,
+    };
+
+    let (registries, mut state) = mobilized_den();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(7),
+        ChunkCoord::containing(DEN),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(DEN.x(), -1, DEN.z()),
+        BLOCK_STATE_STONE,
+    );
+    for y in 0..=1 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(DEN.x(), y, DEN.z()),
+            BlockStateId::AIR,
+        );
+    }
+    put_drop(
+        &registries,
+        &mut state,
+        CommodityKey::new(MATERIAL_COPPER, FORM_ELECTRICAL_WINDING),
+    );
+    put_drop(
+        &registries,
+        &mut state,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+    );
+    state
+        .kobold_state_mut()
+        .colony
+        .as_mut()
+        .unwrap()
+        .watch_alarm_pending = true;
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    let source = current_den_rig(&state, colony).unwrap();
+    let at = SimulationTick::new(210);
+    assert!(source.sounds_at(at));
+    assert!(!super::super::acoustics::can_hear_junk_rig(
+        &registries,
+        &state,
+        source,
+        JUNCTION
+    ));
+    assert!(!relay_watch_alarm(&registries, &mut state, at));
+    assert!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_alarm_pending
+    );
+}
+
+#[test]
 fn mismatched_stone_and_timber_mechanisms_wait_for_a_shared_clatter_beat() {
     let (registries, mut state) = mobilized_den();
     advance_to(&registries, &mut state, 205);
@@ -1001,7 +1071,11 @@ fn mismatched_stone_and_timber_mechanisms_wait_for_a_shared_clatter_beat() {
         .as_mut()
         .unwrap()
         .watch_alarm_pending = true;
-    assert!(!relay_watch_alarm(&mut state, SimulationTick::new(210)));
+    assert!(!relay_watch_alarm(
+        &registries,
+        &mut state,
+        SimulationTick::new(210)
+    ));
     assert!(
         state
             .kobold_state()
@@ -1010,7 +1084,11 @@ fn mismatched_stone_and_timber_mechanisms_wait_for_a_shared_clatter_beat() {
             .unwrap()
             .watch_alarm_pending
     );
-    assert!(!relay_watch_alarm(&mut state, SimulationTick::new(230)));
+    assert!(!relay_watch_alarm(
+        &registries,
+        &mut state,
+        SimulationTick::new(230)
+    ));
     assert!(
         state
             .kobold_state()
@@ -1019,7 +1097,11 @@ fn mismatched_stone_and_timber_mechanisms_wait_for_a_shared_clatter_beat() {
             .unwrap()
             .watch_alarm_pending
     );
-    assert!(relay_watch_alarm(&mut state, SimulationTick::new(255)));
+    assert!(relay_watch_alarm(
+        &registries,
+        &mut state,
+        SimulationTick::new(255)
+    ));
     assert!(
         !state
             .kobold_state()

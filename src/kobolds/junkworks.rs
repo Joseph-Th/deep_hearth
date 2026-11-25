@@ -356,28 +356,42 @@ pub(super) fn locally_audible_alarm_pulses(
     pulses
 }
 
-/// A watchman's warning crosses one true den-to-junction edge. For a scout
-/// at the outer tip, a second connected edge and synchronized junction
-/// resonator are necessary; neither alone acts as a radio.
+/// A watchman's warning crosses one audible den-to-junction edge. For a scout
+/// on the second patrol step, a second audible edge to its actual position
+/// and synchronized junction resonator are necessary; neither acts as a radio.
 ///
 /// The returned signal drives the scout's normal pressured retreat in this same
 /// authoritative step. No energy, matter, or alarm is fabricated at a distance.
-pub(super) fn relay_watch_alarm(state: &mut AppState, at: SimulationTick) -> bool {
+pub(super) fn relay_watch_alarm(
+    registries: &Registries,
+    state: &mut AppState,
+    at: SimulationTick,
+) -> bool {
     let Some(colony) = state.kobold_state().colony.as_ref() else {
         return false;
     };
-    let [den, junction, tip] = colony.route;
+    let [den, junction, _] = colony.route;
     if !colony.watch_alarm_pending
         || colony.watch_deployed_at.is_some()
         || !(1..=2).contains(&colony.scout_step)
         || colony.mobilized_at.is_none_or(|reported| reported >= at)
         || !state.logistics().has_traversal_edge(den, junction)
-        || !current_den_rig(state, colony).is_some_and(|rig| rig.sounds_at(at))
-        || (colony.scout_step == 2
-            && (!state.logistics().has_traversal_edge(junction, tip)
-                || !current_junction_relay(state, colony).is_some_and(|rig| rig.sounds_at(at))))
     {
         return false;
+    }
+    let audible_beat = |rig: KoboldJunkRig, listener| {
+        rig.sounds_at(at) && super::acoustics::can_hear_junk_rig(registries, state, rig, listener)
+    };
+    if !current_den_rig(state, colony).is_some_and(|rig| audible_beat(rig, junction)) {
+        return false;
+    }
+    if colony.scout_step == 2 {
+        let scout = colony.scout_position();
+        if !state.logistics().has_traversal_edge(junction, scout)
+            || !current_junction_relay(state, colony).is_some_and(|rig| audible_beat(rig, scout))
+        {
+            return false;
+        }
     }
     state
         .kobold_state_mut()
