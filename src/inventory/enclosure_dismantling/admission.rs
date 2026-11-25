@@ -135,25 +135,24 @@ fn validate_dismantling_recovery_destination(
             },
         );
     }
-    if let Some(position) = crate::world::solid_stockpile_position(state, recovery_destination) {
-        return Err(
-            StorageEnclosureDismantlingError::RecoveryDestinationSolidTerrain {
-                stockpile: recovery_destination,
+    crate::world::validate_stockpile_landing(registries, state, recovery_destination).map_err(
+        |error| match error {
+            crate::world::StockpileLandingError::SolidTerrain {
+                stockpile,
+                position,
+            } => StorageEnclosureDismantlingError::RecoveryDestinationSolidTerrain {
+                stockpile,
                 position,
             },
-        );
-    }
-    if let Some(position) =
-        crate::world::unsupported_loose_stockpile_position(registries, state, recovery_destination)
-    {
-        return Err(
-            StorageEnclosureDismantlingError::RecoveryDestinationRequiresFixedFloor {
-                stockpile: recovery_destination,
+            crate::world::StockpileLandingError::RequiresFixedFloor {
+                stockpile,
+                position,
+            } => StorageEnclosureDismantlingError::RecoveryDestinationRequiresFixedFloor {
+                stockpile,
                 position,
             },
-        );
-    }
-    Ok(())
+        },
+    )
 }
 
 fn validate_dismantling_inventory_capacity(

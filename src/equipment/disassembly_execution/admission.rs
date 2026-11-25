@@ -196,6 +196,8 @@ pub fn validate_disassemble_equipment(
     if state.logistics().player().is_some() && state.player_work().active().is_some() {
         return Err(EquipmentDisassemblyError::PlayerBusy);
     }
+    let landing = crate::world::StockpileLandingGuard::validate(registries, state, destination)
+        .map_err(EquipmentDisassemblyError::DestinationLanding)?;
     let ingress = validate_material_ingress(
         registries,
         state.inventory(),
@@ -262,6 +264,7 @@ pub fn validate_disassemble_equipment(
         logistics_removal,
         expected_condition: record.condition(),
         expected_embodied_mass: record.embodied_mass(),
+        landing,
         ingress,
         structural_load,
     })

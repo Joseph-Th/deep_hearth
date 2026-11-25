@@ -86,6 +86,7 @@ pub struct ValidatedEquipmentDisassembly {
     logistics_removal: Option<(u64, crate::spatial::VoxelCoord)>,
     expected_condition: Condition,
     expected_embodied_mass: Mass,
+    landing: crate::world::StockpileLandingGuard,
     ingress: ValidatedMaterialIngress,
     structural_load: Option<ValidatedStockpileStructuralLoad>,
 }
@@ -165,6 +166,9 @@ impl ValidatedEquipmentDisassembly {
         if state.logistics().player().is_some() && state.player_work().active().is_some() {
             return Err(EquipmentDisassemblyCommitError::PlayerBecameBusy);
         }
+        self.landing
+            .precheck(state)
+            .map_err(EquipmentDisassemblyCommitError::DestinationChanged)?;
         self.ingress.assert_matches_state(state.inventory());
         state.equipment().assert_removal_available(
             self.equipment,

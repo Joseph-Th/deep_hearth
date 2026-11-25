@@ -164,6 +164,10 @@ New enclosure placement and in-place enclosure assembly use that same fixed
 footing assessment, including built full-cell members and standing trunks.
 Both construction authorizations bind the structural revision before consuming
 materials; pointed placement delegates floor legality to the enclosure owner.
+Immediate equipment and energy-store dismantling and equipment service check the
+same stationary material landing rule before exchanging embodied matter.
+Dismantling binds terrain, structure, and floor-removal work revisions even
+for ungenerated located markers; maintenance uses its existing attention proof.
 Player-originated persistent voxel custody (loose material drops, ground caches,
 portable equipment drops, equipment or energy-store assembly, and the ground
 overflow destination of timed block excavation) requires

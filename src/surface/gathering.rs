@@ -443,20 +443,24 @@ fn validate_start_surface_gathering_with_mode(
             stockpile: request.destination,
         });
     }
-    if let Some(position) = crate::world::solid_stockpile_position(state, request.destination) {
-        return Err(SurfaceGatheringError::DestinationSolidTerrain {
-            stockpile: request.destination,
-            position,
-        });
-    }
-    if let Some(position) =
-        crate::world::unsupported_loose_stockpile_position(registries, state, request.destination)
-    {
-        return Err(SurfaceGatheringError::DestinationRequiresFixedFloor {
-            stockpile: request.destination,
-            position,
-        });
-    }
+    crate::world::validate_stockpile_landing(registries, state, request.destination).map_err(
+        |error| match error {
+            crate::world::StockpileLandingError::SolidTerrain {
+                stockpile,
+                position,
+            } => SurfaceGatheringError::DestinationSolidTerrain {
+                stockpile,
+                position,
+            },
+            crate::world::StockpileLandingError::RequiresFixedFloor {
+                stockpile,
+                position,
+            } => SurfaceGatheringError::DestinationRequiresFixedFloor {
+                stockpile,
+                position,
+            },
+        },
+    )?;
     if !state.can_spend_inventory_revisions(2) {
         return Err(SurfaceGatheringError::InventoryRevisionExhausted);
     }

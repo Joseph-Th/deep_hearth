@@ -191,6 +191,10 @@ pub(super) fn validate_maintenance_material(
     record: &EquipmentRecord,
     resolution: EquipmentMaintenanceResolution,
 ) -> Result<ValidatedMaintenanceMaterial, EquipmentMaintenanceMaterialError> {
+    // The enclosing maintenance work authorization already binds the world,
+    // structural and player-work revisions consulted by the landing check.
+    crate::world::validate_stockpile_landing(registries, state, resolution.spent_destination)
+        .map_err(EquipmentMaintenanceMaterialError::SpentLanding)?;
     match resolution.material_mode {
         EquipmentMaintenanceMaterialResolution::AggregateWearStock => {
             validate_material_reform_from_selection(

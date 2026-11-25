@@ -43,10 +43,12 @@ pub(crate) use felling::{
     tree_felling_duration, tree_felling_exertion, validate_due_player_tree_felling,
 };
 pub(crate) use footing::{
-    FixedFootingOwner, fixed_floor_reserved_for_removal, generated_position_lacks_fixed_footing,
-    loose_stockpile_position, solid_stockpile_position, tree_felling_floor_reserved_at,
-    tree_has_fixed_footing_claim, unsupported_loose_stockpile_position,
+    FixedFootingOwner, StockpileLandingGuard, fixed_floor_reserved_for_removal,
+    generated_position_lacks_fixed_footing, loose_stockpile_position, solid_stockpile_position,
+    tree_felling_floor_reserved_at, tree_has_fixed_footing_claim,
+    unsupported_loose_stockpile_position, validate_stockpile_landing,
 };
+pub use footing::{StockpileLandingConflict, StockpileLandingError};
 pub(crate) use forage_cycle::{
     NaturalForageCycleError, apply_natural_forage_cycle,
     forage_cycle_deferred_for_surface_reservation,

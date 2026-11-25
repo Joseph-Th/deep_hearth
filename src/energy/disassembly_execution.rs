@@ -87,6 +87,7 @@ pub struct ValidatedEnergyStoreDisassembly {
     expected_logistics_revision: u64,
     logistics_removal: Option<(u64, crate::spatial::VoxelCoord)>,
     expected_embodied_mass: Mass,
+    landing: crate::world::StockpileLandingGuard,
     ingress: ValidatedMaterialIngress,
     structural_load: Option<ValidatedStockpileStructuralLoad>,
 }
@@ -159,6 +160,9 @@ impl ValidatedEnergyStoreDisassembly {
                 actual: actual_combat_revision,
             });
         }
+        self.landing
+            .precheck(state)
+            .map_err(EnergyStoreDisassemblyCommitError::DestinationChanged)?;
         self.ingress.assert_matches_state(state.inventory());
         state.energy().assert_removal_available(
             self.store,
@@ -234,6 +238,8 @@ pub fn validate_disassemble_energy_store(
     if state.logistics().player().is_some() && state.combat().has_prepared_strike() {
         return Err(EnergyStoreDisassemblyError::PreparedStrikeActive);
     }
+    let landing = crate::world::StockpileLandingGuard::validate(registries, state, destination)
+        .map_err(EnergyStoreDisassemblyError::DestinationLanding)?;
     let ingress = validate_material_ingress(
         registries,
         state.inventory(),
@@ -299,6 +305,7 @@ pub fn validate_disassemble_energy_store(
         expected_logistics_revision,
         logistics_removal,
         expected_embodied_mass: record.embodied_mass(),
+        landing,
         ingress,
         structural_load,
     })

@@ -37,6 +37,7 @@ pub enum EquipmentMaintenanceMaterialError {
         commodity: CommodityKey,
     },
     SpentStorage(StockpileStorageError),
+    SpentLanding(crate::world::StockpileLandingError),
     SpentMassOverflow {
         stockpile: StockpileId,
     },
@@ -99,6 +100,7 @@ impl Display for EquipmentMaintenanceMaterialError {
                 "equipment maintenance spent output must differ from replacement commodity {}",
                 commodity.value()
             ),
+            Self::SpentLanding(error) => Display::fmt(error, formatter),
             Self::SpentStorage(error) => {
                 write!(
                     formatter,
@@ -158,6 +160,7 @@ impl Error for EquipmentMaintenanceMaterialError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::SpentStorage(error) => Some(error),
+            Self::SpentLanding(error) => Some(error),
             Self::StructuralLoad(error) => Some(error),
             Self::StaleSelection {
                 expected: _expected,

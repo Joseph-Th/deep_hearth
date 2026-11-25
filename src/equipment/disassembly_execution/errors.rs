@@ -76,6 +76,7 @@ pub enum EquipmentDisassemblyError {
         equipment: EquipmentId,
     },
     DestinationStorage(StockpileStorageError),
+    DestinationLanding(crate::world::StockpileLandingError),
     DestinationMassOverflow {
         stockpile: StockpileId,
     },
@@ -208,6 +209,7 @@ impl Display for EquipmentDisassemblyError {
                 "equipment {} contains embodied matter that cannot re-enter inventory",
                 equipment.value()
             ),
+            Self::DestinationLanding(error) => Display::fmt(error, formatter),
             Self::DestinationStorage(error) => write!(
                 formatter,
                 "equipment disassembly destination rejects recovered material: {error}"
@@ -256,6 +258,7 @@ impl Error for EquipmentDisassemblyError {
             Self::EquipmentAccess(error) => Some(error),
             Self::DestinationAccess(error) => Some(error),
             Self::DestinationStorage(error) => Some(error),
+            Self::DestinationLanding(error) => Some(error),
             Self::StoredMatterLoad(error) => Some(error),
             Self::PlayerDead
             | Self::PlayerBusy
@@ -288,6 +291,7 @@ impl Error for EquipmentDisassemblyError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentDisassemblyCommitError {
     PlayerBecameBusy,
+    DestinationChanged(crate::world::StockpileLandingConflict),
     StaleCombatRevision {
         expected: u64,
         actual: u64,
@@ -358,6 +362,7 @@ pub enum EquipmentDisassemblyCommitError {
 impl Display for EquipmentDisassemblyCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::DestinationChanged(error) => Display::fmt(error, formatter),
             Self::PlayerBecameBusy => {
                 formatter.write_str("player began exclusive work before equipment dismantling")
             }
@@ -471,6 +476,7 @@ impl Display for EquipmentDisassemblyCommitError {
 impl Error for EquipmentDisassemblyCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::DestinationChanged(error) => Some(error),
             Self::Structure(error) => Some(error),
             Self::PlayerBecameBusy
             | Self::StaleCombatRevision { .. }

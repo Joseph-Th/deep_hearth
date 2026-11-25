@@ -74,6 +74,119 @@ fn condition(parts_per_million: u32) -> Condition {
 }
 
 #[test]
+fn recovered_material_requires_physical_destination_for_maintenance() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{
+        ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WorldGenerationSeed, validate_generate_chunk,
+    };
+    let registries = build_registries();
+    let mut state = AppState::new();
+    initialize_service_player(&registries, &mut state);
+    let definition = registries
+        .equipment()
+        .get_equipment(EQUIPMENT_STONE_PICK)
+        .unwrap();
+    let assembly = add_solid_stockpile_for_test(&mut state, definition.mass()).unwrap();
+    for input in definition.assembly_profile().unwrap().inputs() {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            assembly,
+            input.commodity(),
+            input.mass(),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+    }
+    let equipment =
+        validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, assembly)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    degrade_equipment_condition_for_test(&mut state, equipment, 100_000);
+    let profile = definition.maintenance_profile().unwrap();
+    let mass = profile.full_service_replacement_mass();
+    let source = add_solid_stockpile_for_test(&mut state, mass).unwrap();
+    let spent = add_solid_stockpile_for_test(&mut state, mass).unwrap();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        profile.replacement(),
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let air = VoxelCoord::new(5, WORLD_MAX_Y_EXCLUSIVE - 3, 5);
+    validate_place_ground_stockpile(&state, spent, air)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(42),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(
+        state.world().block_at(air),
+        Some(crate::world::BlockStateId::AIR)
+    );
+    let resolution = resolve_equipment_maintenance(
+        &registries,
+        &state,
+        EquipmentMaintenanceRequest::new(equipment, source, spent),
+    )
+    .unwrap();
+    let before = state.clone();
+    assert_eq!(
+        validate_equipment_maintenance(&registries, &state, resolution).err(),
+        Some(EquipmentMaintenanceError::Material(
+            EquipmentMaintenanceMaterialError::SpentLanding(
+                crate::world::StockpileLandingError::RequiresFixedFloor {
+                    stockpile: spent,
+                    position: air
+                }
+            )
+        ))
+    );
+    assert_eq!(state, before);
+    crate::world::set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(air.x(), air.y() - 1, air.z()),
+        BLOCK_STATE_STONE,
+    );
+    complete_service_player_logistics(&registries, &mut state, air, &[equipment], &[source]);
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    let resolution = resolve_equipment_maintenance(
+        &registries,
+        &state,
+        EquipmentMaintenanceRequest::new(equipment, source, spent),
+    )
+    .unwrap();
+    let outcome = validate_equipment_maintenance(&registries, &state, resolution)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(outcome.material_mass(), mass);
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(spent)
+            .unwrap()
+            .get_mass(profile.spent()),
+        mass
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn maintenance_rejects_known_remote_equipment() {
     let registries = registries();
     let mut state = AppState::new();

@@ -48,6 +48,91 @@ fn assembled_store(registries: &Registries, state: &mut AppState) -> EnergyStore
 }
 
 #[test]
+fn recovered_material_requires_physical_destination_for_energy_disassembly() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{
+        ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WorldGenerationSeed, validate_generate_chunk,
+    };
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let store = assembled_store(&registries, &mut state);
+    let destination =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_100_000)).unwrap();
+    let air = VoxelCoord::new(5, WORLD_MAX_Y_EXCLUSIVE - 3, 5);
+    crate::logistics::validate_place_ground_stockpile(&state, destination, air)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let admitted =
+        validate_disassemble_energy_store(&registries, &state, store, destination).unwrap();
+    let expected = state.world().revision();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(42),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(
+        state.world().block_at(air),
+        Some(crate::world::BlockStateId::AIR)
+    );
+    assert_eq!(
+        state
+            .world()
+            .block_at(VoxelCoord::new(air.x(), air.y() - 1, air.z())),
+        Some(crate::world::BlockStateId::AIR)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_disassemble_energy_store(&registries, &state, store, destination).err(),
+        Some(EnergyStoreDisassemblyError::DestinationLanding(
+            crate::world::StockpileLandingError::RequiresFixedFloor {
+                stockpile: destination,
+                position: air
+            }
+        ))
+    );
+    assert_eq!(
+        admitted.commit(&mut state).err(),
+        Some(EnergyStoreDisassemblyCommitError::DestinationChanged(
+            crate::world::StockpileLandingConflict::World {
+                expected,
+                actual: before.world().revision()
+            }
+        ))
+    );
+    assert_eq!(state, before);
+    crate::world::set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(air.x(), air.y() - 1, air.z()),
+        BLOCK_STATE_STONE,
+    );
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    let recovered = validate_disassemble_energy_store(&registries, &state, store, destination)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(recovered.recovered_lots().len(), 2);
+    assert!(state.energy().get_store(store).is_none());
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .unwrap()
+            .stored_mass(),
+        Mass::from_milligrams(1_100_000)
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn disassembly_removes_energy_store_location() {
     let registries = build_registries();
     let mut state = AppState::new();

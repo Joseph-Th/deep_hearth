@@ -11,9 +11,7 @@ use crate::material::MaterialLotSpec;
 use crate::production::resolution::{ProcessResolution, sum_lot_spec_mass};
 use crate::production::state::ProductionOutputStream;
 use crate::registry::Registries;
-use crate::world::{
-    loose_stockpile_position, solid_stockpile_position, unsupported_loose_stockpile_position,
-};
+use crate::world::{StockpileLandingError, loose_stockpile_position, validate_stockpile_landing};
 
 use super::{ProcessOutputRoute, StartProcessError};
 
@@ -126,19 +124,24 @@ fn build_routed_output_streams(
                 stockpile: destination,
             });
         };
-        if let Some(position) = solid_stockpile_position(state, destination) {
-            return Err(StartProcessError::OutputDestinationSolidTerrain {
-                stockpile: destination,
-                position,
-            });
-        }
-        if let Some(position) = unsupported_loose_stockpile_position(registries, state, destination)
-        {
-            return Err(StartProcessError::OutputDestinationRequiresFixedFloor {
-                stockpile: destination,
-                position,
-            });
-        }
+        validate_stockpile_landing(registries, state, destination).map_err(
+            |error| match error {
+                StockpileLandingError::SolidTerrain {
+                    stockpile,
+                    position,
+                } => StartProcessError::OutputDestinationSolidTerrain {
+                    stockpile,
+                    position,
+                },
+                StockpileLandingError::RequiresFixedFloor {
+                    stockpile,
+                    position,
+                } => StartProcessError::OutputDestinationRequiresFixedFloor {
+                    stockpile,
+                    position,
+                },
+            },
+        )?;
         if state
             .player_work()
             .get_storage_dismantling_stockpile_occupant(destination)

@@ -56,6 +56,80 @@ fn assembled_pick(registries: &Registries, state: &mut AppState) -> EquipmentId 
 }
 
 #[test]
+fn recovered_material_requires_physical_destination_for_equipment_disassembly() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{ChunkCoord, WORLD_MIN_Y, WorldGenerationSeed, validate_generate_chunk};
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let equipment = assembled_pick(&registries, &mut state);
+    let destination =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000)).unwrap();
+    let rock = VoxelCoord::new(5, WORLD_MIN_Y + 1, 5);
+    crate::logistics::validate_place_ground_stockpile(&state, destination, rock)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let admitted =
+        validate_disassemble_equipment(&registries, &state, equipment, destination).unwrap();
+    let expected = state.world().revision();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(42),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(state.world().block_at(rock), Some(BLOCK_STATE_STONE));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_disassemble_equipment(&registries, &state, equipment, destination).err(),
+        Some(EquipmentDisassemblyError::DestinationLanding(
+            crate::world::StockpileLandingError::SolidTerrain {
+                stockpile: destination,
+                position: rock
+            }
+        ))
+    );
+    assert_eq!(
+        admitted.commit(&mut state).err(),
+        Some(EquipmentDisassemblyCommitError::DestinationChanged(
+            crate::world::StockpileLandingConflict::World {
+                expected,
+                actual: before.world().revision()
+            }
+        ))
+    );
+    assert_eq!(state, before);
+    crate::world::set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        rock,
+        crate::world::BlockStateId::AIR,
+    );
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    let recovered = validate_disassemble_equipment(&registries, &state, equipment, destination)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(recovered.recovered_lots().len(), 2);
+    assert!(state.equipment().get_equipment(equipment).is_none());
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(destination)
+            .unwrap()
+            .stored_mass(),
+        Mass::from_milligrams(1_000_000)
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn disassembly_removes_equipment_location() {
     let registries = build_registries();
     let mut state = AppState::new();

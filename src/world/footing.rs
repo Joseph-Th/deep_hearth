@@ -1,5 +1,8 @@
 //! Local stationary custody claims on a removable fixed collision surface.
 
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+
 use crate::core::state::AppState;
 use crate::equipment::EquipmentId;
 use crate::inventory::StockpileId;
@@ -65,6 +68,147 @@ pub(crate) fn unsupported_loose_stockpile_position(
 ) -> Option<VoxelCoord> {
     let position = loose_stockpile_position(state, stockpile)?;
     generated_position_lacks_fixed_footing(registries, state, position).then_some(position)
+}
+
+/// A stationary stockpile cannot receive physical matter at an invalid world site.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StockpileLandingError {
+    SolidTerrain {
+        stockpile: StockpileId,
+        position: VoxelCoord,
+    },
+    RequiresFixedFloor {
+        stockpile: StockpileId,
+        position: VoxelCoord,
+    },
+}
+
+impl Display for StockpileLandingError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        let (stockpile, position, reason) = match *self {
+            Self::SolidTerrain {
+                stockpile,
+                position,
+            } => (stockpile, position, "occupies solid terrain"),
+            Self::RequiresFixedFloor {
+                stockpile,
+                position,
+            } => (stockpile, position, "lacks fixed footing"),
+        };
+        write!(
+            formatter,
+            "destination stockpile {} at ({},{},{}) {reason}",
+            stockpile.value(),
+            position.x(),
+            position.y(),
+            position.z()
+        )
+    }
+}
+
+impl Error for StockpileLandingError {}
+
+/// Immediate matter recovery and timed reservations use the same physical
+/// site rules. The inventory owner still checks identity, capacity and support load.
+pub(crate) fn validate_stockpile_landing(
+    registries: &Registries,
+    state: &AppState,
+    stockpile: StockpileId,
+) -> Result<(), StockpileLandingError> {
+    if let Some(position) = solid_stockpile_position(state, stockpile) {
+        return Err(StockpileLandingError::SolidTerrain {
+            stockpile,
+            position,
+        });
+    }
+    if let Some(position) = unsupported_loose_stockpile_position(registries, state, stockpile) {
+        return Err(StockpileLandingError::RequiresFixedFloor {
+            stockpile,
+            position,
+        });
+    }
+    Ok(())
+}
+
+/// A previously validated stationary landing must not outlive its physical dependencies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StockpileLandingConflict {
+    World { expected: u64, actual: u64 },
+    Structure { expected: u64, actual: u64 },
+    PlayerWork { expected: u64, actual: u64 },
+}
+
+impl Display for StockpileLandingConflict {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        let (owner, expected, actual) = match *self {
+            Self::World { expected, actual } => ("world", expected, actual),
+            Self::Structure { expected, actual } => ("structure", expected, actual),
+            Self::PlayerWork { expected, actual } => ("player work", expected, actual),
+        };
+        write!(
+            formatter,
+            "stockpile landing expected {owner} revision {expected} but current revision is {actual}"
+        )
+    }
+}
+
+impl Error for StockpileLandingConflict {}
+
+/// Capture physical dependencies for transactions which already bind inventory
+/// and logistics, but have no player-attention token. Even an ungenerated
+/// stationary location must bind terrain: generation can make it physical.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct StockpileLandingGuard {
+    revisions: Option<(u64, u64, u64)>,
+}
+
+impl StockpileLandingGuard {
+    pub(crate) fn validate(
+        registries: &Registries,
+        state: &AppState,
+        stockpile: StockpileId,
+    ) -> Result<Self, StockpileLandingError> {
+        validate_stockpile_landing(registries, state, stockpile)?;
+        let revisions = state
+            .logistics()
+            .stationary_stockpile_position(stockpile)
+            .map(|_| {
+                (
+                    state.world().revision(),
+                    state.structures().revision(),
+                    state.player_work().revision(),
+                )
+            });
+        Ok(Self { revisions })
+    }
+
+    pub(crate) fn precheck(&self, state: &AppState) -> Result<(), StockpileLandingConflict> {
+        let Some((world, structure, work)) = self.revisions else {
+            return Ok(());
+        };
+        let actual = state.world().revision();
+        if world != actual {
+            return Err(StockpileLandingConflict::World {
+                expected: world,
+                actual,
+            });
+        }
+        let actual = state.structures().revision();
+        if structure != actual {
+            return Err(StockpileLandingConflict::Structure {
+                expected: structure,
+                actual,
+            });
+        }
+        let actual = state.player_work().revision();
+        if work != actual {
+            return Err(StockpileLandingConflict::PlayerWork {
+                expected: work,
+                actual,
+            });
+        }
+        Ok(())
+    }
 }
 
 /// Physical custody without independent falling motion. Terrain excavation,
