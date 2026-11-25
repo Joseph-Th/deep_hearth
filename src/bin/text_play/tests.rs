@@ -1393,6 +1393,133 @@ fn eating_completion_is_reported_before_pickup_released_by_that_completion() {
     );
 }
 
+/// Gather and start a real recipe at the spawn, then use a trusted injury
+/// checkpoint to exercise fatal suspension at an exact remaining-work boundary.
+fn suspended_craft_after_respawn(
+    remaining_ticks: u64,
+) -> (Session, deep_hearth::production::ProductionJobId) {
+    let mut session = Session::new(24318).unwrap();
+    let spawn = session.player_position().unwrap();
+    for command in [
+        "e 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "gather 1 1000",
+        "wait finish",
+        "w 20",
+        "wait 10",
+        "w 20",
+        "wait 10",
+        "w 20",
+        "wait 10",
+        "wait boundary",
+        "craft 7",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    assert_eq!(session.player_position().unwrap(), spawn);
+    let Some(PlayerWork::ManualProduction { job }) = session.state.player_work().active() else {
+        panic!("expected admitted craft");
+    };
+    let due = session
+        .state
+        .production()
+        .get_job(job)
+        .unwrap()
+        .completes_at()
+        .value();
+    assert!(due > session.state.tick().value() + remaining_ticks + 1);
+    while session.state.tick().value() + remaining_ticks + 1 < due {
+        let _ =
+            deep_hearth::simulation::advance_tick(&session.registries, &mut session.state).unwrap();
+    }
+    let mut saved =
+        serde_json::to_value(SaveEnvelope::new(&session.registries, &session.state)).unwrap();
+    saved["state"]["systems"]["survival"]["player"]["vitality"] = serde_json::json!(1);
+    saved["state"]["systems"]["logistics"]["player"]["pending_fall_vitality_loss_ppm"] =
+        serde_json::json!(100);
+    session.state = serde_json::from_value::<LoadedSaveEnvelope>(saved)
+        .unwrap()
+        .into_state(&session.registries)
+        .unwrap();
+    let _ = session.command("wait 72").unwrap();
+    assert_eq!(
+        session.state.survival().player().unwrap().vitality(),
+        deep_hearth::survival::Vitality::ZERO
+    );
+    assert_eq!(
+        session
+            .state
+            .production()
+            .get_job(job)
+            .unwrap()
+            .suspension()
+            .unwrap()
+            .remaining_active_time()
+            .value(),
+        remaining_ticks
+    );
+    session.command("respawn").unwrap();
+    assert_eq!(session.player_position().unwrap(), spawn);
+    (session, job)
+}
+
+#[test]
+fn resumed_manual_craft_interrupts_wait_on_the_resume_boundary() {
+    let (mut session, job) = suspended_craft_after_respawn(3);
+    let before = session.state.tick();
+    let (report, _) = session.command("wait 7200").unwrap();
+    assert!(report.contains("Work resumed:"), "{report}");
+    assert_eq!(session.state.tick().value(), before.value() + 1);
+    assert_eq!(
+        session.state.player_work().active(),
+        Some(PlayerWork::ManualProduction { job })
+    );
+    let (done, _) = session.command("wait finish").unwrap();
+    assert!(done.contains("Craft completed:"), "{done}");
+}
+
+#[test]
+fn manual_craft_resuming_on_its_final_tick_reports_real_output() {
+    let (mut session, job) = suspended_craft_after_respawn(1);
+    let before = deep_hearth::matter::calculate_matter_accounting(&session.state)
+        .unwrap()
+        .total();
+    let checkpoint = snapshot(&session);
+    let mut replay = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+            .unwrap()
+            .into_state(&session.registries)
+            .unwrap(),
+        seed: None,
+    };
+    let tick = session.state.tick();
+    let (report, _) = session.command("wait 7200").unwrap();
+    assert!(report.contains("Craft completed:"), "{report}");
+    assert!(report.contains("Received "), "{report}");
+    assert_eq!(session.state.tick().value(), tick.value() + 1);
+    assert!(session.state.production().get_job(job).is_none());
+    assert!(session.state.player_work().active().is_none());
+    assert_eq!(report, replay.command("wait 7200").unwrap().0);
+    assert_eq!(snapshot(&session), snapshot(&replay));
+    assert_eq!(
+        deep_hearth::matter::calculate_matter_accounting(&session.state)
+            .unwrap()
+            .total(),
+        before
+    );
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
+        Ok(())
+    );
+}
+
 #[test]
 fn direct_action_rejections_and_hotbar_changes_are_plain_language() {
     let mut session = Session::new(24318).unwrap();

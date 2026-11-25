@@ -13,7 +13,7 @@ use deep_hearth::crafting::{
 use deep_hearth::equipment::{EquipmentId, resolve_available_equipment_provider};
 use deep_hearth::logistics::project_player_inventory;
 use deep_hearth::production::ProcessId;
-use deep_hearth::registry::ProcessEquipmentRole;
+use deep_hearth::registry::{ProcessEquipmentRole, ProcessExecutionFamily};
 use deep_hearth::{AppState, Registries};
 
 fn commodity(registries: &Registries, key: deep_hearth::material::CommodityKey) -> &str {
@@ -362,35 +362,36 @@ pub fn start(
     Ok(format!("Started {process_name} (job {}).\n", job.value()))
 }
 
-/// Display only a completion of the player's own known job, never unrelated production.
-pub fn completion(
+/// The runtime admits manual production only with the player's exclusive labor.
+/// A resumed final tick can complete without creating a durable work hold.
+/// Classify the receipt by its authored execution family, not by whether the
+/// actor happened to hold the job at the start of the boundary.
+pub(super) fn manual_completion(
     registries: &Registries,
     state: &AppState,
     receipt: &deep_hearth::production::ProcessCompletion,
-) -> String {
+) -> Option<String> {
+    let topology = registries.process_topology(receipt.process())?;
+    let label = match topology.execution_family() {
+        ProcessExecutionFamily::ManualCraft => "Craft completed",
+        ProcessExecutionFamily::ManualComminution | ProcessExecutionFamily::ManualSeparation => {
+            "Ore processing completed"
+        }
+        ProcessExecutionFamily::PoweredCraft
+        | ProcessExecutionFamily::Comminution
+        | ProcessExecutionFamily::Screening
+        | ProcessExecutionFamily::ConstituentSeparation
+        | ProcessExecutionFamily::Precipitation
+        | ProcessExecutionFamily::SensibleHeating
+        | ProcessExecutionFamily::SensibleCooling
+        | ProcessExecutionFamily::Melting
+        | ProcessExecutionFamily::Casting => return None,
+    };
     let process = registries
         .production()
         .get_process(receipt.process())
-        .map_or("manual recipe", |p| p.name());
-    let label = if registries
-        .crafting()
-        .get_manual(receipt.process())
-        .is_some()
-    {
-        "Craft completed"
-    } else if registries
-        .ore_processing()
-        .get_manual_comminution(receipt.process())
-        .is_some()
-        || registries
-            .ore_processing()
-            .get_manual_constituent_separation(receipt.process())
-            .is_some()
-    {
-        "Ore processing completed"
-    } else {
-        "Work completed"
-    };
+        .expect("registered production topology has a process definition")
+        .name();
     let mut output = format!("{label}: {process}.\n");
     let carried = state
         .logistics()
@@ -412,5 +413,5 @@ pub fn completion(
             );
         }
     }
-    output
+    Some(output)
 }

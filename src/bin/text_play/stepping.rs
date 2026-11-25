@@ -16,7 +16,7 @@ use deep_hearth::logistics::{
     project_player_standing_space,
 };
 use deep_hearth::mining::MiningJobId;
-use deep_hearth::production::ProductionJobId;
+use deep_hearth::production::{ProductionAvailabilityChange, ProductionJobId};
 use deep_hearth::simulation::{
     PlayerDirectControlInput, PrimaryActionOutcome, SecondaryActionOutcome, TickOutcome,
     advance_control_tick_with_direct_input, advance_neutral_control_span,
@@ -880,22 +880,32 @@ impl Session {
                 interrupt = true;
             }
         }
-        if let Some(PlayerWork::ManualProduction { job }) = released_work {
-            for completion in simulation
-                .production_completions()
-                .iter()
-                .filter(|receipt| receipt.job() == job)
+        for completion in simulation.production_completions() {
+            if let Some(message) =
+                crafting::manual_completion(&self.registries, &self.state, completion)
             {
-                output.push_str(&crafting::completion(
-                    &self.registries,
-                    &self.state,
-                    completion,
-                ));
+                output.push_str(&message);
                 batch = Some(BatchCompletion {
-                    receipt: BatchReceipt::Produced(job),
+                    receipt: BatchReceipt::Produced(completion.job()),
                     surface: None,
                 });
             }
+        }
+        // A resume with remaining active time installs a new attention hold.
+        // Its scheduling event must interrupt a wait even before any output
+        // lands. A final-tick resume has no hold and is reported by the
+        // completion receipt above.
+        if let Some(work @ PlayerWork::ManualProduction { job }) = self.state.player_work().active()
+            && simulation.production_availability_changes().iter().any(|change| {
+                matches!(change, ProductionAvailabilityChange::Resumed { job: resumed, .. } if *resumed == job)
+            })
+        {
+            let _ = writeln!(
+                output,
+                "Work resumed: {}.",
+                activity::remaining_duration(&self.registries, &self.state, work)
+            );
+            interrupt = true;
         }
         if released_work.is_some() && !work_reported && batch.is_none() {
             let label = previous_work_label.expect("released work had a pre-boundary label");
