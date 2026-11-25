@@ -358,12 +358,13 @@ pub fn validate_unmount_stockpile(
         .supported_by()
         .ok_or(StockpileSupportError::NotMounted { stockpile })?;
     validate_not_busy(state, stockpile)?;
-    let expected_unmount_world_revision = if record.enclosure().is_none()
+    let expected_unmount_world_revision = if (!record.stored_mass().is_zero()
+        || !record.embodied_mass().is_zero()
+        || !record.reserved_inbound().is_zero())
         && let Some(position) = state.logistics().stationary_stockpile_position(stockpile)
-        && !record.reserved_inbound().is_zero()
     {
         if crate::world::generated_position_lacks_fixed_footing(registries, state, position) {
-            return Err(StockpileSupportError::ReservedOutputRequiresFixedFloor {
+            return Err(StockpileSupportError::UnmountedMatterRequiresFixedFloor {
                 stockpile,
                 position,
             });

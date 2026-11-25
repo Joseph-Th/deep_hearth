@@ -394,7 +394,7 @@ fn suspended_output_cannot_be_unmounted_without_ground_footing() {
     let before = state.clone();
     assert_eq!(
         validate_unmount_stockpile(&registries, &state, destination).err(),
-        Some(StockpileSupportError::ReservedOutputRequiresFixedFloor {
+        Some(StockpileSupportError::UnmountedMatterRequiresFixedFloor {
             stockpile: destination,
             position: at
         })

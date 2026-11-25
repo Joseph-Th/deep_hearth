@@ -160,6 +160,10 @@ An inbound reservation into an unenclosed, unmounted stationary stockpile also
 requires fixed footing in generated terrain. World footing owns this shared
 assessment; generation, unmounting, and trusted-load admission enforce it
 against the inventory reservation itself, regardless of which work owns it.
+Unmounting a located stockpile with stored, embodied, or reserved matter, or
+material-built stationary equipment, requires independent fixed footing at its
+site. Both support transactions bind the terrain revision before unloading.
+An empty, unembodied allocation does not acquire this constraint.
 New enclosure placement and in-place enclosure assembly use that same fixed
 footing assessment, including built full-cell members and standing trunks.
 Both construction authorizations bind the structural revision before consuming

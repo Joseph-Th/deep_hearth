@@ -63,6 +63,8 @@ mod progression;
 mod revision_headroom;
 #[path = "world_tests/targeting_structures.rs"]
 mod targeting_structures;
+#[path = "world_tests/unmount_footing.rs"]
+mod unmount_footing;
 
 const SEED: WorldGenerationSeed = WorldGenerationSeed::new(0xD33F_4845_4152_5448);
 

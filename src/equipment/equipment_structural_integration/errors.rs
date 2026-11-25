@@ -78,6 +78,10 @@ pub enum EquipmentSupportError {
         expected: Force,
     },
     EquipmentRevisionExhausted,
+    UnmountedMatterRequiresFixedFloor {
+        equipment: EquipmentId,
+        position: VoxelCoord,
+    },
     EquipmentNotOnTarget {
         equipment: EquipmentId,
         position: VoxelCoord,
@@ -202,6 +206,17 @@ impl Display for EquipmentSupportError {
             Self::EquipmentRevisionExhausted => {
                 formatter.write_str("equipment revision space is exhausted")
             }
+            Self::UnmountedMatterRequiresFixedFloor {
+                equipment,
+                position,
+            } => write!(
+                formatter,
+                "cannot unmount material-built equipment {} at ({},{},{}) without fixed ground footing",
+                equipment.value(),
+                position.x(),
+                position.y(),
+                position.z()
+            ),
             Self::EquipmentNotOnTarget {
                 equipment,
                 position,
@@ -247,6 +262,7 @@ impl Error for EquipmentSupportError {
             | Self::WeightForceOverflow { .. }
             | Self::ExistingEquipmentLoadMismatch { .. }
             | Self::EquipmentRevisionExhausted
+            | Self::UnmountedMatterRequiresFixedFloor { .. }
             | Self::EquipmentNotOnTarget { .. } => None,
         }
     }
@@ -255,6 +271,10 @@ impl Error for EquipmentSupportError {
 /// Failure to commit a revision-bound equipment/support transaction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentSupportCommitError {
+    StaleWorldRevision {
+        expected: u64,
+        actual: u64,
+    },
     StalePlayerWorkRevision {
         expected: u64,
         actual: u64,
@@ -317,6 +337,10 @@ pub enum EquipmentSupportCommitError {
 impl Display for EquipmentSupportCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleWorldRevision { expected, actual } => write!(
+                formatter,
+                "validated equipment support change expected world revision {expected} but current revision is {actual}"
+            ),
             Self::StaleSurvivalRevision { expected, actual } => write!(
                 formatter,
                 "validated equipment support change expected survival revision {expected} but current revision is {actual}"
@@ -420,7 +444,8 @@ impl Error for EquipmentSupportCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleSurvivalRevision { .. }
+            Self::StaleWorldRevision { .. }
+            | Self::StaleSurvivalRevision { .. }
             | Self::StaleLogisticsRevision { .. }
             | Self::StalePlayerWorkRevision { .. }
             | Self::StaleCombatRevision { .. }

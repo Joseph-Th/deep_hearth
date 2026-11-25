@@ -145,7 +145,7 @@ pub enum StockpileSupportError {
     StockpileBusyStorageDismantling {
         stockpile: StockpileId,
     },
-    ReservedOutputRequiresFixedFloor {
+    UnmountedMatterRequiresFixedFloor {
         stockpile: StockpileId,
         position: VoxelCoord,
     },
@@ -220,12 +220,12 @@ impl Display for StockpileSupportError {
                 "stockpile {} participates in active storage-enclosure dismantling and cannot be moved",
                 stockpile.value()
             ),
-            Self::ReservedOutputRequiresFixedFloor {
+            Self::UnmountedMatterRequiresFixedFloor {
                 stockpile,
                 position,
             } => write!(
                 formatter,
-                "cannot unmount reserved output stockpile {} at ({},{},{}) without fixed ground footing",
+                "cannot unmount physical or reserved stockpile matter {} at ({},{},{}) without fixed ground footing",
                 stockpile.value(),
                 position.x(),
                 position.y(),
@@ -256,7 +256,7 @@ impl Error for StockpileSupportError {
             | Self::StockpileBusy { .. }
             | Self::StockpileBusySurfaceGathering { .. }
             | Self::StockpileBusyStorageDismantling { .. }
-            | Self::ReservedOutputRequiresFixedFloor { .. }
+            | Self::UnmountedMatterRequiresFixedFloor { .. }
             | Self::InventoryRevisionExhausted => None,
         }
     }

@@ -55,6 +55,7 @@ pub struct ValidatedEquipmentSupportChange {
     expected_logistics_revision: u64,
     expected_player_work_revision: u64,
     expected_combat_revision: u64,
+    expected_unmount_world_revision: Option<u64>,
     structural: ValidatedStructuralLoadChange,
 }
 
@@ -142,6 +143,12 @@ impl ValidatedEquipmentSupportChange {
         }
         if let Some(error) = support_commit_error(state, self.equipment) {
             return Err(error);
+        }
+        if let Some(expected) = self.expected_unmount_world_revision {
+            let actual = state.world().revision();
+            if actual != expected {
+                return Err(EquipmentSupportCommitError::StaleWorldRevision { expected, actual });
+            }
         }
         state.equipment().assert_support_change_available(
             self.equipment,
@@ -273,6 +280,7 @@ pub fn validate_mount_equipment(
         expected_logistics_revision: state.logistics().revision(),
         expected_player_work_revision: state.player_work().revision(),
         expected_combat_revision: state.combat().revision(),
+        expected_unmount_world_revision: None,
         structural,
     })
 }
@@ -294,6 +302,19 @@ pub fn validate_unmount_equipment(
         .supported_by()
         .ok_or(EquipmentSupportError::NotMounted { equipment })?;
     validate_not_busy(state, equipment)?;
+    let expected_unmount_world_revision = if !record.embodied_mass().is_zero()
+        && let Some(position) = state.logistics().stationary_equipment_position(equipment)
+    {
+        if crate::world::generated_position_lacks_fixed_footing(registries, state, position) {
+            return Err(EquipmentSupportError::UnmountedMatterRequiresFixedFloor {
+                equipment,
+                position,
+            });
+        }
+        Some(state.world().revision())
+    } else {
+        None
+    };
     state
         .structures()
         .get_element(element)
@@ -321,6 +342,7 @@ pub fn validate_unmount_equipment(
         expected_logistics_revision: state.logistics().revision(),
         expected_player_work_revision: state.player_work().revision(),
         expected_combat_revision: state.combat().revision(),
+        expected_unmount_world_revision,
         structural,
     })
 }
@@ -402,6 +424,7 @@ pub fn validate_relocate_equipment(
         expected_logistics_revision: state.logistics().revision(),
         expected_player_work_revision: state.player_work().revision(),
         expected_combat_revision: state.combat().revision(),
+        expected_unmount_world_revision: None,
         structural,
     })
 }
