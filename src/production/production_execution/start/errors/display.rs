@@ -60,6 +60,11 @@ impl Display for StartProcessError {
                 position.y(),
                 position.z()
             ),
+            Self::OutputDestinationRequiresFixedFloor { stockpile, position } => write!(
+                formatter,
+                "production output stockpile {} at ({},{},{}) requires fixed footing beneath its storage voxel",
+                stockpile.value(), position.x(), position.y(), position.z()
+            ),
             Self::OutputRouteCountMismatch { streams, routes } => write!(
                 formatter,
                 "resolved process has {streams} output streams but start supplied {routes} routes"

@@ -74,6 +74,12 @@ pub(super) fn validate_generated_chunk_occupancy(
     if let Some(voxel) = first_ground_matter_collision_in_generated_chunk(registry, state, chunk) {
         return Err(ChunkGenerationError::GroundMatterBuriedByTerrain { voxel });
     }
+    let tree = super::super::generated_tree(profile, chunk);
+    if let Some(voxel) =
+        first_unsupported_reserved_output_in_generated_chunk(registry, state, tree, chunk)
+    {
+        return Err(ChunkGenerationError::ReservedOutputRequiresFixedFloor { voxel });
+    }
     if let Some(voxel) = first_fluid_store_collision_in_generated_chunk(registry, state, chunk) {
         return Err(ChunkGenerationError::FluidStoreBuriedByTerrain { voxel });
     }
@@ -123,7 +129,7 @@ pub(super) fn validate_generated_chunk_occupancy(
     {
         return Err(ChunkGenerationError::TempleCasteInfrastructureCollision { voxel });
     }
-    if let Some(tree) = super::super::generated_tree(profile, chunk) {
+    if let Some(tree) = tree {
         for voxel in [
             tree.root(),
             VoxelCoord::new(tree.root().x(), tree.root().y() + 1, tree.root().z()),
@@ -145,6 +151,37 @@ pub(super) fn validate_generated_chunk_occupancy(
         }
     }
     Ok(())
+}
+
+/// A production reservation admitted in abstract space must retain a real
+/// floor when its column acquires terrain authority. Include the prospective
+/// trunk as well as terrain and existing full-cell structural members.
+fn first_unsupported_reserved_output_in_generated_chunk(
+    registry: &WorldRegistry,
+    state: &AppState,
+    tree: Option<TreeRecord>,
+    chunk: &WorldChunk,
+) -> Option<VoxelCoord> {
+    state
+        .logistics()
+        .stockpiles_in_chunk(chunk.coord())
+        .filter(|&(id, position)| {
+            crate::production::loose_output_destination_position(state, id) == Some(position)
+                && state.production().retained_output_jobs(id).next().is_some()
+                && !position.y().checked_sub(1).is_some_and(|y| {
+                    let floor = VoxelCoord::new(position.x(), y, position.z());
+                    (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&floor.y())
+                        && (registry
+                            .block_for_state(chunk.block_at(floor))
+                            .is_some_and(|block| {
+                                block.collision() == BlockCollisionShape::FullCube
+                            })
+                            || tree.is_some_and(|tree| tree.occupies_trunk(floor))
+                            || state.structures().blocks_full_cell(floor))
+                })
+        })
+        .min_by_key(|(id, _)| *id)
+        .map(|(_, position)| position)
 }
 
 /// A live opening colony can inhabit authored route cells before chunk

@@ -72,6 +72,17 @@ fn validate_job_output_stream(
             stockpile: destination,
         });
     };
+    if let Some(position) =
+        crate::production::unsupported_output_destination(registries, state, destination)
+    {
+        return Err(
+            StateValidationError::JobOutputDestinationRequiresFixedFloor {
+                job: job.id(),
+                stockpile: destination,
+                position,
+            },
+        );
+    }
     for output in stream.outputs() {
         validate_job_output(registries, job, destination_record, destination, output)?;
     }

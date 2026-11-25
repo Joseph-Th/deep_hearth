@@ -79,6 +79,7 @@ pub struct ValidatedStartProcess {
     energy_ingress_reservation: Option<EnergyIngressReservation>,
     equipment_use: Option<ValidatedEquipmentUse>,
     destination_structure_revision: Option<u64>,
+    destination_footing_revisions: Option<(u64, u64)>,
     structural_load: Option<ValidatedStockpileStructuralLoad>,
 }
 
@@ -244,6 +245,7 @@ fn validate_start_process_routed_internal(
         output_streams,
         inbound_by_destination,
         destination_structure_revision,
+        destination_footing_revisions,
     } = validate_output_routing(registries, state, resolution, routes)?;
     crate::production::validate_process_start_site(
         state,
@@ -326,6 +328,7 @@ fn validate_start_process_routed_internal(
         energy_ingress_reservation,
         equipment_use,
         destination_structure_revision,
+        destination_footing_revisions,
         structural_load,
     })
 }

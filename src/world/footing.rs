@@ -64,6 +64,13 @@ pub(crate) fn tree_felling_floor_reserved_at(state: &AppState, floor: VoxelCoord
         .is_some_and(|work| upper_trunk(state, work.root()) == Some(floor))
 }
 
+/// A pending complete removal must not acquire new dependent custody.
+pub(crate) fn fixed_floor_reserved_for_removal(state: &AppState, floor: VoxelCoord) -> bool {
+    super::full_block_excavation_reserved_at(state, floor)
+        || crate::structural::dismantling_floor_reserved_at(state, floor)
+        || tree_felling_floor_reserved_at(state, floor)
+}
+
 /// Natural water is a stationary hollow, not a vessel that can fall after the
 /// last supporting block disappears. Ordinary placed fluid stores do not claim
 /// terrain footing, because their support is owned by their installation path.

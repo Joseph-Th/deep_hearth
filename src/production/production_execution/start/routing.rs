@@ -21,6 +21,7 @@ pub(super) struct ValidatedOutputRouting {
     pub(super) output_streams: Vec<ProductionOutputStream>,
     pub(super) inbound_by_destination: BTreeMap<StockpileId, Mass>,
     pub(super) destination_structure_revision: Option<u64>,
+    pub(super) destination_footing_revisions: Option<(u64, u64)>,
 }
 
 /// A located output destination becomes physical as soon as production reserves
@@ -32,11 +33,12 @@ pub(super) fn solid_output_destination(
     let position = state
         .logistics()
         .stationary_stockpile_position(destination)?;
-    state
+    (state
         .world()
         .block_at(position)
         .is_some_and(|block| block != BlockStateId::AIR)
-        .then_some(position)
+        || state.world().tree_trunk_at(position).is_some())
+    .then_some(position)
 }
 
 fn bind_output_routes(
@@ -146,6 +148,14 @@ fn build_routed_output_streams(
                 position,
             });
         }
+        if let Some(position) =
+            crate::production::unsupported_output_destination(registries, state, destination)
+        {
+            return Err(StartProcessError::OutputDestinationRequiresFixedFloor {
+                stockpile: destination,
+                position,
+            });
+        }
         if state
             .player_work()
             .get_storage_dismantling_stockpile_occupant(destination)
@@ -223,10 +233,17 @@ pub(super) fn validate_output_routing(
         build_routed_output_streams(registries, state, resolution, &destinations_by_stream)?;
     let destination_structure_revision =
         validate_output_destination_supports(state, &inbound_by_destination)?;
+    let destination_footing_revisions = inbound_by_destination
+        .keys()
+        .any(|&destination| {
+            crate::production::loose_output_destination_position(state, destination).is_some()
+        })
+        .then_some((state.world().revision(), state.structures().revision()));
 
     Ok(ValidatedOutputRouting {
         output_streams,
         inbound_by_destination,
         destination_structure_revision,
+        destination_footing_revisions,
     })
 }

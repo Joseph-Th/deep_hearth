@@ -84,6 +84,148 @@ fn one_batch() -> NonZeroU64 {
 }
 
 #[test]
+fn player_crafting_cannot_reserve_residue_into_an_unsupported_ground_cache() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::logistics::{
+        player_body_has_fixed_floor, player_placement_has_fixed_floor,
+        validate_allocate_player_ground_stockpile,
+    };
+    use crate::spatial::{NANOMETERS_PER_VOXEL, WorldPoint};
+    use crate::world::{
+        BlockStateId, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
+        set_generated_block_for_test, validate_generate_chunk,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0xCACE_47A2),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let floor_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| state.world().block_at(VoxelCoord::new(5, y, 5)) == Some(BLOCK_STATE_STONE))
+        .unwrap();
+    let position = VoxelCoord::new(5, floor_y + 1, 5);
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let site = validate_allocate_player_ground_stockpile(
+        &registries,
+        &state,
+        Mass::from_milligrams(1_000_000),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(1_000_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let segregated = |state: &AppState| {
+        validate_start_player_manual_craft_with_residue_destination(
+            &registries,
+            state,
+            PROCESS_SHAPE_WOOD_BOARDS,
+            one_batch(),
+            None,
+            site,
+        )
+    };
+    assert!(segregated(&state).is_ok());
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(5, floor_y, 5),
+        BlockStateId::AIR,
+    );
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(6, floor_y, 5),
+        BLOCK_STATE_STONE,
+    );
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(6, floor_y + 1, 5),
+        BlockStateId::AIR,
+    );
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(6, floor_y + 2, 5),
+        BlockStateId::AIR,
+    );
+    let player = state.logistics().player().copied().unwrap();
+    let body = player.body();
+    let shifted = body.with_motion(
+        WorldPoint::new(
+            5 * NANOMETERS_PER_VOXEL + 950_000_000,
+            body.foot_position().y_nanometers(),
+            body.foot_position().z_nanometers(),
+        ),
+        body.horizontal_velocity(),
+        body.vertical_velocity(),
+        body.stance(),
+    );
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_player_body_motion(
+        revision,
+        revision + 1,
+        body,
+        shifted,
+        player.locomotion_exertion(),
+        player.pending_fall_vitality_loss_ppm(),
+    );
+    assert_eq!(state.logistics().player().unwrap().position(), position);
+    assert!(player_body_has_fixed_floor(&registries, &state));
+    assert!(!player_placement_has_fixed_floor(&registries, &state));
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let before = state.clone();
+    assert_eq!(
+        segregated(&state).err(),
+        Some(PlayerManualCraftError::Start(
+            StartManualCraftError::Process(
+                crate::production::StartProcessError::OutputDestinationRequiresFixedFloor {
+                    stockpile: site,
+                    position,
+                },
+            )
+        )),
+        "the player can stand on the adjacent lip but the residue cache has no floor"
+    );
+    assert_eq!(state, before);
+    assert!(
+        validate_start_player_manual_craft(
+            &registries,
+            &state,
+            PROCESS_SHAPE_WOOD_BOARDS,
+            one_batch(),
+            None,
+        )
+        .is_ok(),
+        "carried output needs no stationary cache"
+    );
+}
+
+#[test]
 fn player_woodworking_into_constructed_spoil_bay_requires_output_segregation() {
     let registries = build_registries();
     let mut state = AppState::new();

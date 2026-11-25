@@ -104,6 +104,7 @@ pub struct ValidatedStockpileSupportChange {
     expected_logistics_revision: u64,
     expected_player_work_revision: u64,
     expected_combat_revision: u64,
+    expected_unmount_world_revision: Option<u64>,
     structural: ValidatedStockpileStructuralLoad,
 }
 
@@ -160,6 +161,12 @@ impl ValidatedStockpileSupportChange {
         }
         if let Some(error) = support_commit_error(state, self.stockpile) {
             return Err(error);
+        }
+        if let Some(expected) = self.expected_unmount_world_revision {
+            let actual = state.world().revision();
+            if actual != expected {
+                return Err(StockpileSupportCommitError::StaleWorldRevision { expected, actual });
+            }
         }
         state.inventory().assert_support_change_available(
             self.stockpile,
@@ -330,6 +337,7 @@ pub fn validate_mount_stockpile(
         expected_logistics_revision: state.logistics().revision(),
         expected_player_work_revision: state.player_work().revision(),
         expected_combat_revision: state.combat().revision(),
+        expected_unmount_world_revision: None,
         structural,
     })
 }
@@ -350,6 +358,24 @@ pub fn validate_unmount_stockpile(
         .supported_by()
         .ok_or(StockpileSupportError::NotMounted { stockpile })?;
     validate_not_busy(state, stockpile)?;
+    let expected_unmount_world_revision = if record.enclosure().is_none()
+        && let Some(position) = state.logistics().stationary_stockpile_position(stockpile)
+        && state
+            .production()
+            .retained_output_jobs(stockpile)
+            .next()
+            .is_some()
+    {
+        if crate::production::generated_output_position_lacks_footing(registries, state, position) {
+            return Err(StockpileSupportError::ReservedOutputRequiresFixedFloor {
+                stockpile,
+                position,
+            });
+        }
+        Some(state.world().revision())
+    } else {
+        None
+    };
     if state.structures().get_element(element).is_none() {
         return Err(StockpileSupportError::Load(
             StockpileStructuralLoadError::UnknownSupport { stockpile, element },
@@ -390,6 +416,7 @@ pub fn validate_unmount_stockpile(
         expected_logistics_revision: state.logistics().revision(),
         expected_player_work_revision: state.player_work().revision(),
         expected_combat_revision: state.combat().revision(),
+        expected_unmount_world_revision,
         structural,
     })
 }

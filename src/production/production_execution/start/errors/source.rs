@@ -21,6 +21,7 @@ impl Error for StartProcessError {
             | Self::UnknownStockpile { .. }
             | Self::OutputDestinationBusyStorageDismantling { .. }
             | Self::OutputDestinationSolidTerrain { .. }
+            | Self::OutputDestinationRequiresFixedFloor { .. }
             | Self::OutputRouteCountMismatch { .. }
             | Self::DuplicateOutputRoute { .. }
             | Self::UnknownOutputRoute { .. }

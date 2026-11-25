@@ -54,6 +54,10 @@ pub enum StartProcessError {
         stockpile: StockpileId,
         position: VoxelCoord,
     },
+    OutputDestinationRequiresFixedFloor {
+        stockpile: StockpileId,
+        position: VoxelCoord,
+    },
     OutputRouteCountMismatch {
         streams: usize,
         routes: usize,

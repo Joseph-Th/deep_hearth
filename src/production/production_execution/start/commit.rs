@@ -35,6 +35,7 @@ impl ValidatedStartProcess {
             energy_ingress_reservation,
             equipment_use,
             destination_structure_revision,
+            destination_footing_revisions,
             structural_load,
         } = self;
         let job_id = job.id();
@@ -66,6 +67,16 @@ impl ValidatedStartProcess {
             attention
                 .precheck(state)
                 .map_err(StartProcessCommitError::from)?;
+        }
+        if let Some((expected_world, expected_structure)) = destination_footing_revisions {
+            let actual = state.world().revision();
+            if actual != expected_world {
+                return Err(StartProcessCommitError::StaleWorldRevision {
+                    expected: expected_world,
+                    actual,
+                });
+            }
+            validate_structure_revision(state, expected_structure)?;
         }
         validate_production_revision(state, expected_production_revision)?;
         if let Some(energy) = &energy_ingress_reservation {

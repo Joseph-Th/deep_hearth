@@ -43,7 +43,8 @@ pub(crate) use felling::{
     tree_felling_duration, tree_felling_exertion, validate_due_player_tree_felling,
 };
 pub(crate) use footing::{
-    FixedFootingOwner, tree_felling_floor_reserved_at, tree_has_fixed_footing_claim,
+    FixedFootingOwner, fixed_floor_reserved_for_removal, tree_felling_floor_reserved_at,
+    tree_has_fixed_footing_claim,
 };
 pub(crate) use forage_cycle::{
     NaturalForageCycleError, apply_natural_forage_cycle,

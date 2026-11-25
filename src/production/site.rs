@@ -6,6 +6,7 @@ use crate::core::state::AppState;
 use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
 use crate::inventory::StockpileId;
+use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
 use super::{ProcessResolution, ProductionJobId, ProductionJobRecord};
@@ -155,6 +156,55 @@ pub(crate) fn validate_retained_job_site(
     job: &ProductionJobRecord,
 ) -> Result<(), ProductionSiteMismatch> {
     validate_retained_job_site_with_stockpile_override(state, job, None)
+}
+
+/// Only loose, stationary, unmounted storage depends on the collision cell
+/// below its exact location. Carried custody and explicit support have their
+/// own owners.
+pub(crate) fn loose_output_destination_position(
+    state: &AppState,
+    destination: StockpileId,
+) -> Option<VoxelCoord> {
+    let pile = state.inventory().get_stockpile(destination)?;
+    if pile.enclosure().is_some() || pile.supported_by().is_some() {
+        return None;
+    }
+    state.logistics().stationary_stockpile_position(destination)
+}
+
+/// Abstract, ungenerated locations have no physical floor authority yet.
+/// Once terrain exists, a reserved output needs actual fixed voxel support,
+/// not the player's broader continuous-body footprint or a moving resident.
+pub(crate) fn unsupported_output_destination(
+    registries: &Registries,
+    state: &AppState,
+    destination: StockpileId,
+) -> Option<VoxelCoord> {
+    let position = loose_output_destination_position(state, destination)?;
+    generated_output_position_lacks_footing(registries, state, position).then_some(position)
+}
+
+/// Evaluate the ground fallback independently of a current support assignment,
+/// so unmounting a suspended output cache cannot invalidate its reservation.
+pub(crate) fn generated_output_position_lacks_footing(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+) -> bool {
+    if !state.world().has_generated_terrain_at(position) {
+        return false;
+    }
+    let supported = position.y().checked_sub(1).is_some_and(|y| {
+        let floor = VoxelCoord::new(position.x(), y, position.z());
+        (crate::world::WORLD_MIN_Y..crate::world::WORLD_MAX_Y_EXCLUSIVE).contains(&floor.y())
+            && !crate::world::fixed_floor_reserved_for_removal(state, floor)
+            && (state
+                .world()
+                .full_cell_collision_at(registries.world(), floor)
+                == Some(true)
+                || state.structures().blocks_full_cell(floor))
+    });
+    !supported
 }
 
 /// Returns the first durable production job whose retained site would be split if the player's

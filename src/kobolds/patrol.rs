@@ -91,9 +91,7 @@ pub(super) fn opening_resident_can_enter(
     let floor_reserved_for_removal = generated_here
         && position.y().checked_sub(1).is_some_and(|floor_y| {
             let floor = VoxelCoord::new(position.x(), floor_y, position.z());
-            crate::world::full_block_excavation_reserved_at(state, floor)
-                || crate::structural::dismantling_floor_reserved_at(state, floor)
-                || crate::world::tree_felling_floor_reserved_at(state, floor)
+            crate::world::fixed_floor_reserved_for_removal(state, floor)
         });
     (!generated_here || scout_has_fixed_standing_clearance(registries, state, position))
         && !floor_reserved_for_removal

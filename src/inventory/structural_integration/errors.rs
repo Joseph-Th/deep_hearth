@@ -145,6 +145,10 @@ pub enum StockpileSupportError {
     StockpileBusyStorageDismantling {
         stockpile: StockpileId,
     },
+    ReservedOutputRequiresFixedFloor {
+        stockpile: StockpileId,
+        position: VoxelCoord,
+    },
     InventoryRevisionExhausted,
     Load(StockpileStructuralLoadError),
 }
@@ -216,6 +220,17 @@ impl Display for StockpileSupportError {
                 "stockpile {} participates in active storage-enclosure dismantling and cannot be moved",
                 stockpile.value()
             ),
+            Self::ReservedOutputRequiresFixedFloor {
+                stockpile,
+                position,
+            } => write!(
+                formatter,
+                "cannot unmount production output stockpile {} at ({},{},{}) without fixed ground footing",
+                stockpile.value(),
+                position.x(),
+                position.y(),
+                position.z()
+            ),
             Self::InventoryRevisionExhausted => {
                 formatter.write_str("inventory revision space is exhausted")
             }
@@ -241,6 +256,7 @@ impl Error for StockpileSupportError {
             | Self::StockpileBusy { .. }
             | Self::StockpileBusySurfaceGathering { .. }
             | Self::StockpileBusyStorageDismantling { .. }
+            | Self::ReservedOutputRequiresFixedFloor { .. }
             | Self::InventoryRevisionExhausted => None,
         }
     }
@@ -249,6 +265,10 @@ impl Error for StockpileSupportError {
 /// Failure to commit a revision-bound stockpile support change.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StockpileSupportCommitError {
+    StaleWorldRevision {
+        expected: u64,
+        actual: u64,
+    },
     StalePlayerWorkRevision {
         expected: u64,
         actual: u64,
@@ -294,6 +314,10 @@ pub enum StockpileSupportCommitError {
 impl Display for StockpileSupportCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleWorldRevision { expected, actual } => write!(
+                formatter,
+                "validated stockpile unmount expected world revision {expected} but current revision is {actual}"
+            ),
             Self::StaleSurvivalRevision { expected, actual } => write!(
                 formatter,
                 "validated stockpile support change expected survival revision {expected} but current revision is {actual}"
@@ -360,7 +384,8 @@ impl Error for StockpileSupportCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleSurvivalRevision { .. }
+            Self::StaleWorldRevision { .. }
+            | Self::StaleSurvivalRevision { .. }
             | Self::StaleLogisticsRevision { .. }
             | Self::StalePlayerWorkRevision { .. }
             | Self::StaleCombatRevision { .. }
