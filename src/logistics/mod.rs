@@ -83,9 +83,10 @@ pub use kinematics::{
     MAX_LEDGE_CLIMB_METERS, PlayerBodyMotionError, PlayerBodyMotionOutcome,
     PlayerFallImpactOutcome, PlayerOverheadCoverAssessment, PlayerOverheadCoverFootprint,
     PlayerWalkProjection, PlayerWalkProjectionError, assess_player_overhead_cover,
-    project_player_adjacent_walk, project_player_climb_target, project_player_jump_rise_bound,
-    project_player_level_approach, project_player_overhead_cover_footprint,
-    project_player_standing_space, project_player_walk_path, project_player_walk_path_for_load,
+    project_player_adjacent_walk, project_player_climb_target, project_player_descent_approach,
+    project_player_jump_rise_bound, project_player_level_approach,
+    project_player_overhead_cover_footprint, project_player_standing_space,
+    project_player_walk_path, project_player_walk_path_for_load,
 };
 pub(crate) use kinematics::{
     apply_player_body_motion, body_has_fixed_placement_floor, decide_player_body_motion,

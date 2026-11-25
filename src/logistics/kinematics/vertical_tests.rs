@@ -8,8 +8,104 @@ use crate::player::validate_admit_player;
 use crate::simulation::advance_control_tick;
 use crate::world::{
     BlockStateId, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
-    validate_generate_chunk,
+    set_generated_block_for_test, validate_generate_chunk,
 };
+
+#[test]
+fn adjacent_descent_rejects_a_standing_cavity_behind_an_obstructed_entrance() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(41),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let origin = VoxelCoord::new(5, 30, 5);
+    let destination = VoxelCoord::new(6, 27, 5);
+    for (x, y, block) in [
+        (5, 29, BLOCK_STATE_STONE),
+        (5, 30, BlockStateId::AIR),
+        (5, 31, BlockStateId::AIR),
+        (6, 26, BLOCK_STATE_STONE),
+        (6, 27, BlockStateId::AIR),
+        (6, 28, BlockStateId::AIR),
+        (6, 29, BLOCK_STATE_STONE),
+        (6, 30, BLOCK_STATE_STONE),
+        (6, 31, BlockStateId::AIR),
+    ] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(x, y, 5),
+            block,
+        );
+    }
+    validate_admit_player(&registries, &state, origin)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(super::super::project_player_standing_space(
+        &registries,
+        &state,
+        destination
+    ));
+    assert!(!project_player_descent_approach(
+        &registries,
+        &state,
+        destination
+    ));
+
+    // Removing only the entrance wall leaves a closer floor. The deep
+    // cavity must not become the reported landing until that floor is removed.
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(6, 30, 5),
+        BlockStateId::AIR,
+    );
+    assert!(!project_player_descent_approach(
+        &registries,
+        &state,
+        destination
+    ));
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(6, 29, 5),
+        BlockStateId::AIR,
+    );
+    assert!(project_player_descent_approach(
+        &registries,
+        &state,
+        destination
+    ));
+    assert!(!project_player_descent_approach(
+        &registries,
+        &state,
+        VoxelCoord::new(i64::MIN, 27, i64::MIN)
+    ));
+    assert!(!project_player_descent_approach(
+        &registries,
+        &state,
+        VoxelCoord::new(6, 28, 5)
+    ));
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(6, 31, 5),
+        BLOCK_STATE_STONE,
+    );
+    assert!(!project_player_descent_approach(
+        &registries,
+        &state,
+        destination
+    ));
+}
 
 #[test]
 fn descending_to_exact_floor_face_is_grounded_without_a_phantom_airborne_tick() {

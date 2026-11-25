@@ -45,10 +45,10 @@ pub(crate) use collision::{
 use exertion::resolve_control_exertion;
 use ground_control::resolve_horizontal_control;
 pub use horizontal::project_player_level_approach;
-pub use vertical::project_player_jump_rise_bound;
 pub(crate) use vertical::{
     body_has_fixed_placement_floor, player_body_has_fixed_floor, player_placement_has_fixed_floor,
 };
+pub use vertical::{project_player_descent_approach, project_player_jump_rise_bound};
 use vertical::{resolve_vertical_control, supporting_floor_y};
 
 /// Voluntary locomotion must preserve the site of outstanding work and custody.

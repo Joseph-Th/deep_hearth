@@ -20,8 +20,8 @@ use deep_hearth::kobolds::{
 };
 use deep_hearth::logistics::{
     HorizontalControlInput, PlayerActiveSelection, PlayerOverheadCoverAssessment,
-    assess_player_overhead_cover, project_player_climb_target, project_player_jump_rise_bound,
-    project_player_level_approach, project_player_standing_space,
+    assess_player_overhead_cover, project_player_climb_target, project_player_descent_approach,
+    project_player_jump_rise_bound, project_player_level_approach, project_player_standing_space,
 };
 use deep_hearth::material::CommodityKey;
 use deep_hearth::simulation::{
@@ -489,7 +489,7 @@ fn adjacent_footing(registries: &Registries, state: &AppState, dx: i64, dz: i64)
     }
     for (depth, label) in [(1, "down 1m"), (2, "drop 2m"), (3, "drop 3m")] {
         if let Some(y) = foot.y().checked_sub(depth)
-            && project_player_standing_space(registries, state, VoxelCoord::new(x, y, z))
+            && project_player_descent_approach(registries, state, VoxelCoord::new(x, y, z))
         {
             return label;
         }

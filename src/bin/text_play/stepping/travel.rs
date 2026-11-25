@@ -9,7 +9,8 @@ use deep_hearth::fluid::FluidStoreId;
 use deep_hearth::geology::visible_weathered_copper_sites;
 use deep_hearth::logistics::{
     HorizontalControlInput, MAX_LEDGE_CLIMB_METERS, PlayerControlInput,
-    project_player_climb_target, project_player_jump_rise_bound, project_player_standing_space,
+    project_player_climb_target, project_player_descent_approach, project_player_jump_rise_bound,
+    project_player_standing_space,
 };
 use deep_hearth::material::CommodityKey;
 use deep_hearth::simulation::PlayerDirectControlInput;
@@ -393,7 +394,13 @@ impl Session {
             .iter()
             .copied()
             .filter_map(|dy| Some(VoxelCoord::new(x, origin.y().checked_add(dy)?, z)))
-            .find(|&point| project_player_standing_space(&self.registries, &self.state, point))
+            .find(|&point| {
+                if point.y() < origin.y() {
+                    project_player_descent_approach(&self.registries, &self.state, point)
+                } else {
+                    project_player_standing_space(&self.registries, &self.state, point)
+                }
+            })
     }
 
     fn trek_leg(

@@ -199,6 +199,57 @@ fn resolve_vertical_collision(
     Ok((proposed_y, proposed_velocity, false))
 }
 
+/// Check a short adjacent descent into the center of a neighboring column.
+/// The standing-body entrance must be open, and gravity must encounter the
+/// requested landing before any intervening floor. This does not guarantee
+/// that the actual horizontal approach or a later control sample succeeds.
+#[must_use]
+pub fn project_player_descent_approach(
+    registries: &Registries,
+    state: &AppState,
+    destination: VoxelCoord,
+) -> bool {
+    let Some(player) = state.logistics().player() else {
+        return false;
+    };
+    let origin = player.position();
+    let depth = i128::from(origin.y()) - i128::from(destination.y());
+    if !(1..=3).contains(&depth)
+        || i128::from(origin.x().abs_diff(destination.x()))
+            + i128::from(origin.z().abs_diff(destination.z()))
+            != 1
+        || !super::collision::player_body_is_grounded_at(registries, state, player.body())
+    {
+        return false;
+    }
+    let entrance = VoxelCoord::new(destination.x(), origin.y(), destination.z());
+    let Some(body) = PlayerBodyState::centered_on_voxel_floor(entrance) else {
+        return false;
+    };
+    let locomotion = registries.survival().physiology().locomotion();
+    let Some(bounds) = horizontal_voxel_bounds(body, locomotion) else {
+        return false;
+    };
+    let blocked = |voxel| player_cell_blocks_motion(registries, state, voxel);
+    if !horizontal_chunks_generated(state.world(), bounds)
+        || !super::collision::player_body_fits_continuous_world(body, locomotion)
+        || super::collision::first_player_body_collision_where(body, locomotion, blocked).is_some()
+    {
+        return false;
+    }
+    let Some(landing) = WorldPoint::centered_on_voxel_floor(destination) else {
+        return false;
+    };
+    let landing_y = landing.y_nanometers();
+    crossed_floor_y(
+        &blocked,
+        bounds,
+        landing_y,
+        body.foot_position().y_nanometers(),
+    ) == Ok(Some(landing_y))
+        && super::project_player_standing_space(registries, state, destination)
+}
+
 fn crossed_floor_y(
     blocked: &impl Fn(VoxelCoord) -> bool,
     (min_x, max_x, min_z, max_z): (i64, i64, i64, i64),
