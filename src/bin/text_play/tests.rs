@@ -1324,6 +1324,35 @@ fn pickup_receipt_preserves_commodity_when_same_frame_drop_removes_its_lot() {
 }
 
 #[test]
+fn gathering_completion_precedes_pickup_released_by_that_completion() {
+    use deep_hearth::matter::calculate_matter_accounting;
+
+    let mut session = Session::new(24318).unwrap();
+    for command in ["e 20", "wait 10", "gather 1 100", "wait work", "select 1"] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    let before = calculate_matter_accounting(&session.state).unwrap().total();
+    session.command("drop").unwrap();
+    let (started, _) = session.command("gather 1 100").unwrap();
+    assert!(started.contains("Gathering started"), "{started}");
+    let (report, _) = session.command("wait finish").unwrap();
+    let gathered = report.find("Gathered:").expect(&report);
+    let pickup = report.find("Picked up:").expect(&report);
+    assert!(gathered < pickup, "{report}");
+    assert!(session.state.player_work().active().is_none());
+    assert_eq!(
+        calculate_matter_accounting(&session.state).unwrap().total(),
+        before
+    );
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
+        Ok(())
+    );
+}
+
+#[test]
 fn direct_action_rejections_and_hotbar_changes_are_plain_language() {
     let mut session = Session::new(24318).unwrap();
     for (command, expected, forbidden) in [

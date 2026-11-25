@@ -250,8 +250,10 @@ impl PlayerWork {
         }
     }
 
+    /// Start and completion boundaries for directly scheduled slow-tick work.
+    /// Control-rate excavation and owner-scheduled jobs have separate clocks.
     #[must_use]
-    pub(crate) const fn inline_schedule(self) -> Option<(SimulationTick, SimulationTick)> {
+    pub const fn inline_schedule(self) -> Option<(SimulationTick, SimulationTick)> {
         match self {
             Self::SurfaceGathering { work } => Some((work.started_at(), work.completes_at())),
             Self::TreeFelling { work } => Some((work.started_at(), work.completes_at())),

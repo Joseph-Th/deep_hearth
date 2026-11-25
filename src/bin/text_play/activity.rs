@@ -58,16 +58,6 @@ pub fn label(registries: &Registries, state: &AppState, work: PlayerWork) -> Str
 /// 20 Hz deadlines for player work; manual jobs and mining are scheduled in their own owners.
 fn due_at_control_ticks(state: &AppState, work: PlayerWork) -> Option<u128> {
     let slow_tick = match work {
-        PlayerWork::TreeFelling { work } => work.completes_at().value(),
-        PlayerWork::SurfaceGathering { work } => work.completes_at().value(),
-        PlayerWork::ManualPower { work } => work.completes_at().value(),
-        PlayerWork::Prospecting { work } => work.completes_at().value(),
-        PlayerWork::Eating { work } => work.completes_at().value(),
-        PlayerWork::Drinking { work } => work.completes_at().value(),
-        PlayerWork::EquipmentMaintenance { work } => work.completes_at().value(),
-        PlayerWork::StorageEnclosureDismantling { work } => work.completes_at().value(),
-        PlayerWork::StructuralConstruction { work } => work.completes_at().value(),
-        PlayerWork::StructuralDismantling { work } => work.completes_at().value(),
         PlayerWork::BlockExcavation { work } => {
             return Some(u128::from(work.completes_at().value()));
         }
@@ -83,6 +73,7 @@ fn due_at_control_ticks(state: &AppState, work: PlayerWork) -> Option<u128> {
             .filter(|record| record.is_working())?
             .completes_at()
             .value(),
+        _ => work.inline_schedule()?.1.value(),
     };
     Some(u128::from(slow_tick) * u128::from(CONTROL_TICKS_PER_SIMULATION_TICK))
 }

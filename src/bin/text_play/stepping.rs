@@ -656,8 +656,8 @@ impl Session {
                     | SecondaryActionOutcome::StructuralConstructionStarted(_)
             )
         );
-        // Physical motion and automatic custody transfer precede direct actions
-        // in the control owner. Preserve that order when both occur in one frame.
+        // Report slow settlement before its boundary's motion and direct actions.
+        // Off-boundary excavation instead follows physical motion.
         let mut batch = outcome.block_excavation().map(|receipt| BatchCompletion {
             receipt: BatchReceipt::Excavated(receipt.target()),
             surface: match receipt.output() {
@@ -667,12 +667,18 @@ impl Session {
                 deep_hearth::world::BlockExcavationOutputReceipt::Carried { .. } => None,
             },
         });
-        let _ = note_text(
-            output,
-            "Excavated",
-            outcome.block_excavation().map(feedback::excavation),
-        );
         let mut interrupt = false;
+        if let Some(simulation) = outcome.simulation() {
+            let _ = note_text(
+                output,
+                "Excavated",
+                outcome.block_excavation().map(feedback::excavation),
+            );
+            let (slow_interrupt, slow_batch) =
+                self.note_simulation_events(simulation, previous_work, output);
+            interrupt |= slow_interrupt;
+            batch = slow_batch.or(batch);
+        }
         let fall = outcome
             .body_motion()
             .and_then(|motion| motion.fall_impact());
@@ -689,6 +695,13 @@ impl Session {
             fall.filter(|impact| impact.vitality_loss_ppm() > 0)
                 .map(feedback::landing),
         );
+        if outcome.simulation().is_none() {
+            let _ = note_text(
+                output,
+                "Excavated",
+                outcome.block_excavation().map(feedback::excavation),
+            );
+        }
         let pickup = outcome.surface_drop_pickup();
         let picked_up = note_text(
             output,
@@ -697,12 +710,6 @@ impl Session {
         );
         let mut direct_event = note_text(
             output,
-            "Primary",
-            outcome.primary_action().map(feedback::primary),
-        );
-        direct_event |= note_secondary(output, &self.registries, outcome.secondary_action());
-        direct_event |= note_text(
-            output,
             "Slot",
             outcome
                 .quick_access_selection()
@@ -710,17 +717,17 @@ impl Session {
         );
         direct_event |= note_text(
             output,
+            "Primary",
+            outcome.primary_action().map(feedback::primary),
+        );
+        direct_event |= note_secondary(output, &self.registries, outcome.secondary_action());
+        direct_event |= note_text(
+            output,
             "Drop",
             outcome
                 .active_selection_drop()
                 .map(|event| feedback::drop(&self.registries, event)),
         );
-        if let Some(simulation) = outcome.simulation() {
-            let (slow_interrupt, slow_batch) =
-                self.note_simulation_events(simulation, previous_work, output);
-            interrupt |= slow_interrupt;
-            batch = slow_batch.or(batch);
-        }
         if !interrupt
             && !picked_up
             && !direct_event
