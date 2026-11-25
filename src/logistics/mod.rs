@@ -83,10 +83,10 @@ pub use kinematics::{
     MAX_LEDGE_CLIMB_METERS, PlayerBodyMotionError, PlayerBodyMotionOutcome,
     PlayerFallImpactOutcome, PlayerOverheadCoverAssessment, PlayerOverheadCoverFootprint,
     PlayerWalkProjection, PlayerWalkProjectionError, assess_player_overhead_cover,
-    project_player_adjacent_walk, project_player_climb_target, project_player_descent_approach,
-    project_player_jump_rise_bound, project_player_level_approach,
-    project_player_overhead_cover_footprint, project_player_standing_space,
-    project_player_walk_path, project_player_walk_path_for_load,
+    player_body_has_fixed_floor, player_body_is_grounded, project_player_adjacent_walk,
+    project_player_climb_target, project_player_descent_approach, project_player_jump_rise_bound,
+    project_player_level_approach, project_player_overhead_cover_footprint,
+    project_player_standing_space, project_player_walk_path, project_player_walk_path_for_load,
 };
 pub(crate) use kinematics::{
     apply_player_body_motion, body_has_fixed_placement_floor, decide_player_body_motion,
@@ -94,9 +94,9 @@ pub(crate) use kinematics::{
     first_player_body_overlap_with_bounds, first_player_structure_collision,
     first_player_temple_caste_collision, player_body_fits_continuous_world,
     player_body_floor_structures, player_body_footprint_intersects_chunk,
-    player_body_has_fixed_floor, player_body_is_grounded, player_body_occupies_voxel,
-    player_body_stands_above_structure, player_body_stands_above_temple_caste,
-    player_body_uses_generated_world, player_placement_has_fixed_floor,
+    player_body_occupies_voxel, player_body_stands_above_structure,
+    player_body_stands_above_temple_caste, player_body_uses_generated_world,
+    player_placement_has_fixed_floor,
 };
 pub use pending_primary::PlayerPendingPrimaryBreakError;
 pub(crate) use pending_primary::{

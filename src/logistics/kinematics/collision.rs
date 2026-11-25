@@ -55,7 +55,11 @@ pub(crate) fn player_body_fits_continuous_world(
         })
 }
 
-pub(crate) fn player_body_is_grounded(registries: &Registries, state: &AppState) -> bool {
+/// Whether the actual continuous player body rests on a collision surface
+/// in generated terrain. Zero vertical velocity alone does not prove contact,
+/// and a moving resident can supply physical (but not fixed) support.
+#[must_use]
+pub fn player_body_is_grounded(registries: &Registries, state: &AppState) -> bool {
     let Some(player) = state.logistics().player().copied() else {
         return false;
     };

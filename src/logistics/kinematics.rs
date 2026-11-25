@@ -29,7 +29,6 @@ use super::{
 use climb::resolve_ledge_climb;
 pub use climb::{MAX_LEDGE_CLIMB_METERS, project_player_climb_target};
 pub(super) use collision::player_cell_has_fixed_support;
-pub use collision::project_player_standing_space;
 use collision::{
     body_height, horizontal_chunks_generated, horizontal_voxel_bounds, length_nanometers,
     player_cell_blocks_motion,
@@ -38,17 +37,18 @@ pub(crate) use collision::{
     first_player_body_collision, first_player_body_collision_in_chunk,
     first_player_body_overlap_with_bounds, first_player_structure_collision,
     first_player_temple_caste_collision, player_body_fits_continuous_world,
-    player_body_floor_structures, player_body_footprint_intersects_chunk, player_body_is_grounded,
+    player_body_floor_structures, player_body_footprint_intersects_chunk,
     player_body_occupies_voxel, player_body_stands_above_structure,
     player_body_stands_above_temple_caste, player_body_uses_generated_world,
 };
+pub use collision::{player_body_is_grounded, project_player_standing_space};
 use exertion::resolve_control_exertion;
 use ground_control::resolve_horizontal_control;
 pub use horizontal::project_player_level_approach;
-pub(crate) use vertical::{
-    body_has_fixed_placement_floor, player_body_has_fixed_floor, player_placement_has_fixed_floor,
+pub(crate) use vertical::{body_has_fixed_placement_floor, player_placement_has_fixed_floor};
+pub use vertical::{
+    player_body_has_fixed_floor, project_player_descent_approach, project_player_jump_rise_bound,
 };
-pub use vertical::{project_player_descent_approach, project_player_jump_rise_bound};
 use vertical::{resolve_vertical_control, supporting_floor_y};
 
 /// Voluntary locomotion must preserve the site of outstanding work and custody.

@@ -8,7 +8,7 @@ use super::{Session, view};
 use deep_hearth::fluid::FluidStoreId;
 use deep_hearth::geology::visible_weathered_copper_sites;
 use deep_hearth::logistics::{
-    HorizontalControlInput, MAX_LEDGE_CLIMB_METERS, PlayerControlInput,
+    HorizontalControlInput, MAX_LEDGE_CLIMB_METERS, PlayerControlInput, player_body_is_grounded,
     project_player_climb_target, project_player_descent_approach, project_player_jump_rise_bound,
     project_player_standing_space,
 };
@@ -185,6 +185,7 @@ impl Session {
         if self.state.player_work().active().is_some()
             || body.horizontal_velocity() != HorizontalVelocity::ZERO
             || body.vertical_velocity() != VerticalVelocity::ZERO
+            || !player_body_is_grounded(&self.registries, &self.state)
         {
             return Err("finish work and settle movement before centering".to_owned());
         }
@@ -207,7 +208,9 @@ impl Session {
             let foot = body.foot_position();
             let dx = center.x_nanometers() - foot.x_nanometers();
             let dz = center.z_nanometers() - foot.z_nanometers();
-            let settled = body.horizontal_velocity() == HorizontalVelocity::ZERO;
+            let settled = body.horizontal_velocity() == HorizontalVelocity::ZERO
+                && body.vertical_velocity() == VerticalVelocity::ZERO
+                && player_body_is_grounded(&self.registries, &self.state);
             if dx.abs() <= CENTER_TOLERANCE && dz.abs() <= CENTER_TOLERANCE && settled {
                 output.push_str("Centred in the current cell (within 3 cm).\n");
                 output.push_str(&view::look(&self.registries, &self.state, None));
@@ -261,7 +264,9 @@ impl Session {
             .body();
         if self.state.player_work().active().is_some()
             || body.horizontal_velocity() != HorizontalVelocity::ZERO
-            || (!movement.climb() && body.vertical_velocity() != VerticalVelocity::ZERO)
+            || (!movement.climb()
+                && (body.vertical_velocity() != VerticalVelocity::ZERO
+                    || !player_body_is_grounded(&self.registries, &self.state)))
         {
             return Err("finish work and settle movement before trekking".to_owned());
         }
@@ -426,7 +431,8 @@ impl Session {
             let dx = center.x_nanometers() - foot.x_nanometers();
             let dz = center.z_nanometers() - foot.z_nanometers();
             let settled = body.horizontal_velocity() == HorizontalVelocity::ZERO
-                && body.vertical_velocity() == VerticalVelocity::ZERO;
+                && body.vertical_velocity() == VerticalVelocity::ZERO
+                && player_body_is_grounded(&self.registries, &self.state);
             if dx.abs() <= CENTER_TOLERANCE && dz.abs() <= CENTER_TOLERANCE && settled {
                 return Ok(if foot.y_nanometers() == center.y_nanometers() {
                     LegResult::Arrived

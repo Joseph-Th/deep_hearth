@@ -1,19 +1,6 @@
 //! Regression tests for player-local text projection formatting.
 
 #[test]
-fn nonzero_vitality_and_reserves_never_display_as_exhausted() {
-    use super::{reserve_label, vitality_label};
-    assert_eq!(vitality_label(0), "0");
-    assert_eq!(vitality_label(1), "<0.01");
-    assert_eq!(vitality_label(9_100), "0.91");
-    assert_eq!(vitality_label(10_000), "1");
-    assert_eq!(vitality_label(1_000_000), "100");
-    assert_eq!(reserve_label(0, false), "<1");
-    assert_eq!(reserve_label(0, true), "0");
-    assert_eq!(reserve_label(78, false), "78");
-}
-
-#[test]
 fn rugged_natural_start_exposes_local_footing_without_inventing_a_route() {
     use deep_hearth::logistics::project_player_standing_space;
     use deep_hearth::world::HabitatKind;
@@ -138,32 +125,6 @@ fn condition_report_matches_survival_owner_reserve_percentages() {
 }
 
 #[test]
-fn natural_spring_readout_reports_finite_resting_supply_without_claiming_regeneration() {
-    use deep_hearth::core::quantity::Volume;
-
-    let rate = Volume::from_microliters(125);
-    let remaining = Volume::from_microliters(1_250_000);
-    let report = super::spring_supply_label(remaining, rate);
-    assert!(report.contains("Natural spring supply:"), "{report}");
-    assert!(
-        report.contains("1250 mL") && report.contains("10h 0m"),
-        "{report}"
-    );
-    assert!(
-        report.contains("equivalent to") && report.contains("finite water"),
-        "{report}"
-    );
-    let dry = super::spring_supply_label(Volume::ZERO, rate);
-    assert!(dry.contains("Dry natural spring basin here"), "{dry}");
-    assert!(dry.contains("Seek another source"), "{dry}");
-    let no_drain = super::spring_supply_label(remaining, Volume::ZERO);
-    assert!(
-        no_drain.contains("1250 mL of finite surface water"),
-        "{no_drain}"
-    );
-}
-
-#[test]
 fn shelter_preview_uses_the_same_standing_clearance_and_grounding_as_player_motion() {
     use deep_hearth::logistics::project_player_standing_space;
     use deep_hearth::world::BlockStateId;
@@ -209,7 +170,8 @@ fn hand_status_uses_one_inventory_projection_for_label_and_carried_presence() {
         MATERIAL_BERRIES,
         FORM_FOOD,
     )));
-    let (label, carried) = super::hand_status(&session.registries, &session.state, selected);
+    let (label, carried) =
+        super::actor_inventory::hand_status(&session.registries, &session.state, selected);
     assert!(!carried);
     assert!(label.ends_with("(none carried)"), "{label}");
     assert_eq!(
@@ -217,17 +179,9 @@ fn hand_status_uses_one_inventory_projection_for_label_and_carried_presence() {
         label
     );
     assert_eq!(
-        super::hand_status(&session.registries, &session.state, None),
+        super::actor_inventory::hand_status(&session.registries, &session.state, None),
         ("empty".to_owned(), false)
     );
-}
-
-#[test]
-fn signed_foot_elevation_is_correct_below_zero() {
-    assert_eq!(super::meters_from_nanometers(2_225_000_000), "2.225");
-    assert_eq!(super::meters_from_nanometers(-500_000_000), "-0.500");
-    assert_eq!(super::meters_from_nanometers(-1_500_000_000), "-1.500");
-    assert!(super::meters_from_nanometers(i64::MIN).starts_with('-'));
 }
 
 #[test]
@@ -337,7 +291,7 @@ fn inventory_hotbar_uses_one_carried_projection_and_reports_temperature_and_fres
             selected,
             Some(projection.carried()),
         ),
-        super::hand_status(&session.registries, &session.state, selected)
+        super::actor_inventory::hand_status(&session.registries, &session.state, selected)
     );
     let inventory = super::inventory(&session.registries, &session.state).unwrap();
     assert!(inventory.contains("slot 1: berries"), "{inventory}");

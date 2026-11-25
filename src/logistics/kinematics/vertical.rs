@@ -322,7 +322,8 @@ pub(super) fn crossed_ceiling_y(
 /// Long player-owned attention cannot use a moving temple resident as its
 /// sole support. Use the same exact voxel-face and footprint test as gravity,
 /// excluding only actor occupancy rather than inventing a second geometry.
-pub(crate) fn player_body_has_fixed_floor(registries: &Registries, state: &AppState) -> bool {
+#[must_use]
+pub fn player_body_has_fixed_floor(registries: &Registries, state: &AppState) -> bool {
     let Some(player) = state.logistics().player() else {
         return false;
     };

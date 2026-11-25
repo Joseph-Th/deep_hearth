@@ -762,6 +762,37 @@ fn exact_supported_placement_builds_usable_shelter_on_level_ground() {
         deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
         Ok(())
     );
+    // A real jump into the finished roof stops upward motion before landing.
+    // Zero vertical velocity at ceiling contact is not a settled stance.
+    let floor = session
+        .state
+        .logistics()
+        .player()
+        .unwrap()
+        .body()
+        .foot_position();
+    let _ = session.command("jump").unwrap();
+    for _ in 0..20 {
+        let body = session.state.logistics().player().unwrap().body();
+        if body.vertical_velocity().nanometers_per_second() == 0 {
+            break;
+        }
+        let _ = session.command("wait 1").unwrap();
+    }
+    let body = session.state.logistics().player().unwrap().body();
+    assert_eq!(body.vertical_velocity().nanometers_per_second(), 0);
+    assert!(body.foot_position().y_nanometers() > floor.y_nanometers());
+    let before = snapshot(&session);
+    let look = session.command("look").unwrap().0;
+    assert!(look.contains("Airborne: gravity is active"), "{look}");
+    assert!(!look.contains("Nearby footing"), "{look}");
+    for command in ["trek s 1 steady", "descend s", "center"] {
+        assert!(session.command(command).is_err(), "{command}");
+        assert_eq!(snapshot(&session), before);
+    }
+    let landed = session.command("wait 20").unwrap().0;
+    assert!(!landed.contains("Airborne: gravity is active"), "{landed}");
+    assert!(landed.contains("Nearby footing"), "{landed}");
 }
 
 #[test]
