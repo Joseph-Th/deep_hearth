@@ -335,8 +335,12 @@ inventory, and the bounded opening's original fallen-timber gathering
 remains a separate, unchanged source.
 
 Generated terrain cannot materialize through an existing opening resident's body.
-Controlled graph-proxy residents may predate generated ground, while ordinary patrol
-movement requires actual floor clearance once their terrain is generated.
+Controlled graph-proxy residents may predate generated ground. An authored patrol edge
+can remain graph-only when neither endpoint has generated terrain; if either endpoint is
+generated, both must have authoritative terrain and actual standing clearance. Scout and
+watchman movement wait at a mixed generated/ungenerated edge without moving cargo,
+leaving tracks, or spending a deployment ration. Generating the missing terrain restores
+movement only when the ordinary physical and deterrence checks permit it.
 Full block excavation cannot remove a floor beneath either resident, including when
 the occupant changes after excavation validation; the scout and watchman also avoid
 a floor already reserved for complete removal. Partial cuts retain collision and

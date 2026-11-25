@@ -59,6 +59,16 @@ pub(super) fn scout_can_enter(
     }) && opening_resident_can_enter(registries, state, position, player_position)
 }
 
+/// An authored traversal edge is sufficient only in wholly abstract space.
+/// Once either endpoint has generated terrain, both must have physical authority.
+pub(super) fn opening_patrol_edge_has_authority(
+    state: &AppState,
+    from: VoxelCoord,
+    to: VoxelCoord,
+) -> bool {
+    state.world().has_generated_terrain_at(from) == state.world().has_generated_terrain_at(to)
+}
+
 pub(super) fn opening_resident_can_enter(
     registries: &Registries,
     state: &AppState,
@@ -274,7 +284,8 @@ fn plan_scout_move(
     // the player's reach. This is checked only on the resident's slow clock.
     let ahead_is_guarded = proposed_step != colony.scout_step
         && scout_sees_guarded_cell(registries, state, from, proposed_position);
-    let ahead_is_blocked = !scout_can_enter(registries, state, proposed_position, player_position);
+    let ahead_is_blocked = !opening_patrol_edge_has_authority(state, from, proposed_position)
+        || !scout_can_enter(registries, state, proposed_position, player_position);
     // A detour chosen at the junction is not a reservation. Player pickup or
     // another canonical surface transaction can remove or alter the target
     // during the scout's intervening physical step. Recheck its neighboring
@@ -338,6 +349,7 @@ fn plan_scout_move(
             // guarded homeward edge; a panicked scout still uses its real exit.
             && (pressured
                 || !scout_sees_guarded_cell(registries, state, from, position))
+            && opening_patrol_edge_has_authority(state, from, position)
             && scout_can_enter(registries, state, position, player_position),
     }
 }

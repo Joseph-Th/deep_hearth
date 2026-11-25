@@ -200,6 +200,156 @@ fn fatal_survival_tick_does_not_make_a_dead_player_guard_the_scout() {
     assert_eq!(state, loaded);
 }
 
+fn generate_patrol_fixture_chunk(
+    registries: &crate::Registries,
+    state: &mut AppState,
+    cells: &[VoxelCoord],
+) {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{
+        BlockStateId, ChunkCoord, set_generated_block_for_test, validate_generate_chunk,
+    };
+
+    validate_generate_chunk(
+        registries,
+        state,
+        WorldGenerationSeed::new(7),
+        ChunkCoord::containing(cells[0]),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(state)
+    .unwrap();
+    for cell in cells {
+        set_generated_block_for_test(
+            registries.world(),
+            state,
+            VoxelCoord::new(cell.x(), -1, cell.z()),
+            BLOCK_STATE_STONE,
+        );
+        for y in 0..=1 {
+            set_generated_block_for_test(
+                registries.world(),
+                state,
+                VoxelCoord::new(cell.x(), y, cell.z()),
+                BlockStateId::AIR,
+            );
+        }
+    }
+}
+
+#[test]
+fn mixed_terrain_patrol_waits_for_both_sides_of_the_boundary() {
+    use crate::core::state::validate_loaded_state;
+    use crate::logistics::add_traversable_edge_for_test;
+
+    let registries = build_registries();
+    let route = [
+        VoxelCoord::new(-1, 0, 0),
+        VoxelCoord::new(0, 0, 0),
+        VoxelCoord::new(1, 0, 0),
+    ];
+    for (first, second) in [(&route[..1], &route[1..]), (&route[1..], &route[..1])] {
+        let mut state = AppState::new();
+        generate_patrol_fixture_chunk(&registries, &mut state, first);
+        for edge in route.windows(2) {
+            add_traversable_edge_for_test(&mut state, edge[0], edge[1]);
+        }
+        state.kobold_state_mut().apply_opening_colony(route);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        advance_to_tick(&registries, &mut state, 180);
+        assert_eq!(
+            colony(&state).scout_position(),
+            route[0],
+            "an authored edge cannot bridge known terrain and unknown terrain"
+        );
+        assert!(colony(&state).tracks.is_empty());
+
+        let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        for world in [&mut state, &mut replay] {
+            generate_patrol_fixture_chunk(&registries, world, second);
+            advance_to_tick(&registries, world, 185);
+            assert_eq!(colony(world).scout_position(), route[1]);
+            assert_eq!(colony(world).tracks.len(), 1);
+            assert_eq!(validate_loaded_state(&registries, world), Ok(()));
+        }
+        assert_eq!(state, replay);
+    }
+}
+
+#[test]
+fn mixed_terrain_watchman_preserves_ration_until_post_has_authority() {
+    use crate::content::{ENERGY_ELECTRICAL_BUFFER, FORM_FOOD, MATERIAL_WILD_NUTS};
+    use crate::core::quantity::Energy;
+    use crate::core::state::validate_loaded_state;
+    use crate::energy::add_energy_store_with_initial_for_fixture;
+    use crate::logistics::{add_traversable_edge_for_test, place_energy_store_for_fixture};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let route = [
+        VoxelCoord::new(-1, 0, 0),
+        VoxelCoord::new(0, 0, 0),
+        VoxelCoord::new(1, 0, 0),
+    ];
+    for edge in route.windows(2) {
+        add_traversable_edge_for_test(&mut state, edge[0], edge[1]);
+    }
+    state.kobold_state_mut().apply_opening_colony(route);
+    let store = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_ELECTRICAL_BUFFER,
+        Energy::ZERO,
+    )
+    .unwrap();
+    place_energy_store_for_fixture(&mut state, store, route[1]);
+    advance_to_tick(&registries, &mut state, 195);
+    assert!(colony(&state).mobilized_at.is_some());
+    assert_eq!(colony(&state).scout_position(), route[0]);
+    generate_patrol_fixture_chunk(&registries, &mut state, &route[..1]);
+    let food = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        route[0],
+        CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+        Mass::from_milligrams(100_000),
+        Temperature::from_millikelvin(293_150),
+        MaterialComposition::pure(MATERIAL_WILD_NUTS),
+    )
+    .unwrap();
+    let creation = validate_create_surface_resources(&registries, &state, [food]).unwrap();
+    let ration = creation.first_resource_id();
+    creation.commit(&mut state).unwrap();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 200);
+    assert_eq!(colony(&state).watch_position(), route[0]);
+    assert!(colony(&state).watch_deployed_at.is_none());
+    assert_eq!(
+        state.surface().get(ration).unwrap().remaining_mass(),
+        Mass::from_milligrams(100_000)
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+
+    generate_patrol_fixture_chunk(&registries, &mut state, &route[1..]);
+    let total_after_generation = calculate_matter_accounting(&state).unwrap().total();
+    advance_to_tick(&registries, &mut state, 205);
+    assert_eq!(colony(&state).watch_position(), route[1]);
+    assert_eq!(
+        state.surface().get(ration).unwrap().remaining_mass(),
+        Mass::from_milligrams(80_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        total_after_generation
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
 #[test]
 fn distant_terrain_generation_does_not_stop_an_ungenerated_opening_patrol() {
     use crate::content::BLOCK_STATE_STONE;
