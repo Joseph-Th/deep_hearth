@@ -14,14 +14,14 @@ use crate::surface::{
 };
 
 mod routes;
+mod salvage;
 mod stockpiles;
-
-use routes::unguarded_unlit_cell;
 pub(super) use routes::{
     ScavengeRoute, reachable_detour_drop, reachable_far_stockpile, reachable_forage_route,
     reachable_side_stockpile, two_edge_candidates,
 };
 
+pub(super) use salvage::{reachable_inherited_salvage, survey_visible_inherited_salvage};
 pub(super) use stockpiles::local_unenclosed_stockpile_target;
 
 use super::feeding::{scout_wants_drop, scout_wants_food_opportunity};
@@ -30,7 +30,6 @@ use super::junkworks::{
     is_junk_striker, is_staged_relay_component,
 };
 use super::scrap_tools::{is_needed_outer_tool_part, is_staged_scrap_tool_part};
-use super::visibility::scout_visible_from;
 use super::{
     DEN_LOOSE_CACHE_LIMIT, SCOUT_CARRY_LIMIT, SCOUT_MEAL_MASS, SCOUT_SAFE_SCAVENGE_TEMPERATURE,
 };
@@ -367,6 +366,34 @@ pub(super) fn local_split_source(
         .map(|resource| resource.id())
 }
 
+/// A planned industrial exchange must not retrieve ordinary scrap instead of
+/// the needed salvage that justified freeing den space. Whole food, wanted
+/// iron, precision salvage and needed tool parts keep their existing priority.
+pub(super) fn preferred_salvage_split(
+    registries: &Registries,
+    state: &AppState,
+    position: VoxelCoord,
+    space: Mass,
+    at: SimulationTick,
+    portable: Option<SurfaceResourceId>,
+) -> Option<SurfaceResourceId> {
+    let whole = state.surface().get(portable?)?;
+    let (needs_striker, wants_iron) = scout_striker_interest(state, true);
+    if registries.survival().get_food(whole.commodity()).is_some()
+        || matches_salvage_goal(whole, needs_striker)
+        || (wants_iron && is_iron_chime_striker(whole))
+        || is_needed_outer_tool_part(state, position, whole)
+    {
+        return None;
+    }
+    local_split_source(registries, state, position, space, at, false, true).filter(|id| {
+        state
+            .surface()
+            .get(*id)
+            .is_some_and(|drop| matches_salvage_goal(drop, needs_striker))
+    })
+}
+
 /// The den uses ordinary surface custody. Its finite loose storage includes all available
 /// player and scout drops, not just parcels labelled as belonging to the colony.
 /// External deposits can exceed the scout's cache limit. Preserve actual occupancy
@@ -434,98 +461,6 @@ fn is_servant_era_commodity(commodity: CommodityKey) -> bool {
             FORM_TOOL,
         ]
         .contains(&commodity.form())
-}
-
-fn engineered_drop_at(
-    registries: &Registries,
-    state: &AppState,
-    position: VoxelCoord,
-    space: Mass,
-    at: SimulationTick,
-    needs_striker: bool,
-) -> Option<(bool, SurfaceResourceId)> {
-    state
-        .surface()
-        .available_resources_at(Some(position))
-        .filter(|resource| {
-            matches_salvage_goal(resource, needs_striker)
-                && is_contestable_drop(resource, space)
-                && scout_wants_loose_drop(registries, state, resource, at)
-        })
-        .min_by_key(|resource| {
-            (
-                !is_portable_drop(resource) || resource.remaining_mass() > space,
-                resource.id(),
-            )
-        })
-        .map(|resource| {
-            (
-                !is_portable_drop(resource) || resource.remaining_mass() > space,
-                resource.id(),
-            )
-        })
-}
-
-/// After a *delivered* industrial report, prioritize locally reachable precision
-/// copper parts even beyond nearer generic scrap. The caller supplies the
-/// scout's *current* observation voxel, which is the den during den care and
-/// the junction during actual branch planning. The target is not reserved;
-/// entry and source-local movement still recheck custody, clearance and light.
-pub(super) fn reachable_inherited_salvage(
-    registries: &Registries,
-    state: &AppState,
-    route: ScavengeRoute,
-    observer: VoxelCoord,
-    capacity: Mass,
-    at: SimulationTick,
-) -> Option<(VoxelCoord, Option<VoxelCoord>)> {
-    let ScavengeRoute {
-        junction,
-        den,
-        player_position,
-        ..
-    } = route;
-    if capacity.is_zero() {
-        return None;
-    }
-    let needs_striker = den_or_relay_needs_striker(state, den);
-    let adjacent = state
-        .logistics()
-        .traversable_destinations(junction)
-        .filter(|first| *first != den)
-        .filter_map(|first| {
-            engineered_drop_at(registries, state, first, capacity, at, needs_striker)
-                .map(|priority| (priority, first))
-        })
-        .filter(|(_, first)| {
-            scout_visible_from(registries, state, observer, *first)
-                && unguarded_unlit_cell(registries, state, observer, *first, player_position)
-        })
-        .min_by_key(|(priority, first)| (*priority, *first));
-    // A complete nearby component is always preferable to a longer detour.
-    // When the nearer source must be split, look one edge farther for a whole
-    // component before choosing the extra handling work. Both alternatives
-    // remain bound to the scout's current sightline and real graph edges.
-    if let Some(((false, _), first)) = adjacent {
-        return Some((first, None));
-    }
-    let far = two_edge_candidates(state, route)
-        .filter_map(|(first, goal)| {
-            engineered_drop_at(registries, state, goal, capacity, at, needs_striker)
-                .map(|priority| (priority, first, goal))
-        })
-        .filter(|(_, first, goal)| {
-            scout_visible_from(registries, state, observer, *goal)
-                && unguarded_unlit_cell(registries, state, observer, *first, player_position)
-                && unguarded_unlit_cell(registries, state, observer, *goal, player_position)
-        })
-        .min_by_key(|(priority, first, goal)| (*priority, *first, *goal));
-    match (adjacent, far) {
-        (_, Some(((false, _), first, goal))) => Some((first, Some(goal))),
-        (Some((_, first)), _) => Some((first, None)),
-        (None, Some((_, first, goal))) => Some((first, Some(goal))),
-        (None, None) => None,
-    }
 }
 
 #[cfg(test)]

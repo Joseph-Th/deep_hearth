@@ -1,6 +1,7 @@
 //! One conserved, interruptible scout cargo exchange across a real patrol edge.
 
 use super::*;
+use crate::kobolds::scavenging::preferred_salvage_split;
 
 #[derive(Clone, Copy)]
 pub(super) struct CargoDecision {
@@ -22,7 +23,8 @@ pub(super) struct LocalFoodDrop {
     pub(super) whole: bool,
 }
 
-/// An intact ration avoids splitting, but a complete split beats a fragment.
+/// An intact complete ration avoids splitting. If no intact ration suffices,
+/// prefer the larger recoverable serving; equal partial servings stay intact.
 /// Forecast and actual cargo handling must use the same local decision.
 pub(super) fn local_food_drop(
     registries: &Registries,
@@ -65,8 +67,8 @@ pub(super) fn local_food_drop(
             .min(den_space),
         whole: false,
     });
-    if whole.is_none() || bulk.is_some_and(|drop| drop.mass >= shortage) {
-        bulk.or(whole)
+    if bulk.is_some_and(|drop| whole.is_none_or(|intact| drop.mass > intact.mass)) {
+        bulk
     } else {
         whole
     }
@@ -89,6 +91,7 @@ struct ScoutCargoPlan {
     carried: Option<SurfaceResourceId>,
     blocked_at_den: bool,
     candidate: Option<SurfaceResourceId>,
+    preferred_split: Option<SurfaceResourceId>,
     prefer_forage: bool,
 }
 
@@ -130,6 +133,7 @@ fn plan_returning_cargo(
         carried,
         blocked_at_den,
         candidate: None,
+        preferred_split: None,
         prefer_forage: false,
     };
     if !choice.returning || choice.frightened {
@@ -150,8 +154,18 @@ fn plan_returning_cargo(
         choice.food_only,
         choice.mobilized,
     );
+    plan.candidate = portable;
     if !choice.food_only {
-        plan.candidate = portable;
+        if choice.mobilized {
+            plan.preferred_split = preferred_salvage_split(
+                registries,
+                state,
+                choice.from,
+                choice.den_space,
+                choice.at,
+                portable,
+            );
+        }
         return plan;
     }
     let loose = local_food_drop(
@@ -163,7 +177,7 @@ fn plan_returning_cargo(
         choice.at,
         portable,
     );
-    plan.candidate = loose.filter(|drop| drop.whole).map(|drop| drop.source);
+    plan.preferred_split = loose.filter(|drop| !drop.whole).map(|drop| drop.source);
     plan.prefer_forage = colony.hungry
         && forage
             .is_some_and(|mass| forage_beats_loose_food(colony, loose.map(|drop| drop.mass), mass));
@@ -365,6 +379,7 @@ pub(super) fn execute_scout_return_cargo(
         carried: carried_drop,
         blocked_at_den: cargo_blocked_at_den,
         candidate: dragged_candidate,
+        preferred_split,
         prefer_forage,
     } = plan_returning_cargo(
         registries,
@@ -405,20 +420,7 @@ pub(super) fn execute_scout_return_cargo(
     } else {
         None
     };
-    let first_relocated = if can_move && first_forage.is_none() {
-        dragged_candidate
-            .filter(|id| relocate_scavenged_drop_step(registries, state, *id, from, to))
-    } else {
-        None
-    };
-    let bulk_source = (can_move
-        && returning
-        && !frightened
-        && first_forage.is_none()
-        && first_relocated.is_none())
-    .then(|| local_split_source(registries, state, from, den_space, at, food_only, mobilized))
-    .flatten();
-    let split_drop = bulk_source.and_then(|source| {
+    let try_split = |state: &mut AppState, source| {
         split_scavenged_bulk_with_available_tool(
             registries,
             state,
@@ -431,6 +433,33 @@ pub(super) fn execute_scout_return_cargo(
                 den_space,
             },
         )
+    };
+    // Try the preferred split before the intact fallback, but do not discard
+    // the fallback if the atomic split cannot be committed.
+    let first_split = if can_move && first_forage.is_none() {
+        preferred_split.and_then(|source| try_split(state, source))
+    } else {
+        None
+    };
+    let first_relocated = if can_move && first_forage.is_none() && first_split.is_none() {
+        dragged_candidate
+            .filter(|id| relocate_scavenged_drop_step(registries, state, *id, from, to))
+    } else {
+        None
+    };
+    let split_drop = first_split.or_else(|| {
+        if can_move
+            && returning
+            && !frightened
+            && first_forage.is_none()
+            && first_relocated.is_none()
+            && preferred_split.is_none()
+        {
+            local_split_source(registries, state, from, den_space, at, food_only, mobilized)
+                .and_then(|source| try_split(state, source))
+        } else {
+            None
+        }
     });
     let foraged_food = first_forage.or_else(|| {
         if can_move && !prefer_forage && first_relocated.is_none() && split_drop.is_none() {

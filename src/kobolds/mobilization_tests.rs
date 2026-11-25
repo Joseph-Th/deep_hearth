@@ -140,6 +140,53 @@ fn relay_striker_that_already_fits_the_den_does_not_evict_inert_cargo() {
 }
 
 #[test]
+fn expelled_den_scrap_does_not_displace_needed_bulk_at_the_junction() {
+    let (registries, mut state, route) =
+        scenario(EnergyCarrier::Mechanical, Some(route_machinery()));
+    advance_to(&registries, &mut state, 579);
+    let source = |position, material, form, mass| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            CommodityKey::new(material, form),
+            Mass::from_milligrams(mass),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(material),
+        )
+        .unwrap()
+    };
+    let plan = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            source(route[0], MATERIAL_STONE, FORM_CHIP, 375_000),
+            source(route[1], MATERIAL_COPPER, FORM_ELECTRICAL_WINDING, 700_000),
+        ],
+    )
+    .unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut state).unwrap();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 580);
+    assert_eq!(state.surface().get(ids[0]).unwrap().position(), route[1]);
+    advance_to(&registries, &mut state, 585);
+    advance_to(&registries, &mut replay, 585);
+    assert_eq!(state.surface().get(ids[0]).unwrap().position(), route[1]);
+    assert_eq!(
+        state.surface().get(ids[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(200_000)
+    );
+    assert_eq!(state, replay);
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn hot_precision_drop_does_not_mask_a_reachable_oversized_salvage_source() {
     let (registries, mut state, route) =
         scenario(EnergyCarrier::Mechanical, Some(route_machinery()));
@@ -1785,6 +1832,81 @@ fn cache_stone(
     let id = plan.first_resource_id();
     plan.commit(state).unwrap();
     id
+}
+
+#[test]
+fn den_cache_progress_includes_the_actual_patrol_junction() {
+    for den_mass in [500_000, 375_000] {
+        let (registries, mut state, route) =
+            scenario(EnergyCarrier::Mechanical, Some(route_machinery()));
+        advance_to(&registries, &mut state, 579);
+        let drop = |position, material, form, milligrams| {
+            SurfaceResourceSpec::new(
+                SurfaceResourceKind::Drop,
+                position,
+                CommodityKey::new(material, form),
+                Mass::from_milligrams(milligrams),
+                Temperature::from_millikelvin(293_150),
+                MaterialComposition::pure(material),
+            )
+            .unwrap()
+        };
+        let plan = validate_create_surface_resources(
+            &registries,
+            &state,
+            [
+                drop(route[0], MATERIAL_STONE, FORM_CHIP, den_mass),
+                drop(route[1], MATERIAL_COPPER, FORM_ELECTRICAL_WINDING, 120_000),
+            ],
+        )
+        .unwrap();
+        let ids = plan.resource_ids().collect::<Vec<_>>();
+        plan.commit(&mut state).unwrap();
+        if den_mass == 375_000 {
+            validate_create_surface_resources(
+                &registries,
+                &state,
+                [drop(
+                    route[3],
+                    MATERIAL_COPPER,
+                    FORM_ELECTRICAL_WINDING,
+                    700_000,
+                )],
+            )
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        }
+        let total = calculate_matter_accounting(&state).unwrap().total();
+        let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        advance_to(&registries, &mut state, 580);
+        advance_to(&registries, &mut replay, 580);
+        assert_eq!(state, replay);
+        let expected_stone = if den_mass == 500_000 {
+            route[1]
+        } else {
+            route[0]
+        };
+        assert_eq!(
+            state.surface().get(ids[0]).unwrap().position(),
+            expected_stone,
+            "the local intact component should justify eviction only when it cannot fit"
+        );
+        advance_to(&registries, &mut state, 585);
+        advance_to(&registries, &mut replay, 585);
+        assert_eq!(state, replay);
+        assert_eq!(
+            state.surface().get(ids[1]).unwrap().position(),
+            route[0],
+            "the nearest intact component must return along the real den edge"
+        );
+        assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
 }
 
 #[test]

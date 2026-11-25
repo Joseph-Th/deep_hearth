@@ -145,7 +145,7 @@ pub(super) fn scout_raid_interest(
     let preferred_water = water_trip.and_then(|trip| trip.outbound_route());
     let pursuing_water = water_trip.is_some();
     let water_deprived = super::super::hydration::prolonged_water_deprivation(colony, at);
-    let inherited_target = (!pursuing_water
+    let inherited_route = (!pursuing_water
         && colony.mobilized_at.is_some()
         && !water_deprived
         && !pressured
@@ -162,6 +162,8 @@ pub(super) fn scout_raid_interest(
             )
         })
         .flatten();
+    let inherited_here = inherited_route == Some((from, None));
+    let inherited_target = inherited_route.filter(|route| *route != (from, None));
     let local_food = !pursuing_water
         && colony.hungry
         && has_local_scout_interest(registries, state, from, capacity, forage_ready, at, true);
@@ -203,15 +205,17 @@ pub(super) fn scout_raid_interest(
     let needed_tip_salvage = (needed_junk_at_tip || missing_tool_at_tip)
         && scout_can_approach_visible_unlit_cell(registries, state, from, tip, player_position);
     let exposed = !pursuing_water
-        && (has_local_scout_interest(
-            registries,
-            state,
-            from,
-            capacity,
-            forage_ready,
-            at,
-            colony.seeks_food_at_junction(),
-        ) || (colony.scout_step == 2 && local_food))
+        && (inherited_here
+            || has_local_scout_interest(
+                registries,
+                state,
+                from,
+                capacity,
+                forage_ready,
+                at,
+                colony.seeks_food_at_junction(),
+            )
+            || (colony.scout_step == 2 && local_food))
         && ((inherited_target.is_none() && !needed_tip_salvage) || local_food)
         && !continue_to_planned_far_raid(registries, state, colony, context)
         && preferred_food.is_none();

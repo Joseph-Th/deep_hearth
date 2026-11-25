@@ -606,6 +606,69 @@ fn hungry_scout_recovers_full_bulk_ration_before_a_tiny_portable_crumb() {
 }
 
 #[test]
+fn hungry_scout_prefers_larger_recoverable_partial_ration() {
+    for separate_cells in [false, true] {
+        let (registries, mut state, route) = setup();
+        advance_to(&registries, &mut state, 580);
+        let crumb_position = if separate_cells {
+            route.tip
+        } else {
+            route.junction
+        };
+        let bulk_position = if separate_cells {
+            route.side
+        } else {
+            route.junction
+        };
+        let drop = |position, material, form, milligrams| {
+            SurfaceResourceSpec::new(
+                SurfaceResourceKind::Drop,
+                position,
+                CommodityKey::new(material, form),
+                Mass::from_milligrams(milligrams),
+                Temperature::from_millikelvin(293_150),
+                MaterialComposition::pure(material),
+            )
+            .unwrap()
+        };
+        let sources = seed(
+            &registries,
+            &mut state,
+            [
+                drop(route.den, MATERIAL_STONE, FORM_CHIP, 485_000),
+                drop(crumb_position, MATERIAL_BERRIES, FORM_FOOD, 1_000),
+                drop(bulk_position, MATERIAL_WILD_NUTS, FORM_FOOD, 700_000),
+            ],
+        );
+        let conserved = calculate_matter_accounting(&state).unwrap().total();
+        let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        let arrival = if separate_cells { 595 } else { 585 };
+        advance_to(&registries, &mut state, arrival);
+        advance_to(&registries, &mut replay, arrival);
+        assert_eq!(state, replay);
+        assert_eq!(
+            state.surface().get(sources[1]).unwrap().position(),
+            crumb_position,
+            "the intact crumb should not outrank a larger partial ration"
+        );
+        assert_eq!(
+            state.surface().get(sources[2]).unwrap().remaining_mass(),
+            Mass::from_milligrams(685_000),
+            "the scout should bring back all 15 g of recoverable food"
+        );
+        assert_eq!(
+            calculate_matter_accounting(&state).unwrap().total(),
+            conserved
+        );
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+}
+
+#[test]
 fn hungry_scout_prefers_splittable_junction_food_to_a_distant_forage_patch() {
     let (registries, mut state, route) = setup();
     let bulk_food = SurfaceResourceSpec::new(

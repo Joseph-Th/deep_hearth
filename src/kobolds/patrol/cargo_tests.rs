@@ -155,6 +155,58 @@ fn hungry_scout_preserves_intact_meal_and_falls_back_when_harvest_cannot_commit(
 }
 
 #[test]
+fn preferred_food_split_preserves_portable_fallback_when_revision_is_limited() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    add_traversable_edge_for_test(&mut state, DEN, JUNCTION);
+    add_traversable_edge_for_test(&mut state, JUNCTION, TIP);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([DEN, JUNCTION, TIP]);
+    while state.tick().value() < 584 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    let spec = |mass| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            JUNCTION,
+            CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+            Mass::from_milligrams(mass),
+            TEMPERATURE,
+            MaterialComposition::pure(MATERIAL_BERRIES),
+        )
+        .unwrap()
+    };
+    let planned =
+        validate_create_surface_resources(&registries, &state, [spec(1_000), spec(700_000)])
+            .unwrap();
+    let ids = planned.resource_ids().collect::<Vec<_>>();
+    planned.commit(&mut state).unwrap();
+    state = with_surface_revision(&registries, &state, u64::MAX - 1);
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        DEN
+    );
+    assert_eq!(state.surface().get(ids[0]).unwrap().position(), DEN);
+    assert_eq!(
+        state.surface().get(ids[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(700_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn tool_split_falls_back_to_conserved_hand_split_when_wear_cannot_be_reserved() {
     for limited in [false, true] {
         let (registries, original, bulk, head) = staged_bulk_with_usable_wedge();

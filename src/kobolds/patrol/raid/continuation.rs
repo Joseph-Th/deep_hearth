@@ -9,7 +9,7 @@ use super::super::super::hydration;
 use super::super::super::junkworks::den_or_relay_needs_striker;
 use super::super::super::scavenging::{
     best_local_forage, has_local_scout_interest, is_portable_drop, local_portable_source,
-    local_split_source, matches_salvage_goal,
+    local_split_source, matches_salvage_goal, preferred_salvage_split,
 };
 use super::super::super::{KoboldColony, SCOUT_MEAL_MASS};
 use super::super::cargo::{forage_beats_loose_food, local_food_drop};
@@ -56,7 +56,7 @@ pub(super) fn continue_to_planned_far_raid(
     let needs_striker =
         colony.mobilized_at.is_some() && den_or_relay_needs_striker(state, colony.route[0]);
     // Match the return-edge custody order: edible parcels first when hungry,
-    // otherwise any eligible salvage, and whole parcels before actual splits.
+    // otherwise eligible salvage, with useful industrial splits before inert scrap.
     // A planned bulk destination stays meaningful at its recoverable yield.
     let target_drop = [true, false]
         .into_iter()
@@ -76,16 +76,14 @@ pub(super) fn continue_to_planned_far_raid(
                 local_food_drop(registries, state, colony, goal, capacity, at, portable)
                     .map(|drop| drop.source)
             } else {
-                portable.or_else(|| {
-                    local_split_source(
-                        registries,
-                        state,
-                        goal,
-                        capacity,
-                        at,
-                        false,
-                        colony.mobilized_at.is_some(),
-                    )
+                let mobilized = colony.mobilized_at.is_some();
+                let preferred = mobilized
+                    .then(|| {
+                        preferred_salvage_split(registries, state, goal, capacity, at, portable)
+                    })
+                    .flatten();
+                preferred.or(portable).or_else(|| {
+                    local_split_source(registries, state, goal, capacity, at, false, mobilized)
                 })
             }
         })

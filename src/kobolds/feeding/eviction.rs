@@ -7,26 +7,74 @@ use crate::energy::assess_local_illumination;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::{
-    SurfaceResourceId, SurfaceResourceKind, relocate_scavenged_drop_step,
+    SurfaceResourceId, SurfaceResourceKind, SurfaceResourceRecord, relocate_scavenged_drop_step,
     resource_reserved_for_player_gathering, split_bulk_scavenged_drop_step,
 };
 use crate::survival::{FoodFreshness, assess_surface_food_freshness};
 
 use super::scout_wants_food_opportunity;
-use crate::kobolds::junkworks::{current_den_rig, den_or_relay_needs_striker};
+use crate::kobolds::junkworks::current_den_rig;
 use crate::kobolds::patrol::{
     opening_resident_can_depart, scout_can_approach_visible_unlit_cell, scout_can_enter,
     scout_sees_guarded_cell,
 };
 use crate::kobolds::scavenging::{
     DenCacheOccupancy, ScavengeRoute, is_contestable_drop, is_portable_drop,
-    is_servant_era_salvage, matches_salvage_goal, reachable_inherited_salvage,
-    scout_wants_loose_drop, two_edge_candidates,
+    is_servant_era_salvage, survey_visible_inherited_salvage, two_edge_candidates,
 };
 use crate::kobolds::{
-    DEN_LOOSE_CACHE_LIMIT, SCOUT_BULK_SPLIT_BATCH, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL,
-    SCOUT_MEAL_MASS, SCOUT_SAFE_SCAVENGE_TEMPERATURE,
+    SCOUT_BULK_SPLIT_BATCH, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_MEAL_MASS,
+    SCOUT_SAFE_SCAVENGE_TEMPERATURE,
 };
+
+/// One real den-to-junction transfer. The quantity used to rank the release
+/// is exactly the quantity the surface owner will move or split.
+#[derive(Clone, Copy)]
+struct DenEviction {
+    source: SurfaceResourceId,
+    released: Mass,
+    split: bool,
+}
+
+impl DenEviction {
+    fn from_drop(resource: &SurfaceResourceRecord) -> Self {
+        let split = !is_portable_drop(resource);
+        Self {
+            source: resource.id(),
+            released: if split {
+                SCOUT_BULK_SPLIT_BATCH
+            } else {
+                resource.remaining_mass()
+            },
+            split,
+        }
+    }
+
+    fn commit(
+        self,
+        registries: &Registries,
+        state: &mut AppState,
+        den: VoxelCoord,
+        junction: VoxelCoord,
+        at: SimulationTick,
+    ) -> Option<SurfaceResourceId> {
+        if self.split {
+            split_bulk_scavenged_drop_step(
+                registries,
+                state,
+                self.source,
+                den,
+                junction,
+                at,
+                self.released,
+            )
+            .map(|(daughter, _)| daughter)
+        } else {
+            relocate_scavenged_drop_step(registries, state, self.source, den, junction)
+                .then_some(self.source)
+        }
+    }
+}
 
 /// Vacate unusable edible-form custody as physical cargo. Spoilage, excessive heat and
 /// contaminated composition all make a food parcel unfit for this resident's meal.
@@ -42,7 +90,7 @@ pub(super) fn discard_unfit_den_food(
     if !den_exit_is_safe(registries, state, den, junction) {
         return None;
     }
-    let source = state
+    let release = state
         .surface()
         .available_resources_at(Some(den))
         .filter(|resource| {
@@ -56,23 +104,9 @@ pub(super) fn discard_unfit_den_food(
                 )
         })
         // Whole cargo requires no new identity or split, so clear it first.
-        .min_by_key(|resource| (resource.remaining_mass() > SCOUT_CARRY_LIMIT, resource.id()))?;
-    let source_id = source.id();
-    if source.remaining_mass() <= SCOUT_CARRY_LIMIT {
-        relocate_scavenged_drop_step(registries, state, source_id, den, junction)
-            .then_some(source_id)
-    } else {
-        split_bulk_scavenged_drop_step(
-            registries,
-            state,
-            source_id,
-            den,
-            junction,
-            at,
-            SCOUT_BULK_SPLIT_BATCH,
-        )
-        .map(|(daughter, _)| daughter)
-    }
+        .map(DenEviction::from_drop)
+        .min_by_key(|release| (release.split, release.source))?;
+    release.commit(registries, state, den, junction, at)
 }
 
 /// Reorganize a blocked den toward food, not toward an arbitrary scripted
@@ -142,7 +176,7 @@ pub(super) fn clear_inert_cache_for_food(
         .colony
         .as_ref()
         .and_then(|colony| current_den_rig(state, colony));
-    let source = state
+    let release = state
         .surface()
         .available_resources_at(Some(den))
         .filter(|resource| {
@@ -151,47 +185,31 @@ pub(super) fn clear_inert_cache_for_food(
                 && resource.kind() == SurfaceResourceKind::Drop
                 && registries.survival().get_food(resource.commodity()).is_none()
         })
-        // Prefer a whole portable parcel: it frees space without allocating a
-        // new identity. Among those able to fit the meal, preserve working
-        // alarm components and precision salvage before minimizing discarded
-        // mass. If only oversized inert cargo remains, split a real portion.
-        .min_by_key(|resource| {
-            let portable = is_portable_drop(resource);
-            let released = if portable {
-                resource.remaining_mass()
-            } else {
-                SCOUT_BULK_SPLIT_BATCH
-            };
-            let mass = released.milligrams();
+        // A release sufficient for the meal wins. Protect existing infrastructure,
+        // then minimize sufficient releases or maximize progress when none suffices.
+        // An intact transfer wins a tie, not at the expense of a usable serving.
+        .map(|resource| {
+            let release = DenEviction::from_drop(resource);
+            let mass = release.released.milligrams();
             let insufficient = u128::from(mass) < missing;
             let supports_alarm = active_rig.is_some_and(|rig| {
                 resource.id() == rig.core() || resource.id() == rig.striker()
             });
             (
-                !portable,
-                insufficient,
-                supports_alarm,
-                is_servant_era_salvage(resource),
-                if insufficient { u64::MAX - mass } else { mass },
-                resource.id(),
+                (
+                    insufficient,
+                    supports_alarm,
+                    is_servant_era_salvage(resource),
+                    if insufficient { u64::MAX - mass } else { mass },
+                    release.split,
+                    release.source,
+                ),
+                release,
             )
-        })?;
-    let source_id = source.id();
-    if source.remaining_mass() <= SCOUT_CARRY_LIMIT {
-        relocate_scavenged_drop_step(registries, state, source_id, den, junction)
-            .then_some(source_id)
-    } else {
-        split_bulk_scavenged_drop_step(
-            registries,
-            state,
-            source_id,
-            den,
-            junction,
-            at,
-            SCOUT_BULK_SPLIT_BATCH,
-        )
-        .map(|(daughter, _)| daughter)
-    }
+        })
+        .min_by_key(|(priority, _)| *priority)?
+        .1;
+    release.commit(registries, state, den, junction, at)
 }
 
 /// A reported machine threat gives the old servant culture a concrete
@@ -217,37 +235,20 @@ pub(super) fn clear_inert_cache_for_industry(
         colony.route,
         state.logistics().player().map(|record| record.position()),
     );
-    let needs_striker = den_or_relay_needs_striker(state, den);
     let protected_striker = current_den_rig(state, colony).map(|rig| rig.striker());
     if !den_exit_is_safe(registries, state, den, junction) {
         return None;
     }
     let occupancy = DenCacheOccupancy::at(state, den);
-    let free = occupancy.free();
-    // If a whole visible component already fits, a raid needs no eviction.
-    // Do not expel local matter merely to take a different, larger haul.
-    if !free.is_zero()
-        && reachable_inherited_salvage(registries, state, route, den, free, at).is_some_and(
-            |(first, far)| {
-                state
-                    .surface()
-                    .available_resources_at(Some(far.unwrap_or(first)))
-                    .any(|item| {
-                        matches_salvage_goal(item, needs_striker)
-                            && scout_wants_loose_drop(registries, state, item, at)
-                            && is_portable_drop(item)
-                            && item.remaining_mass() <= free
-                    })
-            },
-        )
-    {
+    let salvage = survey_visible_inherited_salvage(registries, state, route, den, at)?;
+    // One survey suffices for every candidate release. Never expel local
+    // custody merely to take a larger haul if a whole component already fits.
+    if salvage.whole_fits(occupancy.free()) {
         return None;
     }
-    // Only an actually visible precision source can justify an exchange.
-    // Prefer whole portable cargo and the smallest release that fits an intact
-    // manufactured component. If every expendable parcel is oversized, assess
-    // the actual split portion rather than pretending the full pile can move.
-    let source = state
+    // Prefer the smallest physical release that fits an intact component.
+    // If none suffices, maximize real progress, even in an overloaded den.
+    let release = state
         .surface()
         .available_resources_at(Some(den))
         .filter(|resource| {
@@ -261,71 +262,23 @@ pub(super) fn clear_inert_cache_for_industry(
                 && !is_servant_era_salvage(resource)
                 && Some(resource.id()) != protected_striker
         })
-        .filter_map(|resource| {
-            // An oversized pile frees only one physically split batch on this
-            // visit, not its full mass. The den itself holds at most 500 g.
-            let portable = resource.remaining_mass() <= SCOUT_CARRY_LIMIT;
-            let freed = if portable {
-                resource.remaining_mass()
-            } else {
-                SCOUT_BULK_SPLIT_BATCH
-            };
-            let capacity = occupancy.free_after_release(freed);
-            // An overloaded den may need several visits before any usable
-            // space exists. In that case, check whether an eventually cleared
-            // den has any visible salvage opportunity, without treating it as
-            // currently available capacity when ranking this release.
-            let search_capacity = if capacity.is_zero() {
-                DEN_LOOSE_CACHE_LIMIT
-            } else {
-                capacity
-            };
-            let (first, far) =
-                reachable_inherited_salvage(registries, state, route, den, search_capacity, at)?;
-            let target = far.unwrap_or(first);
-            let whole = !capacity.is_zero()
-                && state
-                    .surface()
-                    .available_resources_at(Some(target))
-                    .any(|candidate| {
-                        matches_salvage_goal(candidate, needs_striker)
-                            && scout_wants_loose_drop(registries, state, candidate, at)
-                            && is_portable_drop(candidate)
-                            && candidate.remaining_mass() <= capacity
-                    });
-            let mass = resource.remaining_mass().milligrams();
-            Some((
+        .map(|resource| {
+            let release = DenEviction::from_drop(resource);
+            let whole = salvage.whole_fits(occupancy.free_after_release(release.released));
+            let mass = release.released.milligrams();
+            (
                 (
-                    !portable,
                     !whole,
-                    if whole {
-                        mass
-                    } else {
-                        u64::MAX - freed.milligrams()
-                    },
-                    resource.id(),
+                    if whole { mass } else { u64::MAX - mass },
+                    release.split,
+                    release.source,
                 ),
-                resource.id(),
-                portable,
-            ))
+                release,
+            )
         })
-        .min_by_key(|(priority, _, _)| *priority)?;
-    let source_id = source.1;
-    if source.2 {
-        relocate_scavenged_drop_step(registries, state, source_id, den, junction)
-            .then_some(source_id)
-    } else {
-        split_bulk_scavenged_drop_step(
-            registries,
-            state,
-            source_id,
-            den,
-            junction,
-            at,
-            SCOUT_BULK_SPLIT_BATCH,
-        )
-        .map(|(daughter, _)| daughter)
-    }
+        .min_by_key(|(priority, _)| *priority)?
+        .1;
+    release.commit(registries, state, den, junction, at)
 }
 
 fn den_exit_is_safe(

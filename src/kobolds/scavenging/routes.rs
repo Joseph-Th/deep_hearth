@@ -118,8 +118,8 @@ pub(in crate::kobolds) fn reachable_far_stockpile(
 enum DropLootClass {
     Hungry {
         inadequate: bool,
-        needs_split: bool,
         partial_size: u64,
+        needs_split: bool,
     },
     Mixed {
         needs_split: bool,
@@ -154,12 +154,12 @@ fn detour_loot_priority(
         let inadequate = recoverable < shortage;
         DropLootClass::Hungry {
             inadequate,
-            needs_split,
             partial_size: if inadequate {
                 u64::MAX - recoverable.milligrams()
             } else {
                 0
             },
+            needs_split,
         }
     } else {
         let (inadequate, partial_size) =
@@ -303,7 +303,7 @@ fn best_far_drop(
 }
 
 /// A hungry scout seeks a complete ration before partial food, preferring
-/// intact cargo to a split within each class and larger partial servings.
+/// larger recoverable partial servings and intact cargo for equal ration value.
 /// Shorter routes win only after these food priorities are equal.
 /// Mixed salvage retains its ordinary distance-first side-route behavior.
 pub(in crate::kobolds) fn reachable_detour_drop(

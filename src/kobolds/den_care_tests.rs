@@ -65,6 +65,64 @@ fn resource(position: VoxelCoord, kind: SurfaceResourceKind, food: bool) -> Surf
 }
 
 #[test]
+fn den_cache_progress_prefers_a_real_split_over_an_ineffective_whole_discard() {
+    let (registries, mut state, [den, junction, _, _]) = setup();
+    let stone = |milligrams| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            den,
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(milligrams),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap()
+    };
+    let plan = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            stone(1_000),
+            stone(1_100_000),
+            resource(junction, SurfaceResourceKind::Opportunity, true),
+        ],
+    )
+    .unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut state).unwrap();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(
+        advance_tick(&registries, &mut state).unwrap(),
+        advance_tick(&registries, &mut replay).unwrap()
+    );
+    assert_eq!(
+        state.surface().get(ids[0]).unwrap().position(),
+        den,
+        "moving 1 g cannot meaningfully relieve an overloaded den"
+    );
+    assert_eq!(
+        state.surface().get(ids[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(850_000),
+        "one real split should make the greatest available progress"
+    );
+    while state.tick().value() < 620 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn overloaded_den_releases_enough_mass_for_a_real_meal() {
     let (registries, mut state, [den, junction, _, _]) = setup();
     let stone = |mass| {
