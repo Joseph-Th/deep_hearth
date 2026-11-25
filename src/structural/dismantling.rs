@@ -127,14 +127,18 @@ impl ValidatedPlayerStructuralDismantlingStart {
     }
 }
 
-fn target_record(
-    state: &AppState,
+fn recoverable_target<'a>(
+    registries: &Registries,
+    state: &'a AppState,
     element: StructuralElementId,
-) -> Result<&super::StructuralElementRecord, PlayerStructuralDismantlingError> {
+) -> Result<&'a super::StructuralElementRecord, PlayerStructuralDismantlingError> {
     let record = state
         .structures()
         .get_element(element)
         .ok_or(PlayerStructuralDismantlingError::UnknownElement { element })?;
+    if !bounds_are_within_player_reach(registries, state, record.bounds()) {
+        return Err(PlayerStructuralDismantlingError::ElementOutOfReach { element });
+    }
     // Interrupted construction already transferred exact material custody into the planned
     // member. Treat that positioned matter like active or failed embodied structure for recovery;
     // an empty plan remains only configuration and cannot produce material on dismantling.
@@ -191,10 +195,7 @@ pub fn validate_start_player_structural_dismantling(
         .player()
         .copied()
         .unwrap_or_else(|| unreachable!("validated structural actor has logistics"));
-    let record = target_record(state, element)?;
-    if !bounds_are_within_player_reach(registries, state, record.bounds()) {
-        return Err(PlayerStructuralDismantlingError::ElementOutOfReach { element });
-    }
+    let record = recoverable_target(registries, state, element)?;
     let definition = registries
         .labor()
         .get_structural_construction(method)

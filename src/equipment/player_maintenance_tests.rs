@@ -259,6 +259,36 @@ fn maintenance_uses_newer_cool_replacement_without_consuming_hot_material() {
 }
 
 #[test]
+fn remote_target_maintenance_rejects_before_resolving_service_requirements() {
+    use crate::logistics::{PlayerEquipmentAccessError, relocate_player_for_test};
+
+    let (registries, mut state, pick) = worn_pick_with_player();
+    let equipment_position = state.logistics().equipment_position(pick).unwrap();
+    let player_position = VoxelCoord::new(4, 0, 0);
+    relocate_player_for_test(&mut state, player_position);
+    let before = state.clone();
+    assert!(
+        player_equipment_maintenance_options(&registries, &state)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(matches!(
+        validate_start_player_equipment_maintenance(&registries, &state, pick),
+        Err(PlayerEquipmentMaintenanceStartError::Validation(
+            EquipmentMaintenanceError::EquipmentAccess(
+                PlayerEquipmentAccessError::RemoteKnownEquipment {
+                    equipment,
+                    equipment_position: at,
+                    player_position: player_at,
+                }
+            )
+        )) if equipment == pick && at == equipment_position && player_at == player_position
+    ));
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn dead_player_cannot_inspect_maintenance_replacement_stock_during_start() {
     use crate::survival::{Vitality, player_record_with_thermal_comfort};
 

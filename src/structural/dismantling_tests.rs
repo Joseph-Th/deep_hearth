@@ -385,6 +385,27 @@ fn active_supported_leaf() -> (
 }
 
 #[test]
+fn remote_target_dismantling_rejects_before_inspecting_support_dependencies() {
+    let (registries, mut state, support, leaf, _) = active_supported_leaf();
+    relocate_player_for_test(&mut state, VoxelCoord::new(10, 0, 10));
+    let before = state.clone();
+    for element in [support, leaf] {
+        assert_eq!(
+            validate_start_player_structural_dismantling(
+                &registries,
+                &state,
+                element,
+                STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+            )
+            .err(),
+            Some(PlayerStructuralDismantlingError::ElementOutOfReach { element })
+        );
+    }
+    assert_eq!(state, before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn structural_dismantling_recovers_supported_leaf_and_cleans_support_edge() {
     let (registries, mut state, support, leaf, carried) = active_supported_leaf();
     let matter_before = calculate_matter_accounting(&state)
@@ -844,6 +865,8 @@ fn structural_dismantling_rejects_member_that_still_supports_a_stockpile() {
         .unwrap_or_else(|error| panic!("dismantling stockpile mount failed: {error}"))
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("dismantling stockpile mount commit failed: {error}"));
+    // Inspect the supported member from an adjacent, reachable position.
+    relocate_player_for_test(&mut state, VoxelCoord::new(0, 0, 0));
     let before = state.clone();
 
     assert_eq!(

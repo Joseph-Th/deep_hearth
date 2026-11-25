@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::TickSpan;
+use crate::logistics::validate_player_equipment_access;
 use crate::maintenance::Condition;
 use crate::material::CommodityKey;
 use crate::registry::Registries;
@@ -208,6 +209,11 @@ pub fn validate_start_player_equipment_maintenance(
     if state.player_observation_position().is_none() {
         return Err(PlayerEquipmentMaintenanceStartError::PlayerDead);
     }
+    // Resolve service requirements only for accessible equipment. Otherwise the
+    // resolution error could reveal a remote tool's condition or material needs.
+    validate_player_equipment_access(state, equipment)
+        .map_err(EquipmentMaintenanceError::EquipmentAccess)
+        .map_err(PlayerEquipmentMaintenanceStartError::Validation)?;
     let resolution = resolve_equipment_maintenance(
         registries,
         state,
