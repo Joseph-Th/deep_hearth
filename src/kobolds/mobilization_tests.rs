@@ -1928,6 +1928,59 @@ fn a_partly_free_industrial_den_only_evicts_if_intact_salvage_does_not_fit() {
 }
 
 #[test]
+fn overloaded_industrial_den_releases_enough_mass_for_intact_salvage() {
+    let (registries, mut state, route) =
+        scenario(EnergyCarrier::Mechanical, Some(route_machinery()));
+    advance_to(&registries, &mut state, 579);
+    let raw = |mass| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            route[0],
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(mass),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap()
+    };
+    let plan = validate_create_surface_resources(&registries, &state, [raw(125_000), raw(475_000)])
+        .unwrap();
+    let ids = plan.resource_ids().collect::<Vec<_>>();
+    plan.commit(&mut state).unwrap();
+    let copper = copper_winding(&registries, &mut state, route[3]);
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(
+        advance_tick(&registries, &mut state).unwrap(),
+        advance_tick(&registries, &mut replay).unwrap()
+    );
+    assert_eq!(state.surface().get(ids[0]).unwrap().position(), route[0]);
+    assert_eq!(
+        state.surface().get(ids[1]).unwrap().position(),
+        route[1],
+        "the 100 g overload must be cleared before the intact 120 g winding can fit"
+    );
+    assert_eq!(
+        crate::kobolds::scavenging::den_cache_space(&state, route[0]),
+        Mass::from_milligrams(375_000)
+    );
+    advance_to(&registries, &mut state, 595);
+    advance_to(&registries, &mut replay, 595);
+    assert_eq!(state, replay);
+    assert_eq!(state.surface().get(copper).unwrap().position(), route[0]);
+    assert_eq!(
+        state.surface().get(copper).unwrap().remaining_mass(),
+        Mass::from_milligrams(120_000)
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn water_deprived_scout_preserves_den_stock_until_drinking_recovers_industrial_work() {
     use crate::content::{ENERGY_ELECTRICAL_BUFFER, FLUID_WATER, build_registries};
     use crate::core::quantity::Volume;

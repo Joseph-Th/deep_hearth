@@ -369,17 +369,47 @@ pub(super) fn local_split_source(
 
 /// The den uses ordinary surface custody. Its finite loose storage includes all available
 /// player and scout drops, not just parcels labelled as belonging to the colony.
+/// External deposits can exceed the scout's cache limit. Preserve actual occupancy
+/// so eviction forecasts do not mistake a saturated free-space value for a full den.
+#[derive(Clone, Copy)]
+pub(super) struct DenCacheOccupancy(u128);
+
+impl DenCacheOccupancy {
+    pub(super) fn at(state: &AppState, den: VoxelCoord) -> Self {
+        Self(
+            state
+                .surface()
+                .available_resources_at(Some(den))
+                .filter(|resource| resource.kind() == SurfaceResourceKind::Drop)
+                .map(|resource| u128::from(resource.remaining_mass().milligrams()))
+                .sum(),
+        )
+    }
+
+    pub(super) fn free_after_release(self, released: Mass) -> Mass {
+        let remaining = self
+            .0
+            .checked_sub(u128::from(released.milligrams()))
+            .expect("a den eviction cannot release more than its actual occupancy");
+        let available = u128::from(DEN_LOOSE_CACHE_LIMIT.milligrams()).saturating_sub(remaining);
+        Mass::from_milligrams(
+            u64::try_from(available).expect("remaining den space fits its fixed mass limit"),
+        )
+    }
+
+    pub(super) fn free(self) -> Mass {
+        self.free_after_release(Mass::ZERO)
+    }
+
+    pub(super) fn required_release_for(self, wanted: Mass) -> u128 {
+        assert!(wanted <= DEN_LOOSE_CACHE_LIMIT);
+        (self.0 + u128::from(wanted.milligrams()))
+            .saturating_sub(u128::from(DEN_LOOSE_CACHE_LIMIT.milligrams()))
+    }
+}
+
 pub(super) fn den_cache_space(state: &AppState, den: VoxelCoord) -> Mass {
-    let occupied: u128 = state
-        .surface()
-        .available_resources_at(Some(den))
-        .filter(|resource| resource.kind() == SurfaceResourceKind::Drop)
-        .map(|resource| u128::from(resource.remaining_mass().milligrams()))
-        .sum();
-    let available = u128::from(DEN_LOOSE_CACHE_LIMIT.milligrams()).saturating_sub(occupied);
-    Mass::from_milligrams(
-        u64::try_from(available).expect("remaining den space fits its fixed mass limit"),
-    )
+    DenCacheOccupancy::at(state, den).free()
 }
 
 /// Remnants of precision craft matter more to former machine-servants than

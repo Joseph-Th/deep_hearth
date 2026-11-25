@@ -19,8 +19,9 @@ use crate::kobolds::patrol::{
     scout_sees_guarded_cell,
 };
 use crate::kobolds::scavenging::{
-    ScavengeRoute, den_cache_space, is_contestable_drop, is_portable_drop, is_servant_era_salvage,
-    matches_salvage_goal, reachable_inherited_salvage, scout_wants_loose_drop, two_edge_candidates,
+    DenCacheOccupancy, ScavengeRoute, is_contestable_drop, is_portable_drop,
+    is_servant_era_salvage, matches_salvage_goal, reachable_inherited_salvage,
+    scout_wants_loose_drop, two_edge_candidates,
 };
 use crate::kobolds::{
     DEN_LOOSE_CACHE_LIMIT, SCOUT_BULK_SPLIT_BATCH, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL,
@@ -84,7 +85,8 @@ pub(super) fn clear_inert_cache_for_food(
     at: SimulationTick,
     meal_shortage: Mass,
 ) -> Option<SurfaceResourceId> {
-    let free = den_cache_space(state, den);
+    let occupancy = DenCacheOccupancy::at(state, den);
+    let free = occupancy.free();
     if free >= meal_shortage || !den_exit_is_safe(registries, state, den, junction) {
         return None;
     }
@@ -131,7 +133,7 @@ pub(super) fn clear_inert_cache_for_food(
     if wanted <= free {
         return None;
     }
-    let missing = wanted.milligrams() - free.milligrams();
+    let missing = occupancy.required_release_for(wanted);
     // A working warning rig is real den infrastructure, even though its parts
     // remain loose recoverable parcels. Spend expendable cargo first, but let
     // an essential meal displace a rig component if nothing else can fit it.
@@ -154,16 +156,23 @@ pub(super) fn clear_inert_cache_for_food(
         // alarm components and precision salvage before minimizing discarded
         // mass. If only oversized inert cargo remains, split a real portion.
         .min_by_key(|resource| {
-            let mass = resource.remaining_mass().milligrams();
+            let portable = is_portable_drop(resource);
+            let released = if portable {
+                resource.remaining_mass()
+            } else {
+                SCOUT_BULK_SPLIT_BATCH
+            };
+            let mass = released.milligrams();
+            let insufficient = u128::from(mass) < missing;
             let supports_alarm = active_rig.is_some_and(|rig| {
                 resource.id() == rig.core() || resource.id() == rig.striker()
             });
             (
-                resource.remaining_mass() > SCOUT_CARRY_LIMIT,
-                mass < missing,
+                !portable,
+                insufficient,
                 supports_alarm,
                 is_servant_era_salvage(resource),
-                if mass < missing { u64::MAX - mass } else { mass },
+                if insufficient { u64::MAX - mass } else { mass },
                 resource.id(),
             )
         })?;
@@ -213,7 +222,8 @@ pub(super) fn clear_inert_cache_for_industry(
     if !den_exit_is_safe(registries, state, den, junction) {
         return None;
     }
-    let free = den_cache_space(state, den);
+    let occupancy = DenCacheOccupancy::at(state, den);
+    let free = occupancy.free();
     // If a whole visible component already fits, a raid needs no eviction.
     // Do not expel local matter merely to take a different, larger haul.
     if !free.is_zero()
@@ -260,26 +270,29 @@ pub(super) fn clear_inert_cache_for_industry(
             } else {
                 SCOUT_BULK_SPLIT_BATCH
             };
-            let capacity = Mass::from_milligrams(
-                free.milligrams()
-                    .saturating_add(freed.milligrams())
-                    .min(DEN_LOOSE_CACHE_LIMIT.milligrams()),
-            );
-            if capacity <= free {
-                return None;
-            }
+            let capacity = occupancy.free_after_release(freed);
+            // An overloaded den may need several visits before any usable
+            // space exists. In that case, check whether an eventually cleared
+            // den has any visible salvage opportunity, without treating it as
+            // currently available capacity when ranking this release.
+            let search_capacity = if capacity.is_zero() {
+                DEN_LOOSE_CACHE_LIMIT
+            } else {
+                capacity
+            };
             let (first, far) =
-                reachable_inherited_salvage(registries, state, route, den, capacity, at)?;
+                reachable_inherited_salvage(registries, state, route, den, search_capacity, at)?;
             let target = far.unwrap_or(first);
-            let whole = state
-                .surface()
-                .available_resources_at(Some(target))
-                .any(|candidate| {
-                    matches_salvage_goal(candidate, needs_striker)
-                        && scout_wants_loose_drop(registries, state, candidate, at)
-                        && is_portable_drop(candidate)
-                        && candidate.remaining_mass() <= capacity
-                });
+            let whole = !capacity.is_zero()
+                && state
+                    .surface()
+                    .available_resources_at(Some(target))
+                    .any(|candidate| {
+                        matches_salvage_goal(candidate, needs_striker)
+                            && scout_wants_loose_drop(registries, state, candidate, at)
+                            && is_portable_drop(candidate)
+                            && candidate.remaining_mass() <= capacity
+                    });
             let mass = resource.remaining_mass().milligrams();
             Some((
                 (
@@ -288,7 +301,7 @@ pub(super) fn clear_inert_cache_for_industry(
                     if whole {
                         mass
                     } else {
-                        u64::MAX - capacity.milligrams()
+                        u64::MAX - freed.milligrams()
                     },
                     resource.id(),
                 ),

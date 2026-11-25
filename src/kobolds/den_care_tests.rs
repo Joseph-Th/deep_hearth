@@ -65,6 +65,64 @@ fn resource(position: VoxelCoord, kind: SurfaceResourceKind, food: bool) -> Surf
 }
 
 #[test]
+fn overloaded_den_releases_enough_mass_for_a_real_meal() {
+    let (registries, mut state, [den, junction, _, _]) = setup();
+    let stone = |mass| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            den,
+            CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+            Mass::from_milligrams(mass),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap()
+    };
+    let planned = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            stone(25_000),
+            stone(575_000),
+            resource(junction, SurfaceResourceKind::Opportunity, true),
+        ],
+    )
+    .unwrap();
+    let ids = planned.resource_ids().collect::<Vec<_>>();
+    planned.commit(&mut state).unwrap();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    assert_eq!(
+        advance_tick(&registries, &mut state).unwrap(),
+        advance_tick(&registries, &mut replay).unwrap()
+    );
+    assert_eq!(
+        state.surface().get(ids[0]).unwrap().position(),
+        den,
+        "a 25 g eviction cannot free space from a den that is 100 g over capacity"
+    );
+    assert_eq!(state.surface().get(ids[1]).unwrap().position(), junction);
+    while state.tick().value() < 590 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+    }
+    assert_eq!(state, replay);
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        state.surface().get(ids[2]).unwrap().remaining_mass(),
+        Mass::from_milligrams(200_000)
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn hot_den_scrap_is_not_evicted_to_make_room_for_a_real_food_serving() {
     let (registries, mut state, [den, junction, _, _]) = setup();
     let stone = |mass, temperature| {

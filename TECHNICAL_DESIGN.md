@@ -377,6 +377,11 @@ comparing intact components against oversized sources and when assessing
 whether den eviction is necessary. Den food eviction considers that same bounded
 route envelope, checking the scout's den-relative visibility and safe access to
 both the intermediate step and the destination before discarding inert stock.
+Eviction forecasts retain actual den occupancy, including deposits exceeding the
+500 g scout cache limit. A release first offsets that excess before creating
+usable capacity; meal and intact-component ranking use the real released mass,
+including the bounded split batch. Visible salvage can still justify incremental
+clearing when no single release creates space.
 Choosing the tip alone retains the ordinary patrol route rather than persisting
 a redundant detour. Prolonged water deprivation suppresses optional salvage and
 industrial den eviction, but preserves food-serving comparison and food-driven
