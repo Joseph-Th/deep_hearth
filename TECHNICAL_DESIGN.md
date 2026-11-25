@@ -80,6 +80,10 @@ resident also requires control stepping on that resident's next movement beat: t
 depart during the slow phase, and the final 20 Hz sample must begin the fall. Intervening quiet beats
 retain fast-forward equivalence.
 
+A slow `TickOutcome` carries the exact released player work, including interruption and when the control
+frame subsequently admits another work hold. Release is an observable event distinct from a physical
+output receipt and does not itself assert successful completion.
+
 On exceptional slow/control boundaries where a later body-motion rejection could
 otherwise leave earlier owner updates committed, the control orchestrator uses
 one privileged in-memory snapshot of the complete root and surface indexes.

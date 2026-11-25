@@ -1,5 +1,7 @@
 //! Focused executable wilderness-opening gameplay target.
 
+#[path = "gameplay_harness/direct_consumption_timing.rs"]
+mod direct_consumption_timing;
 #[path = "gameplay_harness/exact_local_runtime.rs"]
 mod exact_local_runtime;
 #[path = "gameplay_harness/seed.rs"]

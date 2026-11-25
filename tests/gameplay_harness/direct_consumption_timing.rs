@@ -4,7 +4,7 @@ use deep_hearth::core::state::AppState;
 use deep_hearth::core::time::SimulationTick;
 use deep_hearth::labor::PlayerWork;
 use deep_hearth::registry::Registries;
-use deep_hearth::simulation::advance_tick;
+use deep_hearth::simulation::{advance_control_tick, advance_tick};
 
 use super::tick_observation::{TickEventAllowance, assert_tick_events_within};
 
@@ -34,9 +34,35 @@ pub(super) fn finish_direct_consumption_work(
         "gameplay harness {context} direct consumption must occupy time"
     );
     for elapsed in 1..=ticks {
-        let outcome = advance_tick(registries, state)
-            .unwrap_or_else(|error| panic!("gameplay harness {context} tick failed: {error}"));
-        assert_tick_events_within(&outcome, TickEventAllowance::default(), context);
+        let outcome = if state.control_tick().is_simulation_boundary() {
+            advance_tick(registries, state)
+                .unwrap_or_else(|error| panic!("gameplay harness {context} tick failed: {error}"))
+        } else {
+            // Direct use can admit work between slow boundaries. Settle that
+            // interval through the canonical control path before slow stepping.
+            loop {
+                let control = advance_control_tick(registries, state).unwrap_or_else(|error| {
+                    panic!("gameplay harness {context} control failed: {error}")
+                });
+                if let Some(tick) = control.simulation() {
+                    break tick.clone();
+                }
+            }
+        };
+        let expected_release = (elapsed == ticks).then_some(active);
+        assert_tick_events_within(
+            &outcome,
+            TickEventAllowance {
+                direct_consumption: expected_release,
+                ..TickEventAllowance::default()
+            },
+            context,
+        );
+        assert_eq!(
+            outcome.released_player_work(),
+            expected_release,
+            "gameplay harness {context} reported direct-consumption release at the wrong boundary"
+        );
         if elapsed < ticks {
             assert_eq!(
                 state.player_work().active(),

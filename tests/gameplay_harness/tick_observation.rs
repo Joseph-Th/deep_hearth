@@ -1,5 +1,6 @@
 //! Fail-closed checks for observable canonical tick outcomes.
 
+use deep_hearth::labor::PlayerWork;
 use deep_hearth::mining::MiningJobId;
 use deep_hearth::production::ProductionJobId;
 use deep_hearth::simulation::TickOutcome;
@@ -18,6 +19,7 @@ pub(super) struct TickEventAllowance<'a> {
     pub(super) structural_construction: Option<StructuralElementId>,
     pub(super) structural_dismantling: Option<StructuralElementId>,
     pub(super) field_prospecting: bool,
+    pub(super) direct_consumption: Option<PlayerWork>,
 }
 
 /// Rejects every observable work event except those a stepper explicitly expects.
@@ -30,6 +32,7 @@ pub(super) fn assert_tick_events_within(
     context: &str,
 ) {
     let recognized_event_categories = [
+        outcome.released_player_work().is_some(),
         !outcome.production_availability_changes().is_empty(),
         !outcome.production_completions().is_empty(),
         outcome.mining_output().is_some(),
@@ -99,6 +102,29 @@ fn assert_player_work_events_within(
     allowance: TickEventAllowance<'_>,
     context: &str,
 ) {
+    assert!(
+        outcome
+            .released_player_work()
+            .is_none_or(|work| match work {
+                PlayerWork::ManualProduction { job } => allowance.production_jobs.contains(&job),
+                PlayerWork::Mining { job } => allowance.mining_jobs.contains(&job),
+                PlayerWork::SurfaceGathering { work } =>
+                    allowance.surface_resources.contains(&work.resource()),
+                PlayerWork::ManualPower { .. } => allowance.manual_power,
+                PlayerWork::Prospecting { .. } => allowance.field_prospecting,
+                PlayerWork::EquipmentMaintenance { .. } => allowance.equipment_maintenance,
+                PlayerWork::StorageEnclosureDismantling { .. } =>
+                    allowance.storage_enclosure_dismantling,
+                PlayerWork::StructuralConstruction { work } =>
+                    allowance.structural_construction == Some(work.element()),
+                PlayerWork::StructuralDismantling { work } =>
+                    allowance.structural_dismantling == Some(work.element()),
+                PlayerWork::Eating { .. } | PlayerWork::Drinking { .. } =>
+                    allowance.direct_consumption == Some(work),
+                PlayerWork::TreeFelling { .. } | PlayerWork::BlockExcavation { .. } => false,
+            }),
+        "gameplay harness {context} crossed an unrelated player-work release"
+    );
     assert!(
         outcome
             .mining_output()

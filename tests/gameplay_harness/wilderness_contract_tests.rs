@@ -88,6 +88,7 @@ use deep_hearth::world::{
 };
 use deep_hearth::world_generation::validate_generate_initial_wilderness;
 
+use super::direct_consumption_timing::finish_direct_consumption_work;
 use super::exact_local_runtime::{
     assert_ordinary_admitted_runtime_ready, generated_wilderness_surface_spawn,
     walk_continuous_body_adjacent_and_settle,
@@ -339,11 +340,10 @@ fn assert_generated_wilderness_resources_are_directly_usable_with_empty_hands(em
         state.player_work().active(),
         Some(PlayerWork::Drinking { work }) if work.volume() == started.volume()
     ));
-    advance_to(
+    finish_direct_consumption_work(
         &registries,
         &mut state,
         started.completes_at(),
-        TickEventAllowance::default(),
         "direct-water drinking",
     );
     let hydration_after = assess_survival(&registries, &state)
@@ -2202,11 +2202,10 @@ fn evaluate_generated_wilderness_opening_internal(
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("hunger-pressure opening meal commit failed: {error}"));
         meal_consumed_mg = meal.total_mass().milligrams();
-        advance_to(
+        finish_direct_consumption_work(
             &registries,
             &mut state,
             meal.completes_at(),
-            TickEventAllowance::default(),
             "needed opening meal",
         );
         assert!(
@@ -2800,11 +2799,10 @@ fn evaluate_generated_wilderness_opening_internal(
                 .commit(&mut state)
                 .unwrap_or_else(|error| panic!("wilderness needed drink commit failed: {error}"));
         water_consumed_ul = drink.volume().microliters();
-        advance_to(
+        finish_direct_consumption_work(
             &registries,
             &mut state,
             drink.completes_at(),
-            TickEventAllowance::default(),
             "needed-water drink",
         );
         let water_after = state
@@ -3002,11 +3000,10 @@ fn evaluate_generated_wilderness_opening_internal(
             retained_food_mass = retained_food_mass
                 .checked_sub(meal.total_mass())
                 .unwrap_or_else(|| panic!("wilderness camp-project meal exceeded retained food"));
-            advance_to(
+            finish_direct_consumption_work(
                 &registries,
                 &mut state,
                 meal.completes_at(),
-                TickEventAllowance::default(),
                 "camp-project meal",
             );
             assert!(
@@ -4844,11 +4841,10 @@ fn exercise_opening_two_food_ration(report: bool) {
         (300_000, 300_000),
         "equally sized fruit and protein portions must replenish the same amount of dietary reserve despite different calories"
     );
-    advance_to(
+    finish_direct_consumption_work(
         &registries,
         &mut state,
         meal.completes_at(),
-        TickEventAllowance::default(),
         "two-food meal",
     );
     assert!(

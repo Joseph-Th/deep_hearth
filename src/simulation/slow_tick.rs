@@ -371,7 +371,7 @@ fn advance_simulation_tick_unstaged(
     // A separate tool can finish production or mining on this tick. Their prevalidated
     // equipment revisions settle first; chopping wears its occupied adze last.
     apply_tree_felling_wear(state, tree_felling_wear_plan);
-    apply_player_work_tick(state, player_work_plan);
+    let released_player_work = apply_player_work_tick(state, player_work_plan);
     // The slow-tick survival decision is already finalized. Install fatality
     // before residents assess a player's actual living threat: a death on this
     // very tick must not make a corpse deter or challenge a neighboring scout.
@@ -404,6 +404,7 @@ fn advance_simulation_tick_unstaged(
     debug_assert_runtime_invariants(registries, state, world_revision_before);
     Ok(TickOutcome {
         tick: next_tick,
+        released_player_work,
         production_availability_changes,
         production_completions,
         mining_output,

@@ -604,7 +604,7 @@ impl Session {
             .ok_or("player not admitted".to_owned())
     }
 
-    /// Returns true when an observable event should interrupt a timed command.
+    /// Reports observable events and their interruption semantics for one control frame.
     pub(super) fn step(
         &mut self,
         input: PlayerDirectControlInput,
@@ -623,8 +623,21 @@ impl Session {
         output: &mut String,
     ) -> Result<(StepReport, u64), String> {
         let before = self.player_position()?;
-        let previous_work = self.state.player_work().active();
         let control_before = self.state.control_tick().value();
+        let scale = deep_hearth::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
+        let remaining_to_boundary = scale - control_before % scale;
+        // Capture the label before settlement can remove its job or change the
+        // active source. Ordinary off-boundary frames need no allocation.
+        let previous_work_label = if remaining_to_boundary == 1
+            || (input == PlayerDirectControlInput::NEUTRAL && limit >= remaining_to_boundary)
+        {
+            self.state
+                .player_work()
+                .active()
+                .map(|work| activity::label(&self.registries, &self.state, work))
+        } else {
+            None
+        };
         let outcome = if input == PlayerDirectControlInput::NEUTRAL {
             let budget =
                 std::num::NonZeroU64::new(limit).expect("positive remaining control limit");
@@ -675,7 +688,7 @@ impl Session {
                 outcome.block_excavation().map(feedback::excavation),
             );
             let (slow_interrupt, slow_batch) =
-                self.note_simulation_events(simulation, previous_work, output);
+                self.note_simulation_events(simulation, previous_work_label.as_deref(), output);
             interrupt |= slow_interrupt;
             batch = slow_batch.or(batch);
         }
@@ -728,21 +741,6 @@ impl Session {
                 .active_selection_drop()
                 .map(|event| feedback::drop(&self.registries, event)),
         );
-        if !interrupt
-            && !picked_up
-            && !direct_event
-            && !landed
-            && batch.is_none()
-            && let Some(work) = previous_work
-            && self.state.player_work().active().is_none()
-        {
-            let _ = writeln!(
-                output,
-                "Work ended: {}",
-                activity::label(&self.registries, &self.state, work)
-            );
-            interrupt = true;
-        }
         if self.player_position()? != before {
             Self::expand_neighborhood(&self.registries, &mut self.state)?;
         }
@@ -773,9 +771,10 @@ impl Session {
     fn note_simulation_events(
         &self,
         simulation: &TickOutcome,
-        previous_work: Option<PlayerWork>,
+        previous_work_label: Option<&str>,
         output: &mut String,
     ) -> (bool, Option<BatchCompletion>) {
+        let released_work = simulation.released_player_work();
         let mut interrupt = false;
         let mut batch = None;
         if let Some(gathered) = simulation.surface_gathering() {
@@ -815,7 +814,7 @@ impl Session {
             "Dismantling finished",
             simulation
                 .structural_dismantling()
-                .map(|_| match previous_work {
+                .map(|_| match released_work {
                     Some(PlayerWork::StructuralDismantling { work }) => format!(
                         "Recovered {} g of structural materials into your pack.",
                         view::grams(work.recovered_mass()),
@@ -856,6 +855,9 @@ impl Session {
             "Manual power produced",
             simulation.manual_power().map(feedback::power),
         );
+        // These receipts belong to exclusive player work. An unrelated
+        // mining settlement or scout event must not suppress a release.
+        let work_reported = interrupt || simulation.block_excavation().is_some();
         if let Some(mining) = simulation.mining_output() {
             let material = self
                 .registries
@@ -867,7 +869,7 @@ impl Session {
                 "Mining produced: {} g {material} entered inventory.",
                 view::grams(mining.output().mass()),
             );
-            if matches!(previous_work, Some(PlayerWork::Mining { job }) if job == mining.job()) {
+            if matches!(released_work, Some(PlayerWork::Mining { job }) if job == mining.job()) {
                 batch = Some(BatchCompletion {
                     receipt: BatchReceipt::Mined(mining.job()),
                     surface: None,
@@ -878,7 +880,7 @@ impl Session {
                 interrupt = true;
             }
         }
-        if let Some(deep_hearth::labor::PlayerWork::ManualProduction { job }) = previous_work {
+        if let Some(PlayerWork::ManualProduction { job }) = released_work {
             for completion in simulation
                 .production_completions()
                 .iter()
@@ -894,6 +896,11 @@ impl Session {
                     surface: None,
                 });
             }
+        }
+        if released_work.is_some() && !work_reported && batch.is_none() {
+            let label = previous_work_label.expect("released work had a pre-boundary label");
+            let _ = writeln!(output, "Work ended: {label}");
+            interrupt = true;
         }
         if let Some(scout) = simulation.kobold_scout() {
             interrupt |= note_text(output, "Scout", feedback::scout(scout));

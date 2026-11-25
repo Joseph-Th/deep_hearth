@@ -1347,7 +1347,10 @@ fn awaiting_carried_mining_settlement_fixture()
     let player_work_plan = decide_player_work_tick(&registries, &state, completes_at, &[], false)
         .unwrap_or_else(|error| panic!("carried-settlement player-work release failed: {error:?}"));
     assert_eq!(apply_mining_tick(&mut state, mining_plan), Some(job));
-    apply_player_work_tick(&mut state, player_work_plan);
+    assert_eq!(
+        apply_player_work_tick(&mut state, player_work_plan),
+        Some(PlayerWork::Mining { job })
+    );
     apply_clock_advance(&mut state, completes_at);
     assert!(
         state

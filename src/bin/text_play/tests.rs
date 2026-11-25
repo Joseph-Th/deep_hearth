@@ -1353,6 +1353,47 @@ fn gathering_completion_precedes_pickup_released_by_that_completion() {
 }
 
 #[test]
+fn eating_completion_is_reported_before_pickup_released_by_that_completion() {
+    use deep_hearth::matter::calculate_matter_accounting;
+
+    let mut session = Session::new(24318).unwrap();
+    for command in [
+        "e 20",
+        "wait 10",
+        "gather 1 500",
+        "wait finish",
+        "e 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "gather 1 100",
+        "wait finish",
+        "select 2",
+        "drop",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    let before = calculate_matter_accounting(&session.state).unwrap().total();
+    let (started, _) = session.command("eat berries").unwrap();
+    assert!(started.contains("Eating started:"), "{started}");
+    let (report, _) = session.command("wait finish").unwrap();
+    let ended = report.find("Work ended: Eating").expect(&report);
+    let pickup = report.find("Picked up: 100 g stone").expect(&report);
+    assert!(ended < pickup, "{report}");
+    assert!(session.state.player_work().active().is_none());
+    assert_eq!(
+        calculate_matter_accounting(&session.state).unwrap().total(),
+        before
+    );
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
+        Ok(())
+    );
+}
+
+#[test]
 fn direct_action_rejections_and_hotbar_changes_are_plain_language() {
     let mut session = Session::new(24318).unwrap();
     for (command, expected, forbidden) in [

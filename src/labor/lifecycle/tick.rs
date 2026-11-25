@@ -250,7 +250,11 @@ pub(crate) fn decide_player_work_tick(
     }))
 }
 
-pub(crate) fn apply_player_work_tick(state: &mut AppState, plan: Option<PlayerWorkTickPlan>) {
+/// Return the exact attention hold released by this committed transition.
+pub(crate) fn apply_player_work_tick(
+    state: &mut AppState,
+    plan: Option<PlayerWorkTickPlan>,
+) -> Option<PlayerWork> {
     match plan {
         Some(PlayerWorkTickPlan::Release {
             expected_revision,
@@ -260,8 +264,12 @@ pub(crate) fn apply_player_work_tick(state: &mut AppState, plan: Option<PlayerWo
             state
                 .player_work_state_mut()
                 .apply_release(expected_revision, next_revision, work);
+            Some(work)
         }
-        Some(PlayerWorkTickPlan::Start(start)) => start.apply(state),
-        None => {}
+        Some(PlayerWorkTickPlan::Start(start)) => {
+            start.apply(state);
+            None
+        }
+        None => None,
     }
 }

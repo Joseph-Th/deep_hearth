@@ -14,7 +14,8 @@ use crate::inventory::{
 };
 use crate::kobolds::{KoboldAlarmPulse, KoboldScoutEvent};
 use crate::labor::{
-    ManualPowerOutcome, StructuralConstructionWork, SurfaceGatheringWork, TreeFellingWork,
+    ManualPowerOutcome, PlayerWork, StructuralConstructionWork, SurfaceGatheringWork,
+    TreeFellingWork,
 };
 use crate::logistics::{
     PlayerActiveSelection, PlayerBodyMotionOutcome, PlayerEquipmentCarryError,
@@ -355,6 +356,7 @@ impl ControlTickOutcome {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TickOutcome {
     pub(super) tick: SimulationTick,
+    pub(super) released_player_work: Option<PlayerWork>,
     pub(super) production_availability_changes: Vec<ProductionAvailabilityChange>,
     pub(super) production_completions: Vec<ProcessCompletion>,
     pub(super) mining_output: Option<MiningOutputReceipt>,
@@ -379,6 +381,13 @@ impl TickOutcome {
     #[must_use]
     pub const fn tick(&self) -> SimulationTick {
         self.tick
+    }
+
+    /// Exclusive player attention released during the slow settlement, including interruption.
+    /// Later control-frame pickup or direct input cannot overwrite this receipt.
+    #[must_use]
+    pub const fn released_player_work(&self) -> Option<PlayerWork> {
+        self.released_player_work
     }
 
     /// Returns production jobs suspended or resumed because provider availability changed during
@@ -494,6 +503,7 @@ impl TickOutcome {
     pub fn discrete_event_category_count(&self) -> usize {
         let Self {
             tick: _,
+            released_player_work,
             production_availability_changes,
             production_completions,
             mining_output,
@@ -513,6 +523,7 @@ impl TickOutcome {
             survival: _,
         } = self;
         [
+            released_player_work.is_some(),
             !production_availability_changes.is_empty(),
             !production_completions.is_empty(),
             mining_output.is_some(),

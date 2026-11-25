@@ -216,7 +216,7 @@ fn advance_control_tick_unstaged(
             if let Some((excavation_plan, survival_plan, player_work_plan)) = control_excavation {
                 let outcome = apply_block_excavation_tick(registries, state, Some(excavation_plan));
                 let _ = apply_survival_tick(state, survival_plan);
-                apply_player_work_tick(state, player_work_plan);
+                let _ = apply_player_work_tick(state, player_work_plan);
                 outcome
             } else {
                 None
