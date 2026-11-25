@@ -1874,20 +1874,20 @@ class GameplayCiRoutingTests(unittest.TestCase):
         self.assertEqual(
             ci.gameplay_replay_summary(
                 "HARNESS INPUT plan=maintained+variation anchors=3 variation=1 custom=0 "
-                "world_root=0x1234 behavior_root=0x5678 replay=ignored\n"
+                "world_root=0x1234 behavior_root=unused replay=ignored\n"
             ),
-            "roots=0x1234/0x5678",
+            "variation=0x1234",
         )
         self.assertIsNone(
             ci.gameplay_replay_summary(
                 "HARNESS INPUT plan=maintained anchors=3 variation=0 custom=0 "
-                "world_root=n/a behavior_root=n/a replay=maintained\n"
+                "world_root=n/a behavior_root=unused replay=maintained\n"
             )
         )
         self.assertEqual(
             ci.gameplay_replay_summary(
                 "HARNESS INPUT plan=custom anchors=0 variation=0 custom=2 "
-                "world_root=n/a behavior_root=0x1 replay=ignored\n"
+                "world_root=n/a behavior_root=unused replay=ignored\n"
             ),
             "custom=2",
         )
@@ -2116,21 +2116,21 @@ class GameplayCiRoutingTests(unittest.TestCase):
     def test_gameplay_failure_without_test_name_reuses_replayable_scope(self) -> None:
         output = (
             "PROBE INPUT name=woodworking mode=gate samples=8 organic=1 "
-            "world_root=0xAAAA behavior_root=0xBBBB replay=anchor:0x1@0x2,organic:0x3@0x4\n"
+            "world_root=0xAAAA behavior_root=unused replay=anchor:0x1,organic:0x3\n"
         )
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("woodworking"), output, ""),
-            "python ci.py gate --gameplay woodworking --variation-seed 0xAAAA --behavior-seed 0xBBBB",
+            "python ci.py gate --gameplay woodworking --variation-seed 0xAAAA",
         )
 
     def test_broad_gameplay_failure_without_test_name_reuses_replayable_audit(self) -> None:
         output = (
             "HARNESS INPUT plan=maintained+variation anchors=7 variation=1 custom=0 "
-            "world_root=0xAAAA behavior_root=0xBBBB replay=0x1@0x2\n"
+            "world_root=0xAAAA behavior_root=unused replay=0x1\n"
         )
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, ""),
-            "python ci.py audit --gameplay --variation-seed 0xAAAA --behavior-seed 0xBBBB",
+            "python ci.py audit --gameplay --variation-seed 0xAAAA",
         )
 
     def test_focused_gameplay_failure_points_to_exact_small_target(self) -> None:
@@ -2206,13 +2206,13 @@ class GameplayCiRoutingTests(unittest.TestCase):
     def test_workshop_failure_reuses_the_warm_audit_target(self) -> None:
         output = (
             "HARNESS INPUT plan=maintained+variation anchors=7 variation=1 custom=0 "
-            "world_root=0xAAAA behavior_root=0xBBBB replay=0x1@0x2\n"
+            "world_root=0xAAAA behavior_root=unused replay=0x1\n"
             "failures:\n    gameplay_harness_gate\n"
         )
         error = "error: test failed, to rerun pass `--test gameplay_audit`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, error),
-            "python tools/run_test.py --target gameplay_audit --variation-seed 0xAAAA --behavior-seed 0xBBBB gameplay_harness_gate",
+            "python tools/run_test.py --target gameplay_audit --variation-seed 0xAAAA gameplay_harness_gate",
         )
 
     def test_process_catalog_failure_reuses_the_warm_audit_target(self) -> None:
@@ -2249,8 +2249,6 @@ class GameplayCiRoutingTests(unittest.TestCase):
                 ci.GAMEPLAY_AUDIT_TARGET,
                 "--variation-seed",
                 "0xAAAA",
-                "--behavior-seed",
-                "0xBBBB",
                 "gameplay_harness_gate",
             ]
         )
@@ -2259,7 +2257,6 @@ class GameplayCiRoutingTests(unittest.TestCase):
             {
                 "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x000000000000AAAA",
                 "DEEP_HEARTH_GAMEPLAY_VARIATION_SCOPE": "workshop",
-                "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x000000000000BBBB",
             },
         )
 
@@ -2387,12 +2384,12 @@ class GameplayCiRoutingTests(unittest.TestCase):
     def test_unknown_gameplay_failure_keeps_replayable_broad_repair(self) -> None:
         output = (
             "PROBE INPUT name=woodworking mode=gate samples=8 organic=1 "
-            "world_root=0xAAAA behavior_root=0xBBBB replay=anchor:0x1@0x2,organic:0x3@0x4\n"
+            "world_root=0xAAAA behavior_root=unused replay=anchor:0x1,organic:0x3\n"
             "failures:\n    future_contracts::new_global_check\n"
         )
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, ""),
-            "python ci.py audit --gameplay --variation-seed 0xAAAA --behavior-seed 0xBBBB",
+            "python ci.py audit --gameplay --variation-seed 0xAAAA",
         )
 
     def test_integration_exact_command_infers_target_required_features(self) -> None:
@@ -2451,7 +2448,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
             [
                 "report",
                 "--scope",
-                "woodworking",
+                "survival",
                 "--variation-seed",
                 "42",
                 "--behavior-seed",
@@ -2468,10 +2465,13 @@ class GameplayCiRoutingTests(unittest.TestCase):
                     ci.parse_args(["report", "--variation-seed", seed])
 
     def test_report_rejects_behavior_seed_for_scope_that_does_not_use_policy_variation(self) -> None:
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            ci.parse_args(
-                ["report", "--scope", "progression", "--behavior-seed", "0x1234"]
-            )
+        for scope in ("progression", "workshop", "woodworking", "power-provider", "settlement", "fieldwork"):
+            with (
+                self.subTest(scope=scope),
+                contextlib.redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit),
+            ):
+                ci.parse_args(["report", "--scope", scope, "--behavior-seed", "0x1234"])
 
     def test_replay_seed_flags_reject_non_gameplay_lanes(self) -> None:
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
@@ -2560,7 +2560,7 @@ class GameplayReportContractTests(unittest.TestCase):
         )
 
     def test_report_replay_environment_prefers_cli_roots_and_only_fills_missing_values(self) -> None:
-        fresh = ci.parse_args(["report", "--scope", "woodworking"])
+        fresh = ci.parse_args(["report", "--scope", "survival"])
         generated: dict[str, str] = {}
         fresh_rolls = iter((0x1234, 0x5678))
         self.assertEqual(
@@ -2571,7 +2571,7 @@ class GameplayReportContractTests(unittest.TestCase):
         )
 
         args = ci.parse_args(
-            ["report", "--scope", "woodworking", "--variation-seed", "0x2A"]
+            ["report", "--scope", "survival", "--variation-seed", "0x2A"]
         )
         environment = {
             "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xOLD",
@@ -2592,7 +2592,7 @@ class GameplayReportContractTests(unittest.TestCase):
             [
                 "report",
                 "--scope",
-                "woodworking",
+                "survival",
                 "--variation-seed",
                 "1",
                 "--behavior-seed",
@@ -2612,7 +2612,7 @@ class GameplayReportContractTests(unittest.TestCase):
             ("0x0000000000000001", "0x0000000000000002"),
         )
 
-        ambient = ci.parse_args(["report", "--scope", "woodworking"])
+        ambient = ci.parse_args(["report", "--scope", "survival"])
         ambient_environment = {
             "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "42",
             "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x2a",
@@ -2648,11 +2648,13 @@ class GameplayReportContractTests(unittest.TestCase):
 
     def test_gameplay_sampling_policy_matches_each_surface(self) -> None:
         expectations = (
-            (["report", "--scope", "fieldwork"], True),
-            (["report", "--scope", "woodworking"], True),
+            (["report", "--scope", "fieldwork"], False),
+            (["report", "--scope", "woodworking"], False),
             (["gate", "--gameplay", "survival"], True),
             (["gate", "--gameplay", "progression"], False),
-            (["gate", "--gameplay", "workshop"], True),
+            (["gate", "--gameplay", "workshop"], False),
+            (["gate", "--gameplay", "power-provider"], False),
+            (["gate", "--gameplay", "settlement"], False),
             (["audit", "--gameplay"], True),
             (["audit", "--all"], True),
             (["gate", "--gameplay", "contracts"], None),
@@ -4594,7 +4596,7 @@ class ExactTestCommandTests(unittest.TestCase):
 
     def test_audit_gameplay_concerns_route_to_natural_focused_owners(self) -> None:
         for selector, expected_target in {
-            "scenario_tests::world_seed_never_changes_the_disclosed_player_policy": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
+            "scenario_tests::world_seed_reconstructs_the_same_physical_scenario": gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"],
             "primitive_liberation_contract_tests::primitive_liberation_content_closes_the_pre_smelting_processing_gap": ci.GAMEPLAY_CONTRACTS_TARGET,
         }.items():
             with self.subTest(selector=selector):
@@ -4989,7 +4991,7 @@ class ExactTestCommandTests(unittest.TestCase):
             gameplay_targets.GAMEPLAY_SCOPE_CONTRACT_TARGETS["workshop"], None
         )
         self.assertIn(
-            "scenario_tests::world_seed_never_changes_the_disclosed_player_policy", workshop_contracts
+            "scenario_tests::world_seed_reconstructs_the_same_physical_scenario", workshop_contracts
         )
         contracts = run_test.source_test_catalog(ci.GAMEPLAY_CONTRACTS_TARGET, None)
         self.assertIn(
@@ -4997,7 +4999,7 @@ class ExactTestCommandTests(unittest.TestCase):
             contracts,
         )
         audit = run_test.source_test_catalog(ci.GAMEPLAY_AUDIT_TARGET, None)
-        self.assertIn("scenario_tests::world_seed_never_changes_the_disclosed_player_policy", audit)
+        self.assertIn("scenario_tests::world_seed_reconstructs_the_same_physical_scenario", audit)
         self.assertNotIn(
             "gameplay_report",
             run_test.source_test_catalog(ci.GAMEPLAY_AUDIT_TARGET, None),

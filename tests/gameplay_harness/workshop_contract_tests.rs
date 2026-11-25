@@ -5,8 +5,7 @@ use deep_hearth::core::quantity::Mass;
 use deep_hearth::maintenance::Condition;
 
 use super::configuration::{
-    MAINTAINED_BEHAVIOR_ROOT, MAINTAINED_VARIATION_ROOT, MaintainedAnchor, ScenarioPlanMode,
-    scenario_seeds_from,
+    MAINTAINED_VARIATION_ROOT, MaintainedAnchor, ScenarioPlanMode, scenario_seeds_from,
 };
 use super::{scenario, workshop};
 
@@ -23,9 +22,7 @@ fn maintained_variation(
         ScenarioPlanMode::Gate,
         None,
         None,
-        None,
         MAINTAINED_VARIATION_ROOT,
-        MAINTAINED_BEHAVIOR_ROOT,
     )
     .unwrap_or_else(|error| panic!("maintained workshop seed plan failed: {error:?}"));
     let case = plan
@@ -34,12 +31,7 @@ fn maintained_variation(
         .find(|case| case.anchor == Some(anchor))
         .copied()
         .unwrap_or_else(|| panic!("maintained workshop anchor {anchor:?} disappeared"));
-    scenario::ScenarioVariation::from_seeds(
-        registries,
-        case.world_seed,
-        case.behavior_seed,
-        case.anchor,
-    )
+    scenario::ScenarioVariation::from_seed(registries, case.world_seed, case.anchor)
 }
 
 #[test]
@@ -69,7 +61,7 @@ fn short_warning_order_defers_service_until_safe_completion() {
     // run_scenario uses canonical starts/ticks/service and audits total matter and trusted load.
     let report = workshop::runner::run_scenario(&registries, variation, None);
     std::println!(
-        "WARNING ANCHOR order={}mg nominal={}mg processed={}mg batches={} services={} service_ticks={} elapsed={} final_condition={}ppm retained_stock={}mg deferrals={}",
+        "WARNING ANCHOR order={}mg nominal={}mg processed={}mg batches={} services={} service_ticks={} elapsed={} final_condition={}ppm retained_stock={}mg",
         variation.ore.order_mass.milligrams(),
         variation.ore.nominal_batch_mass.milligrams(),
         report.progress.processed_mass.milligrams(),
@@ -78,8 +70,7 @@ fn short_warning_order_defers_service_until_safe_completion() {
         report.maintenance.service_ticks,
         report.resources.elapsed_ticks,
         report.resources.final_condition_ppm,
-        report.resources.maintenance_stock_remaining.milligrams(),
-        report.maintenance.warning_deferrals
+        report.resources.maintenance_stock_remaining.milligrams()
     );
     assert_eq!(report.progress.processed_mass, variation.ore.order_mass);
     assert!(
@@ -89,10 +80,6 @@ fn short_warning_order_defers_service_until_safe_completion() {
     assert_eq!(report.maintenance.services, 0);
     assert_eq!(report.maintenance.critical_services, 0);
     assert_eq!(report.maintenance.replacement_spent, Mass::ZERO);
-    assert_eq!(
-        report.maintenance.warning_deferrals, 0,
-        "the fixed policy never defers a warning-band service it never planned"
-    );
     assert_eq!(
         report.maintenance.service_ticks, 0,
         "deferral must not pay authored service time during the order"
@@ -256,7 +243,7 @@ fn depleted_workshop_still_pays_mandatory_critical_service() {
 #[test]
 fn gameplay_terminal_prework_stop_does_not_plan_unreachable_work_or_wait_for_hidden_event() {
     let registries = build_registries();
-    let mut variation = scenario::ScenarioVariation::from_seeds(&registries, 4, 1, None);
+    let mut variation = scenario::ScenarioVariation::from_seed(&registries, 4, None);
     variation.crusher.initial_crusher_condition = condition(1);
     variation.crusher.maintenance_replacement_units = 0;
     variation.delivery.delivery_at_tick = 64;
@@ -277,7 +264,7 @@ fn critical_service_is_affordable_from_warning_hydration_reserves() {
     use deep_hearth::content::EQUIPMENT_JAW_CRUSHER;
 
     let registries = build_registries();
-    let mut variation = scenario::ScenarioVariation::from_seeds(&registries, 4, 1, None);
+    let mut variation = scenario::ScenarioVariation::from_seed(&registries, 4, None);
     let critical = registries
         .equipment()
         .get_equipment(EQUIPMENT_JAW_CRUSHER)
@@ -323,9 +310,7 @@ fn hidden_delivery_payload_does_not_change_pre_event_actor_choices() {
         ScenarioPlanMode::Gate,
         None,
         None,
-        None,
         MAINTAINED_VARIATION_ROOT,
-        MAINTAINED_BEHAVIOR_ROOT,
     )
     .unwrap_or_else(|error| panic!("maintained hidden-delivery seed plan failed: {error:?}"));
     let case = plan
@@ -334,12 +319,8 @@ fn hidden_delivery_payload_does_not_change_pre_event_actor_choices() {
         .find(|case| case.anchor == Some(MaintainedAnchor::ManualRecovery))
         .copied()
         .unwrap_or_else(|| panic!("maintained world-disruption workshop case disappeared"));
-    let baseline = scenario::ScenarioVariation::from_seeds(
-        &registries,
-        case.world_seed,
-        case.behavior_seed,
-        case.anchor,
-    );
+    let baseline =
+        scenario::ScenarioVariation::from_seed(&registries, case.world_seed, case.anchor);
     let baseline_report = workshop::runner::run_scenario(&registries, baseline, None);
     assert!(
         baseline_report.progress.delivery_applied,

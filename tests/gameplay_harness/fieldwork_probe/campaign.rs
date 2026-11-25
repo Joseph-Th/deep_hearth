@@ -11,7 +11,7 @@ use deep_hearth::labor::{ProspectingMethodId, project_prospecting_work};
 use deep_hearth::registry::Registries;
 use deep_hearth::spatial::VoxelBounds;
 
-use super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
+use super::super::focused_case::FocusedProbeCase;
 use super::super::seed::mix64;
 use super::planning::project_sampling_hammer_upgrade_ticks;
 use super::preparation::upgrade_sampling_hammer;
@@ -101,18 +101,11 @@ impl FieldworkSurveyPolicy {
     }
 }
 
+/// The disclosed future-site workload is part of the replayed scenario, not actor preference.
 pub(super) fn planned_future_sites(case: FocusedProbeCase) -> u64 {
-    let policy_seed = match case.role() {
-        // Maintained cases intentionally attach stable policy to their maintained world identity.
-        FocusedProbeRole::MaintainedAnchor | FocusedProbeRole::MaintainedCoverage => case.seed(),
-        // Choice-rich organic/replay policy must be independent of physical world generation.
-        FocusedProbeRole::OrganicVariation | FocusedProbeRole::ExplicitReplay => {
-            case.required_behavior_seed("fieldwork survey campaign horizon")
-        }
-    };
     let available_sites = u64::try_from(FOLLOWUP_CHANNEL_STARTS.len())
         .unwrap_or_else(|_| unreachable!("bounded fieldwork campaign site count fits u64"));
-    1 + mix64(policy_seed ^ 0x4649_454C_4443_41BE) % available_sites
+    1 + mix64(case.seed() ^ 0x4649_454C_4443_41BE) % available_sites
 }
 
 fn projected_prospecting_ticks(

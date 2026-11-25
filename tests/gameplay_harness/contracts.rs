@@ -15,15 +15,13 @@ pub(super) fn assert_scenario_contracts(reports: &[ScenarioReport]) {
                     || report.structure.structural_stop
                     || report.limits.maintenance_stop
                     || report.limits.energy_stop,
-                "gameplay world 0x{:016X} / behavior 0x{:016X} ended before its controlled event without completing or reaching a terminal gameplay constraint",
+                "gameplay world 0x{:016X} ended before its controlled event without completing or reaching a terminal gameplay constraint",
                 report.world_seed,
-                report.behavior_seed,
             );
             assert!(
                 report.resources.elapsed_ticks <= report.inputs.delivery_at_tick,
-                "gameplay world 0x{:016X} / behavior 0x{:016X} passed its scheduled controlled-event tick without applying the event",
+                "gameplay world 0x{:016X} passed its scheduled controlled-event tick without applying the event",
                 report.world_seed,
-                report.behavior_seed,
             );
         }
     }

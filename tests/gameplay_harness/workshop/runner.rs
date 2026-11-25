@@ -175,9 +175,8 @@ fn prepare_episode(registries: &Registries, variation: ScenarioVariation) -> Wor
         "reinforced"
     };
     println!(
-        "\nSCENARIO world=0x{:016X} behavior=0x{:016X} ore=[copper:{}ppm gangue-clay-share:{}ppm] order={}mg nominal_batch={}mg crusher={}ppm controller_event=[tick:{} mass:{}mg target:{} actor_visibility:hidden] stored_work=[small:{}+{}ppm nominal-batches, high-power:{}+{}ppm nominal-batches] maintenance=[units:{} replacement:{}mg target:{}ppm]",
+        "\nSCENARIO world=0x{:016X} ore=[copper:{}ppm gangue-clay-share:{}ppm] order={}mg nominal_batch={}mg crusher={}ppm controller_event=[tick:{} mass:{}mg target:{} actor_visibility:hidden] stored_work=[small:{}+{}ppm nominal-batches, high-power:{}+{}ppm nominal-batches] maintenance=[units:{} replacement:{}mg target:{}ppm]",
         variation.world_seed,
-        variation.behavior_seed,
         variation.ore.ore_copper_ppm,
         variation.ore.gangue_clay_share_ppm,
         variation.ore.order_mass.milligrams(),
@@ -879,45 +878,27 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
     let variation_raw = routine_variation_selected
         .then(|| env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok())
         .flatten();
-    let behavior_raw = routine_variation_selected
-        .then(|| env::var("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED").ok())
-        .flatten();
-    let (default_world_root, default_behavior_root) = match mode {
+    let default_world_root = match mode {
         #[cfg(test)]
-        ScenarioPlanMode::Gate => {
-            let mode_salt = 0x4741_5445_5EED_2026_u64;
-            (
-                MAINTAINED_VARIATION_ROOT ^ mode_salt,
-                MAINTAINED_BEHAVIOR_ROOT ^ mode_salt.rotate_left(17) ^ 0xB3A4_7102_5EED_2026,
-            )
-        }
+        ScenarioPlanMode::Gate => MAINTAINED_VARIATION_ROOT ^ 0x4741_5445_5EED_2026,
         ScenarioPlanMode::Explore => {
-            let mode_salt = 0x4558_504C_5EED_2026_u64;
-            (
-                exploratory_root(MAINTAINED_VARIATION_ROOT ^ mode_salt),
-                exploratory_root(
-                    MAINTAINED_BEHAVIOR_ROOT ^ mode_salt.rotate_left(17) ^ 0xB3A4_7102_5EED_2026,
-                ),
-            )
+            exploratory_root(MAINTAINED_VARIATION_ROOT ^ 0x4558_504C_5EED_2026)
         }
     };
     let plan = scenario_seeds_from(
         mode,
         scenario_raw.as_deref(),
         variation_raw.as_deref(),
-        behavior_raw.as_deref(),
         default_world_root,
-        default_behavior_root,
     )
     .unwrap_or_else(|error| panic!("gameplay harness configuration failed: {error:?}"));
     std::println!(
-        "HARNESS INPUT plan={} anchors={} variation={} custom={} world_root={} behavior_root={} replay={}",
+        "HARNESS INPUT plan={} anchors={} variation={} custom={} world_root={} behavior_root=unused replay={}",
         plan.source_label(),
         plan.anchor_seed_count(),
         plan.variation_seed_count(),
         plan.custom_seed_count(),
         plan.variation_label(),
-        plan.behavior_label(),
         plan.replay_label(),
     );
     #[cfg(not(test))]
@@ -944,21 +925,14 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
         "CAPABILITY INTENT: given an already-acquired industrial workshop, operate it by reading structural margin, uneven stored work, machine condition, material state, and personal survival reserve. Use residual work instead of discarding it, fall back to direct labor when worth the bodily cost, and recover when the world changes."
     );
     reviewln!(
-        "CAPABILITY LOOP: each workshop has a total ore work order rather than a required fixed batch count. Bounded cases vary uneven finite stored work, replacement stock, condition, support state, and player priorities. The actor uses canonical projections to resize operations, choose power, decide whether manual generation is survivable, and react after one hidden preauthorized supported-stockpile event changes the world. This does not imply industrial acquisition, generation, or logistics. Separate probes exercise runtime survival/progression actions after controlled bootstrap and bootstrapped ore-preparation/foundry capabilities."
+        "CAPABILITY LOOP: each workshop has a total ore work order rather than a required fixed batch count. Bounded cases vary uneven finite stored work, replacement stock, condition, support state, and starting physiological reserves. The actor uses canonical projections to resize operations, choose power, decide whether manual generation is survivable, and react after one hidden preauthorized supported-stockpile event changes the world. This does not imply industrial acquisition, generation, or logistics. Separate probes exercise runtime survival/progression actions after controlled bootstrap and bootstrapped ore-preparation/foundry capabilities."
     );
 
     let reports: Vec<_> = plan
         .cases()
         .iter()
         .copied()
-        .map(|case| {
-            ScenarioVariation::from_seeds(
-                &registries,
-                case.world_seed,
-                case.behavior_seed,
-                case.anchor,
-            )
-        })
+        .map(|case| ScenarioVariation::from_seed(&registries, case.world_seed, case.anchor))
         .map(|variation| run_scenario(&registries, variation, None))
         .collect();
     assert_scenario_contracts(&reports);

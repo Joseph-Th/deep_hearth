@@ -1,4 +1,4 @@
-//! Replayable gameplay-harness world/scenario and behavior seed configuration.
+//! Replayable gameplay-harness physical scenario seed configuration.
 
 use super::seed::{mix64, unique_mixed_seed};
 use super::seed_input::{SeedListError, parse_seed, parse_seed_list};
@@ -7,7 +7,6 @@ const EXPLORATORY_VARIATION_SCENARIO_COUNT: usize = 4;
 const SEED_STRIDE: u64 = 0xD1B5_4A32_D192_ED03;
 
 pub(super) use super::seed::MAINTAINED_VARIATION_ROOT;
-pub(super) const MAINTAINED_BEHAVIOR_ROOT: u64 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum MaintainedAnchor {
@@ -42,18 +41,6 @@ impl MaintainedAnchor {
             Self::SurvivalRecovery => "survival-recovery",
         }
     }
-
-    const fn behavior_slot(self) -> usize {
-        match self {
-            Self::NormalBaseline => 0,
-            Self::WarningMaintenance => 1,
-            Self::CriticalMaintenance => 2,
-            Self::AdaptiveEnergy => 3,
-            Self::ManualRecovery => 4,
-            Self::SurvivalRecovery => 5,
-            Self::ConditionPressure => 7,
-        }
-    }
 }
 
 const MAINTAINED_ANCHORS: [(MaintainedAnchor, u64); 7] = [
@@ -86,7 +73,6 @@ fn parse_scenario_seed_list(raw: &str) -> Result<Vec<u64>, GameplayHarnessConfig
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum GameplayHarnessConfigError {
     InvalidVariationSeed,
-    InvalidBehaviorSeed,
     EmptyScenarioSeedList,
     InvalidScenarioSeed { index: usize },
 }
@@ -99,18 +85,16 @@ enum ScenarioSeedSource {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct ScenarioSeedPair {
+pub(super) struct ScenarioSeedCase {
     pub(super) world_seed: u64,
-    pub(super) behavior_seed: u64,
     pub(super) anchor: Option<MaintainedAnchor>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ScenarioSeedPlan {
     source: ScenarioSeedSource,
-    cases: Vec<ScenarioSeedPair>,
+    cases: Vec<ScenarioSeedCase>,
     variation_seed: Option<u64>,
-    behavior_seed_root: Option<u64>,
 }
 
 impl ScenarioSeedPlan {
@@ -122,7 +106,7 @@ impl ScenarioSeedPlan {
         }
     }
 
-    pub(super) fn cases(&self) -> &[ScenarioSeedPair] {
+    pub(super) fn cases(&self) -> &[ScenarioSeedCase] {
         &self.cases
     }
 
@@ -155,19 +139,13 @@ impl ScenarioSeedPlan {
             .unwrap_or_else(|| "n/a".to_owned())
     }
 
-    pub(super) fn behavior_label(&self) -> String {
-        self.behavior_seed_root
-            .map(|seed| format!("0x{seed:016X}"))
-            .unwrap_or_else(|| "n/a".to_owned())
-    }
-
     pub(super) fn replay_label(&self) -> String {
         if self.source == ScenarioSeedSource::Maintained {
             return "maintained".to_owned();
         }
         self.cases
             .iter()
-            .map(|case| format!("0x{:016X}@0x{:016X}", case.world_seed, case.behavior_seed))
+            .map(|case| format!("0x{:016X}", case.world_seed))
             .collect::<Vec<_>>()
             .join(",")
     }
@@ -183,16 +161,6 @@ fn resolve_variation_seed(
     }
 }
 
-fn resolve_behavior_seed(
-    raw: Option<&str>,
-    default_seed: u64,
-) -> Result<u64, GameplayHarnessConfigError> {
-    match raw {
-        Some(text) => parse_seed(text).ok_or(GameplayHarnessConfigError::InvalidBehaviorSeed),
-        None => Ok(default_seed),
-    }
-}
-
 fn append_variation_seeds(seeds: &mut Vec<u64>, root: u64, count: usize) {
     let mut candidate = root;
     for index in 0..count {
@@ -202,29 +170,22 @@ fn append_variation_seeds(seeds: &mut Vec<u64>, root: u64, count: usize) {
     }
 }
 
-fn behavior_seed(root: u64, index: usize) -> u64 {
-    mix64(root ^ (index as u64 + 1).wrapping_mul(SEED_STRIDE))
-}
-
-fn custom_cases(world_seeds: Vec<u64>, behavior_root: u64) -> Vec<ScenarioSeedPair> {
+fn custom_cases(world_seeds: Vec<u64>) -> Vec<ScenarioSeedCase> {
     world_seeds
         .into_iter()
-        .enumerate()
-        .map(|(index, world_seed)| ScenarioSeedPair {
+        .map(|world_seed| ScenarioSeedCase {
             world_seed,
-            behavior_seed: behavior_seed(behavior_root, index),
             anchor: None,
         })
         .collect()
 }
 
-fn maintained_cases() -> Vec<ScenarioSeedPair> {
+fn maintained_cases() -> Vec<ScenarioSeedCase> {
     MAINTAINED_ANCHORS
         .iter()
         .copied()
-        .map(|(anchor, world_seed)| ScenarioSeedPair {
+        .map(|(anchor, world_seed)| ScenarioSeedCase {
             world_seed,
-            behavior_seed: behavior_seed(MAINTAINED_BEHAVIOR_ROOT, anchor.behavior_slot()),
             anchor: Some(anchor),
         })
         .collect()
@@ -234,18 +195,14 @@ pub(super) fn scenario_seeds_from(
     mode: ScenarioPlanMode,
     scenario_raw: Option<&str>,
     variation_raw: Option<&str>,
-    behavior_raw: Option<&str>,
     default_variation_seed: u64,
-    default_behavior_seed: u64,
 ) -> Result<ScenarioSeedPlan, GameplayHarnessConfigError> {
     if let Some(raw) = scenario_raw {
-        let behavior_seed_root = resolve_behavior_seed(behavior_raw, default_behavior_seed)?;
         let world_seeds = parse_scenario_seed_list(raw)?;
         return Ok(ScenarioSeedPlan {
             source: ScenarioSeedSource::Custom,
-            cases: custom_cases(world_seeds, behavior_seed_root),
+            cases: custom_cases(world_seeds),
             variation_seed: None,
-            behavior_seed_root: Some(behavior_seed_root),
         });
     }
 
@@ -255,11 +212,6 @@ pub(super) fn scenario_seeds_from(
         // may omit it when another gameplay scope owns that run's organic sampling budget.
         ScenarioPlanMode::Gate => usize::from(variation_raw.is_some()),
         ScenarioPlanMode::Explore => EXPLORATORY_VARIATION_SCENARIO_COUNT,
-    };
-    let behavior_seed_root = if variation_count > 0 {
-        resolve_behavior_seed(behavior_raw, default_behavior_seed)?
-    } else {
-        default_behavior_seed
     };
     let variation_seed = (variation_count > 0)
         .then(|| resolve_variation_seed(variation_raw, default_variation_seed))
@@ -276,10 +228,8 @@ pub(super) fn scenario_seeds_from(
         world_seeds[MAINTAINED_ANCHORS.len()..]
             .iter()
             .copied()
-            .enumerate()
-            .map(|(index, world_seed)| ScenarioSeedPair {
+            .map(|world_seed| ScenarioSeedCase {
                 world_seed,
-                behavior_seed: behavior_seed(behavior_seed_root, index),
                 anchor: None,
             }),
     );
@@ -291,6 +241,5 @@ pub(super) fn scenario_seeds_from(
         },
         cases,
         variation_seed,
-        behavior_seed_root: (variation_count > 0).then_some(behavior_seed_root),
     })
 }

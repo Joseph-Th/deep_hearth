@@ -1,25 +1,17 @@
-//! Contract tests for physical-world and actor-policy seed separation.
+//! Contract tests for physical scenario generation and replay.
 
 use std::collections::BTreeSet;
 
-use super::configuration::{
-    MAINTAINED_BEHAVIOR_ROOT, MAINTAINED_VARIATION_ROOT, ScenarioPlanMode, scenario_seeds_from,
-};
+use super::configuration::{MAINTAINED_VARIATION_ROOT, ScenarioPlanMode, scenario_seeds_from};
 use super::scenario::*;
 use deep_hearth::content::build_registries;
 
 #[test]
-fn behavior_seed_never_changes_physical_scenario_inputs() {
+fn world_seed_reconstructs_the_same_physical_scenario() {
     let registries = build_registries();
-    let first = ScenarioVariation::from_seeds(&registries, 0x1234, 0x1111, None);
-    let second = ScenarioVariation::from_seeds(&registries, 0x1234, 0x2222, None);
-
-    assert_eq!(first.world_seed, second.world_seed);
-    assert_eq!(first.survival, second.survival);
-    assert_eq!(first.ore, second.ore);
-    assert_eq!(first.crusher, second.crusher);
-    assert_eq!(first.structure, second.structure);
-    assert_eq!(first.delivery, second.delivery);
+    let first = ScenarioVariation::from_seed(&registries, 0x1234, None);
+    let second = ScenarioVariation::from_seed(&registries, 0x1234, None);
+    assert_eq!(first, second);
 }
 
 #[test]
@@ -29,9 +21,7 @@ fn explicit_gate_variation_changes_real_world_pressure_not_only_a_replay_label()
         ScenarioPlanMode::Gate,
         None,
         Some("0x1234"),
-        Some("0xCAFE"),
         MAINTAINED_VARIATION_ROOT,
-        MAINTAINED_BEHAVIOR_ROOT,
     )
     .unwrap_or_else(|error| panic!("explicit workshop replay plan failed: {error:?}"));
     let organic_case = plan
@@ -40,24 +30,12 @@ fn explicit_gate_variation_changes_real_world_pressure_not_only_a_replay_label()
         .find(|case| case.anchor.is_none())
         .copied()
         .unwrap_or_else(|| panic!("explicit workshop replay lost its organic world"));
-    let organic = ScenarioVariation::from_seeds(
-        &registries,
-        organic_case.world_seed,
-        organic_case.behavior_seed,
-        None,
-    );
+    let organic = ScenarioVariation::from_seed(&registries, organic_case.world_seed, None);
     let maintained = plan
         .cases()
         .iter()
         .filter(|case| case.anchor.is_some())
-        .map(|case| {
-            ScenarioVariation::from_seeds(
-                &registries,
-                case.world_seed,
-                case.behavior_seed,
-                case.anchor,
-            )
-        })
+        .map(|case| ScenarioVariation::from_seed(&registries, case.world_seed, case.anchor))
         .collect::<Vec<_>>();
 
     assert!(
@@ -72,19 +50,10 @@ fn explicit_gate_variation_changes_real_world_pressure_not_only_a_replay_label()
 }
 
 #[test]
-fn world_seed_never_changes_the_disclosed_player_policy() {
-    let registries = build_registries();
-    let first = ScenarioVariation::from_seeds(&registries, 0x1234, 0xCAFE, None);
-    let second = ScenarioVariation::from_seeds(&registries, 0x5678, 0xCAFE, None);
-
-    assert_eq!(first.behavior_seed, second.behavior_seed);
-}
-
-#[test]
 fn generated_world_seeds_change_real_physical_pressures() {
     let registries = build_registries();
     let variations = (1_u64..=8)
-        .map(|seed| ScenarioVariation::from_seeds(&registries, seed, 0xCAFE, None))
+        .map(|seed| ScenarioVariation::from_seed(&registries, seed, None))
         .collect::<Vec<_>>();
 
     let ore_grades = variations

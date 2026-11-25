@@ -5,9 +5,7 @@ use std::env;
 use super::capability_boundary::{
     seed_capability_only_energy_store, seed_capability_only_equipment,
 };
-use super::configuration::{
-    MAINTAINED_BEHAVIOR_ROOT, MAINTAINED_VARIATION_ROOT, ScenarioPlanMode, scenario_seeds_from,
-};
+use super::configuration::{MAINTAINED_VARIATION_ROOT, ScenarioPlanMode, scenario_seeds_from};
 use super::contracts::{assert_anchor_diversity, assert_scenario_contracts};
 use super::environment::ROOM_TEMPERATURE;
 #[cfg(not(test))]

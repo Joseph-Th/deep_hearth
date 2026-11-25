@@ -1,8 +1,8 @@
 //! Contract tests for gameplay seed configuration and replay planning.
 
 use super::configuration::{
-    GameplayHarnessConfigError, MAINTAINED_BEHAVIOR_ROOT, MAINTAINED_VARIATION_ROOT,
-    MaintainedAnchor, ScenarioPlanMode, ScenarioSeedPlan, scenario_seeds_from,
+    GameplayHarnessConfigError, MAINTAINED_VARIATION_ROOT, MaintainedAnchor, ScenarioPlanMode,
+    ScenarioSeedPlan, scenario_seeds_from,
 };
 
 const EXPECTED_MAINTAINED_ANCHORS: [(MaintainedAnchor, u64); 7] = [
@@ -19,47 +19,30 @@ fn plan(
     mode: ScenarioPlanMode,
     scenario_raw: Option<&str>,
     variation_raw: Option<&str>,
-    behavior_raw: Option<&str>,
 ) -> Result<ScenarioSeedPlan, GameplayHarnessConfigError> {
-    scenario_seeds_from(
-        mode,
-        scenario_raw,
-        variation_raw,
-        behavior_raw,
-        MAINTAINED_VARIATION_ROOT,
-        MAINTAINED_BEHAVIOR_ROOT,
-    )
+    scenario_seeds_from(mode, scenario_raw, variation_raw, MAINTAINED_VARIATION_ROOT)
 }
 
 #[test]
 fn seed_configuration_rejects_invalid_inputs_with_exact_error_location() {
     assert_eq!(
-        plan(ScenarioPlanMode::Explore, None, Some("nope"), None),
+        plan(ScenarioPlanMode::Explore, None, Some("nope")),
         Err(GameplayHarnessConfigError::InvalidVariationSeed)
     );
     assert_eq!(
-        plan(ScenarioPlanMode::Explore, None, None, Some("nope")),
-        Err(GameplayHarnessConfigError::InvalidBehaviorSeed)
-    );
-    assert_eq!(
-        plan(ScenarioPlanMode::Gate, Some("1,nope,4"), None, None),
+        plan(ScenarioPlanMode::Gate, Some("1,nope,4"), None),
         Err(GameplayHarnessConfigError::InvalidScenarioSeed { index: 1 })
     );
     assert_eq!(
-        plan(ScenarioPlanMode::Gate, Some(""), None, None),
+        plan(ScenarioPlanMode::Gate, Some(""), None),
         Err(GameplayHarnessConfigError::EmptyScenarioSeedList)
     );
 }
 
 #[test]
-fn custom_world_seed_list_is_exact_and_behavior_is_a_separate_channel() {
-    let plan = plan(
-        ScenarioPlanMode::Gate,
-        Some("1, 0x2A,3"),
-        Some("ignored"),
-        Some("0xBEEF"),
-    )
-    .unwrap_or_else(|error| panic!("custom seed plan failed: {error:?}"));
+fn custom_world_seed_list_is_exact_and_replayable() {
+    let plan = plan(ScenarioPlanMode::Gate, Some("1, 0x2A,3"), Some("ignored"))
+        .unwrap_or_else(|error| panic!("custom seed plan failed: {error:?}"));
 
     assert_eq!(
         plan.cases()
@@ -73,17 +56,11 @@ fn custom_world_seed_list_is_exact_and_behavior_is_a_separate_channel() {
     assert_eq!(plan.variation_seed_count(), 0);
     assert_eq!(plan.custom_seed_count(), 3);
     assert_eq!(plan.variation_label(), "n/a");
-    assert_eq!(plan.behavior_label(), "0x000000000000BEEF");
     assert!(plan.cases().iter().all(|case| case.anchor.is_none()));
-    assert!(
-        plan.cases()
-            .windows(2)
-            .all(|pair| pair[0].behavior_seed != pair[1].behavior_seed)
-    );
     let expected_replay = plan
         .cases()
         .iter()
-        .map(|case| format!("0x{:016X}@0x{:016X}", case.world_seed, case.behavior_seed))
+        .map(|case| format!("0x{:016X}", case.world_seed))
         .collect::<Vec<_>>()
         .join(",");
     assert_eq!(plan.replay_label(), expected_replay);
@@ -91,7 +68,7 @@ fn custom_world_seed_list_is_exact_and_behavior_is_a_separate_channel() {
 
 #[test]
 fn default_gate_runs_only_the_maintained_contract_set() {
-    let plan = plan(ScenarioPlanMode::Gate, None, None, None)
+    let plan = plan(ScenarioPlanMode::Gate, None, None)
         .unwrap_or_else(|error| panic!("default gate seed plan failed: {error:?}"));
 
     assert_eq!(plan.source_label(), "maintained");
@@ -120,30 +97,15 @@ fn default_gate_runs_only_the_maintained_contract_set() {
     assert_eq!(plan.cases().len(), EXPECTED_MAINTAINED_ANCHORS.len());
     assert!(plan.cases().iter().all(|case| case.anchor.is_some()));
     assert_eq!(plan.variation_label(), "n/a");
-    assert_eq!(plan.behavior_label(), "n/a");
     assert_eq!(plan.replay_label(), "maintained");
 }
 
 #[test]
 fn gate_roots_vary_only_the_bounded_organic_case() {
-    let first = scenario_seeds_from(
-        ScenarioPlanMode::Gate,
-        None,
-        Some("0x1111"),
-        Some("0x2222"),
-        0x1111,
-        0x2222,
-    )
-    .unwrap_or_else(|error| panic!("first gate-default plan failed: {error:?}"));
-    let second = scenario_seeds_from(
-        ScenarioPlanMode::Gate,
-        None,
-        Some("0xAAAA"),
-        Some("0xBBBB"),
-        0xAAAA,
-        0xBBBB,
-    )
-    .unwrap_or_else(|error| panic!("second gate-default plan failed: {error:?}"));
+    let first = scenario_seeds_from(ScenarioPlanMode::Gate, None, Some("0x1111"), 0x1111)
+        .unwrap_or_else(|error| panic!("first gate-default plan failed: {error:?}"));
+    let second = scenario_seeds_from(ScenarioPlanMode::Gate, None, Some("0xAAAA"), 0xAAAA)
+        .unwrap_or_else(|error| panic!("second gate-default plan failed: {error:?}"));
     assert_eq!(first.anchor_seed_count(), EXPECTED_MAINTAINED_ANCHORS.len());
     assert_eq!(
         second.anchor_seed_count(),
@@ -152,13 +114,11 @@ fn gate_roots_vary_only_the_bounded_organic_case() {
     assert_eq!(first.source_label(), "maintained+variation");
     assert_eq!(first.variation_seed_count(), 1);
     assert_eq!(first.variation_label(), "0x0000000000001111");
-    assert_eq!(first.behavior_label(), "0x0000000000002222");
     assert_eq!(second.variation_label(), "0x000000000000AAAA");
-    assert_eq!(second.behavior_label(), "0x000000000000BBBB");
     assert_eq!(
         &first.cases()[..EXPECTED_MAINTAINED_ANCHORS.len()],
         &second.cases()[..EXPECTED_MAINTAINED_ANCHORS.len()],
-        "organic roots must not perturb maintained physical or policy witnesses"
+        "organic roots must not perturb maintained physical witnesses"
     );
     assert_ne!(
         first.cases()[EXPECTED_MAINTAINED_ANCHORS.len()],
@@ -166,34 +126,22 @@ fn gate_roots_vary_only_the_bounded_organic_case() {
         "different replay roots must vary the supplemental gate case"
     );
 
-    let exploratory =
-        scenario_seeds_from(ScenarioPlanMode::Explore, None, None, None, 0x1111, 0x2222)
-            .unwrap_or_else(|error| panic!("exploratory plan failed: {error:?}"));
+    let exploratory = scenario_seeds_from(ScenarioPlanMode::Explore, None, None, 0x1111)
+        .unwrap_or_else(|error| panic!("exploratory plan failed: {error:?}"));
     assert_eq!(exploratory.source_label(), "maintained+variation");
     assert!(
         exploratory.variation_seed_count() > first.variation_seed_count(),
         "exploration must be broader than a one-case explicit replay without pinning tuning"
     );
     assert_eq!(exploratory.variation_label(), "0x0000000000001111");
-    assert_eq!(exploratory.behavior_label(), "0x0000000000002222");
 }
 
 #[test]
-fn explicit_world_and_behavior_roots_replay_the_same_cases() {
-    let first = plan(
-        ScenarioPlanMode::Explore,
-        None,
-        Some("0xBAD"),
-        Some("0xCAFE"),
-    )
-    .unwrap_or_else(|error| panic!("first variation seed plan failed: {error:?}"));
-    let second = plan(
-        ScenarioPlanMode::Explore,
-        None,
-        Some("0xBAD"),
-        Some("0xCAFE"),
-    )
-    .unwrap_or_else(|error| panic!("second variation seed plan failed: {error:?}"));
+fn explicit_world_root_replays_the_same_cases() {
+    let first = plan(ScenarioPlanMode::Explore, None, Some("0xBAD"))
+        .unwrap_or_else(|error| panic!("first variation seed plan failed: {error:?}"));
+    let second = plan(ScenarioPlanMode::Explore, None, Some("0xBAD"))
+        .unwrap_or_else(|error| panic!("second variation seed plan failed: {error:?}"));
 
     assert_eq!(first, second);
     assert_eq!(first.source_label(), "maintained+variation");
@@ -221,54 +169,4 @@ fn explicit_world_and_behavior_roots_replay_the_same_cases() {
                 .any(|(_, world_seed)| *world_seed == case.world_seed))
     );
     assert_eq!(first.variation_label(), "0x0000000000000BAD");
-    assert_eq!(first.behavior_label(), "0x000000000000CAFE");
-}
-
-#[test]
-fn changing_behavior_root_does_not_change_world_cases() {
-    let first = plan(ScenarioPlanMode::Explore, None, Some("0xBAD"), Some("1"))
-        .unwrap_or_else(|error| panic!("first behavior plan failed: {error:?}"));
-    let second = plan(ScenarioPlanMode::Explore, None, Some("0xBAD"), Some("2"))
-        .unwrap_or_else(|error| panic!("second behavior plan failed: {error:?}"));
-
-    assert_eq!(
-        first
-            .cases()
-            .iter()
-            .map(|case| case.world_seed)
-            .collect::<Vec<_>>(),
-        second
-            .cases()
-            .iter()
-            .map(|case| case.world_seed)
-            .collect::<Vec<_>>()
-    );
-    assert_eq!(
-        first
-            .cases()
-            .iter()
-            .filter(|case| case.anchor.is_some())
-            .map(|case| case.behavior_seed)
-            .collect::<Vec<_>>(),
-        second
-            .cases()
-            .iter()
-            .filter(|case| case.anchor.is_some())
-            .map(|case| case.behavior_seed)
-            .collect::<Vec<_>>()
-    );
-    assert_ne!(
-        first
-            .cases()
-            .iter()
-            .filter(|case| case.anchor.is_none())
-            .map(|case| case.behavior_seed)
-            .collect::<Vec<_>>(),
-        second
-            .cases()
-            .iter()
-            .filter(|case| case.anchor.is_none())
-            .map(|case| case.behavior_seed)
-            .collect::<Vec<_>>()
-    );
 }

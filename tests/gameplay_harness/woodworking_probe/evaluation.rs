@@ -1224,14 +1224,7 @@ fn evaluate_woodworking_probe(
     );
     #[cfg(not(test))]
     report::report_woodworking_result(
-        registries,
-        case,
-        case.required_behavior_seed("woodworking report"),
-        &world,
-        demand,
-        decision,
-        metrics,
-        &selected,
+        registries, case, &world, demand, decision, metrics, &selected,
     );
     (
         selected.choice,

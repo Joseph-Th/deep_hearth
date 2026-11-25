@@ -8,7 +8,6 @@ use super::scenario::ScenarioVariation;
 #[derive(Clone, Copy, Debug)]
 pub(super) struct ScenarioReport {
     pub(super) world_seed: u64,
-    pub(super) behavior_seed: u64,
     pub(super) inputs: ScenarioInputReport,
     pub(super) structure: ScenarioStructureReport,
     pub(super) choices: ScenarioChoiceReport,
@@ -25,7 +24,6 @@ impl ScenarioReport {
     ) -> Self {
         Self {
             world_seed: variation.world_seed,
-            behavior_seed: variation.behavior_seed,
             inputs: ScenarioInputReport {
                 ore_copper_ppm: variation.ore.ore_copper_ppm,
                 gangue_clay_share_ppm: variation.ore.gangue_clay_share_ppm,
@@ -52,7 +50,6 @@ impl ScenarioReport {
             choices: ScenarioChoiceReport::default(),
             maintenance: ScenarioMaintenanceReport {
                 services: 0,
-                warning_deferrals: 0,
                 critical_services: 0,
                 service_ticks: 0,
                 replacement_spent: Mass::ZERO,
@@ -118,7 +115,6 @@ pub(super) struct ScenarioInputReport {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct ScenarioMaintenanceReport {
     pub(super) services: u8,
-    pub(super) warning_deferrals: u16,
     pub(super) critical_services: u8,
     pub(super) service_ticks: u64,
     pub(super) replacement_spent: Mass,

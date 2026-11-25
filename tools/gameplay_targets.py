@@ -31,8 +31,7 @@ GAMEPLAY_SCOPE_SPECS = {
     "workshop": GameplayScopeSpec(
         "gameplay_workshop",
         "gameplay_harness_gate",
-        True,
-        EVIDENCE_CONTROLLED_CAPABILITY,
+        evidence_mode=EVIDENCE_CONTROLLED_CAPABILITY,
     ),
     "survival": GameplayScopeSpec(
         "gameplay_survival",
@@ -57,7 +56,6 @@ GAMEPLAY_SCOPE_SPECS = {
     "settlement": GameplayScopeSpec(
         "gameplay_settlement",
         "gameplay_settlement_probe",
-        True,
     ),
     "foundry-bootstrap": GameplayScopeSpec(
         "gameplay_foundry_bootstrap",
@@ -66,18 +64,15 @@ GAMEPLAY_SCOPE_SPECS = {
     "woodworking": GameplayScopeSpec(
         "gameplay_woodworking",
         "gameplay_woodworking_probe",
-        True,
     ),
     "fieldwork": GameplayScopeSpec(
         "gameplay_fieldwork",
         "gameplay_fieldwork_probe",
-        True,
-        EVIDENCE_ORDINARY_SPATIAL_PROXY,
+        evidence_mode=EVIDENCE_ORDINARY_SPATIAL_PROXY,
     ),
     "power-provider": GameplayScopeSpec(
         "gameplay_power",
         "gameplay_power_provider_probe",
-        True,
     ),
     "ore": GameplayScopeSpec(
         "gameplay_ore",

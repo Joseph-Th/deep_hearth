@@ -23,7 +23,6 @@ fn condition(parts_per_million: u32) -> Condition {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ScenarioVariation {
     pub(super) world_seed: u64,
-    pub(super) behavior_seed: u64,
     pub(super) survival: ScenarioSurvivalVariation,
     pub(super) ore: ScenarioOreVariation,
     pub(super) crusher: ScenarioCrusherVariation,
@@ -71,10 +70,9 @@ pub(super) struct ScenarioDeliveryVariation {
 }
 
 impl ScenarioVariation {
-    pub(super) fn from_seeds(
+    pub(super) fn from_seed(
         registries: &Registries,
         world_seed: u64,
-        behavior_seed: u64,
         anchor: Option<MaintainedAnchor>,
     ) -> Self {
         let a = mix64(world_seed);
@@ -222,7 +220,6 @@ impl ScenarioVariation {
         // pre-coded here.
         Self {
             world_seed,
-            behavior_seed,
             survival: ScenarioSurvivalVariation {
                 start_at_hydration_warning_boundary: match anchor {
                     Some(MaintainedAnchor::SurvivalRecovery) => true,

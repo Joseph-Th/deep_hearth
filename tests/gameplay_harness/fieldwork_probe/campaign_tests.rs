@@ -37,23 +37,18 @@ fn maintained_fieldwork_witnesses_span_campaign_horizons() {
 }
 
 #[test]
-fn organic_campaign_horizon_depends_on_behavior_seed_not_world_seed() {
+fn campaign_workload_replays_without_actor_entropy() {
     use super::super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 
-    let first_world = FocusedProbeCase::new(1, Some(3), FocusedProbeRole::OrganicVariation);
-    let second_world = FocusedProbeCase::new(99, Some(3), FocusedProbeRole::OrganicVariation);
-    assert_eq!(
-        planned_future_sites(first_world),
-        planned_future_sites(second_world)
-    );
-
     let mut horizons = std::collections::BTreeSet::new();
-    for behavior_seed in 0..128 {
-        horizons.insert(planned_future_sites(FocusedProbeCase::new(
-            1,
-            Some(behavior_seed),
-            FocusedProbeRole::OrganicVariation,
-        )));
+    for seed in 0..128 {
+        let maintained = FocusedProbeCase::new(seed, None, FocusedProbeRole::MaintainedCoverage);
+        let organic = FocusedProbeCase::new(seed, None, FocusedProbeRole::OrganicVariation);
+        let replay = FocusedProbeCase::new(seed, None, FocusedProbeRole::ExplicitReplay);
+        let horizon = planned_future_sites(maintained);
+        assert_eq!(planned_future_sites(organic), horizon);
+        assert_eq!(planned_future_sites(replay), horizon);
+        horizons.insert(horizon);
     }
     assert_eq!(horizons, expected_campaign_horizons());
 }

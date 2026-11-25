@@ -79,12 +79,10 @@ machine from setup. During an active delegated production job the actor crafts t
 drawplate from actual raw material, then consumes it in canonical drawbench assembly. Both
 productive overlap and remaining delegated time are checked against executed ticks.
 
-Choice-rich organic probes keep physical-world and actor-policy roots independent. Maintained witnesses use a
-stable deterministic policy attached to the maintained case; coverage witnesses may intentionally exercise a
-different bounded preference when the actor-choice boundary is part of the contract. Organic/replay cases derive
-policy from the independent behavior root without changing world generation, authored rules, production
-projections, or action legality. Reports expose the applied policy so a cold agent can distinguish world pressure
-from actor preference.
+Scenario replay roots vary disclosed physical and workload pressures, not player personalities. Workshop,
+woodworking, power-provider, settlement, and fieldwork use world replay roots only. In fieldwork the
+future-site workload derives from the scenario seed, independently of acquired survey evidence. Remaining
+legacy survival preference variation is not evidence of human player behavior and must not be extended.
 
 When production exposes a player/UI planner for an ordinary choice, the harness uses that planner instead of
 reconstructing its selection rules. Live manual-craft discovery comes from the production stockpile recipe catalog;

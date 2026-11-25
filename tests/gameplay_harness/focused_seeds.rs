@@ -29,10 +29,7 @@ pub(super) fn exploratory_variation_count(name: &str) -> usize {
 }
 
 pub(super) fn probe_uses_behavior_seed(name: &str) -> bool {
-    matches!(
-        name,
-        "survival-provisioning" | "woodworking" | "fieldwork" | "power-provider" | "settlement"
-    )
+    name == "survival-provisioning"
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -44,9 +44,8 @@ fn scenario_constraint(report: &ScenarioReport) -> &'static str {
 
 fn print_capability_highlight(kind: &str, report: &ScenarioReport) {
     std::println!(
-        "CAPABILITY HIGHLIGHT kind={kind} world=0x{:016X} behavior=0x{:016X} pressure=[crusher:{:?} maintenance-units:{} stored-work:small:{}+{}ppm large:{}+{}ppm] decisions=[power-batches:small:{} large:{} basis:policy:{} single-source:{} adaptive:condition:{} stored-work:{} manual-recharges:{} services:{} compact-support:{}] consequence=[processed:{}/{}mg operations:{} bottlenecks:energy:{} throughput:{} balanced:{} relocation:{} suspension:{} stranded:{} elapsed:{}t outcome:{} constraint:{}]",
+        "CAPABILITY HIGHLIGHT kind={kind} world=0x{:016X} pressure=[crusher:{:?} maintenance-units:{} stored-work:small:{}+{}ppm large:{}+{}ppm] decisions=[power-batches:small:{} large:{} basis:policy:{} single-source:{} adaptive:condition:{} stored-work:{} manual-recharges:{} services:{} compact-support:{}] consequence=[processed:{}/{}mg operations:{} bottlenecks:energy:{} throughput:{} balanced:{} relocation:{} suspension:{} stranded:{} elapsed:{}t outcome:{} constraint:{}]",
         report.world_seed,
-        report.behavior_seed,
         report.inputs.initial_maintenance_band,
         report.inputs.maintenance_replacement_units,
         report.inputs.small_drive_batch_budget,
@@ -82,25 +81,24 @@ fn print_summary_highlights(reports: &[ScenarioReport]) {
     if let Some(report) = reports.iter().find(|report| {
         report.structure.support_relocation || report.structure.production_suspension
     }) {
-        highlighted.insert((report.world_seed, report.behavior_seed));
+        highlighted.insert(report.world_seed);
         print_capability_highlight("world-disruption-recovery", report);
     }
     if let Some(report) = reports
         .iter()
         .filter(|report| {
-            report.choices.manual_recharges > 0
-                && !highlighted.contains(&(report.world_seed, report.behavior_seed))
+            report.choices.manual_recharges > 0 && !highlighted.contains(&report.world_seed)
         })
         .max_by_key(|report| report.choices.manual_recharges)
     {
-        highlighted.insert((report.world_seed, report.behavior_seed));
+        highlighted.insert(report.world_seed);
         print_capability_highlight("manual-energy-recovery", report);
     }
     if let Some(report) = reports
         .iter()
         .filter(|report| {
             report.progress.processed_mass < report.progress.target_mass
-                && !highlighted.contains(&(report.world_seed, report.behavior_seed))
+                && !highlighted.contains(&report.world_seed)
         })
         .min_by_key(|report| report.progress.processed_mass.milligrams())
     {
@@ -128,9 +126,8 @@ fn print_scenario_experiences(reports: &[ScenarioReport]) {
             )
         };
         std::println!(
-            "CAPABILITY EXPERIENCE world=0x{:016X} behavior=0x{:016X} start=[crusher:{:?} survival:{}] initial=[small:{}+{}ppm nominal-batches large:{}+{}ppm nominal-batches maintenance:{}unit] order=[processed:{}/{}mg operations:{} adaptive:[total:{} condition:{} stored-work:{}] event:[{}]] power=[small:{} large:{} manual-recharges:{} generated:{}nJ manual-ticks:{}] maintenance=[services:{} warning-deferred:{} critical-required:{}] relocation={} suspension={} stranded={} final=[crusher:{}ppm crank:{}ppm small:{}nJ large:{}nJ maintenance:{}mg ticks:{} survival-spent=[energy:{}nJ hydration:{}uL] vitality:{}ppm] outcome={}",
+            "CAPABILITY EXPERIENCE world=0x{:016X} start=[crusher:{:?} survival:{}] initial=[small:{}+{}ppm nominal-batches large:{}+{}ppm nominal-batches maintenance:{}unit] order=[processed:{}/{}mg operations:{} adaptive:[total:{} condition:{} stored-work:{}] event:[{}]] power=[small:{} large:{} manual-recharges:{} generated:{}nJ manual-ticks:{}] maintenance=[services:{} critical-required:{}] relocation={} suspension={} stranded={} final=[crusher:{}ppm crank:{}ppm small:{}nJ large:{}nJ maintenance:{}mg ticks:{} survival-spent=[energy:{}nJ hydration:{}uL] vitality:{}ppm] outcome={}",
             report.world_seed,
-            report.behavior_seed,
             report.inputs.initial_maintenance_band,
             survival_start,
             report.inputs.small_drive_batch_budget,
@@ -151,7 +148,6 @@ fn print_scenario_experiences(reports: &[ScenarioReport]) {
             report.resources.manually_generated_energy.nanojoules(),
             report.resources.manual_power_ticks,
             report.maintenance.services,
-            report.maintenance.warning_deferrals,
             report.maintenance.critical_services,
             report.structure.support_relocation,
             report.structure.production_suspension,
@@ -432,10 +428,6 @@ pub(crate) fn print_harness_summary(
         .iter()
         .map(|report| u32::from(report.maintenance.services))
         .sum();
-    let warning_deferrals: u32 = reports
-        .iter()
-        .map(|report| u32::from(report.maintenance.warning_deferrals))
-        .sum();
     let critical_services: u32 = reports
         .iter()
         .map(|report| u32::from(report.maintenance.critical_services))
@@ -706,7 +698,7 @@ pub(crate) fn print_harness_summary(
     );
     let observation_stats = harness_observation_stats(reports);
     std::println!(
-        "CAPABILITY SYSTEMS policy=fixed-conservative machine-work=[small-drive:{small_drive_batches} high-power:{large_drive_batches}] decisions=[power-policy:{policy_power_choices} single-source:{single_source_power_choices} manual-recharges:{manual_recharges} adaptive:[total:{adaptive_operations} condition:{condition_adaptive_operations} stored-work:{energy_adaptive_operations}]] survival=[elapsed:{elapsed_ticks_min}..{elapsed_ticks_max}t manual-metabolic:{manual_metabolic_energy}nJ manual-hydration:{manual_hydration}uL] recovery=[relocations:{} resumed-wip:{recovered_work_in_process} stranded-wip:{} maintenance-services:{maintenance_services} warning-deferred:{warning_deferrals} critical-required:{critical_services}] pressure=[structural:{} maintenance-warning:{}] bottlenecks=[energy-delivery:{energy_bottleneck_batches} throughput:{throughput_bottleneck_batches} balanced:{balanced_bottleneck_batches}]",
+        "CAPABILITY SYSTEMS policy=fixed-conservative machine-work=[small-drive:{small_drive_batches} high-power:{large_drive_batches}] decisions=[power-policy:{policy_power_choices} single-source:{single_source_power_choices} manual-recharges:{manual_recharges} adaptive:[total:{adaptive_operations} condition:{condition_adaptive_operations} stored-work:{energy_adaptive_operations}]] survival=[elapsed:{elapsed_ticks_min}..{elapsed_ticks_max}t manual-metabolic:{manual_metabolic_energy}nJ manual-hydration:{manual_hydration}uL] recovery=[relocations:{} resumed-wip:{recovered_work_in_process} stranded-wip:{} maintenance-services:{maintenance_services} critical-required:{critical_services}] pressure=[structural:{} maintenance-warning:{}] bottlenecks=[energy-delivery:{energy_bottleneck_batches} throughput:{throughput_bottleneck_batches} balanced:{balanced_bottleneck_batches}]",
         observation_stats.relocations,
         observation_stats.stranded_work_in_process,
         observation_stats.structural_consequences,
