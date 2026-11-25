@@ -23,22 +23,21 @@ use super::super::{KoboldColony, SCOUT_MEAL_MASS};
 use super::{ScoutPatrolContext, scout_can_approach_visible_unlit_cell};
 
 /// One scout observation shared between turn-home and detour decisions.
-/// Preserve the chosen visible forage route rather than independently searching
+/// Preserve the chosen visible food route rather than independently searching
 /// and potentially contradicting the earlier local-food decision.
 #[derive(Clone, Copy)]
 pub(super) struct ScoutRaidInterest {
     pub(super) exposed_at_current: bool,
     pub(super) inherited_target: Option<(VoxelCoord, Option<VoxelCoord>)>,
-    pub(super) preferred_forage: Option<(VoxelCoord, Option<VoxelCoord>)>,
+    pub(super) preferred_food: Option<(VoxelCoord, Option<VoxelCoord>)>,
     pub(super) preferred_water: Option<(VoxelCoord, Option<VoxelCoord>)>,
     // A real, visible part needed at the patrol tip outranks optional side scavenging.
     pub(super) needed_tip_salvage: bool,
 }
 
-/// Choose a larger observed ration only when nearby food is insufficient.
-/// Comparing actual transferable portions prevents one tiny patch from consuming
-/// the full forage cooldown while a reachable full serving goes untouched.
-fn preferred_hungry_forage(
+/// Choose a larger observed ration only when the local return edge cannot
+/// satisfy the remaining meal. Loose food remains an option on forage cooldown.
+fn preferred_hungry_food_route(
     registries: &Registries,
     state: &AppState,
     colony: &KoboldColony,
@@ -57,49 +56,73 @@ fn preferred_hungry_forage(
         || !colony.hungry
         || colony.scout_step != 1
         || colony.returning
-        || !forage_ready
         || den_space.is_zero()
     {
         return None;
     }
-    let maximum_mass = colony
-        .forage_batch_in_world(registries, state, from, at)
-        .min(den_space);
-    let local_portable = local_portable_source(
-        registries,
-        state,
-        from,
-        den_space,
-        at,
-        true,
-        colony.mobilized_at.is_some(),
-    );
-    // Do not compare the largest visible parcel with distant forage: the
-    // return edge may choose a smaller intact parcel before a bulk split.
-    // Project only the serving that the canonical return-edge order can move.
-    let nearby =
-        recoverable_local_food_serving(registries, state, colony, context, local_portable, true)
-            .unwrap_or(Mass::ZERO);
+    let serving_at = |position, can_forage| {
+        let portable = local_portable_source(
+            registries,
+            state,
+            position,
+            den_space,
+            at,
+            true,
+            colony.mobilized_at.is_some(),
+        );
+        recoverable_local_food_serving(
+            registries,
+            state,
+            colony,
+            ScoutPatrolContext {
+                from: position,
+                forage_ready: can_forage,
+                ..context
+            },
+            portable,
+            true,
+        )
+    };
+    let nearby = serving_at(from, forage_ready).unwrap_or(Mass::ZERO);
     let shortage = SCOUT_MEAL_MASS
         .checked_sub(colony.partial_meal)
         .expect("trusted resident's partial meal is below one serving");
     if nearby >= shortage {
         return None;
     }
-    let chosen = reachable_forage_route(
-        registries,
-        state,
-        ScavengeRoute::new(colony.route, player_position),
-        at,
-        maximum_mass,
-        shortage,
-    )?;
-    let goal = chosen.1.unwrap_or(chosen.0);
-    let far_maximum = colony
-        .forage_batch_in_world(registries, state, goal, at)
-        .min(den_space);
-    let far = best_local_forage(registries, state, goal, at, far_maximum)?.0;
-    (far > nearby).then_some(chosen)
+    let route = ScavengeRoute::new(colony.route, player_position);
+    let loose = reachable_detour_drop(registries, state, route, den_space, at, Some(shortage))
+        .and_then(|chosen| {
+            let mass = serving_at(chosen.1.unwrap_or(chosen.0), false)?;
+            (mass > nearby).then_some((chosen, mass))
+        });
+    if let Some((chosen, mass)) = loose
+        && mass >= shortage
+    {
+        return Some(chosen);
+    }
+    let forage = forage_ready
+        .then(|| {
+            let maximum_mass = colony
+                .forage_batch_in_world(registries, state, from, at)
+                .min(den_space);
+            let chosen =
+                reachable_forage_route(registries, state, route, at, maximum_mass, shortage)?;
+            let goal = chosen.1.unwrap_or(chosen.0);
+            let far_maximum = colony
+                .forage_batch_in_world(registries, state, goal, at)
+                .min(den_space);
+            let mass = best_local_forage(registries, state, goal, at, far_maximum)?.0;
+            (mass > nearby).then_some((chosen, mass))
+        })
+        .flatten();
+    match (loose, forage) {
+        (Some((_, drop_mass)), Some((chosen, forage_mass))) if forage_mass > drop_mass => {
+            Some(chosen)
+        }
+        (Some((chosen, _)), _) | (None, Some((chosen, _))) => Some(chosen),
+        (None, None) => None,
+    }
 }
 
 /// Determine whether a den's expelled inert parcel should be ignored in
@@ -145,8 +168,8 @@ pub(super) fn scout_raid_interest(
     let local_food = !pursuing_water
         && colony.hungry
         && has_local_scout_interest(registries, state, from, capacity, forage_ready, at, true);
-    let preferred_forage = (!pursuing_water)
-        .then(|| preferred_hungry_forage(registries, state, colony, context))
+    let preferred_food = (!pursuing_water)
+        .then(|| preferred_hungry_food_route(registries, state, colony, context))
         .flatten();
     // A real part at the main patrol tip is worth reaching before optional
     // side scrap. Check capacity, handling, sight and danger once for both
@@ -194,11 +217,11 @@ pub(super) fn scout_raid_interest(
         ) || (colony.scout_step == 2 && local_food))
         && ((inherited_target.is_none() && !needed_tip_salvage) || local_food)
         && !continue_to_planned_far_raid(registries, state, colony, context)
-        && preferred_forage.is_none();
+        && preferred_food.is_none();
     ScoutRaidInterest {
         exposed_at_current: exposed,
         inherited_target,
-        preferred_forage,
+        preferred_food,
         preferred_water,
         needed_tip_salvage,
     }
@@ -253,7 +276,7 @@ pub(super) fn choose_outbound_detour(
     } = context;
     let ScoutRaidInterest {
         inherited_target,
-        preferred_forage,
+        preferred_food,
         preferred_water,
         needed_tip_salvage,
         ..
@@ -288,60 +311,7 @@ pub(super) fn choose_outbound_detour(
     let inherited_salvage = || inherited_target;
     let water_deprived = super::super::hydration::prolonged_water_deprivation(colony, at);
     let chosen = if colony.hungry {
-        // A visibly larger wild serving can justify one extra edge, but an
-        // adequate portable ration is simpler to recover and avoids the
-        // foraging cooldown. Compare actual transfer yields, not mere presence.
-        let food_choice = || {
-            let loose = loose_cache(Some(meal_shortage));
-            let (Some(drop_route), Some(forage_route)) = (loose, preferred_forage) else {
-                return loose.or(preferred_forage);
-            };
-            let drop_goal = drop_route.1.unwrap_or(drop_route.0);
-            let portable = local_portable_source(
-                registries,
-                state,
-                drop_goal,
-                den_space,
-                at,
-                true,
-                colony.mobilized_at.is_some(),
-            );
-            // Reuse the return-edge's actual one-parcel choice. A small intact
-            // morsel must not hide a complete meal from the same site's bulk
-            // cache when comparing this visit with a separate forage route.
-            let drop_yield = recoverable_local_food_serving(
-                registries,
-                state,
-                colony,
-                ScoutPatrolContext {
-                    from: drop_goal,
-                    forage_ready: false,
-                    ..context
-                },
-                portable,
-                true,
-            );
-            let forage_goal = forage_route.1.unwrap_or(forage_route.0);
-            let forage_yield = best_local_forage(
-                registries,
-                state,
-                forage_goal,
-                at,
-                colony
-                    .forage_batch_in_world(registries, state, forage_goal, at)
-                    .min(den_space),
-            )
-            .map(|(mass, _)| mass);
-            match (drop_yield, forage_yield) {
-                (Some(drop), Some(forage)) if drop >= meal_shortage || drop >= forage => {
-                    Some(drop_route)
-                }
-                (Some(_), Some(_)) | (None, Some(_)) => Some(forage_route),
-                (Some(_), None) => Some(drop_route),
-                (None, None) => None,
-            }
-        };
-        let food = food_choice().or_else(wild_food);
+        let food = preferred_food;
         // Water deprivation suppresses optional salvage, not the normal
         // comparison between physically recoverable food servings.
         if water_deprived {

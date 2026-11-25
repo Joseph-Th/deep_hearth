@@ -22,9 +22,7 @@ pub(super) use routes::{
     reachable_side_stockpile, two_edge_candidates,
 };
 #[cfg(test)]
-use routes::{
-    reachable_adjacent_food, reachable_far_drop, reachable_far_food, reachable_side_drop,
-};
+use routes::{reachable_adjacent_food, reachable_far_food};
 
 pub(super) use stockpiles::local_unenclosed_stockpile_target;
 

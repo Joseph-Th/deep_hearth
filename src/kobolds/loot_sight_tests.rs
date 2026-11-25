@@ -14,7 +14,7 @@ use crate::world::{
     validate_generate_chunk,
 };
 
-use super::reachable_far_drop;
+use super::reachable_detour_drop;
 
 #[test]
 fn opaque_terrain_hides_a_far_cache_until_the_route_is_exposed() {
@@ -84,7 +84,7 @@ fn opaque_terrain_hides_a_far_cache_until_the_route_is_exposed() {
     let mut hidden = starting;
     set_generated_block_for_test(registries.world(), &mut hidden, tip, BLOCK_STATE_STONE);
     let choose = |state: &AppState| {
-        reachable_far_drop(
+        reachable_detour_drop(
             &registries,
             state,
             super::ScavengeRoute::new([den, junction, tip], None),
@@ -93,7 +93,7 @@ fn opaque_terrain_hides_a_far_cache_until_the_route_is_exposed() {
             None,
         )
     };
-    assert_eq!(choose(&visible), Some((first, goal)));
+    assert_eq!(choose(&visible), Some((first, Some(goal))));
     assert_eq!(choose(&hidden), None);
     let visible_mass = calculate_matter_accounting(&visible).unwrap().total();
     let hidden_mass = calculate_matter_accounting(&hidden).unwrap().total();

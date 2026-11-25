@@ -251,6 +251,80 @@ fn hungry_scout_seeks_a_full_visible_ration_instead_of_a_junction_crumb() {
 }
 
 #[test]
+fn hungry_scout_prefers_full_patrol_tip_drop_to_side_crumb() {
+    assert_full_tip_drop_beats_crumb(false);
+}
+
+#[test]
+fn hungry_scout_prefers_full_patrol_tip_drop_to_junction_crumb() {
+    assert_full_tip_drop_beats_crumb(true);
+}
+
+fn assert_full_tip_drop_beats_crumb(at_junction: bool) {
+    let (registries, mut state, route) = setup();
+    let crumb_position = if at_junction {
+        route.junction
+    } else {
+        route.side
+    };
+    let food = |position, milligrams| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD),
+            Mass::from_milligrams(milligrams),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_WILD_NUTS),
+        )
+        .unwrap()
+    };
+    let sources = seed(
+        &registries,
+        &mut state,
+        [food(crumb_position, 1_000), food(route.tip, 25_000)],
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    advance_to(&registries, &mut state, 585);
+    advance_to(&registries, &mut replay, 585);
+    assert_eq!(state, replay);
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    assert!(colony.hungry);
+    assert_eq!(colony.scout_position(), route.tip);
+    assert_eq!(colony.detour, None);
+
+    advance_to(&registries, &mut state, 600);
+    advance_to(&registries, &mut replay, 600);
+    assert_eq!(state, replay);
+    assert_eq!(
+        state.surface().get(sources[0]).unwrap().position(),
+        crumb_position
+    );
+    assert_eq!(
+        state.surface().get(sources[0]).unwrap().remaining_mass(),
+        Mass::from_milligrams(1_000)
+    );
+    assert_eq!(
+        state.surface().get(sources[1]).unwrap().position(),
+        route.den
+    );
+    assert_eq!(
+        state.surface().get(sources[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(5_000)
+    );
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn hungry_scout_prefers_full_patrol_tip_ration_to_junction_crumb() {
     let (registries, mut state, route) = setup();
     let sources = seed(

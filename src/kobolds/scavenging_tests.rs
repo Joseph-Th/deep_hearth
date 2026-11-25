@@ -14,10 +14,7 @@ use crate::surface::{
     SurfaceResourceId, SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources,
 };
 
-use super::{
-    ScavengeRoute, local_portable_source, local_split_source, reachable_far_drop,
-    reachable_side_drop,
-};
+use super::{ScavengeRoute, local_portable_source, local_split_source, reachable_detour_drop};
 
 struct Route {
     den: VoxelCoord,
@@ -86,7 +83,7 @@ fn scout_recovers_visible_loose_cargo_past_the_patrol_tip_on_real_edges() {
     plan.commit(&mut state).unwrap();
     let scout_route = ScavengeRoute::new([path.den, path.junction, path.tip], None);
     assert_eq!(
-        reachable_far_drop(
+        reachable_detour_drop(
             &registries,
             &state,
             scout_route,
@@ -94,7 +91,7 @@ fn scout_recovers_visible_loose_cargo_past_the_patrol_tip_on_real_edges() {
             state.tick(),
             None,
         ),
-        Some((path.tip, beyond_tip))
+        Some((path.tip, Some(beyond_tip)))
     );
     let matter_before = calculate_matter_accounting(&state).unwrap().total();
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
@@ -461,7 +458,7 @@ fn hot_loose_stone_is_not_stealable_but_cool_stone_is_recovered_normally() {
         None
     );
     assert_eq!(
-        reachable_side_drop(
+        reachable_detour_drop(
             &registries,
             &state,
             ScavengeRoute::new([path.den, path.junction, path.tip], None),
@@ -469,7 +466,7 @@ fn hot_loose_stone_is_not_stealable_but_cool_stone_is_recovered_normally() {
             state.tick(),
             None
         ),
-        Some(path.side_stone)
+        Some((path.side_stone, None))
     );
     let conserved = calculate_matter_accounting(&state).unwrap().total();
     let save = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
@@ -1040,18 +1037,6 @@ fn remaining_meal_changes_real_drop_route_without_preferring_a_distant_surplus()
     let route = super::ScavengeRoute::new([path.den, path.junction, path.tip], None);
     let capacity = Mass::from_milligrams(500_000);
     let remaining = Mass::from_milligrams(2_000);
-    assert_eq!(
-        super::reachable_side_drop(
-            &registries,
-            &state,
-            route,
-            capacity,
-            state.tick(),
-            Some(remaining),
-        ),
-        Some(path.side_food),
-        "a whole nearby portion sufficient for the remaining meal outranks a bulky split"
-    );
     assert_eq!(
         super::reachable_detour_drop(
             &registries,
@@ -1983,7 +1968,7 @@ fn side_cache_prefers_whole_cargo_over_older_bulk_food_but_splits_when_pack_spac
     .commit(&mut state)
     .unwrap();
     let choose = |capacity| {
-        reachable_side_drop(
+        reachable_detour_drop(
             &registries,
             &state,
             super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
@@ -1994,9 +1979,12 @@ fn side_cache_prefers_whole_cargo_over_older_bulk_food_but_splits_when_pack_spac
     };
     assert_eq!(
         choose(Mass::from_milligrams(500_000)),
-        Some(path.side_stone)
+        Some((path.side_stone, None))
     );
-    assert_eq!(choose(Mass::from_milligrams(50_000)), Some(path.side_food));
+    assert_eq!(
+        choose(Mass::from_milligrams(50_000)),
+        Some((path.side_food, None))
+    );
     assert_eq!(choose(Mass::ZERO), None);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
@@ -2019,7 +2007,7 @@ fn far_cache_search_uses_two_real_edges_and_prefers_whole_cargo() {
     .commit(&mut state)
     .unwrap();
     let choose = |capacity| {
-        reachable_far_drop(
+        reachable_detour_drop(
             &registries,
             &state,
             super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
@@ -2030,11 +2018,11 @@ fn far_cache_search_uses_two_real_edges_and_prefers_whole_cargo() {
     };
     assert_eq!(
         choose(Mass::from_milligrams(500_000)),
-        Some((path.side_stone, path.far_stone))
+        Some((path.side_stone, Some(path.far_stone)))
     );
     assert_eq!(
         choose(Mass::from_milligrams(50_000)),
-        Some((path.side_food, path.far_food))
+        Some((path.side_food, Some(path.far_food)))
     );
     assert_eq!(choose(Mass::ZERO), None);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
@@ -2137,7 +2125,7 @@ fn visible_player_guarding_food_redirects_scout_to_safe_scrap_until_player_withd
     let matter_before = calculate_matter_accounting(&guarded).unwrap().total();
     let space = Mass::from_milligrams(500_000);
     assert_eq!(
-        reachable_side_drop(
+        reachable_detour_drop(
             &registries,
             &guarded,
             super::ScavengeRoute::new(
@@ -2148,11 +2136,11 @@ fn visible_player_guarding_food_redirects_scout_to_safe_scrap_until_player_withd
             guarded.tick(),
             None,
         ),
-        Some(path.side_stone),
+        Some((path.side_stone, None)),
         "visible food protection redirects the actual local candidate search"
     );
     assert_eq!(
-        reachable_side_drop(
+        reachable_detour_drop(
             &registries,
             &unguarded,
             super::ScavengeRoute::new(
@@ -2163,7 +2151,7 @@ fn visible_player_guarding_food_redirects_scout_to_safe_scrap_until_player_withd
             unguarded.tick(),
             None,
         ),
-        Some(path.side_food),
+        Some((path.side_food, None)),
         "without a threat the preferred fresh food is the first target"
     );
     for state in [&mut guarded, &mut unguarded] {
