@@ -31,6 +31,16 @@ No authored quantities, save schema, or inventory ownership changed.
 - Kobold suite before the additional fallback test: 401 passed.
 - Full audit after all changes: 2,773 core and 194 gameplay tests passed.
 - Quick checks: all four passed.
+- Rebuilt the actual text-play executable and ran the maintained opening
+  (seed 24318). Observed ordinary resident-proximity travel interruption,
+  gathering 250 g berries, eating 10 g, drinking 250 mL, and retaining
+  240 g berries in the pack at tick 18.
+- A separate maintained-opening session gathered 1 kg stone and built
+  a stone-ring fire, gathered 1 kg timber at the den, returned to the
+  fire, and fueled it. The client reported 12 MJ stored, no remaining
+  carried material, and local warmth with 100% vitality at tick 16.
+  These are player-facing smoke checks, not direct observation of the
+  new hungry-scout regression or a natural-wilderness playthrough.
 
 ## Limits
 
