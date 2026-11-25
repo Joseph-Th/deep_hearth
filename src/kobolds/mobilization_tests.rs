@@ -740,13 +740,41 @@ fn hungry_returning_scout_switches_from_scrap_to_fresh_local_food() {
 
 #[test]
 fn intact_far_precision_part_beats_near_split_and_preserves_den_stock() {
+    assert_intact_precision_part_preserves_den_stock(PrecisionRoute::BeyondSide);
+}
+
+#[test]
+fn intact_precision_part_beyond_patrol_tip_preserves_den_stock() {
+    assert_intact_precision_part_preserves_den_stock(PrecisionRoute::BeyondTip);
+}
+
+#[test]
+fn intact_precision_part_at_patrol_tip_preserves_den_stock() {
+    assert_intact_precision_part_preserves_den_stock(PrecisionRoute::Tip);
+}
+
+enum PrecisionRoute {
+    BeyondSide,
+    BeyondTip,
+    Tip,
+}
+
+fn assert_intact_precision_part_preserves_den_stock(choice: PrecisionRoute) {
     let (registries, mut with_far, route) =
         scenario(EnergyCarrier::Mechanical, Some(route_machinery()));
     advance_to(&registries, &mut with_far, 579);
-    let first = VoxelCoord::new(0, 0, -1);
-    let far = VoxelCoord::new(-1, 0, -1);
-    add_traversable_edge_for_test(&mut with_far, route[1], first);
-    add_traversable_edge_for_test(&mut with_far, first, far);
+    let (first, far) = match choice {
+        PrecisionRoute::BeyondTip => (route[2], Some(VoxelCoord::new(-1, 0, 1))),
+        PrecisionRoute::Tip => (route[2], None),
+        PrecisionRoute::BeyondSide => {
+            let first = VoxelCoord::new(0, 0, -1);
+            add_traversable_edge_for_test(&mut with_far, route[1], first);
+            (first, Some(VoxelCoord::new(-1, 0, -1)))
+        }
+    };
+    if let Some(goal) = far {
+        add_traversable_edge_for_test(&mut with_far, first, goal);
+    }
     let spec = |at, material, form, mass| {
         SurfaceResourceSpec::new(
             SurfaceResourceKind::Drop,
@@ -773,7 +801,12 @@ fn intact_far_precision_part_beats_near_split_and_preserves_den_stock() {
     let plan = validate_create_surface_resources(
         &registries,
         &with_far,
-        [spec(far, MATERIAL_COPPER, FORM_ELECTRICAL_WINDING, 120_000)],
+        [spec(
+            far.unwrap_or(first),
+            MATERIAL_COPPER,
+            FORM_ELECTRICAL_WINDING,
+            120_000,
+        )],
     )
     .unwrap();
     let whole = plan.first_resource_id();
@@ -790,8 +823,8 @@ fn intact_far_precision_part_beats_near_split_and_preserves_den_stock() {
             capacity,
             with_far.tick(),
         ),
-        Some((first, Some(far))),
-        "an intact winding one authorized extra edge away wins over splitting 700 g of side copper"
+        Some((first, far)),
+        "a visible intact winding wins over splitting 700 g of side copper"
     );
     assert_eq!(
         super::super::scavenging::reachable_inherited_salvage(

@@ -1537,6 +1537,92 @@ fn den_clears_cache_only_for_food_it_can_collect_on_this_visit() {
 }
 
 #[test]
+fn full_den_makes_room_for_visible_forage_beyond_patrol_tip() {
+    assert_full_den_makes_room_for_far_food(SurfaceResourceKind::Opportunity);
+}
+
+#[test]
+fn full_den_makes_room_for_visible_loose_food_beyond_patrol_tip() {
+    assert_full_den_makes_room_for_far_food(SurfaceResourceKind::Drop);
+}
+
+fn assert_full_den_makes_room_for_far_food(kind: SurfaceResourceKind) {
+    let (registries, mut state, [den, junction, tip, _]) = setup();
+    let food_position = VoxelCoord::new(-1, 0, 1);
+    let creation = validate_create_surface_resources(
+        &registries,
+        &state,
+        [
+            resource(den, SurfaceResourceKind::Drop, false),
+            resource(food_position, kind, true),
+        ],
+    )
+    .unwrap();
+    let ids = creation.resource_ids().collect::<Vec<_>>();
+    creation.commit(&mut state).unwrap();
+    let mut inaccessible = state.clone();
+    add_traversable_edge_for_test(&mut state, tip, food_position);
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    assert_eq!(
+        advance_tick(&registries, &mut state).unwrap(),
+        advance_tick(&registries, &mut replay).unwrap()
+    );
+    assert_eq!(
+        state.surface().get(ids[0]).unwrap().position(),
+        junction,
+        "a visible reachable ration justifies clearing the full den"
+    );
+    assert_eq!(
+        state.surface().get(ids[1]).unwrap().remaining_mass(),
+        Mass::from_milligrams(300_000),
+        "den care cannot withdraw food before the scout reaches it"
+    );
+    let mut reached = false;
+    while state.tick().value() < 620 {
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+        reached |= state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position()
+            == food_position;
+    }
+    while inaccessible.tick().value() < 620 {
+        let _ = advance_tick(&registries, &mut inaccessible).unwrap();
+    }
+    assert!(reached);
+    assert!(!state.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(
+        calculate_matter_accounting(&state)
+            .unwrap()
+            .consumed()
+            .milligrams(),
+        20_000
+    );
+    assert_eq!(
+        inaccessible.surface().get(ids[0]).unwrap().position(),
+        den,
+        "sight of food without a real connecting edge cannot justify eviction"
+    );
+    assert!(inaccessible.kobold_state().colony.as_ref().unwrap().hungry);
+    assert_eq!(state, replay);
+    for game in [&state, &inaccessible] {
+        assert_eq!(calculate_matter_accounting(game).unwrap().total(), total);
+        assert_eq!(validate_loaded_state(&registries, game), Ok(()));
+    }
+}
+
+#[test]
 fn full_den_preserves_its_inert_cache_when_fresh_food_is_not_reachable() {
     let (registries, mut state, [den, _, _, _]) = setup();
     let creation = validate_create_surface_resources(

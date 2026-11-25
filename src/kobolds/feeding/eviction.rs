@@ -15,11 +15,12 @@ use crate::survival::{FoodFreshness, assess_surface_food_freshness};
 use super::scout_wants_food_opportunity;
 use crate::kobolds::junkworks::{current_den_rig, den_or_relay_needs_striker};
 use crate::kobolds::patrol::{
-    opening_resident_can_depart, scout_can_enter, scout_sees_guarded_cell,
+    opening_resident_can_depart, scout_can_approach_visible_unlit_cell, scout_can_enter,
+    scout_sees_guarded_cell,
 };
 use crate::kobolds::scavenging::{
     ScavengeRoute, den_cache_space, is_contestable_drop, is_portable_drop, is_servant_era_salvage,
-    matches_salvage_goal, reachable_inherited_salvage, scout_wants_loose_drop,
+    matches_salvage_goal, reachable_inherited_salvage, scout_wants_loose_drop, two_edge_candidates,
 };
 use crate::kobolds::{
     DEN_LOOSE_CACHE_LIMIT, SCOUT_BULK_SPLIT_BATCH, SCOUT_CARRY_LIMIT, SCOUT_DETERRENT_LIGHT_LEVEL,
@@ -91,27 +92,26 @@ pub(super) fn clear_inert_cache_for_food(
     // must not leave the scout endlessly foraging five-gram portions while
     // the rest of the den is inert cargo. Consider only recoverable food seen
     // from home, and only evict stock when that food exceeds free capacity.
-    let forage_ready = state
-        .kobold_state()
-        .colony
-        .as_ref()
-        .is_some_and(|colony| colony.next_forage_at.is_none_or(|due| at >= due));
+    let colony = state.kobold_state().colony.as_ref()?;
+    let forage_ready = colony.next_forage_at.is_none_or(|due| at >= due);
     let player = state.logistics().player().map(|record| record.position());
+    let route = ScavengeRoute::new(colony.route, player);
+    // Assess the same walking envelope as the later forage decision, but
+    // only through the scout's actual view from the den. A sighted goal
+    // cannot justify eviction through an obstructed or unseen first edge.
+    let safe =
+        |position| scout_can_approach_visible_unlit_cell(registries, state, den, position, player);
+    let adjacent = state
+        .logistics()
+        .traversable_destinations(junction)
+        .filter(|position| *position != den && safe(*position));
+    let far = two_edge_candidates(state, route)
+        .filter(|(first, goal)| safe(*first) && safe(*goal))
+        .map(|(_, goal)| goal);
     let wanted = std::iter::once(junction)
-        .chain(
-            state
-                .logistics()
-                .traversable_destinations(junction)
-                .filter(|position| *position != den),
-        )
-        .filter(|position| {
-            crate::kobolds::visibility::scout_visible_from(registries, state, den, *position)
-                && (*position == junction
-                    || (scout_can_enter(registries, state, *position, player)
-                        && !scout_sees_guarded_cell(registries, state, den, *position)
-                        && assess_local_illumination(registries, state, *position).level()
-                            < SCOUT_DETERRENT_LIGHT_LEVEL))
-        })
+        .filter(|position| safe(*position))
+        .chain(adjacent)
+        .chain(far)
         .flat_map(|position| state.surface().available_resources_at(Some(position)))
         .filter(|resource| !resource_reserved_for_player_gathering(state, resource.id()))
         .filter(|resource| match resource.kind() {

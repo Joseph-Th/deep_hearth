@@ -452,17 +452,17 @@ pub(super) fn reachable_inherited_salvage(
     let ScavengeRoute {
         junction,
         den,
-        authored_tip,
         player_position,
+        ..
     } = route;
     if capacity.is_zero() {
         return None;
     }
     let needs_striker = den_or_relay_needs_striker(state, den);
-    let side = state
+    let adjacent = state
         .logistics()
         .traversable_destinations(junction)
-        .filter(|first| *first != den && *first != authored_tip)
+        .filter(|first| *first != den)
         .filter_map(|first| {
             engineered_drop_at(registries, state, first, capacity, at, needs_striker)
                 .map(|priority| (priority, first))
@@ -476,22 +476,13 @@ pub(super) fn reachable_inherited_salvage(
     // When the nearer source must be split, look one edge farther for a whole
     // component before choosing the extra handling work. Both alternatives
     // remain bound to the scout's current sightline and real graph edges.
-    if let Some(((false, _), first)) = side {
+    if let Some(((false, _), first)) = adjacent {
         return Some((first, None));
     }
-    let far = state
-        .logistics()
-        .traversable_destinations(junction)
-        .filter(|first| *first != den && *first != authored_tip)
-        .flat_map(|first| {
-            state
-                .logistics()
-                .traversable_destinations(first)
-                .filter(move |goal| *goal != junction && *goal != den && *goal != authored_tip)
-                .filter_map(move |goal| {
-                    engineered_drop_at(registries, state, goal, capacity, at, needs_striker)
-                        .map(|priority| (priority, first, goal))
-                })
+    let far = two_edge_candidates(state, route)
+        .filter_map(|(first, goal)| {
+            engineered_drop_at(registries, state, goal, capacity, at, needs_striker)
+                .map(|priority| (priority, first, goal))
         })
         .filter(|(_, first, goal)| {
             scout_visible_from(registries, state, observer, *goal)
@@ -499,7 +490,7 @@ pub(super) fn reachable_inherited_salvage(
                 && unguarded_unlit_cell(registries, state, observer, *goal, player_position)
         })
         .min_by_key(|(priority, first, goal)| (*priority, *first, *goal));
-    match (side, far) {
+    match (adjacent, far) {
         (_, Some(((false, _), first, goal))) => Some((first, Some(goal))),
         (Some((_, first)), _) => Some((first, None)),
         (None, Some((_, first, goal))) => Some((first, Some(goal))),
