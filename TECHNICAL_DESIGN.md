@@ -595,7 +595,10 @@ retains more basal metabolic heat as comfort falls; when demand is sustainable,
 comfort settles at an equilibrium rather than inevitably exhausting. Ordinary spring
 conditions are survivable, moderate work improves warmth, and freezing or windy
 severe exposure can overwhelm resting regulation. Local dissipated heat and charged
-physical exertion can restore comfort. Exactly spending the last reserve has one
+physical exertion can restore comfort. A local fire transfers warmth only into
+its own clear cell or a clear face-adjacent cell. Both warmth and artificial light
+require generated terrain truth at both endpoints when either endpoint is generated.
+Exactly spending the last reserve has one
 tick of deficit grace; once the player is already at zero comfort, merely balancing
 ongoing exposure
 does not prevent cold vitality loss. Net warming must restore positive comfort

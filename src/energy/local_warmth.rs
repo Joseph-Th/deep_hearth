@@ -75,7 +75,9 @@ fn radiating_sources<'a>(
                             .energy()
                             .passive_dissipation_per_tick(definition.id())
                             .is_zero()
-                        || !super::illumination::voxel_transmits_light(registries, state, source)
+                        || !crate::world::has_clear_two_step_sightline(
+                            registries, state, player, source,
+                        )
                     {
                         return None;
                     }
@@ -103,7 +105,8 @@ pub fn project_player_nearby_warmth_sources(
 
 /// A fire heats its own cell and the directly adjoining air, not a remotely
 /// queried store. The first face-adjacent ring receives half the source's
-/// dissipated heat; diagonal cells and more distant locations receive none.
+/// dissipated heat only across a clear route; diagonal cells, obstructions and
+/// missing terrain on a locally generated route receive none.
 /// This is a read-only exposure projection, not a second energy withdrawal.
 pub(crate) fn assess_player_local_warmth(
     registries: &Registries,

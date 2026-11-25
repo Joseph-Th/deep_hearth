@@ -219,6 +219,11 @@ fn propagated_light_level(
     let locally_generated = [source.position(), target]
         .into_iter()
         .any(|position| state.world().has_generated_terrain_at(position));
+    if locally_generated
+        && !voxel_transmits_light_on_route(registries, state, source.position(), true)
+    {
+        return 0;
+    }
     if !locally_generated
         && ChunkCoord::containing(source.position()) == ChunkCoord::containing(target)
         && !state
