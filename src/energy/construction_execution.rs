@@ -13,7 +13,7 @@ use crate::inventory::{
     validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::logistics::{
-    PlayerStockpileAccessError, player_body_uses_generated_world, player_placement_has_fixed_floor,
+    PlayerStockpileAccessError, player_stationary_placement_supported,
     validate_player_stockpile_access,
 };
 use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE};
@@ -361,13 +361,10 @@ pub fn validate_assemble_energy_store(
     }
     // An assembled machine receives a permanent world location immediately.
     // A moving resident or a neighboring ledge cannot support its actual site.
-    if state.logistics().player().is_some() {
-        let locomotion = registries.survival().physiology().locomotion();
-        if player_body_uses_generated_world(state, locomotion)
-            && !player_placement_has_fixed_floor(registries, state)
-        {
-            return Err(EnergyStoreAssemblyError::PlayerAirborne);
-        }
+    if state.logistics().player().is_some()
+        && !player_stationary_placement_supported(registries, state)
+    {
+        return Err(EnergyStoreAssemblyError::PlayerAirborne);
     }
     let definition_record = registries
         .energy()

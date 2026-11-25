@@ -10,7 +10,7 @@ use crate::inventory::allocation::{
     ValidatedEmptyStockpileAllocation, validate_empty_stockpile_allocation,
 };
 use crate::inventory::{StockpileId, StockpileStorageProfile};
-use crate::logistics::{player_body_uses_generated_world, player_placement_has_fixed_floor};
+use crate::logistics::player_stationary_placement_supported;
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -351,10 +351,7 @@ pub fn validate_allocate_player_ground_stockpile(
     // This is a player-facing place-and-leave action, not bootstrap placement.
     // An empty cache can receive material immediately. Neither a moving resident
     // nor a ledge adjacent to the exact custody voxel provides fixed footing.
-    let locomotion = registries.survival().physiology().locomotion();
-    if player_body_uses_generated_world(state, locomotion)
-        && !player_placement_has_fixed_floor(registries, state)
-    {
+    if !player_stationary_placement_supported(registries, state) {
         return Err(PlayerGroundStockpileAllocationError::PlayerAirborne);
     }
     allocation.player_footing_revisions =

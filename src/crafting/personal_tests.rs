@@ -87,7 +87,7 @@ fn one_batch() -> NonZeroU64 {
 fn player_crafting_cannot_reserve_residue_into_an_unsupported_ground_cache() {
     use crate::content::BLOCK_STATE_STONE;
     use crate::logistics::{
-        player_body_has_fixed_floor, player_placement_has_fixed_floor,
+        player_body_has_fixed_floor, player_stationary_placement_supported,
         validate_allocate_player_ground_stockpile,
     };
     use crate::spatial::{NANOMETERS_PER_VOXEL, WorldPoint};
@@ -193,7 +193,7 @@ fn player_crafting_cannot_reserve_residue_into_an_unsupported_ground_cache() {
     );
     assert_eq!(state.logistics().player().unwrap().position(), position);
     assert!(player_body_has_fixed_floor(&registries, &state));
-    assert!(!player_placement_has_fixed_floor(&registries, &state));
+    assert!(!player_stationary_placement_supported(&registries, &state));
     assert_eq!(
         crate::core::state::validate_loaded_state(&registries, &state),
         Ok(())

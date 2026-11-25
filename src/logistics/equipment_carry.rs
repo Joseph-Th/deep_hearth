@@ -10,7 +10,7 @@ use crate::inventory::{
     StockpileCapacityChangeCommitError, StockpileCapacityChangeError,
     ValidatedStockpileCapacityChange, validate_stockpile_capacity_change,
 };
-use crate::logistics::{player_body_uses_generated_world, player_placement_has_fixed_floor};
+use crate::logistics::player_stationary_placement_supported;
 use crate::player::{PlayerActionGuard, PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -474,10 +474,7 @@ pub fn validate_drop_equipment(
     // Stationary equipment has voxel custody but no gravity simulation.
     // A moving resident or a ledge under only the body's edge cannot support
     // a tool at its custody voxel; opening-graph fixtures have no generated floor.
-    let locomotion = registries.survival().physiology().locomotion();
-    if player_body_uses_generated_world(state, locomotion)
-        && !player_placement_has_fixed_floor(registries, state)
-    {
+    if !player_stationary_placement_supported(registries, state) {
         return Err(PlayerEquipmentCarryError::PlayerAirborne);
     }
     let player = state

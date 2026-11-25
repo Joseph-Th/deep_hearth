@@ -14,7 +14,7 @@ use crate::inventory::{
     validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::logistics::{
-    PlayerStockpileAccessError, player_body_uses_generated_world, player_placement_has_fixed_floor,
+    PlayerStockpileAccessError, player_stationary_placement_supported,
     validate_player_stockpile_access,
 };
 use crate::maintenance::Condition;
@@ -415,13 +415,10 @@ pub fn validate_assemble_equipment(
     }
     // Assembly creates stationary voxel custody, even for portable tools.
     // A moving resident or an adjacent ledge cannot support the assembly voxel.
-    if state.logistics().player().is_some() {
-        let locomotion = registries.survival().physiology().locomotion();
-        if player_body_uses_generated_world(state, locomotion)
-            && !player_placement_has_fixed_floor(registries, state)
-        {
-            return Err(EquipmentAssemblyError::PlayerAirborne);
-        }
+    if state.logistics().player().is_some()
+        && !player_stationary_placement_supported(registries, state)
+    {
+        return Err(EquipmentAssemblyError::PlayerAirborne);
     }
     let definition_record = registries
         .equipment()

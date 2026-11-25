@@ -45,7 +45,7 @@ pub use collision::{player_body_is_grounded, project_player_standing_space};
 use exertion::resolve_control_exertion;
 use ground_control::resolve_horizontal_control;
 pub use horizontal::project_player_level_approach;
-pub(crate) use vertical::{body_has_fixed_placement_floor, player_placement_has_fixed_floor};
+pub(crate) use vertical::{body_has_fixed_placement_floor, player_stationary_placement_supported};
 pub use vertical::{
     player_body_has_fixed_floor, project_player_descent_approach, project_player_jump_rise_bound,
 };

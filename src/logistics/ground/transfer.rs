@@ -16,9 +16,7 @@ use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
-use super::super::{
-    PlayerLogisticsRecord, player_body_uses_generated_world, player_placement_has_fixed_floor,
-};
+use super::super::{PlayerLogisticsRecord, player_stationary_placement_supported};
 
 /// Failure while authorizing material movement between carried custody and a ground stockpile.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -392,14 +390,14 @@ fn validate_drop_selection(
         .is_some_and(|stockpile| {
             stockpile.enclosure().is_none() && stockpile.supported_by().is_none()
         });
-    let footing = if loose_ground
-        && player_body_uses_generated_world(state, registries.survival().physiology().locomotion())
-    {
-        if !player_placement_has_fixed_floor(registries, state) {
+    let footing = if loose_ground {
+        if !player_stationary_placement_supported(registries, state) {
             return Err(GroundMaterialTransferError::DestinationRequiresFixedFloor {
                 stockpile: destination,
             });
         }
+        // Generation can establish a new physical floor obligation even
+        // when the authorization began in an abstract opening.
         Some((state.world().revision(), state.structures().revision()))
     } else {
         None

@@ -25,10 +25,7 @@ use crate::labor::{
     BlockExcavationOutputCustody, BlockExcavationWork, PlayerWork, ValidatedPlayerWorkStart,
     validate_player_work_start_control_rate,
 };
-use crate::logistics::{
-    player_body_uses_generated_world, player_placement_has_fixed_floor,
-    validate_player_equipment_access,
-};
+use crate::logistics::{player_stationary_placement_supported, validate_player_equipment_access};
 use crate::mining::{MiningMethodId, resolve_mining_physics};
 use crate::registry::Registries;
 use crate::spatial::{ViewDirection, VoxelCoord};
@@ -350,9 +347,7 @@ fn validate_start_player_block_excavation_targeted(
     } else {
         // Overflow creates stationary matter at the player's discrete voxel.
         // Support under a neighboring lip does not support the resulting drop.
-        if player_body_uses_generated_world(state, registries.survival().physiology().locomotion())
-            && !player_placement_has_fixed_floor(registries, state)
-        {
+        if !player_stationary_placement_supported(registries, state) {
             return Err(BlockExcavationError::OverflowOutputRequiresFixedFloor);
         }
         // The selected surface output must still have a floor after this

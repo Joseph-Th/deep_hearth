@@ -1,7 +1,7 @@
 //! Excavation overflow must obey the footing rule for stationary ground drops.
 
 use super::*;
-use crate::logistics::{player_body_has_fixed_floor, player_placement_has_fixed_floor};
+use crate::logistics::{player_body_has_fixed_floor, player_stationary_placement_supported};
 use crate::spatial::{NANOMETERS_PER_VOXEL, WorldPoint};
 
 #[test]
@@ -130,7 +130,7 @@ fn shift_excavator_onto_ledge(registries: &Registries, state: &mut AppState) -> 
     );
     assert_eq!(state.logistics().player().unwrap().position(), position);
     assert!(player_body_has_fixed_floor(registries, state));
-    assert!(!player_placement_has_fixed_floor(registries, state));
+    assert!(!player_stationary_placement_supported(registries, state));
     position
 }
 

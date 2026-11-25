@@ -96,7 +96,7 @@ pub(crate) use kinematics::{
     player_body_floor_structures, player_body_footprint_intersects_chunk,
     player_body_occupies_voxel, player_body_stands_above_structure,
     player_body_stands_above_temple_caste, player_body_uses_generated_world,
-    player_placement_has_fixed_floor,
+    player_stationary_placement_supported,
 };
 pub use pending_primary::PlayerPendingPrimaryBreakError;
 pub(crate) use pending_primary::{

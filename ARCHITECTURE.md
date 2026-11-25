@@ -181,8 +181,9 @@ collision does not authorize leaving stationary matter behind. Likewise a
 ledge under the edge of the continuous body can support the player without
 supporting an object in the adjacent empty voxel where the discrete position
 resolves. These actions share the logistics owner's fixed-floor collision and
-exact-site assessment; ungenerated opening-graph actions retain their own
-locality contracts. Excavation may still put fragments into reserved carried
+exact-site assessment. An ungenerated custody voxel retains the opening-graph
+locality contract; a generated custody voxel requires verified body contact
+even if part of the body footprint overlaps an ungenerated column. Excavation may still put fragments into reserved carried
 capacity while standing on an adjacent ledge. A surface-bound excavation
 checks that the selected fixed floor exists at admission and on trusted load;
 its pending start also binds the structural revision so changes to built
@@ -197,7 +198,8 @@ reserved inbound mass protect their actual custody voxel, just as enclosures,
 machines, springs, residents, and ground anchors do. An empty ground allocation
 does not protect the floor because it has no physical contents. Player-to-ground
 material transfers into loose sites require fixed footing and bind terrain and
-structure revisions, so an empty marker cannot accept matter after excavation. Held-tool mining
+structure revisions even before terrain generation, so an empty marker cannot
+accept matter on stale authorization after excavation or generation. Held-tool mining
 may remove a smaller physical amount while preserving that last collidable
 support; the floor cannot be fully removed until its dependent custody moves.
 

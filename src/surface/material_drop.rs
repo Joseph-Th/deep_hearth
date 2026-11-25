@@ -10,7 +10,7 @@ use crate::inventory::{
     ConsumptionSelectionError, MaterialEgressError, ValidatedMaterialEgress, apply_material_egress,
     validate_consumption_selection, validate_material_egress_from_selection,
 };
-use crate::logistics::{player_body_uses_generated_world, player_placement_has_fixed_floor};
+use crate::logistics::player_stationary_placement_supported;
 use crate::material::{CommodityKey, MaterialInputSpec};
 use crate::player::{
     PlayerActionGuard, PlayerActionValidationError, StalePlayerSurvival, validate_player_action,
@@ -381,11 +381,8 @@ pub fn validate_drop_player_material(
     // Surface parcels have persistent voxel custody but no falling trajectory.
     // A drop needs fixed footing under its custody voxel. A moving resident
     // or a ledge beneath only the body's edge cannot support the parcel.
-    // Leave opening-graph fixtures alone until they acquire body/terrain truth.
-    let locomotion = registries.survival().physiology().locomotion();
-    if player_body_uses_generated_world(state, locomotion)
-        && !player_placement_has_fixed_floor(registries, state)
-    {
+    // Ungenerated custody sites retain the opening-graph locality contract.
+    if !player_stationary_placement_supported(registries, state) {
         return Err(PlayerMaterialDropError::PlayerAirborne);
     }
     let source = player.carried_stockpile();

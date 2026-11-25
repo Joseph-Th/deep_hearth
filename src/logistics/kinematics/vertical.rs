@@ -358,13 +358,19 @@ fn body_has_fixed_floor(registries: &Registries, state: &AppState, body: PlayerB
 /// the adjacent ledge supports the body, but it cannot support a parcel, tool,
 /// cache or machine placed in the empty voxel under the player's center.
 ///
-/// Use body contact and the world owner's exact stationary custody rule.
-/// The virtual collision boundary and moving residents are not material floors.
-pub(crate) fn player_placement_has_fixed_floor(registries: &Registries, state: &AppState) -> bool {
+/// The custody voxel, not the full body footprint, determines whether terrain
+/// authority exists. Abstract opening graphs retain their own locality rule.
+/// In generated terrain require body contact and the exact stationary floor;
+/// a partially generated footprint cannot prove that contact.
+pub(crate) fn player_stationary_placement_supported(
+    registries: &Registries,
+    state: &AppState,
+) -> bool {
     let Some(player) = state.logistics().player() else {
         return false;
     };
-    body_has_fixed_placement_floor(registries, state, player.body())
+    !state.world().has_generated_terrain_at(player.position())
+        || body_has_fixed_placement_floor(registries, state, player.body())
 }
 
 /// Evaluate a proposed body and its exact custody voxel, including respawn

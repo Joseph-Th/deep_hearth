@@ -166,6 +166,163 @@ fn validated_ground_cache_rejects_removed_footing_before_commit() {
 }
 
 #[test]
+fn ground_transfer_authorized_before_generation_cannot_fill_an_unsupported_cache() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let at = VoxelCoord::new(5, 100, 5);
+    let carried = validate_admit_player(&registries, &state, at)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let mass = Mass::from_milligrams(100_000);
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let ground = validate_allocate_player_ground_stockpile(&registries, &state, mass)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let selections = [MaterialLotSelection::new(lot, mass)];
+    let pending = validate_drop_to_ground(&registries, &state, ground, &selections).unwrap();
+    let expected = state.world().revision();
+    let logistics = state.logistics().revision();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(41),
+        ChunkCoord::containing(at),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(state.logistics().revision(), logistics);
+    assert!(!player_body_is_grounded(&registries, &state));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let before = state.clone();
+    assert_eq!(
+        pending.commit(&mut state),
+        Err(
+            crate::logistics::GroundMaterialTransferCommitError::StaleWorldRevision {
+                expected,
+                actual: before.world().revision(),
+            }
+        )
+    );
+    assert_eq!(state, before);
+    assert_eq!(
+        validate_drop_to_ground(&registries, &state, ground, &selections).err(),
+        Some(
+            crate::logistics::GroundMaterialTransferError::DestinationRequiresFixedFloor {
+                stockpile: ground
+            }
+        )
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+}
+
+#[test]
+fn partly_generated_body_cannot_create_stationary_custody_in_generated_air() {
+    use crate::spatial::{NANOMETERS_PER_VOXEL, WorldPoint};
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let at = VoxelCoord::new(15, 100, 5);
+    let carried = validate_admit_player(&registries, &state, at)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let mass = Mass::from_milligrams(100_000);
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let ground = validate_allocate_player_ground_stockpile(&registries, &state, mass)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let player = state.logistics().player().copied().unwrap();
+    let body = player.body();
+    let shifted = body.with_motion(
+        WorldPoint::new(
+            at.x() * NANOMETERS_PER_VOXEL + 950_000_000,
+            body.foot_position().y_nanometers(),
+            body.foot_position().z_nanometers(),
+        ),
+        body.horizontal_velocity(),
+        body.vertical_velocity(),
+        body.stance(),
+    );
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_player_body_motion(
+        revision,
+        revision + 1,
+        body,
+        shifted,
+        player.locomotion_exertion(),
+        player.pending_fall_vitality_loss_ppm(),
+    );
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(41),
+        ChunkCoord::containing(at),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(state.logistics().player().unwrap().position(), at);
+    assert!(state.world().has_generated_terrain_at(at));
+    assert!(!crate::logistics::player_body_uses_generated_world(
+        &state,
+        registries.survival().physiology().locomotion()
+    ));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_allocate_player_ground_stockpile(&registries, &state, mass).err(),
+        Some(PlayerGroundStockpileAllocationError::PlayerAirborne)
+    );
+    assert_eq!(
+        validate_drop_to_ground(
+            &registries,
+            &state,
+            ground,
+            &[MaterialLotSelection::new(lot, mass)]
+        )
+        .err(),
+        Some(
+            crate::logistics::GroundMaterialTransferError::DestinationRequiresFixedFloor {
+                stockpile: ground
+            }
+        )
+    );
+    assert_eq!(
+        crate::surface::validate_drop_player_material(&registries, &state, commodity).err(),
+        Some(crate::surface::PlayerMaterialDropError::PlayerAirborne)
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn ground_cache_cannot_be_filled_after_its_empty_site_loses_footing() {
     use crate::world::{BlockStateId, set_generated_block_for_test};
 

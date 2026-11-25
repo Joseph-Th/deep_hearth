@@ -7,8 +7,8 @@ use crate::equipment::{EquipmentOccupancy, equipment_occupancy};
 use crate::inventory::validate_stockpile_storage;
 use crate::labor::{BlockExcavationOutputCustody, BlockExcavationWork};
 use crate::logistics::{
-    player_body_uses_generated_world, player_placement_has_fixed_floor,
-    validate_player_equipment_access, validate_player_stockpile_access,
+    player_stationary_placement_supported, validate_player_equipment_access,
+    validate_player_stockpile_access,
 };
 use crate::mining::resolve_mining_physics;
 use crate::registry::Registries;
@@ -225,11 +225,7 @@ fn validate_excavation_output_custody(
                     },
                 );
             }
-            if player_body_uses_generated_world(
-                state,
-                registries.survival().physiology().locomotion(),
-            ) && !player_placement_has_fixed_floor(registries, state)
-            {
+            if !player_stationary_placement_supported(registries, state) {
                 return Err(PlayerWorkValidationError::BlockExcavationSurfaceRequiresFixedFloor);
             }
         }
