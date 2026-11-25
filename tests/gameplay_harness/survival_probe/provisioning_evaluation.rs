@@ -6,7 +6,6 @@ use super::*;
 
 pub(super) fn run_provisioning_case(
     registries: &Registries,
-    behavior_seed: u64,
     world: &ProvisioningWorld,
     prepared: &PreparedProvisioningWorld,
     plan: &ProvisioningPlan,
@@ -54,9 +53,8 @@ pub(super) fn run_provisioning_case(
     let drink_first = match provisioning_priority {
         ProvisioningPriority::Hydration => true,
         ProvisioningPriority::MetabolicEnergy => false,
-        ProvisioningPriority::Balanced => {
-            mix64(behavior_seed ^ 0x5052_4F56_4953_494F).is_multiple_of(2)
-        }
+        // The script drinks first on equal normalized deficits.
+        ProvisioningPriority::Balanced => true,
     };
     let selected_categories = portions
         .iter()
@@ -188,7 +186,7 @@ pub(super) fn run_provisioning_case(
             .collect::<Vec<_>>()
             .join("+");
         reviewln!(
-            "PLAYABLE SURVIVAL behavior=0x{behavior_seed:016X} mode=matched-policy policy={} catalog=registry-derived world-bootstrap=[reserve-profile:{},authored-food,authored-drink,storage-profile] player-present-from=t0 available-categories={available_categories} selected-categories={selected_categories} food-rotation=[witness:{} elapsed:{age_ticks}t preservation:{preservation_multiplier_ppm}ppm ambient-age:{ambient_age}t preserved-age:{preserved_age}t age-saved:{preservation_age_saved_ticks}t consume:older-ambient retain-preserved:{}mg] passive-exposure={provisioning_wait_ticks}t provisioning=[priority:{} action-order:{action_order}] meal=[mass:{}mg energy-offered:{}nJ nutrition-offered:{}ppm diet-quality:{}->{}ppm recovery-rate:{}->{}ppm/t] drink=[fluid:{} volume:{}uL hydration-offered:{}uL] reserves=improved matter=conserved fluid=conserved tick={}",
+            "PLAYABLE SURVIVAL mode=matched-policy policy={} catalog=registry-derived world-bootstrap=[reserve-profile:{},authored-food,authored-drink,storage-profile] player-present-from=t0 available-categories={available_categories} selected-categories={selected_categories} food-rotation=[witness:{} elapsed:{age_ticks}t preservation:{preservation_multiplier_ppm}ppm ambient-age:{ambient_age}t preserved-age:{preserved_age}t age-saved:{preservation_age_saved_ticks}t consume:older-ambient retain-preserved:{}mg] passive-exposure={provisioning_wait_ticks}t provisioning=[priority:{} action-order:{action_order}] meal=[mass:{}mg energy-offered:{}nJ nutrition-offered:{}ppm diet-quality:{}->{}ppm recovery-rate:{}->{}ppm/t] drink=[fluid:{} volume:{}uL hydration-offered:{}uL] reserves=improved matter=conserved fluid=conserved tick={}",
             policy.label(),
             world.start_profile.label(),
             witness_food.commodity().value(),
@@ -230,7 +228,6 @@ pub(super) fn run_provisioning_case(
 
 pub(super) fn evaluate_provisioning_comparison(
     registries: &Registries,
-    behavior_seed: u64,
     world: &ProvisioningWorld,
 ) -> DietComparisonReview {
     let drink_supply = provisioning_drink_supply(registries, world);
@@ -260,7 +257,6 @@ pub(super) fn evaluate_provisioning_comparison(
     let comparison_horizon_ticks = maximum_direct_provisioning_ticks(registries);
     let compact = run_provisioning_case(
         registries,
-        behavior_seed,
         world,
         &prepared,
         &compact_plan,
@@ -269,7 +265,6 @@ pub(super) fn evaluate_provisioning_comparison(
     );
     let balanced = run_provisioning_case(
         registries,
-        behavior_seed,
         world,
         &prepared,
         &balanced_plan,

@@ -4,32 +4,7 @@ use super::super::prospecting_timing::complete_prospecting_work;
 use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum WorkHydrationPolicy {
-    TaskFloor,
-    WorkingReserve,
-}
-
-impl WorkHydrationPolicy {
-    #[cfg(not(test))]
-    pub(super) const fn label(self) -> &'static str {
-        match self {
-            Self::TaskFloor => "task-floor",
-            Self::WorkingReserve => "working-reserve",
-        }
-    }
-
-    fn for_behavior_seed(behavior_seed: u64) -> Self {
-        if behavior_seed & 0b10 == 0 {
-            Self::TaskFloor
-        } else {
-            Self::WorkingReserve
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct IntegratedSurvivalWorkReview {
-    pub(super) hydration_policy: WorkHydrationPolicy,
     pub(super) initial_drink_actions: u64,
     pub(super) initial_drink_volume_ul: u64,
     pub(super) initial_drink_ticks: u64,
@@ -51,17 +26,6 @@ pub(super) struct IntegratedSurvivalWorkReview {
     pub(super) energy_deficit_ppm: u32,
     pub(super) hydration_deficit_ppm: u32,
     pub(super) hydration_warning_safe: bool,
-}
-
-fn hydration_target_for_policy(
-    policy: WorkHydrationPolicy,
-    task_floor: Volume,
-    working_reserve_target: Volume,
-) -> Volume {
-    match policy {
-        WorkHydrationPolicy::TaskFloor => task_floor,
-        WorkHydrationPolicy::WorkingReserve => std::cmp::max(task_floor, working_reserve_target),
-    }
 }
 
 fn provision_hydration_if_needed(
@@ -120,7 +84,6 @@ fn provision_hydration_if_needed(
 pub(super) fn evaluate_integrated_survival_work_loop(
     registries: &Registries,
     seed: u64,
-    behavior_seed: u64,
 ) -> IntegratedSurvivalWorkReview {
     let physiology = registries.survival().physiology();
     let mut drinks = registries.survival().drinks().copied().collect::<Vec<_>>();
@@ -281,17 +244,8 @@ pub(super) fn evaluate_integrated_survival_work_loop(
         .thirsty_below()
         .checked_add(prospecting_budget.hydration())
         .unwrap_or_else(|| panic!("integrated survival prospecting hydration target overflowed"));
-    let hydration_policy = WorkHydrationPolicy::for_behavior_seed(behavior_seed);
-    // Both policies respect the authoritative task floor. Working-reserve actors pay a larger
-    // up-front drink to reduce interruption risk; task-floor actors carry only the known
-    // prospecting requirement and reassess after observing whether follow-up work exists.
-    let working_reserve_target =
-        Volume::from_microliters(physiology.maximum_hydration().microliters() / 2);
-    let initial_target = hydration_target_for_policy(
-        hydration_policy,
-        prospecting_hydration_floor,
-        working_reserve_target,
-    );
+    // Provision the projected task floor and reassess after each acquired observation.
+    let initial_target = prospecting_hydration_floor;
     let (initial_drink_actions, initial_drink_ticks, initial_drink_volume) =
         provision_hydration_if_needed(
             registries,
@@ -365,8 +319,7 @@ pub(super) fn evaluate_integrated_survival_work_loop(
                 panic!("integrated survival follow-up work hydration target overflowed")
             })
     });
-    let followup_target = followup_work_floor
-        .map(|floor| hydration_target_for_policy(hydration_policy, floor, working_reserve_target));
+    let followup_target = followup_work_floor;
     let (followup_reprovision_actions, followup_reprovision_ticks, followup_reprovision_volume) =
         followup_target.map_or((0, 0, Volume::ZERO), |target| {
             provision_hydration_if_needed(
@@ -450,11 +403,10 @@ pub(super) fn evaluate_integrated_survival_work_loop(
         })
     });
     let power_target = power_projection.map(|projection| {
-        let floor = physiology
+        physiology
             .thirsty_below()
             .checked_add(projection.resource_budget().hydration())
-            .unwrap_or_else(|| panic!("integrated survival power hydration target overflowed"));
-        hydration_target_for_policy(hydration_policy, floor, working_reserve_target)
+            .unwrap_or_else(|| panic!("integrated survival power hydration target overflowed"))
     });
     let (power_reprovision_actions, power_reprovision_ticks, power_reprovision_volume) =
         power_target.map_or((0, 0, Volume::ZERO), |target| {
@@ -531,7 +483,6 @@ pub(super) fn evaluate_integrated_survival_work_loop(
         .unwrap_or_else(|error| panic!("integrated survival work-loop audit failed: {error}"));
 
     IntegratedSurvivalWorkReview {
-        hydration_policy,
         initial_drink_actions,
         initial_drink_volume_ul: initial_drink_volume.microliters(),
         initial_drink_ticks,

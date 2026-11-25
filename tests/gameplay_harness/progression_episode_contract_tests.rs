@@ -9,7 +9,6 @@ use super::progression_probe::{
     PrimitivePriority, PrimitiveReinvestmentOutcome, PrimitiveSteadyStop,
     review::evaluate_primitive_progression_probe,
 };
-use super::seed::mix64;
 
 #[test]
 fn organic_progression_worlds_follow_acquired_grade_evidence() {
@@ -17,11 +16,7 @@ fn organic_progression_worlds_follow_acquired_grade_evidence() {
     for seed in 0_u64..32 {
         let review = evaluate_primitive_progression_probe(
             &registries,
-            FocusedProbeCase::new(
-                seed,
-                Some(mix64(seed ^ 0x4F52_4741_4E49_435F)),
-                FocusedProbeRole::OrganicVariation,
-            ),
+            FocusedProbeCase::new(seed, FocusedProbeRole::OrganicVariation),
         );
         let expected = if review.hard_ore_evidence_lower_ppm > review.bulk_sample_copper_ppm {
             PrimitivePriority::PickFirst
@@ -42,7 +37,6 @@ fn autonomous_crushing_does_not_fill_idle_time_with_unbounded_feed_mining() {
         &registries,
         FocusedProbeCase::new(
             PROGRESSION_MAINTAINED_ANCHOR_SEED,
-            None,
             FocusedProbeRole::MaintainedAnchor,
         ),
     );
@@ -67,7 +61,6 @@ fn completed_reinvestment_consumes_post_order_stockpile_for_upgrade_demand() {
         &registries,
         FocusedProbeCase::new(
             PROGRESSION_MAINTAINED_ANCHOR_SEED,
-            None,
             FocusedProbeRole::MaintainedAnchor,
         ),
     );
@@ -122,11 +115,7 @@ fn completed_reinvestment_consumes_post_order_stockpile_for_upgrade_demand() {
 #[test]
 fn bounded_stockpiling_preserves_shallow_supply_until_reinvestment() {
     let registries = build_registries();
-    let case = FocusedProbeCase::new(
-        11,
-        Some(0xE242_49A0_7762_6A70),
-        FocusedProbeRole::ExplicitReplay,
-    );
+    let case = FocusedProbeCase::new(11, FocusedProbeRole::ExplicitReplay);
     assert!(
         ore_opportunity(case.seed(), false).batch_budget() <= SHALLOW_OPPORTUNITY_MAX_BATCHES,
         "shallow-opportunity regression seed no longer exercises the intended narrow geological reserve"

@@ -225,10 +225,6 @@ fn main() {
         "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED",
         MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_464F,
     );
-    let fallback_behavior_root = configured_or_fresh_root(
-        "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED",
-        MAINTAINED_VARIATION_ROOT ^ 0x4652_4553_485F_4245,
-    );
     std::println!(
         "DESIGN TARGET role=self-reliant-field-engineer fantasy=turn-local-scarcity-and-uncertainty-into-earned-technological-agency loop=observe->infer->prepare->extract->invest->delegate->reassess->reinvest-when-justified leverage=[knowledge,attention,scarce-copper,stored-work] lifecycle-obligations=[maintenance-when-needed,energy,survival] constraints=[matter,condition]"
     );
@@ -243,7 +239,6 @@ fn main() {
         settlement_probe::run_settlement_probe,
         true,
         fallback_variation_root,
-        fallback_behavior_root,
     );
     settlement_drill_contract_tests::run_spindle_drill_investment_experience(Some(
         fallback_variation_root,
@@ -268,7 +263,6 @@ fn main() {
         first_foundry_probe::run_first_foundry_probe,
         true,
         fallback_variation_root,
-        fallback_behavior_root,
     );
     run_focused_probe_with_registries(
         &registries,
@@ -276,7 +270,6 @@ fn main() {
         survival_probe::run_survival_provisioning_probe,
         true,
         fallback_variation_root,
-        fallback_behavior_root,
     );
     run_focused_probe_with_registries(
         &registries,
@@ -284,7 +277,6 @@ fn main() {
         woodworking_probe::run_woodworking_probe,
         true,
         fallback_variation_root,
-        fallback_behavior_root,
     );
     run_focused_probe_with_registries(
         &registries,
@@ -292,7 +284,6 @@ fn main() {
         fieldwork_probe::run_fieldwork_probe,
         true,
         fallback_variation_root,
-        fallback_behavior_root,
     );
     run_focused_probe_with_registries(
         &registries,
@@ -300,7 +291,6 @@ fn main() {
         power_provider_probe::run_power_provider_probe,
         true,
         fallback_variation_root,
-        fallback_behavior_root,
     );
     run_focused_probe_with_registries(
         &registries,
@@ -308,7 +298,6 @@ fn main() {
         progression_probe::run_primitive_progression_probe,
         true,
         fallback_variation_root,
-        fallback_behavior_root,
     );
     run_focused_probe_with_registries(
         &registries,
@@ -316,7 +305,6 @@ fn main() {
         primitive_liberation::run_primitive_liberation_probe,
         true,
         fallback_variation_root,
-        fallback_behavior_root,
     );
 
     std::println!(
@@ -329,7 +317,6 @@ fn main() {
         ore_probe::run_ore_preparation_capability_probe,
         true,
         fallback_variation_root,
-        fallback_behavior_root,
     );
     run_focused_probe_with_registries(
         &registries,
@@ -337,7 +324,6 @@ fn main() {
         foundry_probe::run_foundry_capability_probe,
         true,
         fallback_variation_root,
-        fallback_behavior_root,
     );
 }
 

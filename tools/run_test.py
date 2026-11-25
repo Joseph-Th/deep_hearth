@@ -31,12 +31,10 @@ CATALOG_DISPLAY_LIMIT = 40
 bounded_failure_output = command_output.bounded_failure_output
 bounded_failure_streams = command_output.bounded_failure_streams
 GAMEPLAY_VARIATION_ENV = gameplay_targets.GAMEPLAY_VARIATION_ENV
-GAMEPLAY_BEHAVIOR_ENV = gameplay_targets.GAMEPLAY_BEHAVIOR_ENV
 GAMEPLAY_REPORT_MODE_ENV = gameplay_targets.GAMEPLAY_REPORT_MODE_ENV
 GAMEPLAY_VARIATION_SCOPE_ENV = gameplay_targets.GAMEPLAY_VARIATION_SCOPE_ENV
 GAMEPLAY_PROBE_TESTS = gameplay_targets.GAMEPLAY_PROBE_TESTS
 GAMEPLAY_PROBE_SCOPES = gameplay_targets.GAMEPLAY_PROBE_SCOPES
-GAMEPLAY_BEHAVIOR_PROBE_TESTS = gameplay_targets.GAMEPLAY_BEHAVIOR_PROBE_TESTS
 
 
 def feature_set(raw: str | None) -> set[str]:
@@ -545,11 +543,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "exact gameplay probes otherwise generate one fresh replayable case"
         ),
     )
-    parser.add_argument(
-        "--behavior-seed",
-        type=replay_seed.parse_replay_seed,
-        help="replay DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED for this test execution",
-    )
     args = parser.parse_args(argv)
     if not args.list and not args.build and not args.name:
         parser.error("a test selector is required for test execution")
@@ -566,10 +559,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--ignored requires exact execution; use an exact ignored-test selector")
     if (args.list or compile_only) and (args.ignored or args.verbose):
         parser.error("--ignored and --verbose apply only to test execution")
-    if (args.list or compile_only) and (args.variation_seed or args.behavior_seed):
+    if (args.list or compile_only) and args.variation_seed:
         parser.error("gameplay replay seeds apply only to test execution")
-    if args.behavior_seed is not None and args.variation_seed is None:
-        parser.error("--behavior-seed requires --variation-seed for a complete gameplay replay")
     return args
 
 
@@ -674,21 +665,14 @@ def gameplay_replay_environment(
     """Give every exact gameplay probe one fresh or explicitly replayed organic case."""
 
     if args.suite or args.name not in GAMEPLAY_PROBE_TESTS:
-        if args.variation_seed or args.behavior_seed:
+        if args.variation_seed:
             raise ValueError("gameplay replay seeds require one exact gameplay probe")
         return {}
-    uses_behavior_seed = args.name in GAMEPLAY_BEHAVIOR_PROBE_TESTS
-    if args.behavior_seed and not uses_behavior_seed:
-        raise ValueError(f"{args.name} does not consume an actor-policy behavior seed")
     variation = args.variation_seed or f"0x{randbits(64):016X}"
     replay = {
         GAMEPLAY_VARIATION_ENV: variation,
         GAMEPLAY_VARIATION_SCOPE_ENV: GAMEPLAY_PROBE_SCOPES[args.name],
     }
-    if uses_behavior_seed:
-        replay[GAMEPLAY_BEHAVIOR_ENV] = (
-            args.behavior_seed or f"0x{randbits(64):016X}"
-        )
     return replay
 
 
@@ -698,12 +682,7 @@ def cargo_execution_environment(
     """Return one cache-stable Cargo environment with gameplay sampling opt-in only."""
 
     environment = cargo_env.local_cargo_environment()
-    for key in (
-        GAMEPLAY_REPORT_MODE_ENV,
-        GAMEPLAY_VARIATION_ENV,
-        GAMEPLAY_BEHAVIOR_ENV,
-        GAMEPLAY_VARIATION_SCOPE_ENV,
-    ):
+    for key in (GAMEPLAY_REPORT_MODE_ENV, *gameplay_targets.GAMEPLAY_SEED_ENV_KEYS):
         environment.pop(key, None)
     if environment_overrides:
         environment.update(environment_overrides)
@@ -739,8 +718,6 @@ def replay_command(args: argparse.Namespace, replay: dict[str, str]) -> str | No
     if args.ignored:
         command.append("--ignored")
     command.extend(("--variation-seed", variation))
-    if behavior := replay.get(GAMEPLAY_BEHAVIOR_ENV):
-        command.extend(("--behavior-seed", behavior))
     command.append(args.name)
     return " ".join(command)
 
@@ -795,8 +772,6 @@ def execution_error(
             command = ["python", "tools/run_test.py", "--ignored", "--target", args.target]
             if args.variation_seed:
                 command.extend(("--variation-seed", args.variation_seed))
-            if args.behavior_seed:
-                command.extend(("--behavior-seed", args.behavior_seed))
             command.append(args.name)
             return (
                 f"cataloged exact test is ignored: {args.name}",
@@ -831,10 +806,7 @@ def report_cargo_success(
         scope = GAMEPLAY_PROBE_SCOPES[args.name]
         details.append(f"evidence={gameplay_targets.gameplay_evidence_mode(scope)}")
     if replay and GAMEPLAY_VARIATION_ENV in replay:
-        roots = replay[GAMEPLAY_VARIATION_ENV]
-        if behavior := replay.get(GAMEPLAY_BEHAVIOR_ENV):
-            roots = f"{roots}/{behavior}"
-        details.append(f"roots={roots}")
+        details.append(f"variation={replay[GAMEPLAY_VARIATION_ENV]}")
     print(f"PASS {args.target}::{args.name} ({'; '.join(details)})")
 
 

@@ -14,7 +14,6 @@ use deep_hearth::maintenance::Condition;
 fn replay(seed: u64) -> FocusedProbeCase {
     FocusedProbeCase::new(
         seed,
-        None,
         super::super::focused_case::FocusedProbeRole::ExplicitReplay,
     )
 }
@@ -62,12 +61,10 @@ fn four_case_organic_fieldwork_sample_spans_every_demand_horizon() {
         variation_count: 4,
         scenario_raw: None,
         variation_raw: Some("0x1234"),
-        behavior_raw: None,
         maintained_seed: 1,
         maintained_coverage_seeds: &[0, 2, 3, 5, 6, FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED, 11],
         probe_salt: FIELDWORK_PROBE_SALT,
         default_variation_root: 0,
-        default_behavior_root: None,
     })
     .unwrap_or_else(|error| panic!("fieldwork organic horizon seed plan failed: {error:?}"));
     let horizons = cases
@@ -95,12 +92,10 @@ fn exploratory_fieldwork_sample_spans_demand_and_reserve_pressure_independently(
         variation_count: super::super::focused_seeds::exploratory_variation_count("fieldwork"),
         scenario_raw: None,
         variation_raw: Some("0x1234"),
-        behavior_raw: None,
         maintained_seed: 1,
         maintained_coverage_seeds: &[0, 2, 3, 5, 6, FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED, 11],
         probe_salt: FIELDWORK_PROBE_SALT,
         default_variation_root: 0,
-        default_behavior_root: None,
     })
     .unwrap_or_else(|error| panic!("fieldwork exploratory seed plan failed: {error:?}"));
     let base_batch = fieldwork_mining_limits(&registries).base_quarry_batch;
@@ -148,7 +143,7 @@ fn organic_fieldwork_hardness_varies_independently_of_demand_and_reserve_strata(
         let mut stratum_geology = BTreeSet::new();
         for high_entropy in 0_u64..16 {
             let seed = physical_stratum | (high_entropy << 4);
-            let case = FocusedProbeCase::new(seed, Some(0), FocusedProbeRole::OrganicVariation);
+            let case = FocusedProbeCase::new(seed, FocusedProbeRole::OrganicVariation);
             let requested = fieldwork_order_for_case(&registries, case);
             let supply = fieldwork_supply_for_case(&registries, case);
             let (_, diagnostics) = super::world::build_fieldwork_world_with_diagnostics(

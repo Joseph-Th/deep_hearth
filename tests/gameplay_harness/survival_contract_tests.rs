@@ -15,8 +15,7 @@ use deep_hearth::material::CommodityKey;
 use deep_hearth::registry::{CommoditySource, CommodityUse};
 
 use super::focused_witnesses::{
-    SURVIVAL_DECLINE_COVERAGE_SEED, SURVIVAL_STRONG_PRESERVATION_BEHAVIOR_SEED,
-    SURVIVAL_STRONG_PRESERVATION_COVERAGE_SEED,
+    SURVIVAL_DECLINE_COVERAGE_SEED, SURVIVAL_STRONG_PRESERVATION_COVERAGE_SEED,
 };
 use super::preservation_route::preservation_construction_plan;
 use super::survival_preservation_catalog::preservation_storage_candidates;
@@ -25,7 +24,7 @@ use super::survival_probe::preservation_decision::{
     SignedResourceDelta, evaluate_preservation_decision,
 };
 use super::survival_probe::preservation_evaluation::{
-    project_preservation_candidates_with_raw_opportunity, select_preservation_projection,
+    project_preservation_candidates_with_raw_opportunity,
     select_preservation_projection_for_attention_value,
 };
 use super::survival_provisioning_policy::{DietProvisioningPolicy, selected_food_indices};
@@ -166,7 +165,6 @@ fn maintained_survival_coverage_evaluates_strongest_buildable_preservation_witho
     let decision = evaluate_preservation_decision(
         &registries,
         SURVIVAL_STRONG_PRESERVATION_COVERAGE_SEED,
-        SURVIVAL_STRONG_PRESERVATION_BEHAVIOR_SEED,
         world.foods[world.witness_index],
         world.preserved_reserve_mass,
     );
@@ -235,6 +233,35 @@ fn preservation_can_decline_a_low_benefit_singleton() {
 }
 
 #[test]
+fn preservation_considers_every_qualifying_return_before_selecting_an_enclosure() {
+    use super::survival_probe::preservation_evaluation::{
+        PreservationCandidateProjection, select_preservation_investment,
+    };
+
+    let long_build = PreservationCandidateProjection {
+        definition: STORAGE_TIMBER_PROVISIONS_CHEST,
+        production_ticks: 100,
+        raw_material_mass_mg: 2_000_000,
+        ambient_remaining_fresh_ticks: 0,
+        remaining_fresh_ticks: 190,
+    };
+    let short_build = PreservationCandidateProjection {
+        definition: STORAGE_ROUGH_TIMBER_FIELD_BOX,
+        production_ticks: 10,
+        raw_material_mass_mg: 1_000_000,
+        ambient_remaining_fresh_ticks: 0,
+        remaining_fresh_ticks: 30,
+    };
+
+    // The long build ranks higher at a one-to-one attention value, but only the
+    // short build clears the separately declared two-to-one commitment floor.
+    assert_eq!(
+        select_preservation_investment(1_000_000, 2_000_000, 2_000_000, &[long_build, short_build],),
+        Some(short_build),
+    );
+}
+
+#[test]
 fn preservation_declines_when_no_enclosure_fits_the_material_budget() {
     use super::survival_probe::preservation_evaluation::{
         PreservationCandidateProjection, select_preservation_investment,
@@ -257,12 +284,10 @@ fn preservation_declines_when_no_enclosure_fits_the_material_budget() {
 fn preservation_opportunity_never_expands_the_actors_material_commitment() {
     let registries = build_registries();
     let seed = 0x51A2_0001;
-    let behavior_seed = 0_u64; // Forty percent of the available raw matter.
     let world = provisioning_world(&registries, seed);
     let review = evaluate_preservation_decision(
         &registries,
         seed,
-        behavior_seed,
         world.foods[world.witness_index],
         world.preserved_reserve_mass,
     );
@@ -272,10 +297,7 @@ fn preservation_opportunity_never_expands_the_actors_material_commitment() {
         .iter()
         .map(|(_, mass)| u128::from(mass.milligrams()))
         .sum::<u128>();
-    let budget = u64::try_from(
-        available * u128::from(preservation_material_budget_ppm(behavior_seed)) / 1_000_000,
-    )
-    .expect("bounded resource commitment fits u64");
+    let budget = u64::try_from(available).expect("bounded raw opportunity fits u64");
     let eligible = review
         .projections
         .iter()
@@ -367,18 +389,15 @@ fn preservation_material_budget_makes_intermediate_frontier_actionable() {
 #[test]
 fn preservation_decline_executes_without_spending_the_raw_opportunity() {
     use super::survival_probe::preservation_decision::evaluate_preservation_decision;
-    const DECLINE_POLICY_REPLAY_SEED: u64 = 0x9B76_F388_4EA8_CF64;
 
     let registries = build_registries();
-    // Replayed ordinary world/policy pair where retaining the disclosed raw opportunity outranks
-    // every enclosure. The contract is the no-build decision and unspent opportunity, not any
-    // particular preservation tuning trajectory.
+    // A fixed-script comparison should retain the disclosed raw opportunity
+    // when the reserve gains too little additional freshness.
     let seed = SURVIVAL_DECLINE_COVERAGE_SEED;
     let world = provisioning_world(&registries, seed);
     let decision = evaluate_preservation_decision(
         &registries,
         seed,
-        DECLINE_POLICY_REPLAY_SEED,
         world.foods[world.witness_index],
         world.preserved_reserve_mass,
     );
@@ -406,11 +425,7 @@ fn preservation_raw_bootstrap_is_explicit_not_inferred_from_missing_producers() 
         FORM_INGOT,
     )));
 }
-use super::survival_probe::{
-    PreservationInvestmentPolicy, preservation_attention_value_ppm,
-    preservation_material_budget_ppm, preservation_minimum_return_ppm,
-    prospecting_method_for_work_pressure,
-};
+use super::survival_probe::{PreservationInvestmentPolicy, prospecting_method_for_work_pressure};
 
 #[test]
 fn survival_explanation_marks_singleton_enclosure_without_forcing_investment() {
@@ -703,32 +718,6 @@ fn survival_investment_policy_generation_stays_bounded_and_registry_valid() {
         assert!(sampled_prospecting.len() > 1);
     }
 
-    let preservation_attention_values = (1_u64..=32)
-        .map(preservation_attention_value_ppm)
-        .collect::<BTreeSet<_>>();
-    assert!(preservation_attention_values.len() > 1);
-    assert!(
-        preservation_attention_values
-            .iter()
-            .all(|value| (1_000_000..=10_000_000).contains(value))
-    );
-    let preservation_minimum_returns = (1_u64..=32)
-        .map(preservation_minimum_return_ppm)
-        .collect::<BTreeSet<_>>();
-    assert!(preservation_minimum_returns.len() > 1);
-    assert!(
-        preservation_minimum_returns
-            .iter()
-            .all(|value| (1_000_000..=4_000_000).contains(value))
-    );
-    let preservation_material_budgets = (0_u64..4)
-        .map(preservation_material_budget_ppm)
-        .collect::<BTreeSet<_>>();
-    assert_eq!(
-        preservation_material_budgets,
-        BTreeSet::from([400_000, 600_000, 850_000, 1_000_000]),
-        "four independently stratified behavior cases must cover every preservation material-commitment band"
-    );
     let projection_world = provisioning_world(&registries, 0x51A2_0001);
     let projected = project_preservation_candidates_with_raw_opportunity(
         &registries,
@@ -870,9 +859,12 @@ fn survival_investment_policy_generation_stays_bounded_and_registry_valid() {
         original.preserved_reserve_mass,
         None,
     );
-    for behavior_seed in 1_u64..=4 {
-        let _selected =
-            select_preservation_projection(behavior_seed, unlimited_material_budget, &projected);
+    for attention_value in [1_000_000, 4_000_000, 10_000_000] {
+        let _selected = select_preservation_projection_for_attention_value(
+            attention_value,
+            unlimited_material_budget,
+            &projected,
+        );
         let replay = provisioning_world(&registries, 0x51A2_0001);
         assert_eq!(
             (

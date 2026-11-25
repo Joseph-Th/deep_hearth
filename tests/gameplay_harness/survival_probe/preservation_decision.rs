@@ -11,12 +11,11 @@ use super::preservation_evaluation::{
     PreservationCandidateProjection, PreservationInfrastructureReview,
     evaluate_preservation_infrastructure_definition_with_raw_opportunity,
     preservation_physical_frontier, project_preservation_candidates_with_raw_opportunity,
-    select_preservation_investment, select_preservation_projection,
+    select_preservation_investment, select_preservation_projection_for_attention_value,
 };
 use super::{
-    FoodDefinition, Mass, PreservationInvestmentPolicy, Registries, StorageDefinitionId,
-    preservation_attention_value_ppm, preservation_material_budget_ppm,
-    preservation_minimum_return_ppm,
+    FoodDefinition, Mass, PRESERVATION_RETURN_PPM, PreservationInvestmentPolicy, Registries,
+    StorageDefinitionId,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -216,7 +215,6 @@ fn evaluate_no_build(
 pub(in super::super) fn evaluate_preservation_decision(
     registries: &Registries,
     seed: u64,
-    behavior_seed: u64,
     protected_food: FoodDefinition,
     protected_reserve_mass: Mass,
 ) -> PreservationDecisionReview {
@@ -244,29 +242,28 @@ pub(in super::super) fn evaluate_preservation_decision(
         protected_reserve_mass,
         Some(available),
     );
-    let preservation_attention_value_ppm = preservation_attention_value_ppm(behavior_seed);
-    let preservation_minimum_return_ppm = preservation_minimum_return_ppm(behavior_seed);
-    let material_budget_ppm = preservation_material_budget_ppm(behavior_seed);
-    let available_raw_mg = available
+    let preservation_attention_value_ppm = PRESERVATION_RETURN_PPM;
+    let preservation_minimum_return_ppm = PRESERVATION_RETURN_PPM;
+    let material_budget_ppm = 1_000_000;
+    // The disclosed stock is the entire available construction opportunity;
+    // the script does not invent a separate appetite for spending it.
+    let material_budget_mg = available
         .iter()
         .try_fold(0_u64, |total, (_, mass)| {
             total.checked_add(mass.milligrams())
         })
         .unwrap_or_else(|| panic!("preservation disclosed raw opportunity overflowed"));
-    let material_budget_mg =
-        u64::try_from(u128::from(available_raw_mg) * u128::from(material_budget_ppm) / 1_000_000)
-            .unwrap_or_else(|_| unreachable!("bounded preservation material budget fits u64"));
     let material_budget_eligible_count = projections
         .iter()
         .filter(|projection| projection.raw_material_mass_mg <= material_budget_mg)
         .count();
-    let investment = select_preservation_investment(
+    let committed_projection = select_preservation_investment(
         preservation_attention_value_ppm,
         preservation_minimum_return_ppm,
         material_budget_mg,
         &projections,
-    )
-    .map(|projection| projection.definition);
+    );
+    let investment = committed_projection.map(|projection| projection.definition);
     let attention = evaluate_preservation_infrastructure_definition_with_raw_opportunity(
         registries,
         seed,
@@ -327,16 +324,15 @@ pub(in super::super) fn evaluate_preservation_decision(
         )
         .unwrap_or(u32::MAX)
     };
-    // A market can offer an enclosure that the actor cannot currently afford.
-    // Retain its counterfactual comparison without raising the spending limit
-    // or admitting the construction as an investment.
-    let comparison_budget_mg = if material_budget_eligible_count == 0 {
-        available_raw_mg
-    } else {
-        material_budget_mg
-    };
-    let selected_projection =
-        select_preservation_projection(behavior_seed, comparison_budget_mg, &projections);
+    // Execute the committed candidate when one qualified; otherwise retain an
+    // explicitly counterfactual enclosure for the no-build comparison.
+    let selected_projection = committed_projection.unwrap_or_else(|| {
+        select_preservation_projection_for_attention_value(
+            preservation_attention_value_ppm,
+            material_budget_mg,
+            &projections,
+        )
+    });
     let physical_frontier = preservation_physical_frontier(&projections);
     let selected_on_physical_frontier = physical_frontier.contains(&selected_projection.definition);
     let selected_within_material_budget =

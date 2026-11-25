@@ -25,7 +25,7 @@ fn expected_campaign_horizons() -> std::collections::BTreeSet<u64> {
 fn maintained_fieldwork_witnesses_span_campaign_horizons() {
     use super::super::super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 
-    let maintained = |seed| FocusedProbeCase::new(seed, None, FocusedProbeRole::MaintainedCoverage);
+    let maintained = |seed| FocusedProbeCase::new(seed, FocusedProbeRole::MaintainedCoverage);
     let horizons = (0..128)
         .map(|seed| planned_future_sites(maintained(seed)))
         .collect::<std::collections::BTreeSet<_>>();
@@ -42,9 +42,9 @@ fn campaign_workload_replays_without_actor_entropy() {
 
     let mut horizons = std::collections::BTreeSet::new();
     for seed in 0..128 {
-        let maintained = FocusedProbeCase::new(seed, None, FocusedProbeRole::MaintainedCoverage);
-        let organic = FocusedProbeCase::new(seed, None, FocusedProbeRole::OrganicVariation);
-        let replay = FocusedProbeCase::new(seed, None, FocusedProbeRole::ExplicitReplay);
+        let maintained = FocusedProbeCase::new(seed, FocusedProbeRole::MaintainedCoverage);
+        let organic = FocusedProbeCase::new(seed, FocusedProbeRole::OrganicVariation);
+        let replay = FocusedProbeCase::new(seed, FocusedProbeRole::ExplicitReplay);
         let horizon = planned_future_sites(maintained);
         assert_eq!(planned_future_sites(organic), horizon);
         assert_eq!(planned_future_sites(replay), horizon);

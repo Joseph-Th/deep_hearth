@@ -8,7 +8,7 @@ use deep_hearth::registry::Registries;
 use super::focused_case::{FocusedProbeCase, FocusedProbeRole};
 use super::focused_seeds::{
     FIELDWORK_PROBE_SALT, FocusedProbeSeedPlan, exploratory_variation_count,
-    focused_probe_cases_from, probe_uses_behavior_seed,
+    focused_probe_cases_from,
 };
 use super::focused_witnesses::{
     FIELDWORK_ADAPTIVE_RETOOL_COVERAGE_SEED, FIELDWORK_PROJECT_HORIZON_COVERAGE_SEED,
@@ -16,9 +16,8 @@ use super::focused_witnesses::{
     FOUNDRY_THERMAL_RECOVERY_COVERAGE_SEED, LIBERATION_MANUAL_FALLBACK_COVERAGE_SEED,
     ORE_FINITE_ENERGY_COVERAGE_SEED, PROGRESSION_MAINTAINED_ANCHOR_SEED,
     PROGRESSION_REFINEMENT_COVERAGE_SEED, PROGRESSION_SURFACE_RESOLVED_COVERAGE_SEED,
-    SURVIVAL_BALANCED_PRESERVATION_BEHAVIOR_SEED, SURVIVAL_BALANCED_PRESERVATION_COVERAGE_SEED,
-    SURVIVAL_CONTINUATION_COVERAGE_SEED, SURVIVAL_DECLINE_COVERAGE_SEED,
-    SURVIVAL_STRONG_PRESERVATION_BEHAVIOR_SEED, SURVIVAL_STRONG_PRESERVATION_COVERAGE_SEED,
+    SURVIVAL_BALANCED_PRESERVATION_COVERAGE_SEED, SURVIVAL_CONTINUATION_COVERAGE_SEED,
+    SURVIVAL_DECLINE_COVERAGE_SEED, SURVIVAL_STRONG_PRESERVATION_COVERAGE_SEED,
     WOODWORKING_BARE_HANDS_COVERAGE_SEED, WOODWORKING_COPPER_BLOCKED_COVERAGE_SEED,
     WOODWORKING_MAINTAINED_ANCHOR_SEED, WOODWORKING_REINFORCED_PAYBACK_COVERAGE_SEED,
     WOODWORKING_REINFORCED_RESERVE_COVERAGE_SEED, WOODWORKING_SAW_SERVICE_COVERAGE_SEED,
@@ -27,29 +26,6 @@ use super::focused_witnesses::{
 #[cfg(not(test))]
 use super::fresh_seed::fresh_root;
 use super::seed::MAINTAINED_VARIATION_ROOT;
-
-fn maintained_behavior_override(name: &str, case: FocusedProbeCase) -> Option<u64> {
-    match (name, case.role(), case.seed()) {
-        // This world exposes the full timber preservation frontier. The maintained actor is
-        // deliberately patient but not all-in on material, so the double-wall chest wins between
-        // the fast field box and stronger pantry. Keep this deterministic witness while organic
-        // behavior remains independently varied from the fresh behavior root.
-        (
-            "survival-provisioning",
-            FocusedProbeRole::MaintainedCoverage,
-            SURVIVAL_BALANCED_PRESERVATION_COVERAGE_SEED,
-        ) => Some(SURVIVAL_BALANCED_PRESERVATION_BEHAVIOR_SEED),
-        // This second choice-rich preservation world protects the opposite endpoint. The actor
-        // has enough disclosed timber to build the strongest pantry and values its much longer
-        // fresh-food window enough to accept the additional construction attention and matter.
-        (
-            "survival-provisioning",
-            FocusedProbeRole::MaintainedCoverage,
-            SURVIVAL_STRONG_PRESERVATION_COVERAGE_SEED,
-        ) => Some(SURVIVAL_STRONG_PRESERVATION_BEHAVIOR_SEED),
-        _ => None,
-    }
-}
 
 fn probe_scope(name: &str) -> &'static str {
     match name {
@@ -161,7 +137,7 @@ fn probe_seed_spec(name: &str) -> (u64, &'static [u64], u64) {
             0x504F_5752_5052_4F42,
         ),
         // Settlement investment keeps one maintained case on each side of the live mechanization
-        // crossover; organic variation supplies independent demand, wear, and actor policy so the
+        // crossover; organic variation supplies independent demand and wear so the
         // investment result emerges from current economics instead of being selected by generation.
         "settlement" => (
             0xD33F_C01D_5E77,
@@ -195,19 +171,11 @@ pub(super) fn run_focused_probe(name: &str, probe: fn(&Registries, FocusedProbeC
     let registries = build_registries();
     let (_maintained_seed, _coverage, salt) = probe_seed_spec(name);
     let variation_root = MAINTAINED_VARIATION_ROOT ^ salt ^ 0x4741_5445_5F57_4F52;
-    let behavior_root = MAINTAINED_VARIATION_ROOT ^ salt.rotate_left(23) ^ 0x4741_5445_5F42_4856;
     let explore = env::var_os("DEEP_HEARTH_GAMEPLAY_REPORT").is_some();
     if explore {
         print_simulation_time(&registries);
     }
-    run_focused_probe_with_registries(
-        &registries,
-        name,
-        probe,
-        explore,
-        variation_root,
-        behavior_root,
-    );
+    run_focused_probe_with_registries(&registries, name, probe, explore, variation_root);
 }
 
 #[cfg(not(test))]
@@ -220,16 +188,7 @@ pub(super) fn run_focused_report(name: &str, probe: fn(&Registries, FocusedProbe
     print_simulation_time(&registries);
     let (_maintained_seed, _coverage, salt) = probe_seed_spec(name);
     let variation_root = fresh_root(MAINTAINED_VARIATION_ROOT ^ salt ^ 0x4558_504C_5F57_4F52);
-    let behavior_root =
-        fresh_root(MAINTAINED_VARIATION_ROOT ^ salt.rotate_left(23) ^ 0x4558_504C_5F42_4856);
-    run_focused_probe_with_registries(
-        &registries,
-        name,
-        probe,
-        true,
-        variation_root,
-        behavior_root,
-    );
+    run_focused_probe_with_registries(&registries, name, probe, true, variation_root);
 }
 
 pub(super) fn run_focused_probe_with_registries(
@@ -238,15 +197,8 @@ pub(super) fn run_focused_probe_with_registries(
     probe: fn(&Registries, FocusedProbeCase),
     explore: bool,
     default_variation_root: u64,
-    default_behavior_root: u64,
 ) {
     let (maintained_seed, maintained_coverage_seeds, salt) = probe_seed_spec(name);
-    let uses_behavior_seed = probe_uses_behavior_seed(name);
-    let behavior_root = if uses_behavior_seed {
-        Some(default_behavior_root)
-    } else {
-        None
-    };
     let scenario_raw = env::var("DEEP_HEARTH_GAMEPLAY_SEEDS").ok();
     let requested_variation_raw = routine_variation_selected(name)
         .then(|| env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").ok())
@@ -263,56 +215,27 @@ pub(super) fn run_focused_probe_with_registries(
     let variation_raw = (variation_count > 0)
         .then_some(requested_variation_raw.as_deref())
         .flatten();
-    let behavior_raw = if uses_behavior_seed && (variation_count > 0 || scenario_raw.is_some()) {
-        env::var("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED").ok()
-    } else {
-        None
-    };
     let cases = focused_probe_cases_from(FocusedProbeSeedPlan {
         variation_count,
         scenario_raw: scenario_raw.as_deref(),
         variation_raw,
-        behavior_raw: behavior_raw.as_deref(),
         maintained_seed,
         maintained_coverage_seeds,
         probe_salt: salt,
         default_variation_root,
-        default_behavior_root: behavior_root,
     })
     .unwrap_or_else(|error| panic!("gameplay focused probe seed configuration failed: {error:?}"));
-    let cases = cases
-        .into_iter()
-        .map(|case| {
-            maintained_behavior_override(name, case).map_or(case, |behavior_seed| {
-                FocusedProbeCase::new(case.seed(), Some(behavior_seed), case.role())
-            })
-        })
-        .collect::<Vec<_>>();
     let replay = if variation_count == 0 && scenario_raw.is_none() {
         "maintained".to_owned()
     } else {
         cases
             .iter()
-            .map(|case| {
-                if uses_behavior_seed {
-                    let behavior_seed = case.behavior_seed().unwrap_or_else(|| {
-                        panic!("focused actor probe {name:?} lost its behavior seed")
-                    });
-                    format!(
-                        "{}:0x{:016X}@0x{:016X}",
-                        case.role().label(),
-                        case.seed(),
-                        behavior_seed,
-                    )
-                } else {
-                    format!("{}:0x{:016X}", case.role().label(), case.seed(),)
-                }
-            })
+            .map(|case| format!("{}:0x{:016X}", case.role().label(), case.seed()))
             .collect::<Vec<_>>()
             .join(",")
     };
     std::println!(
-        "PROBE INPUT name={name} mode={} samples={} organic={} world_root={} behavior_root={} replay={replay}",
+        "PROBE INPUT name={name} mode={} samples={} organic={} world_root={} replay={replay}",
         if explore { "explore" } else { "gate" },
         cases.len(),
         cases
@@ -330,17 +253,6 @@ pub(super) fn run_focused_probe_with_registries(
             },
             |_| "explicit".to_owned(),
         ),
-        if uses_behavior_seed {
-            if variation_count == 0 && scenario_raw.is_none() {
-                "maintained".to_owned()
-            } else {
-                behavior_raw
-                    .as_deref()
-                    .map_or_else(|| format!("0x{default_behavior_root:016X}"), str::to_owned)
-            }
-        } else {
-            "unused".to_owned()
-        },
     );
 
     for case in cases {

@@ -99,7 +99,7 @@ fn organic_foundry_generation_does_not_read_the_build_threshold() {
         (3, FocusedProbeRole::OrganicVariation),
         (0x1234_5678_9ABC_DEF0, FocusedProbeRole::ExplicitReplay),
     ] {
-        let case = FocusedProbeCase::new(seed, None, role);
+        let case = FocusedProbeCase::new(seed, role);
         let (route_plan, ingots, settlement_cast) = opportunity_inputs(&registries, case);
         let baseline = foundry_resource_opportunity(
             &registries,
@@ -147,7 +147,7 @@ fn organic_foundry_worlds_follow_prior_progression_scales_and_vary() {
     let registries = deep_hearth::content::build_registries();
     let opportunities = (1_u64..=96)
         .map(|seed| {
-            let case = FocusedProbeCase::new(seed, None, FocusedProbeRole::OrganicVariation);
+            let case = FocusedProbeCase::new(seed, FocusedProbeRole::OrganicVariation);
             let (route_plan, ingots, settlement_cast) = opportunity_inputs(&registries, case);
             let opportunity = foundry_resource_opportunity(
                 &registries,
@@ -215,15 +215,15 @@ fn maintained_foundry_worlds_pin_opposite_sides_of_current_threshold() {
         )
     };
     let anchor = opportunity(
-        FocusedProbeCase::new(1, None, FocusedProbeRole::MaintainedAnchor),
+        FocusedProbeCase::new(1, FocusedProbeRole::MaintainedAnchor),
         false,
     );
     let recovery_coverage = opportunity(
-        FocusedProbeCase::new(2, None, FocusedProbeRole::MaintainedCoverage),
+        FocusedProbeCase::new(2, FocusedProbeRole::MaintainedCoverage),
         true,
     );
     let coverage = opportunity(
-        FocusedProbeCase::new(3, None, FocusedProbeRole::MaintainedCoverage),
+        FocusedProbeCase::new(3, FocusedProbeRole::MaintainedCoverage),
         false,
     );
 
@@ -250,11 +250,7 @@ fn inherited_workshop_condition_keeps_maintained_witnesses_pristine_and_varies_o
         FocusedProbeRole::MaintainedCoverage,
     ] {
         assert_eq!(
-            inherited_equipment_condition(
-                &registries,
-                definition,
-                FocusedProbeCase::new(7, None, role),
-            ),
+            inherited_equipment_condition(&registries, definition, FocusedProbeCase::new(7, role),),
             Condition::PRISTINE
         );
     }
@@ -269,7 +265,7 @@ fn inherited_workshop_condition_keeps_maintained_witnesses_pristine_and_varies_o
             inherited_equipment_condition(
                 &registries,
                 definition,
-                FocusedProbeCase::new(seed, None, FocusedProbeRole::OrganicVariation),
+                FocusedProbeCase::new(seed, FocusedProbeRole::OrganicVariation),
             )
         })
         .collect::<BTreeSet<_>>();

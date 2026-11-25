@@ -64,10 +64,7 @@ use super::temporal::advance_idle_ticks;
 
 #[path = "survival_probe/preservation.rs"]
 pub(super) mod preservation;
-pub(super) use preservation::{
-    PreservationInvestmentPolicy, preservation_attention_value_ppm,
-    preservation_material_budget_ppm, preservation_minimum_return_ppm,
-};
+pub(super) use preservation::{PRESERVATION_RETURN_PPM, PreservationInvestmentPolicy};
 
 #[path = "survival_probe/preservation_evaluation.rs"]
 pub(super) mod preservation_evaluation;
@@ -238,7 +235,6 @@ pub(super) struct DietRecoveryReview {
 struct SurvivalProbeEvaluation {
     seed: u64,
     sample: &'static str,
-    behavior_seed: u64,
     world: ProvisioningWorld,
     preservation_decision: preservation_decision::PreservationDecisionReview,
     work_pressure: work_pressure::SurvivalWorkPressureReview,
@@ -252,20 +248,14 @@ fn evaluate_survival_provisioning_probe(
 ) -> SurvivalProbeEvaluation {
     let seed = case.seed();
     let sample = case.role().label();
-    let behavior_seed = case.required_behavior_seed("survival provisioning policy");
     let world = provisioning_world(registries, seed);
     let protected_food = world.foods[world.witness_index];
     let protected_reserve_mass = world.preserved_reserve_mass;
-    let preservation_decision = evaluate_preservation_decision(
-        registries,
-        seed,
-        behavior_seed,
-        protected_food,
-        protected_reserve_mass,
-    );
+    let preservation_decision =
+        evaluate_preservation_decision(registries, seed, protected_food, protected_reserve_mass);
     evaluate_survival_pressure_response_probe(registries, seed);
     let work_pressure = evaluate_survival_work_pressure_probe(registries, seed);
-    let integrated_work = evaluate_integrated_survival_work_loop(registries, seed, behavior_seed);
+    let integrated_work = evaluate_integrated_survival_work_loop(registries, seed);
     if case.role() == FocusedProbeRole::MaintainedCoverage
         && seed == SURVIVAL_CONTINUATION_COVERAGE_SEED
     {
@@ -282,11 +272,10 @@ fn evaluate_survival_provisioning_probe(
         );
     }
 
-    let diet_comparison = evaluate_provisioning_comparison(registries, behavior_seed, &world);
+    let diet_comparison = evaluate_provisioning_comparison(registries, &world);
     SurvivalProbeEvaluation {
         seed,
         sample,
-        behavior_seed,
         world,
         preservation_decision,
         work_pressure,

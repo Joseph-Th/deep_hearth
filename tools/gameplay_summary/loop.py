@@ -529,8 +529,6 @@ def _survival_adaptation_evidence(
     continuations = sum(" continuation:true " in line for line in survival)
     followup_drinks = sum(" followup-drink:true:" in line for line in survival)
     power_drinks = sum(" power-drink:true:" in line for line in survival)
-    task_floor = sum("hydration-policy:task-floor " in line for line in survival)
-    working_reserve = sum("hydration-policy:working-reserve " in line for line in survival)
     opportunity_power = sum(" opportunity-power:true " in line for line in survival)
     executed_power = 0
     for line in survival:
@@ -581,7 +579,7 @@ def _survival_adaptation_evidence(
         f"followup-drinks:{_conditional_ratio(followup_drinks, followup_surveys)} "
         f"stored-work:{_conditional_ratio(executed_power, opportunity_power)} "
         f"power-drinks:{_conditional_ratio(power_drinks, opportunity_power)} "
-        f"policy:task-floor{task_floor}/working-reserve{working_reserve}] "
+        "policy:task-floor] "
         f"sustained-project-provisioning=[breaks:{sum(value > 0 for value in project_breaks)}/{len(project_breaks)} "
         f"events:{sum(project_breaks)} drinks:{sum(project_drinks)} meals:{sum(project_meals)}] "
         f"warning-safe:{sum(' warning-safe:true' in line for line in survival)}/{len(survival)}"

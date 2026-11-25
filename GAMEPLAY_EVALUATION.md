@@ -79,10 +79,13 @@ machine from setup. During an active delegated production job the actor crafts t
 drawplate from actual raw material, then consumes it in canonical drawbench assembly. Both
 productive overlap and remaining delegated time are checked against executed ticks.
 
-Scenario replay roots vary disclosed physical and workload pressures, not player personalities. Workshop,
-woodworking, power-provider, settlement, and fieldwork use world replay roots only. In fieldwork the
-future-site workload derives from the scenario seed, independently of acquired survey evidence. Remaining
-legacy survival preference variation is not evidence of human player behavior and must not be extended.
+Scenario replay uses a single world variation root for disclosed physical and workload pressures. Fieldwork
+derives its future-site workload independently of acquired survey evidence; wilderness samples vary admitted
+starting reserves and declared camp goals. Survival's fixed comparison commits an affordable enclosure only
+when additional fresh-food lifetime exceeds construction attention, with the disclosed raw stock as its
+material limit. Integrated work provisions the projected hydration floor for each observed task; equal
+normalized provisioning deficits use drinking first. These are disclosed experimental rules, not evidence of
+human preferences. Matched physical comparisons retain their separate counterfactual branches.
 
 When production exposes a player/UI planner for an ordinary choice, the harness uses that planner instead of
 reconstructing its selection rules. Live manual-craft discovery comes from the production stockpile recipe catalog;
@@ -201,8 +204,8 @@ evaluated worlds and horizons.
 
 ## Decision evidence
 
-A material automated decision records one coherent frame: world/variation seed, behavior
-seed where applicable, tick, actor perspective, important legitimate observations, bounded candidate set,
+A material automated decision records one coherent frame: world/variation seed,
+tick, declared task, actor perspective, important legitimate observations, bounded candidate set,
 representative production blockers, selected action or explicit no-action, policy rationale, typed result, and
 important immediate/delayed consequences.
 

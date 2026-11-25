@@ -8,10 +8,15 @@ from dataclasses import dataclass
 GAMEPLAY_CONTRACTS_TARGET = "gameplay_contracts"
 GAMEPLAY_AUDIT_TARGET = "gameplay_audit"
 GAMEPLAY_FEATURE = "test-gameplay"
+GAMEPLAY_SCENARIOS_ENV = "DEEP_HEARTH_GAMEPLAY_SEEDS"
 GAMEPLAY_VARIATION_ENV = "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"
-GAMEPLAY_BEHAVIOR_ENV = "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED"
 GAMEPLAY_VARIATION_SCOPE_ENV = "DEEP_HEARTH_GAMEPLAY_VARIATION_SCOPE"
 GAMEPLAY_REPORT_MODE_ENV = "DEEP_HEARTH_GAMEPLAY_REPORT"
+GAMEPLAY_SEED_ENV_KEYS = (
+    GAMEPLAY_SCENARIOS_ENV,
+    GAMEPLAY_VARIATION_ENV,
+    GAMEPLAY_VARIATION_SCOPE_ENV,
+)
 
 EVIDENCE_ORDINARY_EXACT_LOCAL = "ordinary-exact-local-after-disclosed-bootstrap"
 EVIDENCE_ORDINARY_GENERATED_OPENING = "ordinary-generated-opening+exact-local-after-admission"
@@ -23,7 +28,6 @@ EVIDENCE_CONTROLLED_CAPABILITY = "controlled-capability"
 class GameplayScopeSpec:
     target: str
     test: str
-    uses_behavior_seed: bool = False
     evidence_mode: str = EVIDENCE_ORDINARY_EXACT_LOCAL
 
 
@@ -36,12 +40,10 @@ GAMEPLAY_SCOPE_SPECS = {
     "survival": GameplayScopeSpec(
         "gameplay_survival",
         "gameplay_survival_provisioning_probe",
-        True,
     ),
     "wilderness": GameplayScopeSpec(
         "gameplay_wilderness",
         "wilderness_contract_tests::generated_wilderness_opening_stabilizes_without_premature_investment",
-        True,
         evidence_mode=EVIDENCE_ORDINARY_GENERATED_OPENING,
     ),
     "progression": GameplayScopeSpec(
@@ -226,7 +228,4 @@ GAMEPLAY_REPORT_SCOPE_BY_PROBE = {
 def gameplay_evidence_mode(scope: str) -> str:
     return GAMEPLAY_SCOPE_SPECS[scope].evidence_mode
 GAMEPLAY_PROBE_TESTS = frozenset(GAMEPLAY_PROBE_TARGETS)
-GAMEPLAY_BEHAVIOR_PROBE_TESTS = frozenset(
-    spec.test for spec in GAMEPLAY_SCOPE_SPECS.values() if spec.uses_behavior_seed
-)
 GAMEPLAY_ROUTINE_VARIATION_SCOPES = tuple(GAMEPLAY_SCOPE_SPECS)

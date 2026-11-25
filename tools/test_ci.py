@@ -1548,14 +1548,6 @@ class TestTopologyContractTests(unittest.TestCase):
         expected = set(ci.GAMEPLAY_TESTS.values())
         self.assertEqual(gameplay_targets.GAMEPLAY_PROBE_TESTS, expected)
         self.assertEqual(
-            gameplay_targets.GAMEPLAY_BEHAVIOR_PROBE_TESTS,
-            {
-                spec.test
-                for spec in ci.GAMEPLAY_SCOPE_SPECS.values()
-                if spec.uses_behavior_seed
-            },
-        )
-        self.assertEqual(
             gameplay_targets.GAMEPLAY_PROBE_TARGETS[ci.GAMEPLAY_TESTS["survival"]],
             ci.GAMEPLAY_TARGETS["survival"],
         )
@@ -1843,51 +1835,51 @@ class GameplayCiRoutingTests(unittest.TestCase):
         self.assertEqual(
             ci.gameplay_replay_summary(
                 "PROBE INPUT name=survival-provisioning mode=explore samples=2 organic=1 "
-                "world_root=0x111 behavior_root=0x222 "
-                "replay=anchor:0xA@0x1,organic:0xC@0x3\n"
+                "world_root=0x111 "
+                "replay=anchor:0xA,organic:0xC\n"
             ),
-            "roots=0x111/0x222",
+            "variation=0x111",
         )
         self.assertEqual(
             ci.gameplay_replay_summary(
                 "PROBE INPUT name=survival-provisioning mode=gate samples=3 organic=1 "
-                "world_root=0x111 behavior_root=0x222 "
-                "replay=anchor:0xA@0x1,coverage:0xB@0x2,organic:0xC@0x3\n"
+                "world_root=0x111 "
+                "replay=anchor:0xA,coverage:0xB,organic:0xC\n"
             ),
-            "roots=0x111/0x222",
+            "variation=0x111",
         )
         self.assertEqual(
             ci.gameplay_replay_summary(
                 "PROBE INPUT name=survival-provisioning mode=gate samples=2 organic=0 "
-                "world_root=explicit behavior_root=0x222 "
-                "replay=replay:0xA@0x1,replay:0xC@0x3\n"
+                "world_root=explicit "
+                "replay=replay:0xA,replay:0xC\n"
             ),
-            "roots=explicit/0x222; replay=replay:0xA@0x1,replay:0xC@0x3",
+            "replay=replay:0xA,replay:0xC",
         )
         self.assertEqual(
             ci.gameplay_replay_summary(
                 "PROBE INPUT name=progression mode=gate samples=2 organic=1 "
-                "world_root=0x333 behavior_root=unused replay=anchor:0xA,organic:0xC\n"
+                "world_root=0x333 replay=anchor:0xA,organic:0xC\n"
             ),
             "variation=0x333",
         )
         self.assertEqual(
             ci.gameplay_replay_summary(
                 "HARNESS INPUT plan=maintained+variation anchors=3 variation=1 custom=0 "
-                "world_root=0x1234 behavior_root=unused replay=ignored\n"
+                "world_root=0x1234 replay=ignored\n"
             ),
             "variation=0x1234",
         )
         self.assertIsNone(
             ci.gameplay_replay_summary(
                 "HARNESS INPUT plan=maintained anchors=3 variation=0 custom=0 "
-                "world_root=n/a behavior_root=unused replay=maintained\n"
+                "world_root=n/a replay=maintained\n"
             )
         )
         self.assertEqual(
             ci.gameplay_replay_summary(
                 "HARNESS INPUT plan=custom anchors=0 variation=0 custom=2 "
-                "world_root=n/a behavior_root=unused replay=ignored\n"
+                "world_root=n/a replay=ignored\n"
             ),
             "custom=2",
         )
@@ -1899,7 +1891,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
             command,
             0,
             "PROBE INPUT name=survival-provisioning mode=gate samples=3 organic=1 "
-            "world_root=0x111 behavior_root=0x222 replay=ignored\n"
+            "world_root=0x111 replay=ignored\n"
             "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n",
             "",
         )
@@ -1908,7 +1900,6 @@ class GameplayCiRoutingTests(unittest.TestCase):
                 ci.os.environ,
                 {
                     "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x111",
-                    "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x222",
                 },
                 clear=True,
             ),
@@ -1929,7 +1920,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
             )
         self.assertEqual(
             stdout.getvalue(),
-            "PASS (0.2s; 1 test; evidence=ordinary-exact-local-after-disclosed-bootstrap; roots=0x111/0x222)\n",
+            "PASS (0.2s; 1 test; evidence=ordinary-exact-local-after-disclosed-bootstrap; variation=0x111)\n",
         )
         self.assertEqual(stderr.getvalue(), "")
 
@@ -1946,7 +1937,6 @@ class GameplayCiRoutingTests(unittest.TestCase):
                 ci.os.environ,
                 {
                     "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x111",
-                    "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x222",
                 },
                 clear=True,
             ),
@@ -2116,7 +2106,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
     def test_gameplay_failure_without_test_name_reuses_replayable_scope(self) -> None:
         output = (
             "PROBE INPUT name=woodworking mode=gate samples=8 organic=1 "
-            "world_root=0xAAAA behavior_root=unused replay=anchor:0x1,organic:0x3\n"
+            "world_root=0xAAAA replay=anchor:0x1,organic:0x3\n"
         )
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("woodworking"), output, ""),
@@ -2126,7 +2116,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
     def test_broad_gameplay_failure_without_test_name_reuses_replayable_audit(self) -> None:
         output = (
             "HARNESS INPUT plan=maintained+variation anchors=7 variation=1 custom=0 "
-            "world_root=0xAAAA behavior_root=unused replay=0x1\n"
+            "world_root=0xAAAA replay=0x1\n"
         )
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("all"), output, ""),
@@ -2144,21 +2134,21 @@ class GameplayCiRoutingTests(unittest.TestCase):
     def test_organic_gameplay_failure_repair_preserves_replay_roots(self) -> None:
         output = (
             "PROBE INPUT name=survival-provisioning mode=gate samples=8 organic=1 "
-            "world_root=0xAAAA behavior_root=0xBBBB "
-            "replay=anchor:0x1@0x2,organic:0x3@0x4\n"
+            "world_root=0xAAAA "
+            "replay=anchor:0x1,organic:0x3\n"
             "failures:\n    gameplay_survival_provisioning_probe\n"
         )
         error = "error: test failed, to rerun pass `--test gameplay_survival`"
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("survival"), output, error),
             "python tools/run_test.py --target gameplay_survival "
-            "--variation-seed 0xAAAA --behavior-seed 0xBBBB "
+            "--variation-seed 0xAAAA "
             "gameplay_survival_provisioning_probe",
         )
 
         no_name = (
             "PROBE INPUT name=progression mode=gate samples=4 organic=1 "
-            "world_root=0xCCCC behavior_root=unused replay=anchor:0x1,organic:0x2\n"
+            "world_root=0xCCCC replay=anchor:0x1,organic:0x2\n"
         )
         self.assertEqual(
             ci.repair_hint(ci.gameplay_command("progression"), no_name, ""),
@@ -2194,7 +2184,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
     def test_broad_focused_failure_stays_on_the_warm_audit_target(self) -> None:
         output = (
             "PROBE INPUT name=ore-preparation mode=gate samples=3 organic=1 "
-            "world_root=0xAAAA behavior_root=unused replay=anchor:0x1,coverage:0x2,organic:0x3\n"
+            "world_root=0xAAAA replay=anchor:0x1,coverage:0x2,organic:0x3\n"
             "failures:\n    gameplay_ore_preparation_probe\n"
         )
         error = "error: test failed, to rerun pass `--test gameplay_audit`"
@@ -2206,7 +2196,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
     def test_workshop_failure_reuses_the_warm_audit_target(self) -> None:
         output = (
             "HARNESS INPUT plan=maintained+variation anchors=7 variation=1 custom=0 "
-            "world_root=0xAAAA behavior_root=unused replay=0x1\n"
+            "world_root=0xAAAA replay=0x1\n"
             "failures:\n    gameplay_harness_gate\n"
         )
         error = "error: test failed, to rerun pass `--test gameplay_audit`"
@@ -2279,7 +2269,6 @@ class GameplayCiRoutingTests(unittest.TestCase):
             {
                 run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA",
                 run_test.GAMEPLAY_VARIATION_SCOPE_ENV: "survival",
-                run_test.GAMEPLAY_BEHAVIOR_ENV: "0x000000000000BBBB",
             },
         )
 
@@ -2299,7 +2288,6 @@ class GameplayCiRoutingTests(unittest.TestCase):
             {
                 run_test.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA",
                 run_test.GAMEPLAY_VARIATION_SCOPE_ENV: "survival",
-                run_test.GAMEPLAY_BEHAVIOR_ENV: "0x000000000000BBBB",
             },
         )
 
@@ -2327,10 +2315,9 @@ class GameplayCiRoutingTests(unittest.TestCase):
                 args,
                 {
                     "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x000000000000AAAA",
-                    "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x000000000000BBBB",
                 },
             ),
-            "python tools/run_test.py --target gameplay_survival --variation-seed 0x000000000000AAAA --behavior-seed 0x000000000000BBBB gameplay_survival_provisioning_probe",
+            "python tools/run_test.py --target gameplay_survival --variation-seed 0x000000000000AAAA gameplay_survival_provisioning_probe",
         )
 
     def test_run_test_replaces_ambient_replay_roots_with_fresh_roots(self) -> None:
@@ -2353,7 +2340,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
                 },
             )
 
-    def test_run_test_behavior_replay_requires_a_world_root(self) -> None:
+    def test_run_test_rejects_removed_behavior_option(self) -> None:
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             run_test.parse_args(
                 [
@@ -2384,7 +2371,7 @@ class GameplayCiRoutingTests(unittest.TestCase):
     def test_unknown_gameplay_failure_keeps_replayable_broad_repair(self) -> None:
         output = (
             "PROBE INPUT name=woodworking mode=gate samples=8 organic=1 "
-            "world_root=0xAAAA behavior_root=unused replay=anchor:0x1,organic:0x3\n"
+            "world_root=0xAAAA replay=anchor:0x1,organic:0x3\n"
             "failures:\n    future_contracts::new_global_check\n"
         )
         self.assertEqual(
@@ -2451,12 +2438,9 @@ class GameplayCiRoutingTests(unittest.TestCase):
                 "survival",
                 "--variation-seed",
                 "42",
-                "--behavior-seed",
-                "0x2a",
             ]
         )
         self.assertEqual(args.variation_seed, "0x000000000000002A")
-        self.assertEqual(args.behavior_seed, "0x000000000000002A")
 
         invalid = ("-1", "0x", "0xGG", "1_000", "18446744073709551616")
         for seed in invalid:
@@ -2464,8 +2448,8 @@ class GameplayCiRoutingTests(unittest.TestCase):
                 with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                     ci.parse_args(["report", "--variation-seed", seed])
 
-    def test_report_rejects_behavior_seed_for_scope_that_does_not_use_policy_variation(self) -> None:
-        for scope in ("progression", "workshop", "woodworking", "power-provider", "settlement", "fieldwork"):
+    def test_report_rejects_removed_behavior_option(self) -> None:
+        for scope in ci.REPORT_SCOPES:
             with (
                 self.subTest(scope=scope),
                 contextlib.redirect_stderr(io.StringIO()),
@@ -2498,26 +2482,25 @@ class GameplayCiRoutingTests(unittest.TestCase):
             os.environ,
             {
                 run_test.GAMEPLAY_REPORT_MODE_ENV: "1",
+                "DEEP_HEARTH_GAMEPLAY_SEEDS": "1,2,3",
                 run_test.GAMEPLAY_VARIATION_ENV: "0x1111",
-                run_test.GAMEPLAY_BEHAVIOR_ENV: "0x2222",
                 run_test.GAMEPLAY_VARIATION_SCOPE_ENV: "fieldwork",
             },
-            clear=False,
+            clear=True,
         ):
             environment = run_test.cargo_execution_environment()
         for key in (
             run_test.GAMEPLAY_REPORT_MODE_ENV,
+            "DEEP_HEARTH_GAMEPLAY_SEEDS",
             run_test.GAMEPLAY_VARIATION_ENV,
-            run_test.GAMEPLAY_BEHAVIOR_ENV,
             run_test.GAMEPLAY_VARIATION_SCOPE_ENV,
         ):
-            self.assertNotIn(key, environment)
+            self.assertTrue(key not in environment, f"unexpected sampling key: {key}")
 
         explicit = run_test.cargo_execution_environment(
             {run_test.GAMEPLAY_VARIATION_ENV: "0x3333"}
         )
         self.assertEqual(explicit[run_test.GAMEPLAY_VARIATION_ENV], "0x3333")
-        self.assertNotIn(run_test.GAMEPLAY_BEHAVIOR_ENV, explicit)
 
 
 class GameplayReportContractTests(unittest.TestCase):
@@ -2559,230 +2542,126 @@ class GameplayReportContractTests(unittest.TestCase):
             ],
         )
 
-    def test_report_replay_environment_prefers_cli_roots_and_only_fills_missing_values(self) -> None:
+    def test_report_replay_environment_prefers_cli_root_and_only_fills_missing_value(self) -> None:
         fresh = ci.parse_args(["report", "--scope", "survival"])
         generated: dict[str, str] = {}
-        fresh_rolls = iter((0x1234, 0x5678))
         self.assertEqual(
             ci.configure_report_replay_environment(
-                fresh, generated, randbits=lambda _bits: next(fresh_rolls)
+                fresh, generated, randbits=lambda _bits: 0x1234
             ),
-            ("0x0000000000001234", "0x0000000000005678"),
+            "0x0000000000001234",
         )
-
-        args = ci.parse_args(
-            ["report", "--scope", "survival", "--variation-seed", "0x2A"]
-        )
-        environment = {
-            "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xOLD",
-        }
-        rolls = iter((0x55,))
-        self.assertEqual(
-            ci.configure_report_replay_environment(
-                args, environment, randbits=lambda _bits: next(rolls)
-            ),
-            ("0x000000000000002A", "0x0000000000000055"),
-        )
-        self.assertEqual(
-            environment["DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"],
-            "0x000000000000002A",
-        )
+        self.assertEqual(generated, {ci.GAMEPLAY_VARIATION_ENV: "0x0000000000001234"})
 
         explicit = ci.parse_args(
-            [
-                "report",
-                "--scope",
-                "survival",
-                "--variation-seed",
-                "1",
-                "--behavior-seed",
-                "2",
-            ]
+            ["report", "--scope", "survival", "--variation-seed", "0x2A"]
         )
-        explicit_environment = {
-            "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xAAAA",
-            "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0xBBBB",
-        }
+        environment = {ci.GAMEPLAY_VARIATION_ENV: "0xOLD"}
         self.assertEqual(
             ci.configure_report_replay_environment(
-                explicit,
-                explicit_environment,
-                randbits=lambda _bits: self.fail("explicit CLI roots must not consume entropy"),
+                explicit, environment, randbits=lambda _bits: self.fail("explicit root consumed entropy")
             ),
-            ("0x0000000000000001", "0x0000000000000002"),
+            "0x000000000000002A",
         )
+        self.assertEqual(environment, {ci.GAMEPLAY_VARIATION_ENV: "0x000000000000002A"})
 
         ambient = ci.parse_args(["report", "--scope", "survival"])
-        ambient_environment = {
-            "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "42",
-            "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x2a",
-        }
+        ambient_environment = {ci.GAMEPLAY_VARIATION_ENV: "42"}
         self.assertEqual(
             ci.configure_report_replay_environment(
-                ambient,
-                ambient_environment,
-                randbits=lambda _bits: self.fail("valid ambient roots must not consume entropy"),
+                ambient, ambient_environment, randbits=lambda _bits: self.fail("ambient root consumed entropy")
             ),
-            ("0x000000000000002A", "0x000000000000002A"),
+            "0x000000000000002A",
         )
-
-        invalid_environment = {"DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "not-a-seed"}
-        with self.assertRaisesRegex(ValueError, "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED"):
+        invalid_environment = {ci.GAMEPLAY_VARIATION_ENV: "not-a-seed"}
+        with self.assertRaisesRegex(ValueError, ci.GAMEPLAY_VARIATION_ENV):
             ci.configure_report_replay_environment(
-                ambient,
-                invalid_environment,
-                randbits=lambda _bits: self.fail("invalid ambient input must fail before entropy"),
+                ambient, invalid_environment, randbits=lambda _bits: self.fail("invalid root consumed entropy")
             )
-
-        progression = ci.parse_args(["report", "--scope", "progression"])
-        progression_environment = {"DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "ignored-garbage"}
-        self.assertEqual(
-            ci.configure_report_replay_environment(
-                progression,
-                progression_environment,
-                randbits=lambda _bits: 0x99,
-            ),
-            ("0x0000000000000099", "unused"),
-        )
-        self.assertNotIn("DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED", progression_environment)
 
     def test_gameplay_sampling_policy_matches_each_surface(self) -> None:
         expectations = (
-            (["report", "--scope", "fieldwork"], False),
-            (["report", "--scope", "woodworking"], False),
+            (["report", "--scope", "fieldwork"], True),
+            (["report", "--scope", "woodworking"], True),
             (["gate", "--gameplay", "survival"], True),
-            (["gate", "--gameplay", "progression"], False),
-            (["gate", "--gameplay", "workshop"], False),
-            (["gate", "--gameplay", "power-provider"], False),
-            (["gate", "--gameplay", "settlement"], False),
+            (["gate", "--gameplay", "progression"], True),
+            (["gate", "--gameplay", "workshop"], True),
+            (["gate", "--gameplay", "power-provider"], True),
+            (["gate", "--gameplay", "settlement"], True),
             (["audit", "--gameplay"], True),
             (["audit", "--all"], True),
-            (["gate", "--gameplay", "contracts"], None),
-            (["audit", "--core"], None),
+            (["gate", "--gameplay", "contracts"], False),
+            (["audit", "--core"], False),
         )
         for argv, expected in expectations:
             with self.subTest(argv=argv):
-                self.assertIs(ci.gameplay_uses_behavior_seed(ci.parse_args(argv)), expected)
+                self.assertIs(ci.gameplay_accepts_variation_seed(ci.parse_args(argv)), expected)
 
-    def test_gameplay_gate_and_audit_accept_complete_replay_roots(self) -> None:
-        progression = ci.parse_args(
-            ["gate", "--gameplay", "progression", "--variation-seed", "0x2A"]
-        )
-        self.assertEqual(progression.variation_seed, "0x000000000000002A")
-        self.assertIsNone(progression.behavior_seed)
-
-        survival = ci.parse_args(
-            [
-                "gate",
-                "--gameplay",
-                "survival",
-                "--variation-seed",
-                "0x2A",
-                "--behavior-seed",
-                "0x2B",
-            ]
-        )
-        self.assertEqual(survival.variation_seed, "0x000000000000002A")
-        self.assertEqual(survival.behavior_seed, "0x000000000000002B")
-
-        audit = ci.parse_args(
-            [
-                "audit",
-                "--gameplay",
-                "--variation-seed",
-                "0x2A",
-                "--behavior-seed",
-                "0x2B",
-            ]
-        )
-        self.assertEqual(audit.variation_seed, "0x000000000000002A")
-        self.assertEqual(audit.behavior_seed, "0x000000000000002B")
-
+    def test_gameplay_gate_and_audit_accept_complete_replay_root(self) -> None:
+        for argv in (
+            ["gate", "--gameplay", "progression"],
+            ["gate", "--gameplay", "survival"],
+            ["audit", "--gameplay"],
+            ["audit", "--all"],
+        ):
+            with self.subTest(argv=argv):
+                self.assertEqual(
+                    ci.parse_args([*argv, "--variation-seed", "0x2A"]).variation_seed,
+                    "0x000000000000002A",
+                )
         for argv in (
             ["gate", "--gameplay", "contracts", "--variation-seed", "0x2A"],
             ["gate", "--gameplay", "progression", "--behavior-seed", "0x2A"],
             ["audit", "--all", "--behavior-seed", "0x2A"],
             ["audit", "--core", "--variation-seed", "0x2A"],
         ):
-            with self.subTest(argv=argv):
-                with (
-                    contextlib.redirect_stderr(io.StringIO()),
-                    self.assertRaises(SystemExit),
-                ):
-                    ci.parse_args(argv)
+            with (
+                self.subTest(argv=argv),
+                contextlib.redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit),
+            ):
+                ci.parse_args(argv)
 
     def test_routine_gameplay_verification_adds_one_fresh_replayable_scope(self) -> None:
         args = ci.parse_args(["gate", "--gameplay", "survival"])
         environment = {
             "DEEP_HEARTH_GAMEPLAY_SEEDS": "1,2,3",
-            "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x1111",
-            "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x2222",
+            ci.GAMEPLAY_VARIATION_ENV: "0x1111",
             "KEEP": "yes",
         }
-        rolls = iter((0xAAAA, 0xBBBB))
         self.assertEqual(
             ci.configure_gameplay_verification_environment(
-                args, environment, randbits=lambda _bits: next(rolls)
+                args, environment, randbits=lambda _bits: 0xAAAA
             ),
-            ("survival", "0x000000000000AAAA", "0x000000000000BBBB"),
+            ("survival", "0x000000000000AAAA"),
         )
         self.assertEqual(
             environment,
             {
-                "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x000000000000AAAA",
-                "DEEP_HEARTH_GAMEPLAY_VARIATION_SCOPE": "survival",
-                "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x000000000000BBBB",
+                ci.GAMEPLAY_VARIATION_ENV: "0x000000000000AAAA",
+                ci.GAMEPLAY_VARIATION_SCOPE_ENV: "survival",
                 "KEEP": "yes",
             },
         )
 
         replay = ci.parse_args(
-            [
-                "gate",
-                "--gameplay",
-                "survival",
-                "--variation-seed",
-                "0x1234",
-                "--behavior-seed",
-                "0x5678",
-            ]
+            ["gate", "--gameplay", "survival", "--variation-seed", "0x1234"]
         )
         replay_environment = {
             "DEEP_HEARTH_GAMEPLAY_SEEDS": "9",
-            "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "ambient-world",
-            "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "ambient-policy",
+            ci.GAMEPLAY_VARIATION_ENV: "ambient-world",
         }
         self.assertEqual(
-            ci.configure_gameplay_verification_environment(replay, replay_environment),
-            ("survival", "0x0000000000001234", "0x0000000000005678"),
+            ci.configure_gameplay_verification_environment(
+                replay, replay_environment, randbits=lambda _bits: self.fail("replay consumed entropy")
+            ),
+            ("survival", "0x0000000000001234"),
         )
         self.assertEqual(
             replay_environment,
             {
-                "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x0000000000001234",
-                "DEEP_HEARTH_GAMEPLAY_VARIATION_SCOPE": "survival",
-                "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x0000000000005678",
-            },
-        )
-
-        variation_only = ci.parse_args(
-            ["gate", "--gameplay", "survival", "--variation-seed", "0x99"]
-        )
-        variation_environment: dict[str, str] = {}
-        self.assertEqual(
-            ci.configure_gameplay_verification_environment(
-                variation_only,
-                variation_environment,
-                randbits=lambda _bits: 0xBBBB,
-            ),
-            ("survival", "0x0000000000000099", "0x000000000000BBBB"),
-        )
-        self.assertEqual(
-            variation_environment,
-            {
-                "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x0000000000000099",
-                "DEEP_HEARTH_GAMEPLAY_VARIATION_SCOPE": "survival",
-                "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x000000000000BBBB",
+                ci.GAMEPLAY_VARIATION_ENV: "0x0000000000001234",
+                ci.GAMEPLAY_VARIATION_SCOPE_ENV: "survival",
             },
         )
 
@@ -2796,82 +2675,44 @@ class GameplayReportContractTests(unittest.TestCase):
             set(gameplay_targets.GAMEPLAY_ROUTINE_VARIATION_SCOPES),
         )
 
-        args = ci.parse_args(["audit", "--all"])
-        environment = {
-            "DEEP_HEARTH_GAMEPLAY_VARIATION_SCOPE": "stale",
-            "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "stale",
-        }
-        scope, variation, behavior = ci.configure_gameplay_verification_environment(
-            args,
-            environment,
-            randbits=lambda _bits: 0,
-        )
-        self.assertEqual(scope, gameplay_targets.GAMEPLAY_ROUTINE_VARIATION_SCOPES[0])
-        self.assertEqual(variation, "0x0000000000000000")
-        self.assertEqual(environment[ci.GAMEPLAY_VARIATION_SCOPE_ENV], scope)
-        self.assertEqual(environment[ci.GAMEPLAY_VARIATION_ENV], variation)
-        self.assertEqual(
-            behavior != "unused",
-            ci.gameplay_scope_uses_behavior_seed(scope),
-        )
+        for index, expected_scope in enumerate(gameplay_targets.GAMEPLAY_ROUTINE_VARIATION_SCOPES):
+            with self.subTest(scope=expected_scope):
+                args = ci.parse_args(["audit", "--all"])
+                environment = {
+                    ci.GAMEPLAY_VARIATION_SCOPE_ENV: "stale",
+                    ci.GAMEPLAY_VARIATION_ENV: "stale",
+                }
+                scope, variation = ci.configure_gameplay_verification_environment(
+                    args, environment, randbits=lambda _bits: index
+                )
+                self.assertEqual(scope, expected_scope)
+                self.assertEqual(variation, f"0x{index:016X}")
+                self.assertEqual(environment[ci.GAMEPLAY_VARIATION_SCOPE_ENV], scope)
+                self.assertEqual(environment[ci.GAMEPLAY_VARIATION_ENV], variation)
 
-        replay = ci.parse_args(
-            ["audit", "--all", "--variation-seed", variation]
-        )
-        replay_environment: dict[str, str] = {}
-        replay_scope, replay_variation, _replay_behavior = (
-            ci.configure_gameplay_verification_environment(
-                replay,
-                replay_environment,
-                randbits=lambda _bits: 0xBEEF,
-            )
-        )
-        self.assertEqual(replay_scope, scope)
-        self.assertEqual(replay_variation, variation)
-
-        behavior_index, behavior_scope = next(
-            (index, scope)
-            for index, scope in enumerate(
-                gameplay_targets.GAMEPLAY_ROUTINE_VARIATION_SCOPES
-            )
-            if ci.gameplay_scope_uses_behavior_seed(scope)
-        )
-        behavior_variation = f"0x{behavior_index:X}"
-        with_behavior = ci.parse_args(
-            [
-                "audit",
-                "--all",
-                "--variation-seed",
-                behavior_variation,
-                "--behavior-seed",
-                "0xCAFE",
-            ]
-        )
-        with_behavior_environment: dict[str, str] = {}
-        selected, selected_variation, selected_behavior = (
-            ci.configure_gameplay_verification_environment(
-                with_behavior,
-                with_behavior_environment,
-            )
-        )
-        self.assertEqual(selected, behavior_scope)
-        self.assertEqual(selected_variation, f"0x{behavior_index:016X}")
-        self.assertEqual(selected_behavior, "0x000000000000CAFE")
+                replay = ci.parse_args(["audit", "--all", "--variation-seed", variation])
+                replay_environment: dict[str, str] = {}
+                self.assertEqual(
+                    ci.configure_gameplay_verification_environment(
+                        replay, replay_environment, randbits=lambda _bits: self.fail("replay consumed entropy")
+                    ),
+                    (scope, variation),
+                )
+                self.assertEqual(environment, replay_environment)
 
     def test_gameplay_sampling_surfaces_environment_replay_roots(self) -> None:
         environment = {
             "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0xAAAA",
-            "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0xBBBB",
         }
         for label in ("gameplay report progression", "gameplay progression"):
             with self.subTest(label=label):
                 self.assertEqual(
                     ci.gameplay_environment_summary(label, environment),
-                    "evidence=ordinary-system-spatial-proxy; roots=0xAAAA/0xBBBB",
+                    "evidence=ordinary-system-spatial-proxy; variation=0xAAAA",
                 )
         self.assertEqual(
             ci.gameplay_environment_summary("gameplay", environment),
-            "roots=0xAAAA/0xBBBB",
+            "variation=0xAAAA",
         )
         self.assertEqual(
             ci.gameplay_environment_summary(
@@ -2905,7 +2746,7 @@ class GameplayReportContractTests(unittest.TestCase):
         opening = "DESIGN TARGET scope=ordinary-after-disclosed-bootstrap fixture=opening"
         replay = (
             "PROBE INPUT name=transport-fixture mode=explore samples=2 organic=1 "
-            "world_root=0x111 behavior_root=0x222 replay=anchor:0xA@0x1,organic:0xB@0x2"
+            "world_root=0x111 replay=anchor:0xA,organic:0xB"
         )
         ending = "EVIDENCE CONTRACT fixture=report-end"
         lines = [
@@ -2923,8 +2764,7 @@ class GameplayReportContractTests(unittest.TestCase):
                 with self.subTest(mode=mode, returncode=returncode):
                     environment = {
                         "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED": "0x111",
-                        "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED": "0x222",
-                    }
+                        }
                     if mode is not None:
                         environment[mode] = "1"
                     result = ci.subprocess.CompletedProcess(
@@ -2946,14 +2786,14 @@ class GameplayReportContractTests(unittest.TestCase):
                         # Compare the entire body, not only markers that a head/tail limiter keeps.
                         body = "\n".join(stdout.getvalue().splitlines()[1:]) + "\n"
                         if mode is not None:
-                            self.assertNotIn("; roots=", stdout.getvalue().splitlines()[0])
+                            self.assertNotIn("; variation=", stdout.getvalue().splitlines()[0])
                             self.assertTrue(
                                 body == transcript,
                                 "verbose report must preserve the full captured transcript",
                             )
                         else:
                             self.assertIn(
-                                "roots=0x0000000000000111/0x0000000000000222",
+                                "variation=0x0000000000000111",
                                 stdout.getvalue().splitlines()[0],
                             )
                             self.assertEqual(body, "\n")
@@ -2970,15 +2810,14 @@ class GameplayReportContractTests(unittest.TestCase):
                         ])
                         self.assertEqual(
                             stderr.getvalue(),
-                            "repair: python ci.py report --variation-seed 0x111 "
-                            f"--behavior-seed 0x222\n{bounded}\n",
+                            f"repair: python ci.py report --variation-seed 0x111\n{bounded}\n",
                         )
                         self.assertNotIn("PASS total", stdout.getvalue())
 
     def test_survival_summary_counts_selected_preservation_policy_only(self) -> None:
         lines = [
             "SURVIVAL EXPERIENCE seed=0x1 pressure=hydration choice=[state:policy-sensitive diet:balanced-recovery meal:500000mg drink:500000uL] raw-opportunity=[origin:1 mode:scarce-timber] storage-policy:decline commitment:none commitment-reason:return-does-not-clear-threshold minimum-return:3000000ppm best-enclosure-counterfactual=[policy:enclosure-singleton candidates:1 build:150t] work-interlock=[integrated=[hydration-policy:task-floor initial-drink:1250000uL/30t prospect:24t followup-survey:true:48t followup-drink:true:500000uL/12t continuation:true opportunity-power:true power-drink:false:0uL/0t power:3t stored:100nJ final-reserve:900000ppmE/750000ppmH warning-safe:true serving-actions=[initial:3 followup:1 power:0]]]",
-            "SURVIVAL EXPERIENCE seed=0x2 pressure=energy choice=[state:policy-sensitive diet:compact-calories meal:500000mg drink:0uL] raw-opportunity=[origin:2 mode:choice-rich-timber] storage-policy:attention-efficient commitment:1 commitment-reason:return-clears-threshold minimum-return:1000000ppm best-enclosure-counterfactual=[policy:attention-efficient candidates:4 build:120t] work-interlock=[integrated=[hydration-policy:working-reserve initial-drink:250000uL/6t prospect:48t followup-survey:false:0t followup-drink:false:0uL/0t continuation:false opportunity-power:false power-drink:false:0uL/0t power:0t stored:0nJ final-reserve:950000ppmE/875000ppmH warning-safe:true serving-actions=[initial:1 followup:0 power:0]]]",
+            "SURVIVAL EXPERIENCE seed=0x2 pressure=energy choice=[state:policy-sensitive diet:compact-calories meal:500000mg drink:0uL] raw-opportunity=[origin:2 mode:choice-rich-timber] storage-policy:attention-efficient commitment:1 commitment-reason:return-clears-threshold minimum-return:1000000ppm best-enclosure-counterfactual=[policy:attention-efficient candidates:4 build:120t] work-interlock=[integrated=[hydration-policy:task-floor initial-drink:250000uL/6t prospect:48t followup-survey:false:0t followup-drink:false:0uL/0t continuation:false opportunity-power:false power-drink:false:0uL/0t power:0t stored:0nJ final-reserve:950000ppmE/875000ppmH warning-safe:true serving-actions=[initial:1 followup:0 power:0]]]",
             "SURVIVAL REVIEW seed=0x1 diet-evidence=[matched-counterfactual=[horizon:130t] tradeoff=[meal-mass-delta:+200000mg water-saved-delta:+0uL diet-quality-delta:+80000ppm recovery-delta:+1ppm/t] recovery-consequence=[choice:policy-sensitive deprivation:33000t provisioning=[compact:110t balanced:130t horizon:130t] servings=[compact:1meal+3drink balanced:1meal+2drink] observe:1000t vitality:950000->[compact:959000 balanced:953000 realized-delta:-6000ppm window-delta=[compact:+9000 balanced:+3000]] diet:[compact:800000 balanced:880000ppm]]]",
         ]
         summary = "\n".join(gameplay_report_summary.ordinary_gameplay_summary(lines))
@@ -2995,7 +2834,7 @@ class GameplayReportContractTests(unittest.TestCase):
         )
         self.assertIn("commitment=[cleared:1 declined-return:1]", summary)
         self.assertIn(
-            "work-interlock=[serving-floor:n/a policy=[task-floor:1 working-reserve:1] "
+            "work-interlock=[serving-floor:n/a policy:task-floor "
             "followup-survey:1 continuation-found:1 opportunity-power:1 "
             "followup-drinks:1/1 power-drinks:0/1 initial-drink:250..1250mL "
             "followup-drink:0..500mL power-drink:0..0mL "
@@ -3151,7 +2990,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "CONTENT ACQUISITION EDGES equipment=[authored-edge:8 no-authored-edge:4]",
             "EVIDENCE CONTRACT runtime-experience-after-disclosed-bootstrap=[survival,primitive-progression]",
             "EVALUATION SCOPE kind=controlled-capability evidence=isolated-system-behavior",
-            "PROBE INPUT name=wilderness mode=explore samples=3 maintained=1 coverage=2 organic=0 world_root=0x57494C4445524E53 behavior_root=physiology-state replay=generated-opening-graph",
+            "PROBE INPUT name=wilderness mode=explore samples=3 maintained=1 coverage=2 organic=0 world_root=0x57494C4445524E53 replay=generated-opening-graph",
             "WILDERNESS DIRECT USE seed=0x57494C4445524E53 movement=continuous-body route=[voxels:7 unique-edges:5/6 control-ticks:68] known-path-projection=[edges:2 control-ticks:18 matched:true] material-choice=[stone+timber:2 visited:2] haul=[timber:5000000mg carried:5500000mg/25000000mg return:9ct] body-effort=[jump-load:5500000mg vertical:3600000000nm/s energy:900000000000nJ>333000000000nJ-idle hydration:225uL>125uL-idle settle:72ct] input=one-shot-empty-hand-secondary admission-lag=[forage:0ct drink:0ct timber:0ct] gather=[before:4210752mg batch:500000mg remaining:3710752mg] water=[before:5078082uL serving:750000uL remaining:4328082uL] hydration=[before:978622uL after:1726247uL] timed=true",
             "WILDERNESS SHELTER EXPERIENCE source=fresh-world goal=long-stay selection=player-catalog tool=\"hafted stone woodworking adze\" travel=continuous/4legs materials=[stone:1000000mg timber:19750000mg] shelter=[supports:3x3250000mg panel:6500000mg board-work:9b] attention=[setup:110t bare:450t assisted:250t with-setup:360t saved:90t] exposure=[open:1000ppm/t covered:500ppm/t observed:500ppm/t] output=7200000mg wear=true matter-conserved=true continuity=same-opening-state staged-timber-used:5000000mg fresh-timber:14750000mg",
             "WILDERNESS EXPERIENCE sample=maintained seed=0x57494C4445524E53 episode=maintained/rested/stay-mobile start=rested goal=stay-mobile evidence=generated+exact-local generation=[surface:ordinary water:ordinary] movement=[graph:6-edges body:continuous legs:2 choices:1-3 graph-unadvertised:1/1 water-branch:skipped material-junction:reached material-choices:2] timing=[food-secured:61t/3.7m stable:62t/3.7m] warmth=[fire:false] forage=[opportunity:4210752mg secured:500000mg left:3710752mg rest-runway:31.6h] provisioning=[carried:500000mg cached:0mg meal:defer-fed consumed:0mg warning-safe:true] carrying=[peak:500000mg capacity:25000000mg utilization:20000ppm] water=[observed:adjacent visited:false source:unvisited remaining:unvisited rest-runway:unvisited consumed:0uL decision:defer-hydrated] camp-project=[goal:stay-mobile storage:none material:none work:0t logistics-legs:0 source:0mg->0mg project-upper-budget:0nJ/0uL project-meal:0mg cached-total:0mg staged-timber:0mg retained-residue:0mg grounded-support:false:0mg/0t] storage-choice=[selected:defer candidates=[field-box:build:161t/capacity:10000000mg/shelf:7d stone-crock:build:216t/capacity:6000000mg/shelf:10d] ambient-shelf:4d carried-food:500000mg local-surplus-left:3710752mg reason:no-current-capacity-or-preservation-pressure] tool-choice=[selected:defer counterfactual-field-box=[board-batches:2 setup:110t bare:100t adze:56t crossover:5batches] reason:no-current-woodworking-workload] material-choice=[stone+timber:simultaneous selected:defer reason:no-current-workload]",
@@ -3190,7 +3029,7 @@ class GameplayReportContractTests(unittest.TestCase):
             "POWER SETTLEMENT seed=0x1 sample=anchor workload-source=declared-consumer-project project=[consumer:powered-saw feed:1600000000mg work:400000000000000nJ charge-events:80] buffer:5000000000000nJ decision=[selected:walking-wheel copper-policy:spend-available policy:minimize-workload-attention-then-metabolic-then-hydration-then-material projected-attention-treadle:2290t projected-attention-walking:2210t] treadle=[first-charge:14t second-charge:15t] walking-wheel=[first-charge:10t second-charge:11t] productive-cycle=[consumer:powered-saw treadle:56t walking:56t] projected-provider-lifecycle=[treadle:body:100000000000000nJ/200000uL condition:800000ppm walking-wheel:body:80000000000000nJ/150000uL condition:900000ppm] comparison=[charge-saving:4t metabolic-saving:1nJ pristine-rate-break-even:60charges market-frontier:1:stone-crank,3:copper-crank provider-lifecycle=condition-carried-no-service] evidence=[build+charge+productive-discharge+recharge:executed selected-project:executed comparator-lifecycle:projected-canonical consumer:powered-saw]",
             "PROBE INPUT name=settlement mode=explore samples=1 organic=0",
             "SETTLEMENT EXPERIENCE seed=0x1 sample=anchor demand=[batches:20 mass:20000000mg] discovery=[upgrade-catalog:true powered-variant:true initially-ready:false] decision=[choice:frame-saw policy:min-player-attention baseline:139t mechanized:221t setup:181t charge-per-batch:2t margin:-82t] execution=[active:139t elapsed:139t/8.3m delegated:0t upgraded:false boards:18000000mg chips:2000000mg] survival=[energy-spent:150537000000000nJ hydration-spent:45175uL] prior-infrastructure=[frame-saw-condition:1000000ppm crank-condition:1000000ppm flywheel=stone prior-use=pre-existing] raw-upgrade-opportunity=[wood:10000000mg copper:200000mg] matter=conserved",
-            "HARNESS INPUT plan=maintained anchors=1 variation=0 custom=0 world_root=n/a behavior_root=n/a replay=0x1@0x2",
+            "HARNESS INPUT plan=maintained anchors=1 variation=0 custom=0 world_root=n/a replay=0x1",
             "WORKSHOP CAPABILITY mode=exploratory scenarios=1 orders=[complete:1 partial:0 productive:1/1] adaptive=[total:0 condition:0 stored-work:0] stops=[structural:0 maintenance-required:1 energy:0 declined-manual:0 survival-limited-manual:0] maintenance-blockers=[replacement-supply:1 service-labor:0]",
             "WORKSHOP EXPERIENCE REVIEW fantasy=operate+adapt pressure-shape=[clean:1 single:0 multi-system:10] interlocks=[stored-work+throughput:11 body+power:5 wear+maintenance:6 structure+production:9] recovery=[suspensions:3 resumed:3 stranded:0]",
             "CAPABILITY ORE_PREP seed=0x1 sample=anchor outcome=completed feed=[copper:400000ppm]",
@@ -3780,7 +3619,7 @@ class GameplayReportContractTests(unittest.TestCase):
     def test_concise_report_rejects_missing_executed_probe_summary(self) -> None:
         transcript = (
             "PROBE INPUT name=fieldwork mode=explore samples=1 organic=1 "
-            "world_root=0x1 behavior_root=unused replay=organic:0x2\n"
+            "world_root=0x1 replay=organic:0x2\n"
         )
         with self.assertRaisesRegex(ValueError, "ordinary:fieldwork"):
             gameplay_report_summary.concise_gameplay_report(transcript, {})
@@ -3789,7 +3628,7 @@ class GameplayReportContractTests(unittest.TestCase):
         command = ci.report_plan("fieldwork")[0][1]
         transcript = (
             "PROBE INPUT name=fieldwork mode=explore samples=1 organic=1 "
-            "world_root=0x1 behavior_root=unused replay=organic:0x2\n"
+            "world_root=0x1 replay=organic:0x2\n"
         )
         result = ci.subprocess.CompletedProcess(command, 0, transcript, "")
         with (
@@ -3874,7 +3713,7 @@ class GameplayReportContractTests(unittest.TestCase):
         output = "\n".join(
             (
                 "SURVIVAL EXPERIENCE seed=0x1 work-interlock=[integrated=[hydration-policy:task-floor initial-drink:10uL/1t prospect:48t followup-survey:true:48t followup-drink:true:10uL/1t continuation:true opportunity-power:true power-drink:false:0uL/0t power:3t stored:500000000000nJ final-reserve:250000ppmE/250000ppmH warning-safe:true]]",
-                "SURVIVAL EXPERIENCE seed=0x2 work-interlock=[integrated=[hydration-policy:working-reserve initial-drink:20uL/2t prospect:12t followup-survey:false:0t followup-drink:false:0uL/0t continuation:false opportunity-power:false power-drink:false:0uL/0t power:0t stored:0nJ final-reserve:500000ppmE/500000ppmH warning-safe:true]]",
+                "SURVIVAL EXPERIENCE seed=0x2 work-interlock=[integrated=[hydration-policy:task-floor initial-drink:20uL/2t prospect:12t followup-survey:false:0t followup-drink:false:0uL/0t continuation:false opportunity-power:false power-drink:false:0uL/0t power:0t stored:0nJ final-reserve:500000ppmE/500000ppmH warning-safe:true]]",
                 "WOODWORKING EXPERIENCE seed=0x1 choice=stone-adze routes=[adze:10logs timber:100mg attention:100t production:20t maintenance:80t/1services final-condition:900000ppm; saw-assisted:min-saw-logs:0 fundable:false actual=[saw:0 adze-fallback:0 fallback-copper:false saw-services:0 adze-services:0]]",
                 "WOODWORKING EXPERIENCE seed=0x2 choice=frame-saw routes=[adze:10logs timber:100mg attention:100t production:20t maintenance:80t/1services final-condition:900000ppm; saw-assisted:min-saw-logs:9 fundable:true actual=[saw:9 adze-fallback:1 fallback-copper:false saw-services:1 adze-services:1]]",
             )
@@ -3882,7 +3721,7 @@ class GameplayReportContractTests(unittest.TestCase):
         detailed = gameplay_report_summary.player_loop_evidence(output.splitlines())
         self.assertIsNotNone(detailed)
         self.assertIn(
-            "survive-adapt=[short-expedition=[serving-floor:n/a followup-surveys:1/2 continuations:1/1 followup-drinks:1/1 stored-work:1/1 power-drinks:0/1 policy:task-floor1/working-reserve1] sustained-project-provisioning=[breaks:0/0 events:0 drinks:0 meals:0] warning-safe:2/2]",
+            "survive-adapt=[short-expedition=[serving-floor:n/a followup-surveys:1/2 continuations:1/1 followup-drinks:1/1 stored-work:1/1 power-drinks:0/1 policy:task-floor] sustained-project-provisioning=[breaks:0/0 events:0 drinks:0 meals:0] warning-safe:2/2]",
             detailed,
         )
         self.assertIn(
@@ -5062,7 +4901,6 @@ class ExactTestCommandTests(unittest.TestCase):
             suite=False,
             ignored=False,
             variation_seed="0x1234",
-            behavior_seed=None,
         )
         output = (
             "test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; "
@@ -5084,7 +4922,6 @@ class ExactTestCommandTests(unittest.TestCase):
             suite=True,
             ignored=False,
             variation_seed=None,
-            behavior_seed=None,
         )
         output = "test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 10 filtered out"
         self.assertEqual(
@@ -5106,7 +4943,6 @@ class ExactTestCommandTests(unittest.TestCase):
             suite=False,
             ignored=False,
             variation_seed=None,
-            behavior_seed=None,
         )
         output = "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out"
         self.assertEqual(
@@ -5124,7 +4960,6 @@ class ExactTestCommandTests(unittest.TestCase):
             suite=True,
             ignored=False,
             variation_seed=None,
-            behavior_seed=None,
         )
         output = "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out"
         self.assertEqual(

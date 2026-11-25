@@ -893,7 +893,7 @@ pub(super) fn run_gameplay_harness(mode: ScenarioPlanMode) {
     )
     .unwrap_or_else(|error| panic!("gameplay harness configuration failed: {error:?}"));
     std::println!(
-        "HARNESS INPUT plan={} anchors={} variation={} custom={} world_root={} behavior_root=unused replay={}",
+        "HARNESS INPUT plan={} anchors={} variation={} custom={} world_root={} replay={}",
         plan.source_label(),
         plan.anchor_seed_count(),
         plan.variation_seed_count(),

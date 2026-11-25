@@ -16,29 +16,10 @@ pub(in super::super) enum PreservationInvestmentPolicy {
     MaximumProtection,
 }
 
-pub(in super::super) fn preservation_attention_value_ppm(behavior_seed: u64) -> u32 {
-    // Ranking appetite spans patient through time-starved actors so the authored
-    // fast-vs-protective frontier can actually change the selected enclosure.
-    1_000_000 + (mix64(behavior_seed ^ 0x5052_4553_5641_4C55) % 9_000_001) as u32
-}
-
-pub(in super::super) fn preservation_minimum_return_ppm(behavior_seed: u64) -> u32 {
-    // Commitment is a separate preference from ranking. A time-starved actor may prefer the
-    // quick field box while still believing preservation is worth doing at all.
-    1_000_000 + (mix64(behavior_seed ^ 0x5052_4553_434F_4D4D) % 3_000_001) as u32
-}
-
-pub(in super::super) fn preservation_material_budget_ppm(behavior_seed: u64) -> u32 {
-    // Construction matter competes with tools, power, and later storage. Use legible commitment
-    // bands instead of a continuous fraction: a continuous sample almost never reaches exactly
-    // 100%, which would accidentally make an all-in preservation investment unreachable. Focused
-    // behavior seeds stratify their low two bits independently from world pressure, so a four-case
-    // exploratory report covers every material-commitment band without forcing any storage choice.
-    const BUDGETS: [u32; 4] = [400_000, 600_000, 850_000, 1_000_000];
-    let index = usize::try_from(behavior_seed & 0b11)
-        .unwrap_or_else(|_| unreachable!("two-bit preservation material budget fits usize"));
-    BUDGETS[index]
-}
+/// Fixed comparison criterion: one additional fresh-food tick must repay more
+/// than one construction-attention tick. This is an experiment rule, not a
+/// prediction of a player's preferences.
+pub(in super::super) const PRESERVATION_RETURN_PPM: u32 = 1_000_000;
 
 #[derive(Clone, Debug)]
 pub(super) struct PreservationCandidate {

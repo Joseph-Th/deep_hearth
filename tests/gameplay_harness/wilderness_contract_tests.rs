@@ -4720,20 +4720,28 @@ fn configured_root(name: &str, fallback: u64) -> u64 {
     })
 }
 
-fn organic_start_profile(behavior_root: u64, index: usize) -> WildernessStartProfile {
-    match (behavior_root as usize).wrapping_add(index) % 3 {
+/// A replay root specifies both generated physical conditions and the declared
+/// opening task. Independent salts keep task and terrain generation separate.
+fn organic_opening_case(
+    root: u64,
+    index: u64,
+) -> (
+    WorldGenerationSeed,
+    WildernessStartProfile,
+    WildernessCampGoal,
+) {
+    let world_seed = seed::mix64(root ^ index.wrapping_add(1).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+    let profile = match seed::mix64(root ^ 0x5354_4152_545F_5052).wrapping_add(index) % 3 {
         0 => WildernessStartProfile::Rested,
         1 => WildernessStartProfile::HungerPressure,
         _ => WildernessStartProfile::HydrationPressure,
-    }
-}
-
-fn organic_camp_goal(behavior_root: u64, index: usize) -> WildernessCampGoal {
-    match (seed::mix64(behavior_root ^ 0x4341_4D50_474F_414C) as usize).wrapping_add(index) % 3 {
+    };
+    let goal = match seed::mix64(root ^ 0x4341_4D50_474F_414C).wrapping_add(index) % 3 {
         0 => WildernessCampGoal::StayMobile,
         1 => WildernessCampGoal::WorksiteCache,
         _ => WildernessCampGoal::PreserveProvisions,
-    }
+    };
+    (WorldGenerationSeed::new(world_seed), profile, goal)
 }
 
 /// A lived, optional protein route within the same ordinary six-edge opening.
@@ -4897,12 +4905,8 @@ pub(super) fn run_wilderness_report() {
         "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED",
         seed::mix64(WILDERNESS_WORLD_SEED.value() ^ 0x5749_4C44_5F4F_5247),
     );
-    let behavior_root = configured_root(
-        "DEEP_HEARTH_GAMEPLAY_BEHAVIOR_SEED",
-        seed::mix64(WILDERNESS_WORLD_SEED.value() ^ 0x5749_4C44_5F42_4856),
-    );
     std::println!(
-        "PROBE INPUT name=wilderness mode=explore samples={} maintained=1 coverage=6 organic={} world_root=0x{world_root:016X} behavior_root=0x{behavior_root:016X} replay=generated-opening-graph",
+        "PROBE INPUT name=wilderness mode=explore samples={} maintained=1 coverage=6 organic={} world_root=0x{world_root:016X} replay=generated-opening-graph",
         ORGANIC_SAMPLES + 7,
         ORGANIC_SAMPLES,
     );
@@ -4963,17 +4967,9 @@ pub(super) fn run_wilderness_report() {
         "coverage",
     );
     for index in 0..ORGANIC_SAMPLES {
-        let ordinal = u64::try_from(index + 1)
-            .unwrap_or_else(|_| unreachable!("bounded wilderness organic index fits u64"));
-        let world_seed = seed::mix64(world_root ^ ordinal.wrapping_mul(0x9E37_79B9_7F4A_7C15));
-        let profile = organic_start_profile(behavior_root, index);
-        let goal = organic_camp_goal(behavior_root, index);
+        let (world_seed, profile, goal) = organic_opening_case(world_root, index as u64);
         print_wilderness_experience(
-            evaluate_generated_wilderness_opening(
-                WorldGenerationSeed::new(world_seed),
-                profile,
-                goal,
-            ),
+            evaluate_generated_wilderness_opening(world_seed, profile, goal),
             "organic",
         );
     }
@@ -5158,5 +5154,26 @@ fn generated_wilderness_opening_stabilizes_without_premature_investment() {
         assert!(preserved.stone_crock_food_shelf_ticks > preserved.field_box_food_shelf_ticks);
         assert!(preserved.project_meal_consumed_mg > 0);
         assert!(preserved.final_warning_safe);
+
+        // Broad audits rotate a single organic case among scopes; a focused
+        // wilderness gate receives the same first case as its exploratory report.
+        if env::var("DEEP_HEARTH_GAMEPLAY_VARIATION_SCOPE")
+            .ok()
+            .is_none_or(|scope| scope == "wilderness")
+            && env::var_os("DEEP_HEARTH_GAMEPLAY_VARIATION_SEED").is_some()
+        {
+            let root = configured_root(
+                "DEEP_HEARTH_GAMEPLAY_VARIATION_SEED",
+                WILDERNESS_WORLD_SEED.value(),
+            );
+            let (world_seed, profile, goal) = organic_opening_case(root, 0);
+            std::println!(
+                "PROBE INPUT name=wilderness mode=gate organic=1 world_root=0x{root:016X} replay=organic:0x{:016X}/{}/{}",
+                world_seed.value(),
+                profile.label(),
+                goal.label(),
+            );
+            let _ = evaluate_generated_wilderness_opening(world_seed, profile, goal);
+        }
     }
 }

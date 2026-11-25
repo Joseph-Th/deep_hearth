@@ -229,19 +229,6 @@ pub(in super::super) fn project_preservation_candidates_with_raw_opportunity(
         .collect()
 }
 
-pub(in super::super) fn select_preservation_projection(
-    behavior_seed: u64,
-    material_budget_mg: u64,
-    projections: &[PreservationCandidateProjection],
-) -> PreservationCandidateProjection {
-    let attention_value_ppm = preservation_attention_value_ppm(behavior_seed);
-    select_preservation_projection_for_attention_value(
-        attention_value_ppm,
-        material_budget_mg,
-        projections,
-    )
-}
-
 /// Compares construction against abstention at the same disclosed reserve-use horizon. Only the
 /// additional edible lifetime created by the enclosure counts as benefit; food that would still be
 /// fresh without construction is not credited to the investment. Equal value favors retaining time
@@ -263,28 +250,31 @@ pub(in super::super) fn select_preservation_investment(
         }),
         "matched preservation candidates must share one no-build freshness baseline"
     );
-    // An unaffordable enclosure is not an executable preservation choice.
-    if !projections
+    // Filter both commitment constraints before ranking: an enclosure with the
+    // highest net value may fail the separately declared minimum return.
+    let qualifying = projections
         .iter()
-        .any(|projection| projection.raw_material_mass_mg <= material_budget_mg)
-    {
+        .copied()
+        .filter(|projection| {
+            if projection.raw_material_mass_mg > material_budget_mg {
+                return false;
+            }
+            let incremental_fresh_ticks = projection
+                .remaining_fresh_ticks
+                .saturating_sub(ambient_remaining_fresh_ticks);
+            let benefit = u128::from(incremental_fresh_ticks) * 1_000_000;
+            let cost = u128::from(projection.production_ticks) * u128::from(minimum_return_ppm);
+            benefit > cost
+        })
+        .collect::<Vec<_>>();
+    if qualifying.is_empty() {
         return None;
     }
-    let selected = select_preservation_projection_for_attention_value(
+    Some(select_preservation_projection_for_attention_value(
         attention_value_ppm,
         material_budget_mg,
-        projections,
-    );
-    let incremental_fresh_ticks = selected
-        .remaining_fresh_ticks
-        .saturating_sub(selected.ambient_remaining_fresh_ticks);
-    let benefit = i128::from(incremental_fresh_ticks)
-        .checked_mul(1_000_000)
-        .unwrap_or_else(|| panic!("preservation projected freshness value overflowed"));
-    let cost = i128::from(selected.production_ticks)
-        .checked_mul(i128::from(minimum_return_ppm))
-        .unwrap_or_else(|| panic!("preservation projected attention value overflowed"));
-    (benefit > cost).then_some(selected)
+        &qualifying,
+    ))
 }
 
 pub(in super::super) fn select_preservation_projection_for_attention_value(

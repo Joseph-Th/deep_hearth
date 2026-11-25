@@ -9,11 +9,7 @@ use super::extraction::{FieldworkOrderAdaptation, FieldworkStop};
 use super::*;
 
 fn replay(seed: u64) -> FocusedProbeCase {
-    FocusedProbeCase::new(
-        seed,
-        Some(super::super::seed::mix64(seed ^ 0x4649_454C_445F_504C)),
-        FocusedProbeRole::ExplicitReplay,
-    )
+    FocusedProbeCase::new(seed, FocusedProbeRole::ExplicitReplay)
 }
 
 fn choose_fieldwork_tool(
