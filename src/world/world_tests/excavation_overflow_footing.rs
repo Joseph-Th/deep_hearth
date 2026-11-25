@@ -4,6 +4,102 @@ use super::*;
 use crate::logistics::{player_body_has_fixed_floor, player_placement_has_fixed_floor};
 use crate::spatial::{NANOMETERS_PER_VOXEL, WorldPoint};
 
+#[test]
+fn full_floor_excavation_cannot_leave_overflow_at_its_own_removed_support() {
+    let (registries, mut state, pick, _) = generated_excavation_fixture();
+    let player = state.logistics().player().copied().unwrap();
+    let at = player.position();
+    let floor = VoxelCoord::new(at.x(), at.y() - 1, at.z());
+    let full = state
+        .world()
+        .represented_mass_at(registries.world(), floor)
+        .unwrap();
+    let revision = state.world().revision();
+    state.world_state_mut().apply_excavated_cell_mass(
+        revision,
+        revision + 1,
+        floor,
+        BLOCK_STATE_STONE,
+        full,
+        Mass::from_milligrams(2),
+    );
+    let carried = player.carried_stockpile();
+    let free = state
+        .inventory()
+        .get_stockpile(carried)
+        .unwrap()
+        .available_capacity();
+    let down = ViewDirection::new(0, -VIEW_DIRECTION_PARTS_PER_MILLION, 0).unwrap();
+    let request = BlockExcavationRequest::new(
+        down,
+        MINING_METHOD_HAND_PICK,
+        pick,
+        Mass::from_milligrams(2),
+    );
+    let safe = validate_start_player_block_excavation(&registries, &state, request).unwrap();
+    assert_eq!(
+        safe.work().output(),
+        crate::labor::BlockExcavationOutputCustody::Carried { stockpile: carried }
+    );
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE),
+        free,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_start_player_block_excavation(&registries, &state, request).err(),
+        Some(BlockExcavationError::OverflowOutputRequiresFixedFloor)
+    );
+    assert_eq!(state, before);
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let control = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL.with_primary(PrimaryControlIntent::break_target(down)),
+    )
+    .unwrap();
+    let started = match control.primary_action() {
+        Some(PrimaryActionOutcome::BlockExcavationStarted(started)) => *started,
+        other => panic!("held mining must choose a smaller safe cut: {other:?}"),
+    };
+    assert_eq!(started.excavated_mass(), Mass::from_milligrams(1));
+    assert_eq!(
+        started.output(),
+        crate::labor::BlockExcavationOutputCustody::Surface { position: at }
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    // Model an invalid saved full cut in place of the safe partial cut.
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let work = &mut encoded["state"]["systems"]["player_work"]["active"]["BlockExcavation"]["work"];
+    assert_eq!(work["excavated_mass"], serde_json::json!(1));
+    work["excavated_mass"] = serde_json::json!(2);
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded).unwrap();
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::BlockExcavationSurfaceRequiresFixedFloor
+        )))
+    );
+    while state.control_tick() < started.completes_at() {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(
+        state.world().represented_mass_at(registries.world(), floor),
+        Some(Mass::from_milligrams(1))
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
 fn shift_excavator_onto_ledge(registries: &Registries, state: &mut AppState) -> VoxelCoord {
     let player = state.logistics().player().copied().unwrap();
     let position = player.position();

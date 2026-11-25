@@ -187,6 +187,9 @@ capacity while standing on an adjacent ledge. A surface-bound excavation
 checks that the selected fixed floor exists at admission and on trusted load;
 its pending start also binds the structural revision so changes to built
 footing cannot silently invalidate the output destination before commit.
+Virtual world-range collision stops body motion but is not material footing.
+A full cut cannot select stationary overflow directly above the block it
+will remove; safe smaller cuts and carried output remain admissible.
 Complete block excavation shares a local floor-owner assessment at admission and
 commit: live loose drops, physical perennial roots (including depleted crops),
 and unenclosed ground stockpiles holding material or

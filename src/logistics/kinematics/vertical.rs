@@ -358,8 +358,8 @@ fn body_has_fixed_floor(registries: &Registries, state: &AppState, body: PlayerB
 /// the adjacent ledge supports the body, but it cannot support a parcel, tool,
 /// cache or machine placed in the empty voxel under the player's center.
 ///
-/// Use the same fixed collision authority and exact foot face as player
-/// physics; do not count movable residents as permanent support.
+/// Use body contact and the world owner's exact stationary custody rule.
+/// The virtual collision boundary and moving residents are not material floors.
 pub(crate) fn player_placement_has_fixed_floor(registries: &Registries, state: &AppState) -> bool {
     let Some(player) = state.logistics().player() else {
         return false;
@@ -374,22 +374,12 @@ pub(crate) fn body_has_fixed_placement_floor(
     state: &AppState,
     body: PlayerBodyState,
 ) -> bool {
-    if !body_has_fixed_floor(registries, state, body) {
-        return false;
-    }
-    let Some(below_foot) = body.foot_position().y_nanometers().checked_sub(1) else {
-        return false;
-    };
-    let position = body.voxel_position();
-    player_cell_has_fixed_support(
-        registries,
-        state,
-        VoxelCoord::new(
-            position.x(),
-            below_foot.div_euclid(NANOMETERS_PER_VOXEL),
-            position.z(),
-        ),
-    )
+    body_has_fixed_floor(registries, state, body)
+        && !crate::world::generated_position_lacks_fixed_footing(
+            registries,
+            state,
+            body.voxel_position(),
+        )
 }
 
 pub(super) fn supporting_floor_y(

@@ -355,6 +355,15 @@ fn validate_start_player_block_excavation_targeted(
         {
             return Err(BlockExcavationError::OverflowOutputRequiresFixedFloor);
         }
+        // The selected surface output must still have a floor after this
+        // cut. Carried output can follow the falling player instead.
+        if request.mass == source_mass
+            && target.voxel().y().checked_add(1).is_some_and(|y| {
+                player.position() == VoxelCoord::new(target.voxel().x(), y, target.voxel().z())
+            })
+        {
+            return Err(BlockExcavationError::OverflowOutputRequiresFixedFloor);
+        }
         if !state.can_spend_surface_revisions(1) {
             return Err(BlockExcavationError::SurfaceRevisionExhausted);
         }

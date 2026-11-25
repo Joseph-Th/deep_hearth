@@ -109,6 +109,60 @@ fn falling_player_cannot_freeze_a_loose_parcel_in_air_but_can_drop_after_landing
 }
 
 #[test]
+fn world_boundary_is_collision_but_not_stationary_material_footing() {
+    use crate::world::{BlockStateId, set_generated_block_for_test};
+    let registries = build_registries();
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(41),
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let at = VoxelCoord::new(5, WORLD_MIN_Y, 5);
+    for y in WORLD_MIN_Y..=WORLD_MIN_Y + 1 {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(5, y, 5),
+            BlockStateId::AIR,
+        );
+    }
+    let carried = validate_admit_player(&registries, &state, at)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        Mass::from_milligrams(100_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    assert!(player_body_is_grounded(&registries, &state));
+    assert!(crate::world::generated_position_lacks_fixed_footing(
+        &registries,
+        &state,
+        at
+    ));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_drop_player_material(&registries, &state, commodity).err(),
+        Some(PlayerMaterialDropError::PlayerAirborne)
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn movable_resident_is_not_permanent_footing_for_a_player_drop() {
     use crate::logistics::player_body_has_fixed_floor;
     use crate::world::{BlockStateId, set_generated_block_for_test, temple_warden_route_at};
