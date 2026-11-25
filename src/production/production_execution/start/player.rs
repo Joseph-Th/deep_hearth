@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
+use crate::labor::{PlayerAttentionError, ValidatedPlayerAttention, validate_player_attention};
 use crate::logistics::{
     PlayerEnergyStoreAccessError, PlayerEquipmentAccessError, PlayerStockpileAccessError,
     validate_player_energy_store_access, validate_player_equipment_access,
@@ -18,7 +19,6 @@ use super::{
 use crate::inventory::StockpileId;
 use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::production::ProcessResolution;
-use crate::survival::Vitality;
 
 /// Failure while authorizing an already-resolved production process for an admitted player.
 #[derive(Debug, PartialEq, Eq)]
@@ -26,6 +26,8 @@ pub enum StartPlayerProcessError {
     PlayerNotAdmitted,
     PlayerDead,
     PlayerBusy,
+    PlayerAirborne,
+    PlayerMoving,
     PreparedStrikeActive,
     StockpileAccess(PlayerStockpileAccessError),
     EquipmentAccess(PlayerEquipmentAccessError),
@@ -40,6 +42,12 @@ impl Display for StartPlayerProcessError {
             Self::PlayerDead => formatter.write_str("dead player cannot start production"),
             Self::PlayerBusy => formatter
                 .write_str("player cannot load a new production batch while work is active"),
+            Self::PlayerAirborne => {
+                formatter.write_str("player must be on fixed footing before loading production")
+            }
+            Self::PlayerMoving => {
+                formatter.write_str("player must settle movement before loading production")
+            }
             Self::PreparedStrikeActive => formatter
                 .write_str("player must lower the prepared weapon before loading production"),
             Self::StockpileAccess(error) => write!(formatter, "stockpile access failed: {error}"),
@@ -58,6 +66,8 @@ impl Error for StartPlayerProcessError {
             Self::PlayerNotAdmitted
             | Self::PlayerDead
             | Self::PlayerBusy
+            | Self::PlayerAirborne
+            | Self::PlayerMoving
             | Self::PreparedStrikeActive => None,
             Self::StockpileAccess(error) => Some(error),
             Self::EquipmentAccess(error) => Some(error),
@@ -68,26 +78,22 @@ impl Error for StartPlayerProcessError {
 }
 
 fn validate_player_process_access(
+    registries: &Registries,
     state: &AppState,
     resolution: &ProcessResolution,
     routes: &[ProcessOutputRoute],
-) -> Result<(), StartPlayerProcessError> {
+) -> Result<ValidatedPlayerAttention, StartPlayerProcessError> {
     if player_admission_state(state) != PlayerAdmissionState::Admitted {
         return Err(StartPlayerProcessError::PlayerNotAdmitted);
     }
-    let player = state
-        .survival()
-        .player()
-        .unwrap_or_else(|| unreachable!("admitted player has survival state"));
-    if player.vitality() == Vitality::ZERO {
-        return Err(StartPlayerProcessError::PlayerDead);
-    }
-    if state.player_work().active().is_some() {
-        return Err(StartPlayerProcessError::PlayerBusy);
-    }
-    if state.combat().has_prepared_strike() {
-        return Err(StartPlayerProcessError::PreparedStrikeActive);
-    }
+    let attention = validate_player_attention(registries, state).map_err(|error| match error {
+        PlayerAttentionError::SurvivalNotInitialized => StartPlayerProcessError::PlayerNotAdmitted,
+        PlayerAttentionError::PlayerDead => StartPlayerProcessError::PlayerDead,
+        PlayerAttentionError::Busy { .. } => StartPlayerProcessError::PlayerBusy,
+        PlayerAttentionError::PreparedStrikeActive => StartPlayerProcessError::PreparedStrikeActive,
+        PlayerAttentionError::PlayerAirborne => StartPlayerProcessError::PlayerAirborne,
+        PlayerAttentionError::PlayerMoving => StartPlayerProcessError::PlayerMoving,
+    })?;
     validate_player_stockpile_access(state, resolution.source())
         .map_err(StartPlayerProcessError::StockpileAccess)?;
     for route in routes {
@@ -106,7 +112,7 @@ fn validate_player_process_access(
         validate_player_energy_store_access(state, sink.trace().destination())
             .map_err(StartPlayerProcessError::EnergyStoreAccess)?;
     }
-    Ok(())
+    Ok(attention)
 }
 
 /// Authorizes one single-output resolved process for an admitted player's current exact-local
@@ -148,10 +154,10 @@ pub fn validate_start_player_process_routed(
     source: StockpileId,
     routes: &[ProcessOutputRoute],
 ) -> Result<ValidatedStartProcess, StartPlayerProcessError> {
-    validate_player_process_access(state, resolution, routes)?;
+    let attention = validate_player_process_access(registries, state, resolution, routes)?;
     let validated = validate_start_process_routed_internal(
         registries, state, resolution, source, routes, false,
     )
     .map_err(StartPlayerProcessError::Process)?;
-    Ok(validated.bind_player_actor_revisions(state))
+    Ok(validated.bind_player_attention(attention))
 }

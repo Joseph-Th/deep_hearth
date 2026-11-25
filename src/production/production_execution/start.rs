@@ -16,6 +16,7 @@ use crate::core::time::{ControlTick, TickSpan, require_simulation_boundary};
 use crate::energy::{EnergyConsumptionReservation, EnergyIngressReservation};
 use crate::equipment::ValidatedEquipmentUse;
 use crate::inventory::{ConsumptionReservation, StockpileId, ValidatedStockpileStructuralLoad};
+use crate::labor::ValidatedPlayerAttention;
 use crate::player::{PlayerAdmissionState, player_admission_state};
 use crate::registry::Registries;
 
@@ -72,9 +73,7 @@ pub struct ValidatedStartProcess {
     expected_production_revision: u64,
     next_production_revision: u64,
     expected_logistics_revision: u64,
-    expected_player_survival_revision: Option<u64>,
-    expected_player_work_revision: Option<u64>,
-    expected_combat_revision: Option<u64>,
+    player_attention: Option<ValidatedPlayerAttention>,
     reservation: ConsumptionReservation,
     energy_reservation: Option<EnergyConsumptionReservation>,
     energy_ingress_reservation: Option<EnergyIngressReservation>,
@@ -84,16 +83,12 @@ pub struct ValidatedStartProcess {
 }
 
 impl ValidatedStartProcess {
-    fn bind_player_actor_revisions(mut self, state: &AppState) -> Self {
+    fn bind_player_attention(mut self, attention: ValidatedPlayerAttention) -> Self {
         debug_assert!(
-            self.expected_player_survival_revision.is_none()
-                && self.expected_player_work_revision.is_none()
-                && self.expected_combat_revision.is_none(),
-            "player production authorization cannot bind actor revisions twice"
+            self.player_attention.is_none(),
+            "player production authorization cannot bind attention twice"
         );
-        self.expected_player_survival_revision = Some(state.survival().revision());
-        self.expected_player_work_revision = Some(state.player_work().revision());
-        self.expected_combat_revision = Some(state.combat().revision());
+        self.player_attention = Some(attention);
         self
     }
 }
@@ -325,9 +320,7 @@ fn validate_start_process_routed_internal(
         expected_production_revision,
         next_production_revision,
         expected_logistics_revision: state.logistics().revision(),
-        expected_player_survival_revision: None,
-        expected_player_work_revision: None,
-        expected_combat_revision: None,
+        player_attention: None,
         reservation,
         energy_reservation,
         energy_ingress_reservation,

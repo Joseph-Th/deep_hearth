@@ -167,6 +167,10 @@ pub(crate) struct ValidatedPlayerAttentionHold {
 }
 
 impl ValidatedPlayerAttention {
+    pub(crate) fn precheck(&self, state: &AppState) -> Result<(), PlayerAttentionConflict> {
+        self.snapshot.precheck(state)
+    }
+
     pub(crate) fn hold(self, work: PlayerWork) -> Option<ValidatedPlayerAttentionHold> {
         // A delayed attention hold mutates player-work once when admitted and once when the
         // interval releases. Reserve both revisions before the first mutation.

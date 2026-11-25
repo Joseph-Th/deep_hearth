@@ -156,6 +156,23 @@ fn validated_player_process_rejects_survival_change_before_commit() {
     assert_eq!(state, before);
 }
 
+#[test]
+fn validated_player_process_rejects_structural_change_before_commit() {
+    let (registries, mut state, source, carried, resolved) = carried_output_process_fixture();
+    let validated =
+        validate_start_player_process(&registries, &state, &resolved, source, carried).unwrap();
+    let expected = state.structures().revision();
+    add_active_stockpile_support(&registries, &mut state, 100);
+    let actual = state.structures().revision();
+    assert!(actual > expected);
+    let before = state.clone();
+    assert_eq!(
+        validated.commit(&mut state),
+        Err(StartProcessCommitError::StaleStructureRevision { expected, actual })
+    );
+    assert_eq!(state, before);
+}
+
 fn berry_food() -> CommodityKey {
     CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD)
 }

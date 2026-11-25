@@ -528,6 +528,8 @@ fn validate_start_powered_craft_internal(
         }
         StartPlayerProcessError::PlayerDead => StartPoweredCraftError::PlayerDead,
         StartPlayerProcessError::PlayerBusy => StartPoweredCraftError::PlayerBusy,
+        StartPlayerProcessError::PlayerAirborne => StartPoweredCraftError::PlayerAirborne,
+        StartPlayerProcessError::PlayerMoving => StartPoweredCraftError::PlayerMoving,
         StartPlayerProcessError::PreparedStrikeActive => {
             StartPoweredCraftError::PreparedStrikeActive
         }

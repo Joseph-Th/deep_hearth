@@ -7,6 +7,7 @@ use crate::core::time::{ControlTick, SimulationTick};
 use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
 use crate::inventory::StockpileId;
+use crate::labor::PlayerAttentionConflict;
 use crate::mining::MiningJobId;
 use crate::spatial::VoxelCoord;
 use crate::structural::StructuralCommitError;
@@ -59,6 +60,10 @@ pub enum StartProcessCommitError {
         actual: u64,
     },
     StaleStructureRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleWorldRevision {
         expected: u64,
         actual: u64,
     },
@@ -153,6 +158,10 @@ impl Display for StartProcessCommitError {
                 formatter,
                 "validated process start expected structural revision {expected} but current revision is {actual}"
             ),
+            Self::StaleWorldRevision { expected, actual } => write!(
+                formatter,
+                "validated process start expected world revision {expected} but current revision is {actual}"
+            ),
             Self::EnergyStoreBusyManualPower { store } => write!(
                 formatter,
                 "validated process start energy store {} is occupied by direct player-powered generation",
@@ -229,6 +238,7 @@ impl Error for StartProcessCommitError {
             | Self::StaleEnergyRevision { .. }
             | Self::StaleEquipmentRevision { .. }
             | Self::StaleStructureRevision { .. }
+            | Self::StaleWorldRevision { .. }
             | Self::EnergyStoreBusyManualPower { .. }
             | Self::EquipmentBusyMining { .. }
             | Self::EquipmentBusyManualPower { .. }
@@ -236,6 +246,41 @@ impl Error for StartProcessCommitError {
             | Self::EquipmentBusyTreeFelling { .. }
             | Self::EquipmentBusyBlockExcavation { .. }
             | Self::EquipmentUnderMaintenance { .. } => None,
+        }
+    }
+}
+
+impl From<PlayerAttentionConflict> for StartProcessCommitError {
+    fn from(conflict: PlayerAttentionConflict) -> Self {
+        match conflict {
+            PlayerAttentionConflict::ControlTick { expected, actual } => {
+                if expected.simulation_tick() == actual.simulation_tick() {
+                    Self::StaleControlTick { expected, actual }
+                } else {
+                    Self::StaleSimulationTick {
+                        expected: expected.simulation_tick(),
+                        actual: actual.simulation_tick(),
+                    }
+                }
+            }
+            PlayerAttentionConflict::WorkRevision { expected, actual } => {
+                Self::StalePlayerWorkRevision { expected, actual }
+            }
+            PlayerAttentionConflict::CombatRevision { expected, actual } => {
+                Self::StaleCombatRevision { expected, actual }
+            }
+            PlayerAttentionConflict::SurvivalRevision { expected, actual } => {
+                Self::StaleSurvivalRevision { expected, actual }
+            }
+            PlayerAttentionConflict::LogisticsRevision { expected, actual } => {
+                Self::StaleLogisticsRevision { expected, actual }
+            }
+            PlayerAttentionConflict::WorldRevision { expected, actual } => {
+                Self::StaleWorldRevision { expected, actual }
+            }
+            PlayerAttentionConflict::StructureRevision { expected, actual } => {
+                Self::StaleStructureRevision { expected, actual }
+            }
         }
     }
 }

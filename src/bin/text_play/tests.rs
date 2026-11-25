@@ -2853,6 +2853,49 @@ fn ceramic_workshop_fires_and_cools_the_gathered_player_stack() {
     let firing = format!("heat 102 {} 1 1", stack_index(&session, green));
     let (catalog, _) = session.command("thermal").unwrap();
     assert!(catalog.contains(&format!("{firing} | ready")), "{catalog}");
+
+    // A real jump on the slow boundary leaves the feet in the workshop's
+    // voxel for a few control samples. Locality alone must not authorize
+    // loading a batch whose output is reserved in the moving player's pack.
+    let mut airborne = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot(&session))
+            .unwrap()
+            .into_state(&session.registries)
+            .unwrap(),
+        seed: None,
+    };
+    while airborne.state.control_tick().value() % CONTROL_TICKS_PER_SIMULATION_TICK
+        != CONTROL_TICKS_PER_SIMULATION_TICK - 1
+    {
+        let _ = deep_hearth::simulation::advance_control_tick(
+            &airborne.registries,
+            &mut airborne.state,
+        )
+        .unwrap();
+    }
+    let origin = airborne.player_position().unwrap();
+    airborne.command("jump").unwrap();
+    assert!(airborne.state.control_tick().is_simulation_boundary());
+    assert_eq!(airborne.player_position().unwrap(), origin);
+    assert!(
+        airborne
+            .state
+            .logistics()
+            .player()
+            .unwrap()
+            .body()
+            .vertical_velocity()
+            .nanometers_per_second()
+            > 0
+    );
+    let before = snapshot(&airborne);
+    let (catalog, _) = airborne.command("thermal").unwrap();
+    assert!(catalog.contains("fixed footing"), "{catalog}");
+    let error = airborne.command(&firing).unwrap_err();
+    assert!(error.contains("fixed footing"), "{error}");
+    assert_eq!(snapshot(&airborne), before);
+
     session.command(&firing).unwrap();
     let finish = |session: &mut Session| {
         for _ in 0..200 {

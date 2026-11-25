@@ -188,6 +188,8 @@ pub enum StartPoweredCraftError {
     PlayerNotAdmitted,
     PlayerDead,
     PlayerBusy,
+    PlayerAirborne,
+    PlayerMoving,
     PreparedStrikeActive,
     StockpileAccess(PlayerStockpileAccessError),
     EquipmentAccess(PlayerEquipmentAccessError),
@@ -210,6 +212,11 @@ impl Display for StartPoweredCraftError {
             Self::PlayerDead => formatter.write_str("dead player cannot start powered crafting"),
             Self::PlayerBusy => {
                 formatter.write_str("player cannot load a powered craft batch while work is active")
+            }
+            Self::PlayerAirborne => formatter
+                .write_str("player must be on fixed footing before loading powered crafting"),
+            Self::PlayerMoving => {
+                formatter.write_str("player must settle movement before loading powered crafting")
             }
             Self::PreparedStrikeActive => formatter.write_str(
                 "player must lower the prepared weapon before starting powered crafting",
@@ -240,6 +247,8 @@ impl Error for StartPoweredCraftError {
             Self::PlayerNotAdmitted
             | Self::PlayerDead
             | Self::PlayerBusy
+            | Self::PlayerAirborne
+            | Self::PlayerMoving
             | Self::PreparedStrikeActive
             | Self::NoSegregableResidue { .. } => None,
             Self::StockpileAccess(error) => Some(error),

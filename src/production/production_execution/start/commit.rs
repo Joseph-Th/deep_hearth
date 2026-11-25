@@ -29,9 +29,7 @@ impl ValidatedStartProcess {
             expected_production_revision,
             next_production_revision,
             expected_logistics_revision,
-            expected_player_survival_revision,
-            expected_player_work_revision,
-            expected_combat_revision,
+            player_attention,
             reservation,
             energy_reservation,
             energy_ingress_reservation,
@@ -64,26 +62,10 @@ impl ValidatedStartProcess {
                 });
             }
         }
-        if let Some(expected_player_work_revision) = expected_player_work_revision {
-            let actual = state.player_work().revision();
-            if actual != expected_player_work_revision {
-                return Err(StartProcessCommitError::StalePlayerWorkRevision {
-                    expected: expected_player_work_revision,
-                    actual,
-                });
-            }
-        }
-        if let Some(expected_combat_revision) = expected_combat_revision {
-            let actual = state.combat().revision();
-            if actual != expected_combat_revision {
-                return Err(StartProcessCommitError::StaleCombatRevision {
-                    expected: expected_combat_revision,
-                    actual,
-                });
-            }
-        }
-        if let Some(expected_survival_revision) = expected_player_survival_revision {
-            validate_survival_revision(state, expected_survival_revision)?;
+        if let Some(attention) = player_attention {
+            attention
+                .precheck(state)
+                .map_err(StartProcessCommitError::from)?;
         }
         validate_production_revision(state, expected_production_revision)?;
         if let Some(energy) = &energy_ingress_reservation {
@@ -138,17 +120,6 @@ impl ValidatedStartProcess {
             .insert_job(job, next_job_id, next_production_revision);
         Ok(job_id)
     }
-}
-
-fn validate_survival_revision(
-    state: &AppState,
-    expected: u64,
-) -> Result<(), StartProcessCommitError> {
-    let actual = state.survival().revision();
-    if actual != expected {
-        return Err(StartProcessCommitError::StaleSurvivalRevision { expected, actual });
-    }
-    Ok(())
 }
 
 fn validate_logistics_revision(
