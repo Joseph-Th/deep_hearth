@@ -23,10 +23,7 @@ mod materials;
 mod site;
 
 use materials::{plan_enclosure_materials, select_enclosure_material, validate_enclosure_contents};
-use site::{
-    enclosure_position_is_solid, generated_enclosure_has_ground_support, rooted_foraging_at,
-    validate_world_location,
-};
+use site::{enclosure_position_is_solid, rooted_foraging_at, validate_world_location};
 
 pub use errors::{
     PlayerStoragePlacementCommitError, PlayerStoragePlacementError, StorageEnclosureCommitError,
@@ -44,6 +41,7 @@ pub struct ValidatedStorageEnclosureConstruction {
     expected_logistics_revision: u64,
     expected_surface_revision: u64,
     expected_world_revision: u64,
+    expected_structure_revision: u64,
     next_inventory_revision: u64,
     expected_profile: StockpileStorageProfile,
     next_profile: StockpileStorageProfile,
@@ -63,6 +61,7 @@ pub struct ValidatedPlayerStoragePlacement {
     expected_combat_revision: u64,
     expected_surface_revision: u64,
     expected_world_revision: u64,
+    expected_structure_revision: u64,
     allocation: ValidatedGroundStockpileAllocation,
     next_inventory_revision: u64,
     next_profile: StockpileStorageProfile,
@@ -104,6 +103,14 @@ impl ValidatedPlayerStoragePlacement {
                 expected: self.expected_world_revision,
                 actual: state.world().revision(),
             });
+        }
+        if state.structures().revision() != self.expected_structure_revision {
+            return Err(
+                PlayerStoragePlacementCommitError::StructureRevisionChanged {
+                    expected: self.expected_structure_revision,
+                    actual: state.structures().revision(),
+                },
+            );
         }
         if state.control_tick() != self.expected_control_tick {
             return Err(PlayerStoragePlacementCommitError::StaleControlTick {
@@ -188,7 +195,7 @@ pub(crate) fn validate_place_player_storage_at(
     // Building a new enclosure must meet the same floor rule as enclosing an
     // existing stockpile. Otherwise direct placement can freeze built matter in
     // midair even though a constructed stockpile at that site would be rejected.
-    if !generated_enclosure_has_ground_support(registries, state, position) {
+    if crate::world::generated_position_lacks_fixed_footing(registries, state, position) {
         return Err(PlayerStoragePlacementError::Construction(
             StorageEnclosureConstructionError::UnsupportedFloor { position },
         ));
@@ -233,6 +240,7 @@ pub(crate) fn validate_place_player_storage_at(
         expected_combat_revision: state.combat().revision(),
         expected_surface_revision: state.surface().revision(),
         expected_world_revision: state.world().revision(),
+        expected_structure_revision: state.structures().revision(),
         allocation,
         next_inventory_revision,
         next_profile: definition_record.storage_profile(),
@@ -313,6 +321,13 @@ impl ValidatedStorageEnclosureConstruction {
             return Err(StorageEnclosureCommitError::StaleWorldRevision {
                 expected: self.expected_world_revision,
                 actual: actual_world_revision,
+            });
+        }
+        let actual_structure_revision = state.structures().revision();
+        if actual_structure_revision != self.expected_structure_revision {
+            return Err(StorageEnclosureCommitError::StaleStructureRevision {
+                expected: self.expected_structure_revision,
+                actual: actual_structure_revision,
             });
         }
         // Resident position is not an inventory/logistics revision. Every
@@ -450,6 +465,7 @@ pub fn validate_build_storage_enclosure(
         expected_logistics_revision: state.logistics().revision(),
         expected_surface_revision: state.surface().revision(),
         expected_world_revision: state.world().revision(),
+        expected_structure_revision: state.structures().revision(),
         next_inventory_revision,
         expected_profile: required_profile,
         next_profile,

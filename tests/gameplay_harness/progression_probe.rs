@@ -299,6 +299,8 @@ fn autonomous_mining_stop(error: MiningStartError) -> AutonomousWorkStop {
         | unexpected @ MiningStartError::CompletionTickOverflow
         | unexpected @ MiningStartError::UnknownDestination { .. }
         | unexpected @ MiningStartError::DestinationAccess(_)
+        | unexpected @ MiningStartError::DestinationSolidTerrain { .. }
+        | unexpected @ MiningStartError::DestinationRequiresFixedFloor { .. }
         | unexpected @ MiningStartError::DestinationBusyStorageDismantling { .. }
         | unexpected @ MiningStartError::DestinationTemperatureNotAcquired { .. }
         | unexpected @ MiningStartError::DestinationStorage(_)

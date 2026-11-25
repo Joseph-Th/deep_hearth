@@ -8,28 +8,6 @@ use crate::surface::{OBSTRUCTING_RESIDUE_COMPACT_DEPTH_UM, exposed_residue_compa
 use super::super::StockpileId;
 use super::StorageEnclosureConstructionError;
 
-/// Ordinary construction in generated world truth requires a collidable floor. Controlled
-/// ungenerated-space stockpiles have no physical terrain authority yet.
-pub(super) fn generated_enclosure_has_ground_support(
-    registries: &Registries,
-    state: &AppState,
-    position: VoxelCoord,
-) -> bool {
-    if state.world().block_at(position).is_none() {
-        return true;
-    }
-    position
-        .y()
-        .checked_sub(1)
-        .and_then(|y| {
-            state
-                .world()
-                .block_at(VoxelCoord::new(position.x(), y, position.z()))
-        })
-        .and_then(|block| registries.world().block_for_state(block))
-        .is_some_and(|block| block.collision() == crate::world::BlockCollisionShape::FullCube)
-}
-
 pub(super) fn validate_world_location(
     registries: &Registries,
     state: &AppState,
@@ -79,7 +57,7 @@ pub(super) fn validate_world_location(
             compact_depth_um,
         });
     }
-    if !generated_enclosure_has_ground_support(registries, state, target_position) {
+    if crate::world::generated_position_lacks_fixed_footing(registries, state, target_position) {
         return Err(StorageEnclosureConstructionError::UnsupportedFloor {
             position: target_position,
         });

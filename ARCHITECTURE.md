@@ -160,6 +160,10 @@ An inbound reservation into an unenclosed, unmounted stationary stockpile also
 requires fixed footing in generated terrain. World footing owns this shared
 assessment; generation, unmounting, and trusted-load admission enforce it
 against the inventory reservation itself, regardless of which work owns it.
+New enclosure placement and in-place enclosure assembly use that same fixed
+footing assessment, including built full-cell members and standing trunks.
+Both construction authorizations bind the structural revision before consuming
+materials; pointed placement delegates floor legality to the enclosure owner.
 Player-originated persistent voxel custody (loose material drops, ground caches,
 portable equipment drops, equipment or energy-store assembly, and the ground
 overflow destination of timed block excavation) requires

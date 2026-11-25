@@ -1,10 +1,11 @@
 //! Physical, pointed placement of material-backed ground storage.
 
 use crate::core::state::AppState;
-use crate::inventory::{StorageDefinitionId, validate_place_player_storage_at};
+use crate::inventory::{
+    PlayerStoragePlacementError, StorageDefinitionId, StorageEnclosureConstructionError,
+    validate_place_player_storage_at,
+};
 use crate::registry::Registries;
-use crate::spatial::VoxelCoord;
-use crate::world::BlockCollisionShape;
 
 use super::{DirectPlacementTargetError, resolve_direct_placement_target};
 use crate::simulation::outcome::SecondaryActionOutcome;
@@ -70,22 +71,6 @@ pub(in crate::simulation::direct_actions) fn attempt_storage_placement(
             return SecondaryActionOutcome::StoragePlacementLocationOccupied { position };
         }
     };
-    // Pointed placement must not suspend a freestanding container in empty air. The lower-level
-    // stockpile allocator deliberately owns custody rather than terrain physics; this direct
-    // interaction owns the generated-world contact requirement.
-    let supported = position
-        .y()
-        .checked_sub(1)
-        .and_then(|y| {
-            state
-                .world()
-                .block_at(VoxelCoord::new(position.x(), y, position.z()))
-        })
-        .and_then(|block| registries.world().block_for_state(block))
-        .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube);
-    if !supported {
-        return SecondaryActionOutcome::StoragePlacementUnsupported { position };
-    }
     match validate_place_player_storage_at(registries, state, definition, position) {
         Ok(validated) => {
             let stockpile = validated.commit(state).unwrap_or_else(|error| {
@@ -98,6 +83,9 @@ pub(in crate::simulation::direct_actions) fn attempt_storage_placement(
                 stockpile,
             }
         }
+        Err(PlayerStoragePlacementError::Construction(
+            StorageEnclosureConstructionError::UnsupportedFloor { position },
+        )) => SecondaryActionOutcome::StoragePlacementUnsupported { position },
         Err(error) => SecondaryActionOutcome::StoragePlacementRejected { definition, error },
     }
 }

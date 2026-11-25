@@ -217,6 +217,10 @@ pub enum PlayerStoragePlacementCommitError {
         expected: u64,
         actual: u64,
     },
+    StructureRevisionChanged {
+        expected: u64,
+        actual: u64,
+    },
     StaleControlTick {
         expected: ControlTick,
         actual: ControlTick,
@@ -244,6 +248,10 @@ impl Display for PlayerStoragePlacementCommitError {
                 formatter,
                 "storage placement world revision changed from {expected} to {actual} before placement",
             ),
+            Self::StructureRevisionChanged { expected, actual } => write!(
+                formatter,
+                "storage placement structure revision changed from {expected} to {actual} before placement",
+            ),
             Self::StaleControlTick { expected, actual } => write!(
                 formatter,
                 "storage placement control time changed from {} to {} before commit",
@@ -260,6 +268,7 @@ impl Error for PlayerStoragePlacementCommitError {
             Self::PlayerBecameBusy
             | Self::StaleCombatRevision { .. }
             | Self::WorldRevisionChanged { .. }
+            | Self::StructureRevisionChanged { .. }
             | Self::StaleControlTick { .. } => None,
             Self::Allocation(error) => Some(error),
             Self::SurfaceRevisionChanged { .. } => None,
@@ -394,7 +403,7 @@ impl Display for StorageEnclosureConstructionError {
             ),
             Self::UnsupportedFloor { position } => write!(
                 formatter,
-                "storage enclosure at ({},{},{}) has no solid generated-world floor",
+                "storage enclosure at ({},{},{}) has no fixed generated-world footing",
                 position.x(),
                 position.y(),
                 position.z()
@@ -525,6 +534,10 @@ pub enum StorageEnclosureCommitError {
         expected: u64,
         actual: u64,
     },
+    StaleStructureRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleControlTick {
         expected: ControlTick,
         actual: ControlTick,
@@ -570,6 +583,10 @@ impl Display for StorageEnclosureCommitError {
                 formatter,
                 "storage construction expected world revision {expected} but current revision is {actual}"
             ),
+            Self::StaleStructureRevision { expected, actual } => write!(
+                formatter,
+                "storage construction expected structure revision {expected} but current revision is {actual}"
+            ),
             Self::StaleControlTick { expected, actual } => write!(
                 formatter,
                 "storage construction control time changed from {} to {} before commit",
@@ -610,6 +627,7 @@ impl Error for StorageEnclosureCommitError {
             | Self::StaleLogisticsRevision { .. }
             | Self::StaleSurfaceRevision { .. }
             | Self::StaleWorldRevision { .. }
+            | Self::StaleStructureRevision { .. }
             | Self::StaleControlTick { .. }
             | Self::UnknownTarget { .. }
             | Self::TargetProfileChanged { .. }

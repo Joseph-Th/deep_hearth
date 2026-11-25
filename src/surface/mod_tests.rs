@@ -3440,6 +3440,41 @@ fn secondary_use_places_selected_storage_body_through_canonical_storage_placemen
         Some(body_mass),
         "unsupported storage placement must not consume its enclosure material"
     );
+    // A full-footprint built floor provides the same fixed contact as rock.
+    // Test the real secondary-use path, not a fixture-only placement API.
+    let mut floored = state.clone();
+    let floor = VoxelCoord::new(placement.x(), placement.y() - 1, placement.z());
+    assert_eq!(floored.world().block_at(floor), Some(BlockStateId::AIR));
+    materialize_test_wall(&registries, &mut floored, floor, true);
+    let matter_before = calculate_matter_accounting(&floored).unwrap().total();
+    let placed = advance_control_tick_with_direct_input(
+        &registries,
+        &mut floored,
+        PlayerDirectControlInput::NEUTRAL
+            .with_secondary(SecondaryControlIntent::use_active(positive_x_view())),
+    )
+    .unwrap();
+    let Some(SecondaryActionOutcome::StoragePlaced {
+        stockpile,
+        definition: STORAGE_ROUGH_TIMBER_FIELD_BOX,
+    }) = placed.secondary_action()
+    else {
+        panic!(
+            "a built floor must support a storage enclosure: {:?}",
+            placed.secondary_action()
+        );
+    };
+    assert_eq!(
+        floored
+            .logistics()
+            .stationary_stockpile_position(*stockpile),
+        Some(placement)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&floored).unwrap().total(),
+        matter_before
+    );
+    assert_eq!(validate_loaded_state(&registries, &floored), Ok(()));
     set_generated_block_for_test(
         registries.world(),
         &mut state,
