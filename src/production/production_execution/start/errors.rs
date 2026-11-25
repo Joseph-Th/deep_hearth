@@ -78,6 +78,9 @@ pub enum StartProcessError {
         second_position: VoxelCoord,
     },
     DestinationStorage(StockpileStorageError),
+    RetainedPlayerSiteRequiresFixedFloor {
+        position: VoxelCoord,
+    },
     CapacityExceeded {
         stockpile: StockpileId,
         capacity: Mass,

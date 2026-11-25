@@ -16,7 +16,7 @@ use crate::core::quantity::{Mass, Speed};
 use crate::core::state::AppState;
 use crate::core::time::CONTROL_TICK_DURATION;
 use crate::equipment::equipment_occupancy;
-use crate::production::player_move_production_site_conflict;
+use crate::production::player_retained_production_anchor;
 use crate::registry::Registries;
 use crate::spatial::{VoxelCoord, WorldPoint};
 use crate::survival::{LocomotionDefinition, SurvivalExertion, Vitality};
@@ -60,9 +60,7 @@ fn player_voxel_change_allowed(
     if state.player_work().active().is_some() {
         return false;
     }
-    if player_move_production_site_conflict(state, player.carried_stockpile(), destination)
-        .is_some()
-    {
+    if player_retained_production_anchor(state).is_some_and(|(_, anchor)| anchor != destination) {
         return false;
     }
     if state

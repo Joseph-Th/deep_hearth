@@ -12,6 +12,7 @@ use crate::labor::{PlayerWorkCommitError, PlayerWorkStartError};
 use crate::logistics::PlayerEquipmentAccessError;
 use crate::material::CommodityKey;
 use crate::mining::{MiningMethodId, MiningPhysicsError};
+use crate::production::ProductionJobId;
 use crate::spatial::VoxelCoord;
 use crate::structural::StructuralElementId;
 use crate::surface::SurfaceResourceId;
@@ -73,6 +74,10 @@ pub enum BlockExcavationError {
     GroundedStructureRequiresFloor {
         target: VoxelCoord,
         element: StructuralElementId,
+    },
+    RetainedProductionSiteRequiresFloor {
+        target: VoxelCoord,
+        job: ProductionJobId,
     },
     UnknownMethod {
         method: MiningMethodId,
@@ -200,6 +205,11 @@ impl Display for BlockExcavationError {
                 target.z(),
                 element.value()
             ),
+            Self::RetainedProductionSiteRequiresFloor { target, job } => write!(
+                formatter,
+                "cannot remove block at ({},{},{}): retained production job {} needs the player's floor",
+                target.x(), target.y(), target.z(), job.value()
+            ),
             Self::UnknownMethod { method } => {
                 write!(formatter, "unknown mining method {}", method.value())
             }
@@ -262,6 +272,7 @@ impl Error for BlockExcavationError {
             | Self::NaturalSpringRequiresFloor { .. }
             | Self::OpeningResidentRequiresFloor { .. }
             | Self::GroundedStructureRequiresFloor { .. }
+            | Self::RetainedProductionSiteRequiresFloor { .. }
             | Self::UnknownMethod { .. }
             | Self::EquipmentMounted { .. }
             | Self::EquipmentRevisionExhausted
@@ -339,6 +350,10 @@ pub enum BlockExcavationCommitError {
     GroundedStructureRequiresFloor {
         target: VoxelCoord,
         element: StructuralElementId,
+    },
+    RetainedProductionSiteRequiresFloor {
+        target: VoxelCoord,
+        job: ProductionJobId,
     },
     EquipmentChanged,
     PlayerWork(PlayerWorkCommitError),
@@ -448,6 +463,14 @@ impl Display for BlockExcavationCommitError {
                 target.z(),
                 element.value()
             ),
+            Self::RetainedProductionSiteRequiresFloor { target, job } => write!(
+                formatter,
+                "cannot remove block at ({},{},{}): retained production job {} needs the player's floor",
+                target.x(),
+                target.y(),
+                target.z(),
+                job.value()
+            ),
             Self::EquipmentChanged => {
                 formatter.write_str("block excavation equipment changed before start")
             }
@@ -482,6 +505,7 @@ impl Error for BlockExcavationCommitError {
             | Self::NaturalSpringRequiresFloor { .. }
             | Self::OpeningResidentRequiresFloor { .. }
             | Self::GroundedStructureRequiresFloor { .. }
+            | Self::RetainedProductionSiteRequiresFloor { .. }
             | Self::EquipmentChanged => None,
         }
     }

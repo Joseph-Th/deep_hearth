@@ -99,6 +99,11 @@ impl Display for StartProcessError {
                 second_position.y(),
                 second_position.z()
             ),
+            Self::RetainedPlayerSiteRequiresFixedFloor { position } => write!(
+                formatter,
+                "retained production custody at ({},{},{}) requires fixed footing under the player's site",
+                position.x(), position.y(), position.z()
+            ),
             Self::DestinationStorage(error) => write!(
                 formatter,
                 "process destination rejects resolved output: {error}"

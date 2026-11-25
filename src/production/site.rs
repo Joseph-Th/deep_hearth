@@ -107,73 +107,90 @@ pub(crate) fn validate_process_start_site(
     Ok(())
 }
 
-/// Replays the spatial obligations that remain durable after production admission.
-///
-/// Suspension stops active time but does not dissolve the job's retained equipment, released-energy
-/// sink, or output destinations. Those endpoints must therefore remain co-located while suspended
-/// as well as while running, otherwise a loaded job could later resume physically remote work.
-fn validate_retained_job_site_with_stockpile_override(
-    state: &AppState,
+/// Enumerate only endpoints retained for the lifetime of a job. Inputs already
+/// consumed at admission no longer anchor the job to their original storage.
+fn retained_endpoints(
     job: &ProductionJobRecord,
-    stockpile_override: Option<(StockpileId, VoxelCoord)>,
-) -> Result<(), ProductionSiteMismatch> {
-    let stockpile_position = |stockpile| {
-        stockpile_override
-            .filter(|(overridden, _)| *overridden == stockpile)
-            .map(|(_, position)| position)
-            .or_else(|| state.logistics().stockpile_position(stockpile))
-    };
-    let mut anchor = None;
-    if let Some(provider) = job.equipment_provider() {
-        bind_known_endpoint(
-            &mut anchor,
-            ProductionSiteEndpoint::Equipment(provider.equipment()),
-            state.logistics().equipment_position(provider.equipment()),
-        )?;
-    }
-    if let Some(released) = job.released_energy() {
-        let store = released.destination();
-        bind_known_endpoint(
-            &mut anchor,
-            ProductionSiteEndpoint::EnergyStore(store),
-            state.logistics().energy_store_position(store),
-        )?;
-    }
-    for stream in job.output_streams() {
-        let destination = stream.destination();
-        bind_known_endpoint(
-            &mut anchor,
-            ProductionSiteEndpoint::Destination(destination),
-            stockpile_position(destination),
-        )?;
-    }
-    Ok(())
+) -> impl Iterator<Item = ProductionSiteEndpoint> + '_ {
+    job.equipment_provider()
+        .map(|provider| ProductionSiteEndpoint::Equipment(provider.equipment()))
+        .into_iter()
+        .chain(
+            job.released_energy()
+                .map(|released| ProductionSiteEndpoint::EnergyStore(released.destination())),
+        )
+        .chain(
+            job.output_streams()
+                .iter()
+                .map(|stream| ProductionSiteEndpoint::Destination(stream.destination())),
+        )
 }
 
+impl ProductionSiteEndpoint {
+    fn position(self, state: &AppState) -> Option<VoxelCoord> {
+        match self {
+            Self::Source(id) | Self::Destination(id) => state.logistics().stockpile_position(id),
+            Self::Equipment(id) => state.logistics().equipment_position(id),
+            Self::EnergyStore(id) => state.logistics().energy_store_position(id),
+        }
+    }
+
+    fn is_carried(self, state: &AppState) -> bool {
+        match self {
+            Self::Source(id) | Self::Destination(id) => state
+                .logistics()
+                .player()
+                .is_some_and(|player| player.carried_stockpile() == id),
+            Self::Equipment(id) => state.logistics().is_equipment_carried(id),
+            Self::EnergyStore(_) => false,
+        }
+    }
+}
+
+/// Suspension retains the same physical obligations as active processing.
 pub(crate) fn validate_retained_job_site(
     state: &AppState,
     job: &ProductionJobRecord,
 ) -> Result<(), ProductionSiteMismatch> {
-    validate_retained_job_site_with_stockpile_override(state, job, None)
+    let mut anchor = None;
+    for endpoint in retained_endpoints(job) {
+        bind_known_endpoint(&mut anchor, endpoint, endpoint.position(state))?;
+    }
+    Ok(())
 }
 
-/// Returns the first durable production job whose retained site would be split if the player's
-/// carried stockpile moved to `destination`.
-pub(crate) fn player_move_production_site_conflict(
+/// A job whose retained endpoints include both carried custody and a located
+/// stationary resource needs to keep the player at that shared site.
+pub(crate) fn retained_player_anchor(
     state: &AppState,
-    carried: StockpileId,
-    destination: VoxelCoord,
-) -> Option<ProductionJobId> {
+    job: &ProductionJobRecord,
+) -> Option<VoxelCoord> {
+    let mut carried = false;
+    let mut stationary = None;
+    for endpoint in retained_endpoints(job) {
+        if endpoint.is_carried(state) {
+            carried = true;
+        } else if let Some(position) = endpoint.position(state) {
+            stationary = Some(position);
+        }
+    }
+    if carried { stationary } else { None }
+}
+
+/// Find the lowest-ID job anchoring the player using existing occupancy indexes.
+pub(crate) fn player_retained_production_anchor(
+    state: &AppState,
+) -> Option<(ProductionJobId, VoxelCoord)> {
+    let carried = state.logistics().player()?.carried_stockpile();
     state
         .production()
         .retained_output_jobs(carried)
-        .find_map(|job| {
-            validate_retained_job_site_with_stockpile_override(
-                state,
-                job,
-                Some((carried, destination)),
-            )
-            .is_err()
-            .then_some(job.id())
-        })
+        .chain(
+            state
+                .logistics()
+                .carried_equipment()
+                .filter_map(|id| state.production().get_equipment_occupant(id)),
+        )
+        .filter_map(|job| retained_player_anchor(state, job).map(|position| (job.id(), position)))
+        .min_by_key(|(job, _)| *job)
 }

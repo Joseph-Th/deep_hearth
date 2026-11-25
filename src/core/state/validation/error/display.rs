@@ -178,6 +178,11 @@ impl Display for StateValidationError {
                 second_position.y(),
                 second_position.z()
             ),
+            Self::JobRetainedPlayerSiteRequiresFixedFloor { job, position } => write!(
+                formatter,
+                "production job {} retains carried custody at ({},{},{}) without fixed footing",
+                job.value(), position.x(), position.y(), position.z()
+            ),
             Self::UnknownJobEnergySource { job, store } => write!(
                 formatter,
                 "production job {} traces missing energy store {}",

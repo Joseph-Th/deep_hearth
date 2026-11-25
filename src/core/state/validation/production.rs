@@ -111,6 +111,16 @@ fn validate_production_job(
         }
     })?;
     validate_job_resource_topology(registries, job)?;
+    if let Some(position) = crate::production::retained_player_anchor(state, job)
+        && !crate::logistics::player_stationary_placement_supported(registries, state)
+    {
+        return Err(
+            StateValidationError::JobRetainedPlayerSiteRequiresFixedFloor {
+                job: job.id(),
+                position,
+            },
+        );
+    }
     validate_job_subsystem_contracts(registries, job)?;
     validate_job_consumed_inputs(registries, job)?;
     validate_job_outputs(registries, state, job, expected_reservations)

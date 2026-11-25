@@ -12,27 +12,71 @@ pub enum ChunkGenerationError {
     PlayerNotAdmitted,
     GenerationProfileMissing,
     GenerationProfileConflict,
-    AlreadyGenerated { chunk: ChunkCoord },
-    UnknownSolidState { state: BlockStateId },
+    AlreadyGenerated {
+        chunk: ChunkCoord,
+    },
+    UnknownSolidState {
+        state: BlockStateId,
+    },
     AirGenerationSolidState,
-    InvalidTerrainSubstrate { state: BlockStateId },
-    ChunkCoordinateOverflow { chunk: ChunkCoord },
-    PlayerBodyCollision { voxel: VoxelCoord },
-    ActivePlayerWorkAtGenerationSite { chunk: ChunkCoord },
-    OpeningResidentBodyCollision { voxel: VoxelCoord },
-    OpeningResidentTempleCasteCollision { voxel: VoxelCoord },
-    PlayerBodyTempleCasteCollision { voxel: VoxelCoord },
-    TempleCasteInfrastructureCollision { voxel: VoxelCoord },
-    StructureBuriedByTerrain { voxel: VoxelCoord },
-    StorageEnclosureBuriedByTerrain { voxel: VoxelCoord },
-    GroundMatterBuriedByTerrain { voxel: VoxelCoord },
-    ReservedOutputRequiresFixedFloor { voxel: VoxelCoord },
-    FluidStoreBuriedByTerrain { voxel: VoxelCoord },
-    EnergyStoreBuriedByTerrain { voxel: VoxelCoord },
-    EquipmentBuriedByTerrain { voxel: VoxelCoord },
-    SurfaceResourceCollision { voxel: VoxelCoord },
-    TreePlacementObstructed { voxel: VoxelCoord },
-    PlayerDemandCoordinateOverflow { center: ChunkCoord },
+    InvalidTerrainSubstrate {
+        state: BlockStateId,
+    },
+    ChunkCoordinateOverflow {
+        chunk: ChunkCoord,
+    },
+    PlayerBodyCollision {
+        voxel: VoxelCoord,
+    },
+    ActivePlayerWorkAtGenerationSite {
+        chunk: ChunkCoord,
+    },
+    RetainedProductionSiteAtGenerationSite {
+        chunk: ChunkCoord,
+        job: crate::production::ProductionJobId,
+    },
+    OpeningResidentBodyCollision {
+        voxel: VoxelCoord,
+    },
+    OpeningResidentTempleCasteCollision {
+        voxel: VoxelCoord,
+    },
+    PlayerBodyTempleCasteCollision {
+        voxel: VoxelCoord,
+    },
+    TempleCasteInfrastructureCollision {
+        voxel: VoxelCoord,
+    },
+    StructureBuriedByTerrain {
+        voxel: VoxelCoord,
+    },
+    StorageEnclosureBuriedByTerrain {
+        voxel: VoxelCoord,
+    },
+    GroundMatterBuriedByTerrain {
+        voxel: VoxelCoord,
+    },
+    ReservedOutputRequiresFixedFloor {
+        voxel: VoxelCoord,
+    },
+    FluidStoreBuriedByTerrain {
+        voxel: VoxelCoord,
+    },
+    EnergyStoreBuriedByTerrain {
+        voxel: VoxelCoord,
+    },
+    EquipmentBuriedByTerrain {
+        voxel: VoxelCoord,
+    },
+    SurfaceResourceCollision {
+        voxel: VoxelCoord,
+    },
+    TreePlacementObstructed {
+        voxel: VoxelCoord,
+    },
+    PlayerDemandCoordinateOverflow {
+        center: ChunkCoord,
+    },
     WorldRevisionExhausted,
     SurfaceIdExhausted,
     SurfaceRevisionExhausted,
@@ -92,6 +136,11 @@ impl Display for ChunkGenerationError {
                 "cannot generate chunk ({},{}) through the footprint of a player performing stationary work",
                 chunk.x(),
                 chunk.z()
+            ),
+            Self::RetainedProductionSiteAtGenerationSite { chunk, job } => write!(
+                formatter,
+                "cannot generate chunk ({},{}) through the footprint of a player anchored by production job {}",
+                chunk.x(), chunk.z(), job.value()
             ),
             Self::OpeningResidentBodyCollision { voxel } => write!(
                 formatter,

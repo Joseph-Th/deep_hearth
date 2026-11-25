@@ -490,7 +490,6 @@ fn carried_output_site_conflict_tracks_indexed_job_after_save_and_load() {
         .commit(&mut state)
         .unwrap();
     let origin = VoxelCoord::new(0, 0, 0);
-    let remote = VoxelCoord::new(1, 0, 0);
     let other_stockpile = add_test_stockpile(&mut state, 100);
     assert_eq!(
         state
@@ -508,12 +507,8 @@ fn carried_output_site_conflict_tracks_indexed_job_after_save_and_load() {
         0
     );
     assert_eq!(
-        crate::production::player_move_production_site_conflict(&state, carried, origin),
-        None
-    );
-    assert_eq!(
-        crate::production::player_move_production_site_conflict(&state, carried, remote),
-        Some(job)
+        crate::production::player_retained_production_anchor(&state),
+        Some((job, origin))
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 
@@ -532,8 +527,8 @@ fn carried_output_site_conflict_tracks_indexed_job_after_save_and_load() {
         vec![job]
     );
     assert_eq!(
-        crate::production::player_move_production_site_conflict(&loaded, carried, remote),
-        Some(job)
+        crate::production::player_retained_production_anchor(&loaded),
+        Some((job, origin))
     );
 }
 

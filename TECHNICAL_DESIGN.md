@@ -1506,8 +1506,11 @@ Prospecting requires the player inside the survey region and any instrument at t
 the player inside the acquired resolved target region plus local tool/output access. Manual power requires local provider
 and destination store. Production uses an actor-independent same-site rule: every explicitly located continuing
 endpoint in one admitted job must agree on a voxel. Validation tokens bind logistics revision where location can
-invalidate admission. Before continuous body motion crosses into another voxel, logistics projects the player's
-carried stockpile at that destination and refuses a move that would split a retained production site. Voxel departure
+invalidate admission. Retained jobs with both player-carried custody and a located stationary endpoint anchor
+the player to their common voxel, including while suspended. They require fixed footing beneath that exact
+site when terrain is generated. The same anchor prevents removal of its floor and generation through its
+unmaterialized body footprint until completion or separation of player custody at the supported death-cache site.
+Before continuous body motion crosses into another voxel, logistics refuses a move that would split that site. Voxel departure
 also waits while completed mining output remains in durable awaiting-settlement custody for the carried stockpile,
 and while any carried equipment is occupied by active work. These are custody/site-coherence constraints on the
 continuous body path, not a second movement owner.

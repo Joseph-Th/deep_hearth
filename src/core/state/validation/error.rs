@@ -121,6 +121,10 @@ pub enum StateValidationError {
         second: ProductionSiteEndpoint,
         second_position: VoxelCoord,
     },
+    JobRetainedPlayerSiteRequiresFixedFloor {
+        job: ProductionJobId,
+        position: VoxelCoord,
+    },
     UnknownJobEnergySource {
         job: ProductionJobId,
         store: crate::energy::EnergyStoreId,

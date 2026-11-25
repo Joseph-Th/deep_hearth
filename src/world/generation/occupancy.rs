@@ -110,6 +110,16 @@ pub(super) fn validate_generated_chunk_occupancy(
             chunk: chunk.coord(),
         });
     }
+    if player_body_footprint_intersects_chunk(registries, state, chunk.coord())
+        && let Some((job, _)) = crate::production::player_retained_production_anchor(state)
+    {
+        return Err(
+            ChunkGenerationError::RetainedProductionSiteAtGenerationSite {
+                chunk: chunk.coord(),
+                job,
+            },
+        );
+    }
     if let Some(voxel) = first_opening_resident_collision_in_chunk(registry, state, chunk) {
         return Err(ChunkGenerationError::OpeningResidentBodyCollision { voxel });
     }

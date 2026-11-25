@@ -48,7 +48,7 @@ fn powered_heating_fixture() -> (
         STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
         MATERIAL_WOOD,
         crate::structural::make_test_structural_geometry(
-            VoxelBounds::new(VoxelCoord::new(100, 0, 0), VoxelCoord::new(101, 1, 1)).unwrap(),
+            VoxelBounds::new(VoxelCoord::new(100, 100, 0), VoxelCoord::new(101, 101, 1)).unwrap(),
             Length::from_micrometers(1),
             Area::from_square_millimeters(500_000),
         ),
@@ -85,6 +85,181 @@ fn powered_heating_fixture() -> (
     )
     .unwrap();
     (registries, state, source, destination, resolution)
+}
+
+fn player_heating_fixture() -> (
+    Registries,
+    AppState,
+    StockpileId,
+    StockpileId,
+    ResolvedSensibleHeating,
+) {
+    use crate::logistics::{place_energy_store_for_fixture, place_equipment_for_fixture};
+
+    let (registries, mut state, source, _, resolution) = powered_heating_fixture();
+    let at = VoxelCoord::new(100, 100, 0);
+    validate_place_ground_stockpile(&state, source, at)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    place_equipment_for_fixture(&mut state, resolution.equipment(), at);
+    place_energy_store_for_fixture(
+        &mut state,
+        resolution
+            .process_resolution()
+            .energy_input()
+            .unwrap()
+            .source(),
+        at,
+    );
+    let carried = validate_admit_player(&registries, &state, at)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let lot = state
+        .inventory()
+        .lots()
+        .find(|lot| lot.stockpile() == source)
+        .unwrap();
+    let resolution = resolve_sensible_heating_process(
+        &registries,
+        &state,
+        SensibleHeatingRequest::new(
+            crate::content::PROCESS_HEAT_MATERIAL_BATCH,
+            source,
+            &[MaterialLotSelection::new(lot.id(), lot.mass())],
+            resolution.equipment(),
+            resolution
+                .process_resolution()
+                .energy_input()
+                .unwrap()
+                .source(),
+            resolution.target(),
+        ),
+    )
+    .unwrap();
+    (registries, state, source, carried, resolution)
+}
+
+#[test]
+fn terrain_generation_cannot_drop_carried_output_away_from_retained_machine() {
+    let (registries, mut state, source, carried, resolution) = player_heating_fixture();
+    let chunk = ChunkCoord::new(6, 0);
+    let job = validate_start_player_process(
+        &registries,
+        &state,
+        resolution.process_resolution(),
+        source,
+        carried,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    let generate = |state: &AppState| {
+        validate_generate_chunk(
+            &registries,
+            state,
+            WorldGenerationSeed::new(41),
+            chunk,
+            BLOCK_STATE_STONE,
+        )
+    };
+    assert_eq!(
+        generate(&state).err(),
+        Some(
+            crate::world::ChunkGenerationError::RetainedProductionSiteAtGenerationSite {
+                chunk,
+                job
+            }
+        )
+    );
+    assert_eq!(state, before);
+    while state.production().get_job(job).is_some() {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert!(generate(&state).is_ok(), "completed work releases the site");
+}
+
+#[test]
+fn retained_carried_output_requires_the_exact_player_floor() {
+    use crate::spatial::{NANOMETERS_PER_VOXEL, WorldPoint};
+    use crate::world::{BlockStateId, set_generated_block_for_test};
+    let (registries, mut state, source, carried, resolution) = player_heating_fixture();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(41),
+        ChunkCoord::new(6, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let at = state.logistics().player().unwrap().position();
+    let floor = VoxelCoord::new(at.x(), at.y() - 1, at.z());
+    let ledge = VoxelCoord::new(at.x() + 1, floor.y(), floor.z());
+    for voxel in [floor, ledge] {
+        set_generated_block_for_test(registries.world(), &mut state, voxel, BLOCK_STATE_STONE);
+    }
+    let player = state.logistics().player().copied().unwrap();
+    let body = player.body();
+    let shifted = body.with_motion(
+        WorldPoint::new(
+            at.x() * NANOMETERS_PER_VOXEL + 950_000_000,
+            body.foot_position().y_nanometers(),
+            body.foot_position().z_nanometers(),
+        ),
+        body.horizontal_velocity(),
+        body.vertical_velocity(),
+        body.stance(),
+    );
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_player_body_motion(
+        revision,
+        revision + 1,
+        body,
+        shifted,
+        player.locomotion_exertion(),
+        player.pending_fall_vitality_loss_ppm(),
+    );
+    let start = |state: &AppState| {
+        validate_start_player_process(
+            &registries,
+            state,
+            resolution.process_resolution(),
+            source,
+            carried,
+        )
+    };
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let mut admitted = state.clone();
+    let job = start(&admitted).unwrap().commit(&mut admitted).unwrap();
+    assert_eq!(validate_loaded_state(&registries, &admitted), Ok(()));
+    set_generated_block_for_test(registries.world(), &mut admitted, floor, BlockStateId::AIR);
+    assert_eq!(
+        validate_loaded_state(&registries, &admitted),
+        Err(StateValidationError::JobRetainedPlayerSiteRequiresFixedFloor { job, position: at })
+    );
+    set_generated_block_for_test(registries.world(), &mut state, floor, BlockStateId::AIR);
+    assert!(crate::logistics::player_body_has_fixed_floor(
+        &registries,
+        &state
+    ));
+    assert!(!crate::logistics::player_stationary_placement_supported(
+        &registries,
+        &state
+    ));
+    let before = state.clone();
+    assert_eq!(
+        start(&state).err(),
+        Some(StartPlayerProcessError::Process(
+            StartProcessError::RetainedPlayerSiteRequiresFixedFloor { position: at }
+        ))
+    );
+    assert_eq!(state, before);
 }
 
 fn rock_location() -> VoxelCoord {

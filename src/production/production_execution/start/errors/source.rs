@@ -27,6 +27,7 @@ impl Error for StartProcessError {
             | Self::UnknownOutputRoute { .. }
             | Self::MissingOutputRoute { .. }
             | Self::SpatialEndpointMismatch { .. }
+            | Self::RetainedPlayerSiteRequiresFixedFloor { .. }
             | Self::CapacityExceeded { .. }
             | Self::MassOverflow { .. }
             | Self::CompletionTickOverflow { .. }

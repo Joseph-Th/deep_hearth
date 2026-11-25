@@ -196,8 +196,10 @@ commit: live loose drops, physical perennial roots (including depleted crops),
 and unenclosed ground stockpiles holding material or
 reserved inbound mass protect their actual custody voxel, just as enclosures,
 machines, springs, residents, and ground anchors do. An empty ground allocation
-does not protect the floor because it has no physical contents. Player-to-ground
-material transfers into loose sites require fixed footing and bind terrain and
+does not protect the floor because it has no physical contents. Production jobs
+with both stationary and carried endpoints also protect the player's exact floor
+while those endpoints must remain co-located. Player-to-ground material
+transfers into loose sites require fixed footing and bind terrain and
 structure revisions even before terrain generation, so an empty marker cannot
 accept matter on stale authorization after excavation or generation. Held-tool mining
 may remove a smaller physical amount while preserving that last collidable

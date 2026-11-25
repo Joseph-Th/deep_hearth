@@ -56,6 +56,7 @@ fn batch_size_can_resolve(error: &BlockExcavationError) -> bool {
             | BlockExcavationError::StandingTreeRequiresFloor { .. }
             | BlockExcavationError::OpeningResidentRequiresFloor { .. }
             | BlockExcavationError::GroundedStructureRequiresFloor { .. }
+            | BlockExcavationError::RetainedProductionSiteRequiresFloor { .. }
             // If the center has no ground for a stationary overflow pile,
             // a smaller amount can still enter the player's carried custody.
             | BlockExcavationError::OverflowOutputRequiresFixedFloor

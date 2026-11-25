@@ -31,6 +31,9 @@ impl FixedFootingOwner {
             Self::GroundedStructure(element) => {
                 BlockExcavationError::GroundedStructureRequiresFloor { target, element }
             }
+            Self::RetainedProductionSite(job) => {
+                BlockExcavationError::RetainedProductionSiteRequiresFloor { target, job }
+            }
         }
     }
 
@@ -63,6 +66,9 @@ impl FixedFootingOwner {
             }
             Self::GroundedStructure(element) => {
                 BlockExcavationCommitError::GroundedStructureRequiresFloor { target, element }
+            }
+            Self::RetainedProductionSite(job) => {
+                BlockExcavationCommitError::RetainedProductionSiteRequiresFloor { target, job }
             }
         }
     }

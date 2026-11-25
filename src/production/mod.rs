@@ -22,7 +22,8 @@ pub use resolution::{
 };
 pub use site::ProductionSiteEndpoint;
 pub(crate) use site::{
-    player_move_production_site_conflict, validate_process_start_site, validate_retained_job_site,
+    player_retained_production_anchor, retained_player_anchor, validate_process_start_site,
+    validate_retained_job_site,
 };
 pub use state::{
     ProductionJobId, ProductionJobRecord, ProductionOccupancyRelease, ProductionOutputStream,

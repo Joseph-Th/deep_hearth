@@ -67,7 +67,8 @@ impl Error for StateValidationError {
             | Self::JobEnergyTopologyMismatch { .. }
             | Self::JobEquipmentTopologyMismatch { .. }
             | Self::UnknownJobDestination { .. }
-            | Self::JobSpatialEndpointMismatch { .. } => None,
+            | Self::JobSpatialEndpointMismatch { .. }
+            | Self::JobRetainedPlayerSiteRequiresFixedFloor { .. } => None,
             Self::UnknownJobEnergySource {
                 job: _job,
                 store: _store,

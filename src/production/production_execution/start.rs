@@ -289,34 +289,40 @@ fn validate_start_process_routed_internal(
         destination_structure_revision,
     )?;
 
-    Ok(ValidatedStartProcess {
-        job: ProductionJobRecord {
-            identity: ProductionJobIdentity {
-                id: job_id,
-                process,
-                source,
-            },
-            schedule: ProductionJobSchedule {
-                started_at: current,
-                completes_at,
-                active_duration: resolution.duration(),
-                completed_suspension_time: TickSpan::ZERO,
-                suspension: None,
-            },
-            resources: ProductionJobResources {
-                consumed_inputs,
-                material_storage_history,
-                consumed_energy,
-                released_energy,
-            },
-            equipment: ProductionJobEquipment {
-                provider: equipment_provider,
-                requires_active_support: equipment_use
-                    .is_some_and(|selection| selection.support().is_some()),
-                condition_after: resolution.equipment_condition_after(),
-            },
-            output_streams,
+    let job = ProductionJobRecord {
+        identity: ProductionJobIdentity {
+            id: job_id,
+            process,
+            source,
         },
+        schedule: ProductionJobSchedule {
+            started_at: current,
+            completes_at,
+            active_duration: resolution.duration(),
+            completed_suspension_time: TickSpan::ZERO,
+            suspension: None,
+        },
+        resources: ProductionJobResources {
+            consumed_inputs,
+            material_storage_history,
+            consumed_energy,
+            released_energy,
+        },
+        equipment: ProductionJobEquipment {
+            provider: equipment_provider,
+            requires_active_support: equipment_use
+                .is_some_and(|selection| selection.support().is_some()),
+            condition_after: resolution.equipment_condition_after(),
+        },
+        output_streams,
+    };
+    if let Some(position) = crate::production::retained_player_anchor(state, &job)
+        && !crate::logistics::player_stationary_placement_supported(registries, state)
+    {
+        return Err(StartProcessError::RetainedPlayerSiteRequiresFixedFloor { position });
+    }
+    Ok(ValidatedStartProcess {
+        job,
         expected_control_tick: state.control_tick(),
         next_job_id,
         expected_production_revision,

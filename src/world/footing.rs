@@ -223,6 +223,7 @@ pub(crate) enum FixedFootingOwner {
     NaturalSpring(crate::fluid::FluidStoreId),
     OpeningResident,
     GroundedStructure(StructuralElementId),
+    RetainedProductionSite(crate::production::ProductionJobId),
 }
 
 impl FixedFootingOwner {
@@ -245,6 +246,12 @@ impl FixedFootingOwner {
                     .then_some(Self::OpeningResident)
             })
             .or_else(|| grounded_structure_resting_on(state, floor).map(Self::GroundedStructure))
+            .or_else(|| {
+                let above = VoxelCoord::new(floor.x(), floor.y().checked_add(1)?, floor.z());
+                (state.logistics().player()?.position() == above).then_some(())?;
+                crate::production::player_retained_production_anchor(state)
+                    .map(|(job, _)| Self::RetainedProductionSite(job))
+            })
     }
 }
 
