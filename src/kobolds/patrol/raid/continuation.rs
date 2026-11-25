@@ -161,7 +161,7 @@ pub(super) fn continue_to_planned_far_raid(
                 colony,
                 context,
                 local_whole,
-                !target_whole,
+                !target_whole || target_mass < meal_shortage,
             )
         })
         .flatten();
@@ -221,7 +221,7 @@ pub(super) fn recoverable_local_food_serving(
     {
         return Some(mass);
     }
-    // A distant intact serving is cheaper to handle than a local split.
+    // Only a distant complete intact serving justifies suppressing a local split.
     loose
         .filter(|drop| allow_bulk_split || drop.whole)
         .map(|drop| drop.mass)

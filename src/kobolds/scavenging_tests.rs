@@ -897,14 +897,15 @@ fn scout_forages_the_largest_recoverable_serving_not_the_oldest_crumb() {
     creation.commit(&mut state).unwrap();
     let maximum = super::super::SCOUT_FORAGE_BATCH;
     assert_eq!(
-        super::reachable_adjacent_food(
+        super::reachable_forage_route(
             &registries,
             &state,
             super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
             state.tick(),
             maximum,
+            super::super::SCOUT_MEAL_MASS,
         ),
-        Some(path.side_stone),
+        Some((path.side_stone, None)),
         "a nearly depleted patch must not win the forage cooldown"
     );
     assert_eq!(
@@ -1200,22 +1201,23 @@ fn distant_forage_ranking_respects_recoverable_capacity_and_stable_ties() {
     .commit(&mut state)
     .unwrap();
     let pick = |capacity| {
-        super::reachable_far_food(
+        super::reachable_forage_route(
             &registries,
             &state,
             super::ScavengeRoute::new([path.den, path.junction, path.tip], None),
             state.tick(),
             capacity,
+            super::super::SCOUT_MEAL_MASS,
         )
     };
     assert_eq!(
         pick(super::super::SCOUT_FORAGE_BATCH),
-        Some((path.side_stone, path.far_stone)),
+        Some((path.side_stone, Some(path.far_stone))),
         "a full serving wins over a small old patch, then the earlier full patch wins ties"
     );
     assert_eq!(
         pick(Mass::from_milligrams(1_000)),
-        Some((path.side_food, path.far_food)),
+        Some((path.side_food, Some(path.far_food))),
         "equal recoverable quantities use the original stable resource ID"
     );
     assert_eq!(pick(Mass::ZERO), None);

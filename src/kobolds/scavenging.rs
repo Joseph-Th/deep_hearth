@@ -21,8 +21,6 @@ pub(super) use routes::{
     ScavengeRoute, reachable_detour_drop, reachable_far_stockpile, reachable_forage_route,
     reachable_side_stockpile, two_edge_candidates,
 };
-#[cfg(test)]
-use routes::{reachable_adjacent_food, reachable_far_food};
 
 pub(super) use stockpiles::local_unenclosed_stockpile_target;
 

@@ -112,10 +112,28 @@ pub(in crate::kobolds) fn reachable_far_stockpile(
         .min()
 }
 
-/// Intact cargo is cheapest to move. A hungry scout must first compare what
-/// one actual pickup can yield against the outstanding meal, not the original
-/// serving size. Mixed salvage retains whole-before-split handling.
-type DropLootPriority = (bool, bool, bool, u64, SurfaceResourceId);
+/// Ordering differs for hunger and ordinary salvage. Name the ranking fields
+/// so route-length comparison cannot accidentally discard the serving size.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum DropLootClass {
+    Hungry {
+        inadequate: bool,
+        needs_split: bool,
+        partial_size: u64,
+    },
+    Mixed {
+        needs_split: bool,
+        not_food: bool,
+        inadequate: bool,
+        partial_size: u64,
+    },
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct DropLootPriority {
+    class: DropLootClass,
+    resource: SurfaceResourceId,
+}
 
 fn detour_loot_priority(
     registries: &Registries,
@@ -124,48 +142,41 @@ fn detour_loot_priority(
     food_shortage: Option<Mass>,
 ) -> DropLootPriority {
     let needs_split = !is_portable_drop(resource) || resource.remaining_mass() > capacity;
-    let split_yield = resource
-        .remaining_mass()
-        .min(capacity)
-        .min(SCOUT_BULK_SPLIT_BATCH);
-    let (inadequate_food, partial_size) = match food_shortage {
-        Some(shortage) => {
-            let recoverable = if needs_split {
-                split_yield
+    let class = if let Some(shortage) = food_shortage {
+        let recoverable = if needs_split {
+            resource
+                .remaining_mass()
+                .min(capacity)
+                .min(SCOUT_BULK_SPLIT_BATCH)
+        } else {
+            resource.remaining_mass()
+        };
+        let inadequate = recoverable < shortage;
+        DropLootClass::Hungry {
+            inadequate,
+            needs_split,
+            partial_size: if inadequate {
+                u64::MAX - recoverable.milligrams()
             } else {
-                resource.remaining_mass()
-            };
-            let inadequate = recoverable < shortage;
-            (
-                inadequate,
-                if inadequate {
-                    u64::MAX - recoverable.milligrams()
-                } else {
-                    0
-                },
-            )
+                0
+            },
         }
-        None => food_serving_priority(registries, resource, SCOUT_MEAL_MASS),
-    };
-    if food_shortage.is_some() {
-        (
-            inadequate_food,
-            needs_split,
-            false,
-            partial_size,
-            resource.id(),
-        )
     } else {
-        (
+        let (inadequate, partial_size) =
+            food_serving_priority(registries, resource, SCOUT_MEAL_MASS);
+        DropLootClass::Mixed {
             needs_split,
-            registries
+            not_food: registries
                 .survival()
                 .get_food(resource.commodity())
                 .is_none(),
-            inadequate_food,
+            inadequate,
             partial_size,
-            resource.id(),
-        )
+        }
+    };
+    DropLootPriority {
+        class,
+        resource: resource.id(),
     }
 }
 
@@ -292,7 +303,8 @@ fn best_far_drop(
 }
 
 /// A hungry scout seeks a complete ration before partial food, preferring
-/// intact cargo to a split within each class and a shorter route on class ties.
+/// intact cargo to a split within each class and larger partial servings.
+/// Shorter routes win only after these food priorities are equal.
 /// Mixed salvage retains its ordinary distance-first side-route behavior.
 pub(in crate::kobolds) fn reachable_detour_drop(
     registries: &Registries,
@@ -306,14 +318,22 @@ pub(in crate::kobolds) fn reachable_detour_drop(
     // A nearby intact full ration is already optimal; generic salvage always
     // prefers the nearest route. No farther scan is necessary in either case.
     if let Some((priority, first)) = adjacent
-        && (food_shortage.is_none() || (!priority.0 && !priority.1))
+        && (food_shortage.is_none()
+            || matches!(
+                priority.class,
+                DropLootClass::Hungry {
+                    inadequate: false,
+                    needs_split: false,
+                    ..
+                }
+            ))
     {
         return Some((first, None));
     }
     let far = best_far_drop(registries, state, route, capacity, at, food_shortage);
     match (adjacent, far) {
         (Some((near_priority, _)), Some((far_priority, first, goal)))
-            if (far_priority.0, far_priority.1) < (near_priority.0, near_priority.1) =>
+            if far_priority.class < near_priority.class =>
         {
             Some((first, Some(goal)))
         }
@@ -324,13 +344,13 @@ pub(in crate::kobolds) fn reachable_detour_drop(
 
 /// When junction wild food is exhausted, prefer the largest real forage serving
 /// among adjacent traversable patches, with stable identity resolving equal yields.
-pub(in crate::kobolds) fn reachable_adjacent_food(
+fn best_adjacent_forage(
     registries: &Registries,
     state: &AppState,
     route: ScavengeRoute,
     at: SimulationTick,
     maximum_mass: Mass,
-) -> Option<VoxelCoord> {
+) -> Option<(Mass, VoxelCoord)> {
     let ScavengeRoute {
         junction,
         den,
@@ -349,19 +369,19 @@ pub(in crate::kobolds) fn reachable_adjacent_food(
             unguarded_unlit_cell(registries, state, junction, *destination, player_position)
         })
         .max_by_key(|(mass, id, _)| (*mass, Reverse(*id)))
-        .map(|(_, _, destination)| destination)
+        .map(|(mass, _, destination)| (mass, destination))
 }
 
 /// Seek finite natural food beyond one real intermediate route junction.
 /// Candidate resources are position-indexed and checked before expensive light
 /// and terrain resolution; each candidate uses only two adjacent graph edges.
-pub(in crate::kobolds) fn reachable_far_food(
+fn best_far_forage(
     registries: &Registries,
     state: &AppState,
     route: ScavengeRoute,
     at: SimulationTick,
     maximum_mass: Mass,
-) -> Option<(VoxelCoord, VoxelCoord)> {
+) -> Option<(Mass, VoxelCoord, VoxelCoord)> {
     two_edge_candidates(state, route)
         .filter_map(|(first, goal)| {
             best_local_forage(registries, state, goal, at, maximum_mass)
@@ -373,13 +393,13 @@ pub(in crate::kobolds) fn reachable_far_food(
         .max_by_key(|(mass, id, first, goal)| {
             (*mass, Reverse(*id), Reverse(*first), Reverse(*goal))
         })
-        .map(|(_, _, first, goal)| (first, goal))
+        .map(|(mass, _, first, goal)| (mass, first, goal))
 }
 
 /// Nearby patches save travel, but a distant complete meal is more useful
 /// than a local crumb when a single forage triggers the same recovery clock.
 /// When both patches are insufficient, prefer the larger recoverable serving.
-/// Only previously admitted, sighted and guarded route candidates compete.
+/// Retain the ranked yields instead of re-reading either selected source.
 pub(in crate::kobolds) fn reachable_forage_route(
     registries: &Registries,
     state: &AppState,
@@ -388,20 +408,18 @@ pub(in crate::kobolds) fn reachable_forage_route(
     maximum_mass: Mass,
     meal_shortage: Mass,
 ) -> Option<(VoxelCoord, Option<VoxelCoord>)> {
-    let side = reachable_adjacent_food(registries, state, route, at, maximum_mass);
-    let far = reachable_far_food(registries, state, route, at, maximum_mass);
+    let side = best_adjacent_forage(registries, state, route, at, maximum_mass);
+    if let Some((mass, first)) = side
+        && mass >= meal_shortage
+    {
+        return Some((first, None));
+    }
+    let far = best_far_forage(registries, state, route, at, maximum_mass);
     match (side, far) {
-        (Some(first), Some((second, goal))) => {
-            let side_mass = best_local_forage(registries, state, first, at, maximum_mass)?.0;
-            let far_mass = best_local_forage(registries, state, goal, at, maximum_mass)?.0;
-            if side_mass >= meal_shortage || side_mass >= far_mass {
-                Some((first, None))
-            } else {
-                Some((second, Some(goal)))
-            }
+        (Some((side_mass, _)), Some((far_mass, first, goal))) if far_mass > side_mass => {
+            Some((first, Some(goal)))
         }
-        (Some(first), None) => Some((first, None)),
-        (None, Some((first, goal))) => Some((first, Some(goal))),
-        (None, None) => None,
+        (Some((_, first)), _) => Some((first, None)),
+        (None, far) => far.map(|(_, first, goal)| (first, Some(goal))),
     }
 }

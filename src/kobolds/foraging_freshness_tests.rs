@@ -677,7 +677,88 @@ fn hungry_scout_prefers_splittable_junction_food_to_a_distant_forage_patch() {
 }
 
 #[test]
+fn hungry_scout_does_not_ignore_larger_far_fragment_hidden_by_smaller_side_drop() {
+    let (registries, mut state, route) = setup();
+    let far = VoxelCoord::new(2, 0, 0);
+    add_traversable_edge_for_test(&mut state, route.side, far);
+    let food = |position, mass| {
+        SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            position,
+            CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
+            Mass::from_milligrams(mass),
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_BERRIES),
+        )
+        .unwrap()
+    };
+    let sources = seed(
+        &registries,
+        &mut state,
+        [
+            food(route.junction, 5_000),
+            food(route.side, 1_000),
+            food(far, 15_000),
+        ],
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let checkpoint = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    for (tick, position) in [
+        (585, route.side),
+        (590, far),
+        (595, route.side),
+        (600, route.junction),
+        (605, route.den),
+    ] {
+        advance_to(&registries, &mut state, tick);
+        advance_to(&registries, &mut replay, tick);
+        assert_eq!(state, replay);
+        assert_eq!(
+            state
+                .kobold_state()
+                .colony
+                .as_ref()
+                .unwrap()
+                .scout_position(),
+            position,
+            "tick {tick}"
+        );
+    }
+    assert_eq!(
+        state.surface().get(sources[0]).unwrap().position(),
+        route.junction
+    );
+    assert_eq!(
+        state.surface().get(sources[1]).unwrap().position(),
+        route.side
+    );
+    assert_eq!(
+        state.surface().get(sources[2]).unwrap().position(),
+        route.den
+    );
+    assert_eq!(
+        state.surface().get(sources[2]).unwrap().remaining_mass(),
+        Mass::from_milligrams(15_000)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn hungry_scout_turns_back_for_new_full_bulk_food_at_intermediate_raid_cell() {
+    for distant_mass in [700_000, 1_000, 25_000] {
+        assert_intermediate_bulk_food_selection(distant_mass);
+    }
+}
+
+fn assert_intermediate_bulk_food_selection(distant_mass: u64) {
     let (registries, mut state, route) = setup();
     let far = VoxelCoord::new(2, 0, 0);
     add_traversable_edge_for_test(&mut state, route.side, far);
@@ -685,7 +766,7 @@ fn hungry_scout_turns_back_for_new_full_bulk_food_at_intermediate_raid_cell() {
         SurfaceResourceKind::Drop,
         far,
         CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD),
-        Mass::from_milligrams(700_000),
+        Mass::from_milligrams(distant_mass),
         Temperature::from_millikelvin(293_150),
         MaterialComposition::pure(MATERIAL_BERRIES),
     )
@@ -728,6 +809,8 @@ fn hungry_scout_turns_back_for_new_full_bulk_food_at_intermediate_raid_cell() {
     advance_to(&registries, &mut state, 590);
     advance_to(&registries, &mut replay, 590);
     assert_eq!(state, replay);
+    // Keep the cheaper planned intact meal only if it really finishes the ration.
+    let prefer_intact = distant_mass == 25_000;
     assert_eq!(
         state
             .kobold_state()
@@ -735,16 +818,16 @@ fn hungry_scout_turns_back_for_new_full_bulk_food_at_intermediate_raid_cell() {
             .as_ref()
             .unwrap()
             .scout_position(),
-        route.junction,
-        "the scout should return with the accessible local serving, not extend the raid",
+        if prefer_intact { far } else { route.junction },
+        "distant mass {distant_mass}: a complete local split beats a distant crumb",
     );
     assert_eq!(
         state.surface().get(local_id).unwrap().remaining_mass(),
-        Mass::from_milligrams(450_000),
+        Mass::from_milligrams(if prefer_intact { 700_000 } else { 450_000 }),
     );
     assert_eq!(
         state.surface().get(distant_id).unwrap().remaining_mass(),
-        Mass::from_milligrams(700_000),
+        Mass::from_milligrams(distant_mass),
     );
     assert_eq!(
         state.surface().get(crumb_id).unwrap().remaining_mass(),
