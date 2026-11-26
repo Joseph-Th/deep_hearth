@@ -53,6 +53,9 @@ pub enum ChunkGenerationError {
     StorageEnclosureBuriedByTerrain {
         voxel: VoxelCoord,
     },
+    StorageEnclosureRequiresFixedFloor {
+        voxel: VoxelCoord,
+    },
     GroundMatterBuriedByTerrain {
         voxel: VoxelCoord,
     },
@@ -192,6 +195,11 @@ impl Display for ChunkGenerationError {
                 voxel.x(),
                 voxel.y(),
                 voxel.z()
+            ),
+            Self::StorageEnclosureRequiresFixedFloor { voxel } => write!(
+                formatter,
+                "terrain generation would leave an unmounted storage enclosure without fixed footing at voxel ({},{},{})",
+                voxel.x(), voxel.y(), voxel.z()
             ),
             Self::GroundMatterBuriedByTerrain { voxel } => write!(
                 formatter,

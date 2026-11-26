@@ -714,16 +714,60 @@ fn neighborhood_generation_rejects_burying_a_stationary_enclosure_atomically() {
 }
 
 #[test]
-fn terrain_generation_preserves_completed_enclosure_in_open_air() {
+fn enclosure_footing_rejects_unsupported_terrain_admission() {
     let registries = build_registries();
     let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
     let at = VoxelCoord::new(5, 100, 5);
     let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(3, 3),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
     validate_admit_player(&registries, &state, VoxelCoord::new(6, 100, 5))
         .unwrap()
         .commit(&mut state)
         .unwrap();
     let enclosure = place_completed_field_box_at(&registries, &mut state, at);
+    let pile = state.inventory().get_stockpile(enclosure).unwrap();
+    assert!(pile.stored_mass().is_zero());
+    assert!(!pile.embodied_mass().is_zero());
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let before = state.clone();
+    let expected = ChunkGenerationError::StorageEnclosureRequiresFixedFloor { voxel: at };
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            seed,
+            ChunkCoord::containing(at),
+            BLOCK_STATE_STONE,
+        )
+        .err(),
+        Some(expected.clone())
+    );
+    assert_eq!(
+        validate_generate_player_neighborhood(&registries, &state).err(),
+        Some(expected)
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn enclosure_footing_rejects_unsupported_trusted_load() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let at = VoxelCoord::new(5, 100, 5);
+    let floor = VoxelCoord::new(5, 99, 5);
+    let mut state = AppState::new();
     validate_generate_chunk(
         &registries,
         &state,
@@ -734,6 +778,86 @@ fn terrain_generation_preserves_completed_enclosure_in_open_air() {
     .unwrap()
     .commit(&mut state)
     .unwrap();
+    set_generated_block_for_test(registries.world(), &mut state, floor, BLOCK_STATE_STONE);
+    validate_admit_player(&registries, &state, VoxelCoord::new(6, 100, 5))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let enclosure = place_completed_field_box_at(&registries, &mut state, at);
+    assert!(
+        state
+            .inventory()
+            .get_stockpile(enclosure)
+            .unwrap()
+            .stored_mass()
+            .is_zero()
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+            .unwrap()
+            .into_state(&registries),
+        Ok(state.clone())
+    );
+    set_generated_block_for_test(registries.world(), &mut state, floor, BlockStateId::AIR);
+    let expected = StateValidationError::Logistics(
+        LogisticsValidationError::StationaryEnclosureRequiresFixedFloor {
+            stockpile: enclosure,
+            voxel: at,
+        },
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Err(expected.clone())
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+            .unwrap()
+            .into_state(&registries),
+        Err(crate::persistence::LoadError::InvalidState(expected))
+    );
+}
+
+#[test]
+fn terrain_generation_preserves_completed_enclosure_on_supported_ground() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let mut state = AppState::new();
+    let preview = validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap();
+    let floor_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| preview.chunk().block_at(VoxelCoord::new(5, y, 5)) == BLOCK_STATE_STONE)
+        .unwrap();
+    let at = VoxelCoord::new(5, floor_y + 1, 5);
+    validate_admit_player(&registries, &state, VoxelCoord::new(6, 100, 5))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let enclosure = place_completed_field_box_at(&registries, &mut state, at);
+    let inventory_before = state.inventory().clone();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::containing(at),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(state.inventory(), &inventory_before);
     assert_eq!(state.world().block_at(at), Some(BlockStateId::AIR));
     assert_eq!(
         state.logistics().stationary_stockpile_position(enclosure),

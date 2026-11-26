@@ -154,7 +154,7 @@ pub(super) fn validate_generated_chunk_occupancy(
     Ok(())
 }
 
-/// Both forms of existing stationary matter must survive terrain admission
+/// Stationary inventory and surface matter must survive terrain admission
 /// on actual, non-reserved footing.
 fn validate_existing_fixed_footing(
     registry: &WorldRegistry,
@@ -162,6 +162,18 @@ fn validate_existing_fixed_footing(
     tree: Option<TreeRecord>,
     chunk: &WorldChunk,
 ) -> Result<(), ChunkGenerationError> {
+    if let Some(voxel) = first_unsupported_asset(
+        registry,
+        state,
+        tree,
+        chunk,
+        state
+            .logistics()
+            .stockpiles_in_chunk(chunk.coord())
+            .filter(|&(id, _)| crate::world::enclosure_requires_fixed_footing(state, id)),
+    ) {
+        return Err(ChunkGenerationError::StorageEnclosureRequiresFixedFloor { voxel });
+    }
     if let Some(voxel) =
         first_unsupported_surface_matter_in_generated_chunk(registry, state, tree, chunk)
     {

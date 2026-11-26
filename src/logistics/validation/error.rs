@@ -46,6 +46,10 @@ pub enum LogisticsValidationError {
     StationaryEnclosureIntersectsSolidTerrain {
         voxel: VoxelCoord,
     },
+    StationaryEnclosureRequiresFixedFloor {
+        stockpile: StockpileId,
+        voxel: VoxelCoord,
+    },
     GroundMatterIntersectsSolidTerrain {
         voxel: VoxelCoord,
     },
@@ -354,6 +358,11 @@ impl Display for LogisticsValidationError {
                 voxel.x(),
                 voxel.y(),
                 voxel.z()
+            ),
+            Self::StationaryEnclosureRequiresFixedFloor { stockpile, voxel } => write!(
+                formatter,
+                "unmounted storage enclosure {} lacks fixed footing at ({},{},{})",
+                stockpile.value(), voxel.x(), voxel.y(), voxel.z()
             ),
             Self::GroundMatterIntersectsSolidTerrain { voxel } => write!(
                 formatter,

@@ -43,11 +43,11 @@ pub(crate) use felling::{
     tree_felling_duration, tree_felling_exertion, validate_due_player_tree_felling,
 };
 pub(crate) use footing::{
-    FixedFootingOwner, StockpileLandingGuard, energy_store_requires_fixed_footing,
-    equipment_requires_fixed_footing, fixed_floor_reserved_for_removal,
-    generated_position_lacks_fixed_footing, loose_stockpile_position, solid_stockpile_position,
-    tree_felling_floor_reserved_at, tree_has_fixed_footing_claim,
-    unsupported_loose_stockpile_position, validate_stockpile_landing,
+    FixedFootingOwner, StockpileLandingGuard, enclosure_requires_fixed_footing,
+    energy_store_requires_fixed_footing, equipment_requires_fixed_footing,
+    fixed_floor_reserved_for_removal, generated_position_lacks_fixed_footing,
+    loose_stockpile_position, solid_stockpile_position, tree_felling_floor_reserved_at,
+    tree_has_fixed_footing_claim, unsupported_loose_stockpile_position, validate_stockpile_landing,
 };
 pub use footing::{StockpileLandingConflict, StockpileLandingError};
 pub(crate) use forage_cycle::{

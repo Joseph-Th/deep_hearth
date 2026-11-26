@@ -296,15 +296,21 @@ fn natural_spring_resting_on(
         .find(|&store| state.fluid().is_natural_spring(store))
 }
 
-/// A built enclosure still needs terrain when its contents are empty.
+/// Even an empty enclosure owns physical matter. A mounted enclosure
+/// routes its body and contents through the explicit structural support.
+pub(crate) fn enclosure_requires_fixed_footing(state: &AppState, stockpile: StockpileId) -> bool {
+    state
+        .inventory()
+        .get_stockpile(stockpile)
+        .is_some_and(|record| record.enclosure().is_some() && record.supported_by().is_none())
+}
+
 fn storage_enclosure_resting_on(state: &AppState, floor: VoxelCoord) -> Option<StockpileId> {
     let above = VoxelCoord::new(floor.x(), floor.y().checked_add(1)?, floor.z());
-    state.logistics().stockpiles_at(above).find(|&id| {
-        state
-            .inventory()
-            .get_stockpile(id)
-            .is_some_and(|stockpile| stockpile.enclosure().is_some())
-    })
+    state
+        .logistics()
+        .stockpiles_at(above)
+        .find(|&id| enclosure_requires_fixed_footing(state, id))
 }
 
 /// Unenclosed storage contains physical matter or an inbound material promise.

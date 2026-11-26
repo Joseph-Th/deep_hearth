@@ -27,6 +27,19 @@ pub(super) fn validate_ground_terrain(
     {
         return Err(LogisticsValidationError::StationaryEnclosureIntersectsSolidTerrain { voxel });
     }
+    if let Some((stockpile, voxel)) = state
+        .logistics()
+        .stockpile_locations()
+        .filter(|&(id, voxel)| {
+            crate::world::enclosure_requires_fixed_footing(state, id)
+                && crate::world::generated_position_lacks_fixed_footing(registries, state, voxel)
+        })
+        .min_by_key(|(id, voxel)| (crate::world::ChunkCoord::containing(*voxel), *id))
+    {
+        return Err(
+            LogisticsValidationError::StationaryEnclosureRequiresFixedFloor { stockpile, voxel },
+        );
+    }
     // Empty allocations have no footprint; actual stored matter and material
     // already reserved for an incoming delivery must both stay clear of rock.
     if let Some((_, voxel)) = state

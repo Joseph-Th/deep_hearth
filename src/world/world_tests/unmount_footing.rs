@@ -141,6 +141,86 @@ fn unmount_footing_stored_stockpile_cannot_be_left_floating() {
 }
 
 #[test]
+fn enclosure_footing_mounted_body_uses_explicit_support_until_unmounted() {
+    use crate::content::{FORM_ROUGH_BOX_BODY, STORAGE_ROUGH_TIMBER_FIELD_BOX};
+    use crate::inventory::validate_place_player_storage;
+
+    let (registries, mut state, floor, stockpile, _) = mounted_custody();
+    let position = VoxelCoord::new(floor.x(), floor.y() + 1, floor.z());
+    let support = state
+        .inventory()
+        .get_stockpile(stockpile)
+        .unwrap()
+        .supported_by()
+        .unwrap();
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let mass = registries
+        .storage()
+        .get(STORAGE_ROUGH_TIMBER_FIELD_BOX)
+        .unwrap()
+        .assembly_profile()
+        .input_mass();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_ROUGH_BOX_BODY),
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let enclosure =
+        validate_place_player_storage(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    assert!(matches!(
+        crate::world::FixedFootingOwner::at(&state, floor),
+        Some(crate::world::FixedFootingOwner::StorageEnclosure(id)) if id == enclosure
+    ));
+    let _ = validate_mount_stockpile(&registries, &state, enclosure, support)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(enclosure)
+            .unwrap()
+            .supported_by(),
+        Some(support)
+    );
+    assert!(crate::world::FixedFootingOwner::at(&state, floor).is_none());
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    set_generated_block_for_test(registries.world(), &mut state, floor, BlockStateId::AIR);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_unmount_stockpile(&registries, &state, enclosure).err(),
+        Some(StockpileSupportError::UnmountedMatterRequiresFixedFloor {
+            stockpile: enclosure,
+            position
+        })
+    );
+    assert_eq!(state, before);
+    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+            .unwrap()
+            .into_state(&registries),
+        Ok(state)
+    );
+}
+
+#[test]
 fn unmount_footing_embodied_equipment_cannot_be_left_floating() {
     let (registries, mut state, floor, _, equipment) = mounted_custody();
     let pending = validate_unmount_equipment(&registries, &state, equipment).unwrap();
