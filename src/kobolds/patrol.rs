@@ -69,6 +69,20 @@ pub(super) fn opening_patrol_edge_has_authority(
     state.world().has_generated_terrain_at(from) == state.world().has_generated_terrain_at(to)
 }
 
+/// Physical admission shared by scout movement and den cargo disposal.
+/// Fear and light remain separate policy decisions.
+pub(super) fn scout_can_traverse_edge(
+    registries: &Registries,
+    state: &AppState,
+    from: VoxelCoord,
+    to: VoxelCoord,
+    player_position: Option<VoxelCoord>,
+) -> bool {
+    opening_patrol_edge_has_authority(state, from, to)
+        && opening_resident_can_depart(registries, state, from)
+        && scout_can_enter(registries, state, to, player_position)
+}
+
 pub(super) fn opening_resident_can_enter(
     registries: &Registries,
     state: &AppState,
@@ -334,7 +348,6 @@ fn plan_scout_move(
         turned_back_at_barrier,
         cancelled_empty_cache_raid,
         physically_clear: !colony.is_staggered(super::KoboldRole::Scout)
-            && opening_resident_can_depart(registries, state, from)
             && step != colony.scout_step
             // A calm returning scavenger must not carry food or scrap into a
             // newly bright approach. A scout already in danger may still flee
@@ -346,8 +359,7 @@ fn plan_scout_move(
             // guarded homeward edge; a panicked scout still uses its real exit.
             && (pressured
                 || !scout_sees_guarded_cell(registries, state, from, position))
-            && opening_patrol_edge_has_authority(state, from, position)
-            && scout_can_enter(registries, state, position, player_position),
+            && scout_can_traverse_edge(registries, state, from, position, player_position),
     }
 }
 

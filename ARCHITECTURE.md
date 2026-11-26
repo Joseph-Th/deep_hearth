@@ -136,6 +136,9 @@ local graph and built structures even when distant terrain is streamed. Generate
 provide physical collision or opacity; a sight, sound, or light path with a generated endpoint
 must treat intervening missing terrain as unknown, not free air. A remote generated chunk must
 not change local patrol, lighting, or fluid-transfer feasibility on an untouched opening graph.
+Resident patrols and den cargo disposal require both endpoints of a traversed edge to have
+generated terrain or both to remain authored and ungenerated, with normal footing and
+occupancy checks. Cargo cannot cross an edge that its resident cannot physically traverse.
 Located fluid vessels have physical presence even when empty: generated full-cube terrain cannot
 overwrite their voxels, bootstrap placement cannot enter solid terrain, and trusted load rejects
 either overlap.

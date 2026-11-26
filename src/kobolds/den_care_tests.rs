@@ -65,6 +65,123 @@ fn resource(position: VoxelCoord, kind: SurfaceResourceKind, food: bool) -> Surf
 }
 
 #[test]
+fn den_disposal_requires_authoritative_terrain_on_both_sides_of_the_edge() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::inventory::{MaterialLotProfile, MaterialLotProvenance, STORAGE_AGE_PARTS_PER_TICK};
+    use crate::material::MaterialLotSpec;
+    use crate::world::{
+        ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WorldGenerationSeed, set_generated_block_for_test,
+        validate_generate_chunk,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let y = WORLD_MAX_Y_EXCLUSIVE - 4;
+    let den = VoxelCoord::new(-1, y, 2);
+    let junction = VoxelCoord::new(0, y, 2);
+    let tip = VoxelCoord::new(1, y, 2);
+    add_traversable_edge_for_test(&mut state, den, junction);
+    add_traversable_edge_for_test(&mut state, junction, tip);
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    while state.tick().value() < 579 {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(
+        state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        den
+    );
+
+    let commodity = CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD);
+    let mass = Mass::from_milligrams(80_000);
+    let profile = MaterialLotProfile::from_spec(
+        &MaterialLotSpec::with_composition(
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+            MaterialComposition::pure(MATERIAL_WILD_NUTS),
+        )
+        .unwrap(),
+    );
+    let shelf = registries
+        .survival()
+        .get_food(commodity)
+        .unwrap()
+        .shelf_life();
+    let spoiled = SurfaceResourceSpec::from_existing_material(
+        SurfaceResourceKind::Drop,
+        den,
+        mass,
+        profile,
+        MaterialLotProvenance::single(SimulationTick::ZERO),
+        u128::from(shelf.value()) * STORAGE_AGE_PARTS_PER_TICK,
+    )
+    .unwrap();
+    let plan = validate_create_surface_resources(&registries, &state, [spoiled]).unwrap();
+    let parcel = plan.first_resource_id();
+    plan.commit(&mut state).unwrap();
+
+    let mut abstract_route = state.clone();
+    let _ = advance_tick(&registries, &mut abstract_route).unwrap();
+    assert_eq!(
+        abstract_route.surface().get(parcel).unwrap().position(),
+        junction
+    );
+
+    for generated in [den, junction] {
+        let mut mixed = state.clone();
+        validate_generate_chunk(
+            &registries,
+            &mixed,
+            WorldGenerationSeed::new(42),
+            ChunkCoord::containing(generated),
+            BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(&mut mixed)
+        .unwrap();
+        set_generated_block_for_test(
+            registries.world(),
+            &mut mixed,
+            VoxelCoord::new(generated.x(), y - 1, generated.z()),
+            BLOCK_STATE_STONE,
+        );
+        assert!(
+            mixed
+                .world()
+                .has_standing_clearance(registries.world(), generated)
+        );
+        assert_eq!(validate_loaded_state(&registries, &mixed), Ok(()));
+        let total = calculate_matter_accounting(&mixed).unwrap().total();
+        let _ = advance_tick(&registries, &mut mixed).unwrap();
+        assert_eq!(
+            mixed
+                .kobold_state()
+                .colony
+                .as_ref()
+                .unwrap()
+                .scout_position(),
+            den
+        );
+        let drop = mixed.surface().get(parcel).unwrap();
+        assert_eq!(
+            drop.position(),
+            den,
+            "discard crossed a terrain-authority boundary"
+        );
+        assert_eq!(drop.remaining_mass(), mass);
+        assert_eq!(calculate_matter_accounting(&mixed).unwrap().total(), total);
+        assert_eq!(validate_loaded_state(&registries, &mixed), Ok(()));
+    }
+}
+
+#[test]
 fn den_cache_progress_prefers_a_real_split_over_an_ineffective_whole_discard() {
     let (registries, mut state, [den, junction, _, _]) = setup();
     let stone = |milligrams| {

@@ -15,8 +15,7 @@ use crate::survival::{FoodFreshness, assess_surface_food_freshness};
 use super::scout_wants_food_opportunity;
 use crate::kobolds::junkworks::current_den_rig;
 use crate::kobolds::patrol::{
-    opening_resident_can_depart, scout_can_approach_visible_unlit_cell, scout_can_enter,
-    scout_sees_guarded_cell,
+    scout_can_approach_visible_unlit_cell, scout_can_traverse_edge, scout_sees_guarded_cell,
 };
 use crate::kobolds::scavenging::{
     DenCacheOccupancy, ScavengeRoute, is_contestable_drop, is_portable_drop,
@@ -287,22 +286,12 @@ fn den_exit_is_safe(
     den: VoxelCoord,
     junction: VoxelCoord,
 ) -> bool {
-    // Den disposal and cache eviction are physical cargo moves performed by
-    // the resident, not remote surface transfers. They need the same source
-    // footing as an ordinary patrol edge, even if the junction is still clear.
-    if !opening_resident_can_depart(registries, state, den) {
-        return false;
-    }
-    // A sentry standing in the junction prevents the scout from physically
-    // pushing its discard or freed cache through the occupied route cell.
-    if state.kobold_state().colony.as_ref().is_some_and(|colony| {
-        colony.watch_deployed_at.is_some() && colony.watch_position() == junction
-    }) {
-        return false;
-    }
-    scout_can_enter(
+    // Discard and eviction move cargo along the same physical edge as a patrol.
+    // An unknown terrain endpoint, absent footing or occupied post blocks both.
+    scout_can_traverse_edge(
         registries,
         state,
+        den,
         junction,
         state.logistics().player().map(|player| player.position()),
     ) && !scout_sees_guarded_cell(registries, state, den, junction)
