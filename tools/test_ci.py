@@ -4310,6 +4310,15 @@ class AuthorityContractTests(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assertIn("narrates implementation history", errors[0])
 
+    def test_dated_evidence_can_describe_implementation_history(self) -> None:
+        history = "The old implementation failed before this change.\n"
+        self.assertEqual(
+            check_authority_docs.document_history_errors("history/AUDIT.md", history), []
+        )
+        self.assertEqual(
+            len(check_authority_docs.document_history_errors("tools/history/README.md", history)), 1
+        )
+
     def test_documentation_routes_resolve_from_nested_document_location(self) -> None:
         nested = ROOT / "assets" / "shaders" / "README.md"
         self.assertEqual(

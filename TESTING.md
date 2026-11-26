@@ -101,4 +101,6 @@ Focused gates add one fresh organic case; broad audits rotate one through one sc
 
 ## Completion
 
+Dated `history/` evidence is exempt only from current-prose history checks.
+
 Run only the lane required by the changed contract. `quick` already proves the local CI/test-tooling contracts; every additional build must prove a distinct contract.

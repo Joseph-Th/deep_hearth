@@ -515,7 +515,10 @@ def inspect_markdown_links(relative: str, text: str) -> tuple[list[str], set[str
 
 
 def document_history_errors(relative: str, text: str) -> list[str]:
-    """Reject diary-style implementation history in maintained project documentation."""
+    """Reject implementation history in current documentation, not dated evidence."""
+
+    if relative.startswith("history/"):
+        return []
 
     return [
         f"{relative}:{line_number}: current documentation narrates implementation history"
