@@ -239,40 +239,4 @@ impl Session {
         let commodity = inventory.carried().stacks()[index - 1].commodity();
         self.set_selection(Some(PlayerActiveSelection::material(commodity)))
     }
-
-    fn mine_repeated(&mut self, args: &[&str], count: &str) -> Result<String, String> {
-        let count = count
-            .parse::<usize>()
-            .map_err(|_| "repeat count must be a whole number")?;
-        if !(1..=32).contains(&count) {
-            return Err("repeat count must be between 1 and 32".to_owned());
-        }
-        let order = geology::mining_order(&self.registries, &self.state, args)?;
-        let mut output = String::new();
-        let mut completed = 0;
-        for _ in 0..count {
-            let (job, started) = match order.start(&self.registries, &mut self.state) {
-                Ok(started) => started,
-                Err(error) if completed == 0 => return Err(error),
-                Err(error) => {
-                    let _ = writeln!(output, "Mining repeat stopped: {error}");
-                    break;
-                }
-            };
-            output.push_str(&started);
-            let wait = activity::remaining_work_control_ticks(&self.state)
-                .ok_or("mining started without a scheduled completion")?
-                .min(activity::COMPLETION_WAIT_LIMIT);
-            let (received, interrupted) =
-                self.await_batch(stepping::BatchReceipt::Mined(job), wait, &mut output)?;
-            completed += usize::from(received);
-            if !received || interrupted {
-                output.push_str("Mining repeat interrupted by work or a condition change.\n");
-                break;
-            }
-        }
-        let _ = writeln!(output, "Mining repeat: {completed} batches completed.");
-        output.push_str(&view::look(&self.registries, &self.state, None));
-        Ok(output)
-    }
 }

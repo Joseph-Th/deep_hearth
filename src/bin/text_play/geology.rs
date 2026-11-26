@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use super::{quantity, view};
+use super::{Session, activity, quantity, stepping, view};
 use deep_hearth::geology::{
     FieldProspectingRequest, GeologicalEvidenceConsistency, build_geological_knowledge_map,
     player_prospecting_options, validate_start_field_prospecting,
@@ -342,7 +342,7 @@ fn append_observation_details(
 }
 /// A repeated order retains the original opaque geological authorization and
 /// physical tool identity. Each batch still performs ordinary fresh admission.
-pub(super) struct MiningOrder {
+struct MiningOrder {
     target: deep_hearth::mining::MiningTargetResolution,
     destination: deep_hearth::inventory::StockpileId,
     tool: deep_hearth::equipment::EquipmentId,
@@ -351,7 +351,7 @@ pub(super) struct MiningOrder {
     equipment_index: usize,
 }
 
-pub(super) fn mining_order(
+fn mining_order(
     registries: &Registries,
     state: &AppState,
     args: &[&str],
@@ -401,8 +401,8 @@ pub(super) fn mining_order(
 }
 
 impl MiningOrder {
-    pub(super) fn start(
-        self: &Self,
+    fn start(
+        &self,
         registries: &Registries,
         state: &mut AppState,
     ) -> Result<(deep_hearth::mining::MiningJobId, String), String> {
@@ -437,4 +437,37 @@ pub fn mine(
 ) -> Result<String, String> {
     let order = mining_order(registries, state, args)?;
     order.start(registries, state).map(|(_, report)| report)
+}
+
+impl Session {
+    pub(super) fn mine_repeated(&mut self, args: &[&str], count: &str) -> Result<String, String> {
+        let count = super::command::parse_repeat_count(count)?;
+        let order = mining_order(&self.registries, &self.state, args)?;
+        let mut output = String::new();
+        let mut completed = 0;
+        for _ in 0..count {
+            let (job, started) = match order.start(&self.registries, &mut self.state) {
+                Ok(started) => started,
+                Err(error) if completed == 0 => return Err(error),
+                Err(error) => {
+                    let _ = writeln!(output, "Mining repeat stopped: {error}");
+                    break;
+                }
+            };
+            output.push_str(&started);
+            let wait = activity::remaining_work_control_ticks(&self.state)
+                .ok_or("mining started without a scheduled completion")?
+                .min(activity::COMPLETION_WAIT_LIMIT);
+            let (received, interrupted) =
+                self.await_batch(stepping::BatchReceipt::Mined(job), wait, &mut output)?;
+            completed += usize::from(received);
+            if !received || interrupted {
+                output.push_str("Mining repeat interrupted by work or a condition change.\n");
+                break;
+            }
+        }
+        let _ = writeln!(output, "Mining repeat: {completed} batches completed.");
+        output.push_str(&view::look(&self.registries, &self.state, None));
+        Ok(output)
+    }
 }

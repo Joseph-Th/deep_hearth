@@ -190,12 +190,7 @@ fn start_batch(
 
 impl Session {
     pub(super) fn dress_repeated(&mut self, args: &[&str], count: &str) -> Result<String, String> {
-        let count = count
-            .parse::<usize>()
-            .map_err(|_| "repeat count must be a whole number")?;
-        if !(1..=32).contains(&count) {
-            return Err("repeat count must be between 1 and 32".to_owned());
-        }
+        let count = super::command::parse_repeat_count(count)?;
         let (process, mut stack, mass) = order(&self.registries, &self.state, args)?;
         let mut output = String::new();
         let mut completed = 0;

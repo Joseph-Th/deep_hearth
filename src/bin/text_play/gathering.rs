@@ -4,7 +4,7 @@ use std::fmt::Write as _;
 
 use super::{
     Session, activity,
-    command::parse_index,
+    command::{parse_index, parse_repeat_count},
     quantity::parse_decimal_grams,
     stepping::{AdmissionWatch, BatchReceipt},
     view,
@@ -57,25 +57,97 @@ struct GatheringAdmission {
     interrupted: bool,
 }
 
+/// Parsed player intent: bind the numbered row to its physical source and
+/// authored technique before any adapter-owned time advance.
+pub(super) struct GatheringOrder {
+    option: PlayerSurfaceGatheringOption,
+    requested_mass: Option<Mass>,
+    repetitions: Option<usize>,
+}
+
+impl GatheringOrder {
+    pub(super) fn resolve(
+        registries: &Registries,
+        state: &AppState,
+        args: &[&str],
+    ) -> Result<Self, String> {
+        let (index, grams, count) = match args {
+            [index] => (*index, None, None),
+            [index, grams] => (*index, Some(*grams), None),
+            [index, "repeat", count] => (*index, None, Some(*count)),
+            [index, grams, "repeat", count] => (*index, Some(*grams), Some(*count)),
+            _ => return Err("use gather N [grams] [repeat COUNT]".to_owned()),
+        };
+        let repetitions = count.map(parse_repeat_count).transpose()?;
+        let requested_mass = grams
+            .map(|grams| parse_decimal_grams(grams, "gather quantity"))
+            .transpose()?;
+        if repetitions.is_some() {
+            if requested_mass.is_some_and(|mass| mass.is_zero()) {
+                return Err("gather quantity must be positive".to_owned());
+            }
+            if state.player_work().active().is_some() {
+                return Err("finish the current work before starting repeated gathering".to_owned());
+            }
+        }
+        let options = player_surface_gathering_options(registries, state)
+            .map_err(|error| error.to_string())?;
+        let option = options[parse_index(index, options.len())? - 1];
+        Ok(Self {
+            option,
+            requested_mass,
+            repetitions,
+        })
+    }
+
+    pub(super) fn refresh(
+        &mut self,
+        registries: &Registries,
+        state: &AppState,
+    ) -> Result<bool, String> {
+        let Some(option) = self
+            .option
+            .refresh(registries, state)
+            .map_err(|error| error.to_string())?
+        else {
+            return Ok(false);
+        };
+        self.option = option;
+        Ok(true)
+    }
+}
+
 impl Session {
     pub(super) fn gather(&mut self, args: &[&str]) -> Result<String, String> {
-        let options = player_surface_gathering_options(&self.registries, &self.state)
-            .map_err(|error| error.to_string())?;
         if args.is_empty() {
+            let options = player_surface_gathering_options(&self.registries, &self.state)
+                .map_err(|error| error.to_string())?;
             return Ok(view::gather_options(
                 &self.registries,
                 &self.state,
                 &options,
             ));
         }
-        let index = parse_index(args[0], options.len())?;
-        let option = options[index - 1];
-        let mass = if let Some(grams) = args.get(1) {
-            parse_decimal_grams(grams, "gather quantity")?
-        } else {
+        let order = GatheringOrder::resolve(&self.registries, &self.state, args)?;
+        self.execute_gathering_order(order)
+    }
+
+    pub(super) fn execute_gathering_order(
+        &mut self,
+        order: GatheringOrder,
+    ) -> Result<String, String> {
+        let GatheringOrder {
+            option,
+            requested_mass,
+            repetitions,
+        } = order;
+        if let Some(count) = repetitions {
+            return self.gather_repeated(option, requested_mass, count);
+        }
+        let mass = requested_mass.unwrap_or_else(|| {
             DefaultGatheringBatch::assess(&self.registries, &self.state, option).request_mass()
-        };
-        if args.len() == 1 && mass.is_zero() {
+        });
+        if requested_mass.is_none() && mass.is_zero() {
             return Err("no carrying space for the suggested gathering batch".to_owned());
         }
         let limit = option.maximum_mass_at(&self.state);
@@ -156,31 +228,12 @@ impl Session {
     /// Repeat exact-local hand gathering without skipping any authoritative work
     /// or retargeting an indexed choice when a source is exhausted. A visible
     /// interruption leaves the active job for the player to resume explicitly.
-    pub(super) fn gather_repeated(&mut self, args: &[&str]) -> Result<String, String> {
-        let (index_text, mass_text, repetitions_text) = match args {
-            [index, "repeat", count] => (*index, None, *count),
-            [index, mass, "repeat", count] => (*index, Some(*mass), *count),
-            _ => return Err("use gather N [grams] repeat COUNT".to_owned()),
-        };
-        let count = repetitions_text
-            .parse::<usize>()
-            .map_err(|_| "repeat count must be a whole number")?;
-        if !(1..=32).contains(&count) {
-            return Err("repeat count must be between 1 and 32".to_owned());
-        }
-        let requested_mass = mass_text
-            .map(|grams| parse_decimal_grams(grams, "gather quantity"))
-            .transpose()?;
-        if requested_mass.is_some_and(|mass| mass.is_zero()) {
-            return Err("gather quantity must be positive".to_owned());
-        }
-        if self.state.player_work().active().is_some() {
-            return Err("finish the current work before starting repeated gathering".to_owned());
-        }
-        let options = player_surface_gathering_options(&self.registries, &self.state)
-            .map_err(|error| error.to_string())?;
-        let index = parse_index(index_text, options.len())?;
-        let original = options[index - 1];
+    fn gather_repeated(
+        &mut self,
+        original: PlayerSurfaceGatheringOption,
+        requested_mass: Option<Mass>,
+        count: usize,
+    ) -> Result<String, String> {
         let mut output = String::new();
         let mut completed = 0;
         for _ in 0..count {

@@ -1,6 +1,9 @@
 //! Text-play command parsing and dispatch; session setup and stepping remain in the parent.
 
-use super::{Session, crafting, equipment, fire, geology, ore, storage, thermal, view};
+use super::{
+    Session, crafting, equipment, fire, gathering::GatheringOrder, geology, ore, storage, thermal,
+    view,
+};
 use deep_hearth::logistics::{HorizontalControlInput, PlayerControlInput};
 use deep_hearth::simulation::PlayerDirectControlInput;
 use deep_hearth::spatial::{ViewDirection, VoxelCoord};
@@ -150,10 +153,7 @@ impl Session {
             "inventory" | "inv" if args.is_empty() => {
                 view::inventory(&self.registries, &self.state)?
             }
-            "gather" if args.len() <= 2 => self.gather(args)?,
-            "gather" if matches!(args, [_, "repeat", _] | [_, _, "repeat", _]) => {
-                self.gather_repeated(args)?
-            }
+            "gather" => self.gather(args)?,
             "eat" if !args.is_empty() => self.eat(&args.join(" "))?,
             "drink" if args.is_empty() => view::drink_options(&self.registries, &self.state),
             "drink" if args.len() == 1 => self.drink(args[0])?,
@@ -304,6 +304,11 @@ impl Session {
         let clock_before = self.state.control_tick().value();
         let scale = deep_hearth::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
         let remainder = clock_before % scale;
+        // Keep the exact source and technique selected before the clock
+        // moves. Defer parse/selection errors until the normal alignment
+        // finishes, so independent interruptions still take precedence.
+        let gathering = (verb == "gather" && remainder != 0)
+            .then(|| GatheringOrder::resolve(&self.registries, &self.state, operands));
         let mut report = String::new();
         if remainder != 0 {
             let work_location = self.player_position()?;
@@ -328,7 +333,21 @@ impl Session {
             }
         }
         let aligned = self.state.control_tick().value() - clock_before;
-        match self.command(&args.join(" ")) {
+        let started = match gathering {
+            Some(Ok(mut order)) => match order.refresh(&self.registries, &self.state) {
+                Ok(true) => self
+                    .execute_gathering_order(order)
+                    .map(|output| (output, true)),
+                Ok(false) => {
+                    report.push_str("Begin interrupted: the selected gathering source or method is no longer available; requested work was not started.\n");
+                    return Ok((report, true));
+                }
+                Err(error) => Err(error),
+            },
+            Some(Err(error)) => Err(error),
+            None => self.command(&args.join(" ")),
+        };
+        match started {
             Ok((started, _)) => {
                 if aligned != 0 {
                     report.push_str(&format!(
@@ -372,4 +391,14 @@ pub(super) fn parse_index(text: &str, maximum: usize) -> Result<usize, String> {
         ));
     }
     Ok(index)
+}
+
+pub(super) fn parse_repeat_count(text: &str) -> Result<usize, String> {
+    let count = text
+        .parse::<usize>()
+        .map_err(|_| "repeat count must be a whole number")?;
+    if !(1..=32).contains(&count) {
+        return Err("repeat count must be between 1 and 32".to_owned());
+    }
+    Ok(count)
 }
