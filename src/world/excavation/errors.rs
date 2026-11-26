@@ -46,7 +46,7 @@ pub enum BlockExcavationError {
         target: VoxelCoord,
         stockpile: StockpileId,
     },
-    LooseSurfaceDropRequiresFloor {
+    SurfaceParcelRequiresFloor {
         target: VoxelCoord,
         resource: SurfaceResourceId,
     },
@@ -149,7 +149,7 @@ impl Display for BlockExcavationError {
                 "cannot remove block at ({},{},{}): populated ground cache {} still rests above it",
                 target.x(), target.y(), target.z(), stockpile.value()
             ),
-            Self::LooseSurfaceDropRequiresFloor { target, resource } => write!(
+            Self::SurfaceParcelRequiresFloor { target, resource } => write!(
                 formatter,
                 "cannot remove block at ({},{},{}): loose parcel {} still rests above it",
                 target.x(), target.y(), target.z(), resource.value()
@@ -264,7 +264,7 @@ impl Error for BlockExcavationError {
             | Self::MassExceedsCell { .. }
             | Self::StorageEnclosureRequiresFloor { .. }
             | Self::OccupiedGroundStockpileRequiresFloor { .. }
-            | Self::LooseSurfaceDropRequiresFloor { .. }
+            | Self::SurfaceParcelRequiresFloor { .. }
             | Self::RootedForageRequiresFloor { .. }
             | Self::StandingTreeRequiresFloor { .. }
             | Self::EnergyStoreRequiresFloor { .. }
@@ -325,7 +325,7 @@ pub enum BlockExcavationCommitError {
         target: VoxelCoord,
         stockpile: StockpileId,
     },
-    LooseSurfaceDropRequiresFloor {
+    SurfaceParcelRequiresFloor {
         target: VoxelCoord,
         resource: SurfaceResourceId,
     },
@@ -409,7 +409,7 @@ impl Display for BlockExcavationCommitError {
                 target.z(),
                 stockpile.value()
             ),
-            Self::LooseSurfaceDropRequiresFloor { target, resource } => write!(
+            Self::SurfaceParcelRequiresFloor { target, resource } => write!(
                 formatter,
                 "block excavation cannot remove floor ({},{},{}): parcel {} was left above it",
                 target.x(),
@@ -498,7 +498,7 @@ impl Error for BlockExcavationCommitError {
             | Self::TargetChanged
             | Self::StorageEnclosureRequiresFloor { .. }
             | Self::OccupiedGroundStockpileRequiresFloor { .. }
-            | Self::LooseSurfaceDropRequiresFloor { .. }
+            | Self::SurfaceParcelRequiresFloor { .. }
             | Self::RootedForageRequiresFloor { .. }
             | Self::EnergyStoreRequiresFloor { .. }
             | Self::StationaryEquipmentRequiresFloor { .. }

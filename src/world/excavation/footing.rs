@@ -14,8 +14,8 @@ impl FixedFootingOwner {
             Self::OccupiedGroundStockpile(stockpile) => {
                 BlockExcavationError::OccupiedGroundStockpileRequiresFloor { target, stockpile }
             }
-            Self::LooseSurfaceDrop(resource) => {
-                BlockExcavationError::LooseSurfaceDropRequiresFloor { target, resource }
+            Self::SurfaceParcel(resource) => {
+                BlockExcavationError::SurfaceParcelRequiresFloor { target, resource }
             }
             Self::RootedForage => BlockExcavationError::RootedForageRequiresFloor { target },
             Self::EnergyStore(store) => {
@@ -48,8 +48,8 @@ impl FixedFootingOwner {
                     stockpile,
                 }
             }
-            Self::LooseSurfaceDrop(resource) => {
-                BlockExcavationCommitError::LooseSurfaceDropRequiresFloor { target, resource }
+            Self::SurfaceParcel(resource) => {
+                BlockExcavationCommitError::SurfaceParcelRequiresFloor { target, resource }
             }
             Self::RootedForage => BlockExcavationCommitError::RootedForageRequiresFloor { target },
             Self::EnergyStore(store) => {

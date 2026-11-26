@@ -1998,10 +1998,11 @@ rule. Structural planning commits bind the player-work revision so a retained pl
 after a dismantling reservation begins. Terrain excavation, full-cell member recovery, tree felling
 and sapling transplantation share the
 local fixed-footing assessment: stationary material-backed custody, inbound stockpile promises,
-rooted biomass, and opening residents cannot lose their floor through these operations. The upper
+live natural surface opportunities or loose drops, rooted biomass, and opening residents cannot lose
+their floor through these operations. The upper
 trunk is the relevant external footing for a standing tree. Scheduled removal rechecks the claim at
 start commit and during trusted-load admission; opening patrol movement rejects
-entry onto a floor reserved for removal, including when hauling a loose parcel. Depleted loose drops
+entry onto a floor reserved for removal, including when hauling a loose parcel. Depleted non-perennial surface parcels
 and empty unenclosed stockpile markers do not reserve footing. A player body may still fall when its
 otherwise unclaimed floor is dismantled. The dismantling start commit rejects subsequent inventory-revision
 changes with a typed stale-authorization error before any internal reservation assertions or owner mutation;

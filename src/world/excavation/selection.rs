@@ -48,7 +48,7 @@ fn batch_size_can_resolve(error: &BlockExcavationError) -> bool {
             // so the held-tool resolver must try it before giving up.
             | BlockExcavationError::StorageEnclosureRequiresFloor { .. }
             | BlockExcavationError::OccupiedGroundStockpileRequiresFloor { .. }
-            | BlockExcavationError::LooseSurfaceDropRequiresFloor { .. }
+            | BlockExcavationError::SurfaceParcelRequiresFloor { .. }
             | BlockExcavationError::RootedForageRequiresFloor { .. }
             | BlockExcavationError::EnergyStoreRequiresFloor { .. }
             | BlockExcavationError::StationaryEquipmentRequiresFloor { .. }

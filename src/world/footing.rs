@@ -9,7 +9,7 @@ use crate::inventory::StockpileId;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::structural::StructuralElementId;
-use crate::surface::{SurfaceResourceId, SurfaceResourceKind};
+use crate::surface::SurfaceResourceId;
 
 /// The ground voxel of an unenclosed, unmounted, stationary stockpile.
 /// Carried custody and explicit supports have their own physical owners.
@@ -216,7 +216,7 @@ impl StockpileLandingGuard {
 pub(crate) enum FixedFootingOwner {
     StorageEnclosure(StockpileId),
     OccupiedGroundStockpile(StockpileId),
-    LooseSurfaceDrop(SurfaceResourceId),
+    SurfaceParcel(SurfaceResourceId),
     RootedForage,
     EnergyStore(crate::energy::EnergyStoreId),
     StationaryEquipment(EquipmentId),
@@ -234,7 +234,7 @@ impl FixedFootingOwner {
                 occupied_ground_stockpile_resting_on(state, floor)
                     .map(Self::OccupiedGroundStockpile)
             })
-            .or_else(|| loose_surface_drop_resting_on(state, floor).map(Self::LooseSurfaceDrop))
+            .or_else(|| surface_parcel_resting_on(state, floor).map(Self::SurfaceParcel))
             .or_else(|| rooted_forage_resting_on(state, floor).then_some(Self::RootedForage))
             .or_else(|| stationary_energy_store_resting_on(state, floor).map(Self::EnergyStore))
             .or_else(|| {
@@ -327,20 +327,20 @@ fn occupied_ground_stockpile_resting_on(
     })
 }
 
-/// Available loose parcels have no falling simulation after the block under
-/// their actual position disappears. Depleted historical matter does not block
-/// mining; the live surface position index is the sole lookup.
-fn loose_surface_drop_resting_on(state: &AppState, floor: VoxelCoord) -> Option<SurfaceResourceId> {
+/// Live non-perennial surface parcels, whether natural opportunities or drops,
+/// cannot fall when their floor disappears. Depleted sites do not claim footing;
+/// perennial biomass has its own claim below.
+fn surface_parcel_resting_on(state: &AppState, floor: VoxelCoord) -> Option<SurfaceResourceId> {
     let above = VoxelCoord::new(floor.x(), floor.y().checked_add(1)?, floor.z());
     state
         .surface()
         .available_resources_at(Some(above))
-        .find(|resource| resource.kind() == SurfaceResourceKind::Drop)
+        .find(|resource| !resource.rooted_biomass_occupies_site())
         .map(|resource| resource.id())
 }
 
 /// A harvested perennial may retain its entire physical root reserve even
-/// with no gatherable crop; unlike a depleted non-perennial drop, it still
+/// with no gatherable crop; unlike a depleted non-perennial parcel, it still
 /// claims the terrain beneath its indexed site.
 fn rooted_forage_resting_on(state: &AppState, floor: VoxelCoord) -> bool {
     floor.y().checked_add(1).is_some_and(|y| {

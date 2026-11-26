@@ -34,11 +34,20 @@ fn final_cut(pick: EquipmentId) -> BlockExcavationRequest {
 
 #[test]
 fn loose_surface_parcel_cannot_be_left_floating_by_full_excavation() {
+    assert_surface_parcel_keeps_floor(SurfaceResourceKind::Drop);
+}
+
+#[test]
+fn natural_surface_opportunity_cannot_be_left_floating_by_full_excavation() {
+    assert_surface_parcel_keeps_floor(SurfaceResourceKind::Opportunity);
+}
+
+fn assert_surface_parcel_keeps_floor(kind: SurfaceResourceKind) {
     let (registries, mut state, pick, floor, above) = nearly_mined_floor();
     let pending = validate_start_player_block_excavation(&registries, &state, final_cut(pick))
         .expect("floor without a parcel should be mineable");
     let specification = SurfaceResourceSpec::new(
-        SurfaceResourceKind::Drop,
+        kind,
         above,
         CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
         Mass::from_milligrams(250_000),
@@ -54,14 +63,14 @@ fn loose_surface_parcel_cannot_be_left_floating_by_full_excavation() {
     let before = state.clone();
     assert_eq!(
         pending.commit(&mut state),
-        Err(BlockExcavationCommitError::LooseSurfaceDropRequiresFloor {
+        Err(BlockExcavationCommitError::SurfaceParcelRequiresFloor {
             target: floor,
             resource: parcel
         })
     );
     assert_eq!(
         validate_start_player_block_excavation(&registries, &state, final_cut(pick)).err(),
-        Some(BlockExcavationError::LooseSurfaceDropRequiresFloor {
+        Some(BlockExcavationError::SurfaceParcelRequiresFloor {
             target: floor,
             resource: parcel
         })
@@ -246,7 +255,7 @@ fn actual_player_drop_protects_its_floor_from_held_excavation() {
             ),
         )
         .err(),
-        Some(BlockExcavationError::LooseSurfaceDropRequiresFloor {
+        Some(BlockExcavationError::SurfaceParcelRequiresFloor {
             target: floor,
             resource: parcel
         })

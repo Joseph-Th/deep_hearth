@@ -591,6 +591,43 @@ fn scout_cannot_acquire_a_floor_reserved_for_structural_dismantling() {
     let (registries, mut state, _) = generated_terrain_scout_opening();
     let [den, junction, tip] = colony(&state).route;
     advance_to_tick(&registries, &mut state, 179);
+    // Isolate the scout's prospective footing claim: the existing natural
+    // parcels must already have been collected before dismantling can begin.
+    // Prepare that custody in the fixture without advancing the patrol clock.
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    let parcels: Vec<_> = state
+        .surface()
+        .available_resources_at(Some(junction))
+        .map(|resource| {
+            assert!(!resource.rooted_biomass_occupies_site());
+            (
+                resource.id(),
+                resource.remaining_mass(),
+                resource.commodity(),
+                resource.temperature(),
+                resource.composition().clone(),
+            )
+        })
+        .collect();
+    for (id, mass, commodity, temperature, composition) in parcels {
+        let storage = crate::inventory::add_solid_stockpile_for_test(&mut state, mass).unwrap();
+        crate::inventory::deposit_composed_lot_for_test(
+            &registries,
+            &mut state,
+            storage,
+            commodity,
+            mass,
+            temperature,
+            composition,
+        )
+        .unwrap();
+        let tick = state.tick();
+        let revision = state.surface().revision() + 1;
+        state
+            .surface_state_mut()
+            .apply_gathering(id, mass, tick, revision);
+    }
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
     let floor = VoxelCoord::new(junction.x(), junction.y() - 1, junction.z());
     set_generated_block_for_test(registries.world(), &mut state, floor, BlockStateId::AIR);
     let member = add_structural_element(
