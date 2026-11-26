@@ -105,6 +105,7 @@ pub fn project_minimum_drink_to_hydration_target(
         drink,
         current,
         target,
+        Volume::ZERO,
         physiology.direct_consumption().minimum_drink_volume(),
     )
 }
@@ -116,6 +117,7 @@ pub(in crate::survival::consumption) fn project_minimum_drink_to_hydration_targe
     drink: DrinkDefinition,
     current: Volume,
     target: Volume,
+    pending_exertion: Volume,
     available: Volume,
 ) -> Result<Option<MinimumDrinkHydrationProjection>, DrinkHydrationProjectionError> {
     project_drink_to_hydration_target_with_minimum(
@@ -123,6 +125,7 @@ pub(in crate::survival::consumption) fn project_minimum_drink_to_hydration_targe
         drink,
         current,
         target,
+        pending_exertion,
         available.min(physiology.direct_consumption().minimum_drink_volume()),
     )
 }
@@ -132,6 +135,7 @@ fn project_drink_to_hydration_target_with_minimum(
     drink: DrinkDefinition,
     current: Volume,
     target: Volume,
+    pending_exertion: Volume,
     minimum_drink_volume: Volume,
 ) -> Result<Option<MinimumDrinkHydrationProjection>, DrinkHydrationProjectionError> {
     let maximum_hydration = physiology.maximum_hydration();
@@ -151,6 +155,14 @@ fn project_drink_to_hydration_target_with_minimum(
             },
         );
     }
+    // Retain the part of already-incurred movement that cannot be paid
+    // from the current reserve; intake must cover it as well as basal loss.
+    let shortfall = pending_exertion
+        .checked_sub(current)
+        .unwrap_or(Volume::ZERO);
+    let current = current
+        .checked_sub(pending_exertion)
+        .unwrap_or(Volume::ZERO);
     if current >= target {
         return Ok(None);
     }
@@ -188,7 +200,9 @@ fn project_drink_to_hydration_target_with_minimum(
                         DrinkHydrationProjectionError::ResourceBudgetOverflow
                     }
                 })?
-                .hydration();
+                .hydration()
+                .checked_add(shortfall)
+                .ok_or(DrinkHydrationProjectionError::ResourceBudgetOverflow)?;
         let required_offer = reserve_gap.checked_add(drinking_loss).ok_or(
             DrinkHydrationProjectionError::TargetUnreachableWithinIntakeLimit {
                 maximum_drink_volume,

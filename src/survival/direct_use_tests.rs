@@ -563,6 +563,80 @@ fn visible_stack_meals_provision_unsettled_walk_energy() {
 }
 
 #[test]
+fn direct_consumption_targets_cover_movement_debt_beyond_empty_reserves() {
+    use crate::logistics::{PlayerControlInput, relocate_player_for_test};
+    use crate::simulation::{advance_control_tick, advance_control_tick_with_input};
+
+    let (registries, mut state, _, water, position) =
+        generated_consumption_player_before_boundary_input();
+    let _ = advance_control_tick_with_input(
+        &registries,
+        &mut state,
+        PlayerControlInput::NEUTRAL.with_jump(true),
+    )
+    .unwrap();
+    relocate_player_for_test(&mut state, position);
+    let pending = state
+        .logistics()
+        .player()
+        .unwrap()
+        .locomotion_exertion()
+        .pending();
+    assert!(!pending.energy_cost_per_tick().is_zero());
+    assert!(!pending.hydration_loss_per_tick().is_zero());
+    set_player_reserves(&mut state, Energy::ZERO, Volume::ZERO);
+
+    let physiology = registries.survival().physiology();
+    let food = registries
+        .survival()
+        .get_food(CommodityKey::new(MATERIAL_BERRIES, FORM_FOOD))
+        .unwrap();
+    let serving = physiology.direct_consumption().minimum_meal_mass();
+    let target_energy = food.dietary_energy_for_mass(serving.checked_add(serving).unwrap());
+    let target_hydration = physiology
+        .direct_consumption()
+        .minimum_drink_volume()
+        .checked_add(Volume::from_microliters(10_000))
+        .unwrap();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap()
+        .remove(0);
+    let mut drinking_state = state.clone();
+    let meal = validate_eat_stack_to_metabolic_target(&registries, &state, &stack, target_energy)
+        .unwrap()
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let drink = validate_drink_store_to_hydration_target(
+        &registries,
+        &drinking_state,
+        water,
+        target_hydration,
+    )
+    .unwrap()
+    .unwrap()
+    .commit(&mut drinking_state)
+    .unwrap();
+    while state.tick() < meal.completes_at() {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    while drinking_state.tick() < drink.completes_at() {
+        let _ = advance_control_tick(&registries, &mut drinking_state).unwrap();
+    }
+    let energy_after = state.survival().player().unwrap().metabolic_energy();
+    let hydration_after = drinking_state.survival().player().unwrap().hydration();
+    assert_eq!(
+        (
+            energy_after >= target_energy,
+            hydration_after >= target_hydration
+        ),
+        (true, true),
+        "meal {energy_after:?} versus {target_energy:?}; drink {hydration_after:?} versus {target_hydration:?}"
+    );
+}
+
+#[test]
 fn airborne_player_cannot_start_eating_or_drinking_work() {
     use crate::core::state::validate_loaded_state;
     use crate::logistics::{PlayerControlInput, player_body_is_grounded};

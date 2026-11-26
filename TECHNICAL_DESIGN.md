@@ -1845,6 +1845,11 @@ allocation. Basal/exertion expenditure happens before same-tick intake capacity 
 that tick's deficit and only residual benefit refills reserve. If work is interrupted by terminal survival state,
 unearned pending benefit is not released.
 
+Selected-stack and selected-vessel reserve-target planning prices already-incurred locomotion as a
+one-time cost alongside basal consumption during intake. When movement costs exceed the current
+reserve, the remaining cost is included in the required food or water offer rather than lost at
+the zero-reserve boundary. These plans do not guarantee survival through unrelated harm.
+
 Dietary contribution is independent of metabolic calories: each food category gains reserve
 from its consumed mass relative to an authored full-reserve serving (500 g in built-in content).
 Thus 150 g of berries restores the same fraction of fruit nutrition as 150 g of grain restores

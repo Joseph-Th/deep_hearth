@@ -241,15 +241,12 @@ fn validate_drink_store_to_hydration_target_with_mode(
             .pending()
             .hydration_loss_per_tick()
     });
-    let effective_hydration = player
-        .hydration()
-        .checked_sub(pending_locomotion)
-        .unwrap_or(Volume::ZERO);
     let projected = project_minimum_drink_to_hydration_target_for_available_source(
         registries.survival().physiology(),
         drink,
-        effective_hydration,
+        player.hydration(),
         target,
+        pending_locomotion,
         contents.volume(),
     )
     .map_err(DrinkStoreToTargetError::Projection)?;

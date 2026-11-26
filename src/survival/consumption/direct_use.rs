@@ -111,18 +111,6 @@ fn selected_food_dietary_refill_mass(
     ))
 }
 
-/// Direct food-use planners must account for already-incurred movement that the
-/// next slow survival tick has not charged yet.
-fn metabolic_energy_after_pending_locomotion(state: &AppState, current: Energy) -> Energy {
-    let pending = state.logistics().player().map_or(Energy::ZERO, |player| {
-        player
-            .locomotion_exertion()
-            .pending()
-            .energy_cost_per_tick()
-    });
-    current.checked_sub(pending).unwrap_or(Energy::ZERO)
-}
-
 /// Familiar stack-level food action from exactly the selected physical cohort.
 ///
 /// The stack projection privately resolves current lot slices. This lets a UI distinguish two
@@ -236,13 +224,18 @@ fn project_eat_stack_to_metabolic_target(
         .ok_or(EatStackToTargetError::NotEdible {
             commodity: stack.commodity(),
         })?;
-    let effective_metabolic_energy =
-        metabolic_energy_after_pending_locomotion(state, player.metabolic_energy());
+    let pending_locomotion = state.logistics().player().map_or(Energy::ZERO, |player| {
+        player
+            .locomotion_exertion()
+            .pending()
+            .energy_cost_per_tick()
+    });
     let projected = project_minimum_meal_to_metabolic_target_for_available_source(
         registries.survival().physiology(),
         food,
-        effective_metabolic_energy,
+        player.metabolic_energy(),
         target,
+        pending_locomotion,
         stack.mass(),
     )
     .map_err(EatStackToTargetError::Projection)?;

@@ -102,6 +102,7 @@ pub fn project_minimum_meal_to_metabolic_target(
         food,
         current,
         target,
+        Energy::ZERO,
         physiology.direct_consumption().minimum_meal_mass(),
     )
 }
@@ -113,6 +114,7 @@ pub(in crate::survival::consumption) fn project_minimum_meal_to_metabolic_target
     food: FoodDefinition,
     current: Energy,
     target: Energy,
+    pending_exertion: Energy,
     available: Mass,
 ) -> Result<Option<MinimumMealMetabolicProjection>, MealMetabolicProjectionError> {
     project_meal_to_metabolic_target_with_minimum(
@@ -120,6 +122,7 @@ pub(in crate::survival::consumption) fn project_minimum_meal_to_metabolic_target
         food,
         current,
         target,
+        pending_exertion,
         available.min(physiology.direct_consumption().minimum_meal_mass()),
     )
 }
@@ -129,6 +132,7 @@ fn project_meal_to_metabolic_target_with_minimum(
     food: FoodDefinition,
     current: Energy,
     target: Energy,
+    pending_exertion: Energy,
     minimum_meal_mass: Mass,
 ) -> Result<Option<MinimumMealMetabolicProjection>, MealMetabolicProjectionError> {
     let maximum = physiology.maximum_metabolic_energy();
@@ -138,6 +142,14 @@ fn project_meal_to_metabolic_target_with_minimum(
     if target > maximum {
         return Err(MealMetabolicProjectionError::TargetEnergyExceedsMaximum { target, maximum });
     }
+    // Price movement already incurred before intake. Any part that exceeds
+    // the existing reserve must still be covered by the meal's offer.
+    let shortfall = pending_exertion
+        .checked_sub(current)
+        .unwrap_or(Energy::ZERO);
+    let current = current
+        .checked_sub(pending_exertion)
+        .unwrap_or(Energy::ZERO);
     if current >= target {
         return Ok(None);
     }
@@ -173,7 +185,9 @@ fn project_meal_to_metabolic_target_with_minimum(
                         MealMetabolicProjectionError::ResourceBudgetOverflow
                     }
                 })?
-                .metabolic_energy();
+                .metabolic_energy()
+                .checked_add(shortfall)
+                .ok_or(MealMetabolicProjectionError::ResourceBudgetOverflow)?;
         let required_offer = reserve_gap.checked_add(meal_cost).ok_or(
             MealMetabolicProjectionError::TargetUnreachableWithinIntakeLimit { maximum_meal_mass },
         )?;
