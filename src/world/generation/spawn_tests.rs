@@ -75,6 +75,43 @@ fn spawn_walking_exit_requires_fixed_footing_not_a_resident() {
 }
 
 #[test]
+fn natural_start_does_not_choose_a_buried_temple_when_surface_is_blocked() {
+    use crate::content::BLOCK_STATE_TEMPLE_ARCHIVE;
+    use crate::world::set_generated_block_for_test;
+
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x0054_454D_504C_4553);
+    let chunk = ChunkCoord::new(0, 0);
+    let mut state = AppState::new();
+    validate_generate_chunk(&registries, &state, seed, chunk, BLOCK_STATE_STONE)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let buried = (0..CHUNK_SIDE)
+        .flat_map(|z| (0..CHUNK_SIDE).map(move |x| VoxelCoord::new(x as i64, -19, z as i64)))
+        .find(|&foot| {
+            is_grounded_spawn_site(&registries, &state, foot)
+                && level_route(&registries, &state, chunk, foot) == LevelRoute::Continuing
+        })
+        .expect("the seeded temple has a walkable underground chamber");
+    let surface = super::super::terrain_height(seed, buried.x(), buried.z());
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(buried.x(), surface, buried.z()),
+        BLOCK_STATE_TEMPLE_ARCHIVE,
+    );
+    let first_column = buried.x() as u64 + buried.z() as u64 * CHUNK_SIDE as u64;
+    let spawn = select_natural_world_spawn(&registries, &state, chunk, first_column, None)
+        .expect("another surface column should supply a safe start");
+    assert_eq!(
+        spawn.y(),
+        super::super::terrain_height(seed, spawn.x(), spawn.z()) + 1,
+        "a wilderness start must not select an underground chamber"
+    );
+}
+
+#[test]
 fn requested_habitat_searches_other_safe_cells_in_the_same_chunk() {
     let registries = build_registries();
     let seed = WorldGenerationSeed::new(0x4841_4249_5441_5453);

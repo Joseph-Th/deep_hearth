@@ -12,10 +12,10 @@ use crate::logistics::{PlayerBodyState, body_has_fixed_placement_floor};
 use crate::player::{PlayerAdmissionState, player_admission_state, validate_admit_player};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
-use crate::world::{BlockStateId, CHUNK_SIDE, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y};
+use crate::world::{BlockStateId, CHUNK_SIDE, ChunkCoord};
 
 use super::habitat::{HabitatKind, habitat_at};
-use super::terrain::mix64;
+use super::terrain::{mix64, terrain_height};
 use super::{
     ChunkGenerationCommitError, ChunkGenerationError, WorldGenerationSeed,
     validate_generate_natural_chunk,
@@ -79,7 +79,7 @@ pub fn generate_natural_world_start(
     Err(NaturalWorldStartError::NoSafeSite)
 }
 
-/// Prefer a physically admissible site with a two-step level walking route,
+/// Prefer a physically admissible surface site with a two-step level walking route,
 /// falling back to a single exit where the generated hillside offers no such
 /// route. The odd stride visits each column once; habitat remains per-site.
 #[must_use]
@@ -109,18 +109,18 @@ fn select_natural_world_spawn(
         if desired.is_some_and(|kind| habitat_at(seed, x, z) != kind) {
             continue;
         }
-        for y in (WORLD_MIN_Y + 1..WORLD_MAX_Y_EXCLUSIVE - 2).rev() {
-            let foot = VoxelCoord::new(x, y, z);
-            if !is_grounded_spawn_site(registries, state, foot) {
-                continue;
+        // Natural starts belong on the generated landscape. Searching lower
+        // floors when this surface is obstructed can select a buried temple.
+        let foot = VoxelCoord::new(x, terrain_height(seed, x, z).checked_add(1)?, z);
+        if !is_grounded_spawn_site(registries, state, foot) {
+            continue;
+        }
+        match level_route(registries, state, chunk, foot) {
+            LevelRoute::Continuing => return Some(foot),
+            LevelRoute::SingleExit => {
+                single_exit_fallback.get_or_insert(foot);
             }
-            match level_route(registries, state, chunk, foot) {
-                LevelRoute::Continuing => return Some(foot),
-                LevelRoute::SingleExit => {
-                    single_exit_fallback.get_or_insert(foot);
-                }
-                LevelRoute::NoExit => {}
-            }
+            LevelRoute::NoExit => {}
         }
     }
     single_exit_fallback
