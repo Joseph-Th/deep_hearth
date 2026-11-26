@@ -9,8 +9,8 @@ use crate::surface::SurfaceResourceRecord;
 
 use super::super::DEN_LOOSE_CACHE_LIMIT;
 use super::super::junkworks::den_or_relay_needs_striker;
-use super::super::visibility::scout_visible_from;
-use super::routes::{ScavengeRoute, two_edge_candidates, unguarded_unlit_cell};
+use super::super::patrol::scout_can_approach_visible_unlit_cell;
+use super::routes::{ScavengeRoute, two_edge_candidates};
 use super::{is_contestable_drop, is_portable_drop, matches_salvage_goal, scout_wants_loose_drop};
 
 type SalvageSite = (VoxelCoord, Option<VoxelCoord>);
@@ -61,7 +61,7 @@ impl<'a> SalvageSearch<'a> {
             .peekable();
         // Skip costly sight and illumination checks at empty or ineligible sites.
         let safe = |cell| {
-            unguarded_unlit_cell(
+            scout_can_approach_visible_unlit_cell(
                 self.registries,
                 self.state,
                 self.observer,
@@ -69,10 +69,7 @@ impl<'a> SalvageSearch<'a> {
                 self.route.player_position,
             )
         };
-        let visible = drops.peek().is_some()
-            && scout_visible_from(self.registries, self.state, self.observer, destination)
-            && safe(first)
-            && far.is_none_or(safe);
+        let visible = drops.peek().is_some() && safe(first) && far.is_none_or(safe);
         visible
             .then_some(drops)
             .into_iter()

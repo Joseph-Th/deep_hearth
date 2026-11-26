@@ -239,6 +239,47 @@ fn generate_patrol_fixture_chunk(
 }
 
 #[test]
+fn scout_chooses_reachable_loot_over_an_unseen_terrain_boundary() {
+    use crate::core::state::validate_loaded_state;
+    use crate::logistics::add_traversable_edge_for_test;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let den = VoxelCoord::new(1, 0, 1);
+    let junction = VoxelCoord::new(0, 0, 1);
+    let tip = VoxelCoord::new(0, 0, 2);
+    let reachable = VoxelCoord::new(0, 0, 0);
+    let unknown = VoxelCoord::new(-1, 0, 1);
+    generate_patrol_fixture_chunk(&registries, &mut state, &[den, junction, tip, reachable]);
+    for (from, to) in [
+        (den, junction),
+        (junction, tip),
+        (junction, reachable),
+        (junction, unknown),
+    ] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([den, junction, tip]);
+    // The older parcel wins the equal-value tie unless the planner excludes
+    // cells the scout cannot observe or walk into from this generated chunk.
+    let unseen = place_loose_stone_drop(&registries, &mut state, unknown);
+    let visible = place_loose_stone_drop(&registries, &mut state, reachable);
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    advance_to_tick(&registries, &mut state, 180);
+    assert_eq!(colony(&state).scout_position(), junction);
+    advance_to_tick(&registries, &mut state, 185);
+    assert_eq!(colony(&state).scout_position(), reachable);
+    advance_to_tick(&registries, &mut state, 195);
+    assert_eq!(state.surface().get(visible).unwrap().position(), den);
+    assert_eq!(state.surface().get(unseen).unwrap().position(), unknown);
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn mixed_terrain_patrol_waits_for_both_sides_of_the_boundary() {
     use crate::core::state::validate_loaded_state;
     use crate::logistics::add_traversable_edge_for_test;

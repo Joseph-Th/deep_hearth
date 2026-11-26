@@ -35,7 +35,7 @@ fn set_player_reserves(state: &mut AppState, metabolic_energy: Energy, hydration
 }
 
 #[test]
-fn final_subminimum_food_lot_is_edible_and_replays_through_both_stack_adapters() {
+fn final_subminimum_food_lot_is_edible_and_replays_through_stack_adapters() {
     use crate::core::quantity::AggregateMass;
     use crate::core::state::validate_loaded_state;
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
@@ -80,9 +80,13 @@ fn final_subminimum_food_lot_is_edible_and_replays_through_both_stack_adapters()
         .checked_add(Energy::from_nanojoules(1))
         .unwrap();
 
-    let lot_plan = validate_eat_lot_to_metabolic_target(&registries, &state, lot, reachable_target)
-        .unwrap()
-        .expect("an attainable exact target must accept the final food lot");
+    let lot_plan = validate_eat(
+        &registries,
+        &state,
+        source,
+        &[crate::inventory::MaterialLotSelection::new(lot, last_mass)],
+    )
+    .unwrap();
     let stack_plan =
         validate_eat_stack_to_metabolic_target(&registries, &state, &stack, reachable_target)
             .unwrap()
@@ -314,7 +318,7 @@ fn full_metabolic_reserves_do_not_block_a_needed_dietary_serving() {
         Temperature::from_millikelvin(293_150),
     )
     .unwrap();
-    let grain = deposit_lot_for_test(
+    deposit_lot_for_test(
         &registries,
         &mut state,
         source,
@@ -333,39 +337,26 @@ fn full_metabolic_reserves_do_not_block_a_needed_dietary_serving() {
         .find(|stack| stack.commodity().material() == MATERIAL_GRAIN)
         .unwrap();
     assert!(
-        validate_eat_lot_to_full(&registries, &state, grain)
-            .unwrap()
-            .is_none()
-    );
-    assert!(
         validate_eat_stack_to_full(&registries, &state, grain_stack)
             .unwrap()
             .is_none()
     );
     assert!(
-        validate_eat_lot_to_metabolic_target(
+        validate_eat_stack_to_metabolic_target(
             &registries,
             &state,
-            berries,
+            berry_stack,
             physiology.maximum_metabolic_energy(),
         )
         .unwrap()
         .is_none()
     );
 
-    let mut lot_state = state.clone();
     let stack_meal = validate_eat_stack_to_full(&registries, &state, berry_stack)
         .unwrap()
         .unwrap()
         .commit(&mut state)
         .unwrap();
-    let lot_meal = validate_eat_lot_to_full(&registries, &lot_state, berries)
-        .unwrap()
-        .unwrap()
-        .commit(&mut lot_state)
-        .unwrap();
-    assert_eq!(stack_meal, lot_meal);
-    assert_eq!(state, lot_state);
     let full_reserve_mass = physiology.nutrition().full_reserve_food_mass().milligrams();
     let expected_refill = Mass::from_milligrams(full_reserve_mass.div_ceil(2));
     assert_eq!(stack_meal.total_mass(), expected_refill);
@@ -383,9 +374,7 @@ fn full_metabolic_reserves_do_not_block_a_needed_dietary_serving() {
     );
     while state.tick() < stack_meal.completes_at() {
         let _ = advance_tick(&registries, &mut state).unwrap();
-        let _ = advance_tick(&registries, &mut lot_state).unwrap();
     }
-    assert_eq!(state, lot_state);
     assert!(
         state
             .survival()
@@ -468,13 +457,13 @@ fn generated_consumption_player_before_boundary_input() -> (
 }
 
 #[test]
-fn exact_lot_and_visible_stack_meals_both_provision_unsettled_walk_energy() {
+fn visible_stack_meals_provision_unsettled_walk_energy() {
     use crate::core::state::validate_loaded_state;
     use crate::logistics::{HorizontalControlInput, PlayerControlInput, relocate_player_for_test};
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
     use crate::simulation::{advance_control_tick, advance_control_tick_with_input};
 
-    let (registries, mut state, lot, water, position) =
+    let (registries, mut state, _lot, water, position) =
         generated_consumption_player_before_boundary_input();
     let carried = state.logistics().player().unwrap().carried_stockpile();
     // The boundary's final movement sample incurs a real exertion debt
@@ -518,23 +507,13 @@ fn exact_lot_and_visible_stack_meals_both_provision_unsettled_walk_energy() {
         Some(EatStackToTargetError::Eat(EatError::PlayerMoving)),
     );
     assert_eq!(
-        validate_eat_lot_to_metabolic_target(
-            &registries,
-            &state,
-            lot,
-            physiology.maximum_metabolic_energy(),
-        )
-        .err(),
-        Some(EatLotToTargetError::Eat(EatError::PlayerMoving)),
-    );
-    assert_eq!(
         validate_drink_store_to_full(&registries, &state, water).err(),
         Some(DrinkStoreToTargetError::Drink(DrinkError::PlayerMoving)),
     );
     assert_eq!(state, moving, "rejected input cannot consume food or water");
 
     // Focused owner setup stops the already-paid movement without erasing
-    // its still-unsettled exertion. Both meal interfaces must now recognize
+    // its still-unsettled exertion. The meal planner must now recognize
     // that debt even when the displayed reserve itself is full.
     relocate_player_for_test(&mut state, position);
     set_player_reserves(
@@ -556,7 +535,6 @@ fn exact_lot_and_visible_stack_meals_both_provision_unsettled_walk_energy() {
     let stack = project_material_stacks(&registries, &state, carried)
         .unwrap()
         .remove(0);
-    let mut lot_state = state.clone();
     let stack_meal = validate_eat_stack_to_metabolic_target(
         &registries,
         &state,
@@ -567,19 +545,7 @@ fn exact_lot_and_visible_stack_meals_both_provision_unsettled_walk_energy() {
     .expect("the displayed stack recognizes pending walk energy")
     .commit(&mut state)
     .unwrap();
-    let lot_meal = validate_eat_lot_to_metabolic_target(
-        &registries,
-        &lot_state,
-        lot,
-        physiology.maximum_metabolic_energy(),
-    )
-    .unwrap()
-    .expect("the exact lot must also recognize pending walk energy")
-    .commit(&mut lot_state)
-    .unwrap();
-    assert!(!lot_meal.total_mass().is_zero());
-    assert_eq!(stack_meal, lot_meal);
-    assert_eq!(state, lot_state);
+    assert!(!stack_meal.total_mass().is_zero());
 
     let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
     let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
@@ -603,7 +569,7 @@ fn airborne_player_cannot_start_eating_or_drinking_work() {
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
     use crate::simulation::advance_control_tick_with_input;
 
-    let (registries, mut state, lot, water, _) =
+    let (registries, mut state, _lot, water, _) =
         generated_consumption_player_before_boundary_input();
     let carried = state.logistics().player().unwrap().carried_stockpile();
     let _ = advance_control_tick_with_input(
@@ -639,16 +605,6 @@ fn airborne_player_cannot_start_eating_or_drinking_work() {
         )
         .err(),
         Some(EatStackToTargetError::Eat(EatError::PlayerAirborne)),
-    );
-    assert_eq!(
-        validate_eat_lot_to_metabolic_target(
-            &registries,
-            &state,
-            lot,
-            physiology.maximum_metabolic_energy(),
-        )
-        .err(),
-        Some(EatLotToTargetError::Eat(EatError::PlayerAirborne)),
     );
     assert_eq!(
         validate_drink_store_to_full(&registries, &state, water).err(),
@@ -807,7 +763,7 @@ fn selected_food_stack_default_use_fills_toward_full_without_manual_mass_entry()
         .unwrap_or_else(|error| panic!("selected-stack depletion tick failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(200_000))
         .unwrap_or_else(|error| panic!("selected-stack stockpile failed: {error}"));
-    let lot = deposit_lot_for_test(
+    deposit_lot_for_test(
         &registries,
         &mut state,
         source,
@@ -816,7 +772,10 @@ fn selected_food_stack_default_use_fills_toward_full_without_manual_mass_entry()
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("selected-stack food failed: {error}"));
-    let validated = validate_eat_lot_to_full(&registries, &state, lot)
+    let stack = project_material_stacks(&registries, &state, source)
+        .unwrap()
+        .remove(0);
+    let validated = validate_eat_stack_to_full(&registries, &state, &stack)
         .unwrap_or_else(|error| panic!("selected-stack eating validation failed: {error}"))
         .unwrap_or_else(|| panic!("one depletion tick should require a meal"));
     let outcome = validated
@@ -858,7 +817,7 @@ fn default_meal_replenishes_diet_when_calories_are_only_slightly_low() {
     );
     let source = add_solid_stockpile_for_test(&mut initial, Mass::from_milligrams(500_000))
         .unwrap_or_else(|error| panic!("combined-reserve stockpile failed: {error}"));
-    let lot = deposit_lot_for_test(
+    deposit_lot_for_test(
         &registries,
         &mut initial,
         source,
@@ -873,10 +832,10 @@ fn default_meal_replenishes_diet_when_calories_are_only_slightly_low() {
     let expected = Mass::from_milligrams(250_000);
 
     let mut calorie_state = initial.clone();
-    let calorie_outcome = validate_eat_lot_to_metabolic_target(
+    let calorie_outcome = validate_eat_stack_to_metabolic_target(
         &registries,
         &calorie_state,
-        lot,
+        &stack,
         physiology.maximum_metabolic_energy(),
     )
     .unwrap_or_else(|error| panic!("calorie target failed: {error}"))
@@ -884,18 +843,6 @@ fn default_meal_replenishes_diet_when_calories_are_only_slightly_low() {
     .commit(&mut calorie_state)
     .unwrap_or_else(|error| panic!("calorie meal commit failed: {error}"));
     assert!(calorie_outcome.total_mass() < expected);
-
-    let mut lot_state = initial.clone();
-    let lot_outcome = validate_eat_lot_to_full(&registries, &lot_state, lot)
-        .unwrap_or_else(|error| panic!("lot default meal failed: {error}"))
-        .unwrap_or_else(|| panic!("combined reserves need a meal"))
-        .commit(&mut lot_state)
-        .unwrap_or_else(|error| panic!("lot default meal commit failed: {error}"));
-    assert_eq!(lot_outcome.total_mass(), expected);
-    assert_eq!(
-        lot_outcome.nutrition_offered().get(FoodCategory::Fruit),
-        500_000
-    );
 
     let mut stack_state = initial;
     let stack_outcome = validate_eat_stack_to_full(&registries, &stack_state, &stack)
@@ -908,20 +855,10 @@ fn default_meal_replenishes_diet_when_calories_are_only_slightly_low() {
         stack_outcome.nutrition_offered().get(FoodCategory::Fruit),
         500_000
     );
-    assert_eq!(
-        stack_state, lot_state,
-        "stack and lot defaults must consume the same matter"
-    );
     while stack_state.tick() < stack_outcome.completes_at() {
         let _ = advance_tick(&registries, &mut stack_state)
             .unwrap_or_else(|error| panic!("stack meal completion failed: {error}"));
-        let _ = advance_tick(&registries, &mut lot_state)
-            .unwrap_or_else(|error| panic!("lot meal completion failed: {error}"));
     }
-    assert_eq!(
-        stack_state, lot_state,
-        "both food-use paths must continue identically"
-    );
     assert!(
         stack_state
             .survival()
@@ -944,7 +881,7 @@ fn selected_food_stack_default_use_makes_partial_progress_when_full_is_unreachab
     let available = Mass::from_milligrams(500_000);
     let source = add_solid_stockpile_for_test(&mut state, available)
         .unwrap_or_else(|error| panic!("partial-stack stockpile failed: {error}"));
-    let lot = deposit_lot_for_test(
+    deposit_lot_for_test(
         &registries,
         &mut state,
         source,
@@ -953,19 +890,22 @@ fn selected_food_stack_default_use_makes_partial_progress_when_full_is_unreachab
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("partial-stack food failed: {error}"));
+    let stack = project_material_stacks(&registries, &state, source)
+        .unwrap()
+        .remove(0);
 
     assert!(matches!(
-        validate_eat_lot_to_metabolic_target(
+        validate_eat_stack_to_metabolic_target(
             &registries,
             &state,
-            lot,
+            &stack,
             physiology.maximum_metabolic_energy(),
         ),
-        Err(EatLotToTargetError::Projection(
+        Err(EatStackToTargetError::Projection(
             MealMetabolicProjectionError::TargetUnreachableWithinIntakeLimit { .. }
         ))
     ));
-    let validated = validate_eat_lot_to_full(&registries, &state, lot)
+    let validated = validate_eat_stack_to_full(&registries, &state, &stack)
         .unwrap_or_else(|error| panic!("partial-stack default eating failed: {error}"))
         .unwrap_or_else(|| panic!("empty reserves require a meal"));
     let outcome = validated
@@ -990,7 +930,7 @@ fn selected_food_stack_default_use_consumes_available_legal_portion_when_refill_
     let available = Mass::from_milligrams(100_000);
     let source = add_solid_stockpile_for_test(&mut state, available)
         .unwrap_or_else(|error| panic!("short-stack stockpile failed: {error}"));
-    let lot = deposit_lot_for_test(
+    deposit_lot_for_test(
         &registries,
         &mut state,
         source,
@@ -999,20 +939,23 @@ fn selected_food_stack_default_use_consumes_available_legal_portion_when_refill_
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("short-stack food failed: {error}"));
+    let stack = project_material_stacks(&registries, &state, source)
+        .unwrap()
+        .remove(0);
 
     assert!(matches!(
-        validate_eat_lot_to_metabolic_target(
+        validate_eat_stack_to_metabolic_target(
             &registries,
             &state,
-            lot,
+            &stack,
             physiology.maximum_metabolic_energy(),
         ),
-        Err(EatLotToTargetError::InsufficientLotMass {
+        Err(EatStackToTargetError::InsufficientStackMass {
             available: found,
             ..
         }) if found == available
     ));
-    let outcome = validate_eat_lot_to_full(&registries, &state, lot)
+    let outcome = validate_eat_stack_to_full(&registries, &state, &stack)
         .unwrap_or_else(|error| panic!("short-stack default eating failed: {error}"))
         .unwrap_or_else(|| panic!("partial reserve requires a meal"))
         .commit(&mut state)
@@ -1149,7 +1092,7 @@ fn selected_stack_default_use_is_a_noop_when_already_full() {
         .unwrap_or_else(|error| panic!("selected-stack noop survival setup failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(100_000))
         .unwrap_or_else(|error| panic!("selected-stack noop stockpile failed: {error}"));
-    let lot = deposit_lot_for_test(
+    deposit_lot_for_test(
         &registries,
         &mut state,
         source,
@@ -1158,10 +1101,13 @@ fn selected_stack_default_use_is_a_noop_when_already_full() {
         Temperature::from_millikelvin(293_150),
     )
     .unwrap_or_else(|error| panic!("selected-stack noop food failed: {error}"));
+    let stack = project_material_stacks(&registries, &state, source)
+        .unwrap()
+        .remove(0);
     let before = state.clone();
 
     assert!(
-        validate_eat_lot_to_full(&registries, &state, lot)
+        validate_eat_stack_to_full(&registries, &state, &stack)
             .unwrap_or_else(|error| panic!("selected-stack noop validation failed: {error}"))
             .is_none()
     );
@@ -1183,7 +1129,7 @@ fn dead_player_full_reserve_use_rejects_before_reporting_no_meal_or_drink_needed
         .commit(&mut state)
         .unwrap()
         .carried_stockpile();
-    let lot = deposit_lot_for_test(
+    deposit_lot_for_test(
         &registries,
         &mut state,
         carried,
@@ -1249,10 +1195,6 @@ fn dead_player_full_reserve_use_rejects_before_reporting_no_meal_or_drink_needed
         .unwrap();
     assert_eq!(replay, state);
     for candidate in [&state, &replay] {
-        assert_eq!(
-            validate_eat_lot_to_full(&registries, candidate, lot).err(),
-            Some(EatLotToTargetError::Eat(EatError::PlayerDead)),
-        );
         for selected in [&stack, &remote_stack] {
             assert_eq!(
                 validate_eat_stack_portions(
@@ -1267,16 +1209,6 @@ fn dead_player_full_reserve_use_rejects_before_reporting_no_meal_or_drink_needed
                 Some(EatStackPortionsError::Eat(EatError::PlayerDead)),
             );
         }
-        assert_eq!(
-            validate_eat_lot_to_metabolic_target(
-                &registries,
-                candidate,
-                lot,
-                physiology.maximum_metabolic_energy(),
-            )
-            .err(),
-            Some(EatLotToTargetError::Eat(EatError::PlayerDead)),
-        );
         assert_eq!(
             validate_eat_stack_to_full(&registries, candidate, &stack).err(),
             Some(EatStackToTargetError::Eat(EatError::PlayerDead)),
@@ -1332,10 +1264,13 @@ fn selected_food_stack_default_use_preserves_canonical_temperature_rejection() {
         temperature,
     )
     .unwrap_or_else(|error| panic!("hot-food lot failed: {error}"));
+    let stack = project_material_stacks(&registries, &state, source)
+        .unwrap()
+        .remove(0);
 
     assert!(matches!(
-        validate_eat_lot_to_full(&registries, &state, lot),
-        Err(EatLotToTargetError::Eat(
+        validate_eat_stack_to_full(&registries, &state, &stack),
+        Err(EatStackToTargetError::Eat(
             EatError::TemperatureOutsideConsumptionRange {
                 lot: rejected,
                 temperature: found,
@@ -1391,7 +1326,7 @@ fn selected_food_stack_rejects_remote_source_before_disclosing_stack_mass() {
         .unwrap_or_else(|error| panic!("remote selected-stack logistics commit failed: {error}"));
     let source = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1))
         .unwrap_or_else(|error| panic!("remote selected-stack stockpile failed: {error}"));
-    let lot = deposit_lot_for_test(
+    deposit_lot_for_test(
         &registries,
         &mut state,
         source,
@@ -1406,10 +1341,13 @@ fn selected_food_stack_rejects_remote_source_before_disclosing_stack_mass() {
         .commit(&mut state)
         .unwrap_or_else(|error| panic!("remote selected-stack placement commit failed: {error}"));
     let before = state.clone();
+    let stack = project_material_stacks(&registries, &state, source)
+        .unwrap()
+        .remove(0);
 
     assert_eq!(
-        validate_eat_lot_to_full(&registries, &state, lot).err(),
-        Some(EatLotToTargetError::Eat(EatError::Access(
+        validate_eat_stack_to_full(&registries, &state, &stack).err(),
+        Some(EatStackToTargetError::Eat(EatError::Access(
             PlayerStockpileAccessError::RemoteKnownStockpile {
                 stockpile: source,
                 stockpile_position: source_position,
@@ -1417,9 +1355,6 @@ fn selected_food_stack_rejects_remote_source_before_disclosing_stack_mass() {
             }
         )))
     );
-    let stack = project_material_stacks(&registries, &state, source)
-        .unwrap()
-        .remove(0);
     // A remembered remote stack is not evidence of presently accessible food.
     // In particular, asking for more than it holds must not disclose its mass.
     assert_eq!(

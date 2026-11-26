@@ -14,7 +14,6 @@ use crate::survival::Vitality;
 use super::{EatError, MealMetabolicProjectionError, ValidatedEat};
 
 mod drink;
-mod lot;
 mod portions;
 use super::eating::{
     project_minimum_meal_to_metabolic_target_for_available_source, validate_eat_with_mode,
@@ -25,14 +24,10 @@ pub use drink::{
 pub(crate) use drink::{
     assess_drink_store_to_full_admission, validate_drink_store_to_full_control_rate,
 };
-pub use lot::{
-    EatLotToTargetError, validate_eat_lot_to_full, validate_eat_lot_to_metabolic_target,
-};
 pub use portions::{EatStackPortionsError, FoodStackPortion, validate_eat_stack_portions};
 
 /// Failure while composing one familiar projected food stack into exact eating.
-///
-/// Unlike the lot-oriented adapter, this surface does not expose inventory lot identity.
+/// Inventory lot identity is kept private.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EatStackToTargetError {
     SurvivalNotInitialized,
@@ -117,8 +112,7 @@ fn selected_food_dietary_refill_mass(
 }
 
 /// Direct food-use planners must account for already-incurred movement that the
-/// next slow survival tick has not charged yet. Lot- and stack-oriented
-/// interfaces differ only in selection, not in their physiological target.
+/// next slow survival tick has not charged yet.
 fn metabolic_energy_after_pending_locomotion(state: &AppState, current: Energy) -> Energy {
     let pending = state.logistics().player().map_or(Energy::ZERO, |player| {
         player
@@ -158,71 +152,44 @@ fn validate_eat_stack_to_full_with_mode(
     stack: &MaterialStackProjection,
     preview_off_boundary: bool,
 ) -> Result<Option<ValidatedEat>, EatStackToTargetError> {
-    let result = validate_eat_stack_to_metabolic_target_with_mode(
+    let physiology = registries.survival().physiology();
+    let metabolic_mass = match project_eat_stack_to_metabolic_target(
         registries,
         state,
         stack,
-        registries
-            .survival()
-            .physiology()
-            .maximum_metabolic_energy(),
-        preview_off_boundary,
-    );
-    match result {
-        Ok(Some(validated)) => {
-            match selected_food_dietary_refill_mass(registries, state, stack.commodity()) {
-                Some(mass) if mass > validated.planned_mass() => {
-                    validate_eat_stack_up_to(registries, state, stack, mass, preview_off_boundary)
-                }
-                _ => Ok(Some(validated)),
-            }
-        }
-        Ok(None) => match selected_food_dietary_refill_mass(registries, state, stack.commodity()) {
-            Some(mass) => {
-                validate_eat_stack_up_to(registries, state, stack, mass, preview_off_boundary)
-            }
-            None => Ok(None),
-        },
+        physiology.maximum_metabolic_energy(),
+    ) {
+        Ok(mass) => mass.unwrap_or(Mass::ZERO),
         Err(EatStackToTargetError::Projection(
             MealMetabolicProjectionError::TargetUnreachableWithinIntakeLimit { maximum_meal_mass },
-        )) => validate_eat_stack_up_to(
-            registries,
-            state,
-            stack,
-            maximum_meal_mass,
-            preview_off_boundary,
-        ),
-        Err(EatStackToTargetError::InsufficientStackMass { available, .. }) => {
-            validate_eat_stack_up_to(registries, state, stack, available, preview_off_boundary)
-        }
-        result => result,
+        )) => maximum_meal_mass,
+        Err(EatStackToTargetError::InsufficientStackMass { available, .. }) => available,
+        Err(error) => return Err(error),
+    };
+    let dietary_mass = selected_food_dietary_refill_mass(registries, state, stack.commodity())
+        .unwrap_or(Mass::ZERO);
+    let portion = metabolic_mass
+        .max(dietary_mass)
+        .min(stack.mass())
+        .min(physiology.direct_consumption().maximum_meal_mass());
+    if portion.is_zero() {
+        return Ok(None);
     }
+    validate_eat_stack_portion(registries, state, stack, portion, preview_off_boundary).map(Some)
 }
 
-fn validate_eat_stack_up_to(
+fn validate_eat_stack_portion(
     registries: &Registries,
     state: &AppState,
     stack: &MaterialStackProjection,
-    desired: Mass,
+    portion: Mass,
     preview_off_boundary: bool,
-) -> Result<Option<ValidatedEat>, EatStackToTargetError> {
+) -> Result<ValidatedEat, EatStackToTargetError> {
     let source = stack.stockpile();
-    validate_player_stockpile_access(state, source)
-        .map_err(|error| EatStackToTargetError::Eat(EatError::Access(error)))?;
-    let direct = registries.survival().physiology().direct_consumption();
-    let available = stack.mass();
-    let portion = desired.min(available).min(direct.maximum_meal_mass());
-    if portion < direct.minimum_meal_mass() && portion != available {
-        return Err(EatStackToTargetError::InsufficientStackMass {
-            available,
-            required: direct.minimum_meal_mass(),
-        });
-    }
     let selections = stack
         .selections_for_mass(state, source, portion)
         .map_err(EatStackToTargetError::Stack)?;
     validate_eat_with_mode(registries, state, source, &selections, preview_off_boundary)
-        .map(Some)
         .map_err(EatStackToTargetError::Eat)
 }
 
@@ -233,16 +200,18 @@ pub fn validate_eat_stack_to_metabolic_target(
     stack: &MaterialStackProjection,
     target: Energy,
 ) -> Result<Option<ValidatedEat>, EatStackToTargetError> {
-    validate_eat_stack_to_metabolic_target_with_mode(registries, state, stack, target, false)
+    project_eat_stack_to_metabolic_target(registries, state, stack, target)?
+        .map(|portion| validate_eat_stack_portion(registries, state, stack, portion, false))
+        .transpose()
 }
 
-fn validate_eat_stack_to_metabolic_target_with_mode(
+/// Resolve the desired portion before admitting any exact consumption transaction.
+fn project_eat_stack_to_metabolic_target(
     registries: &Registries,
     state: &AppState,
     stack: &MaterialStackProjection,
     target: Energy,
-    preview_off_boundary: bool,
-) -> Result<Option<ValidatedEat>, EatStackToTargetError> {
+) -> Result<Option<Mass>, EatStackToTargetError> {
     let player = state
         .survival()
         .player()
@@ -287,10 +256,5 @@ fn validate_eat_stack_to_metabolic_target_with_mode(
             required,
         });
     }
-    let selections = stack
-        .selections_for_mass(state, source, required)
-        .map_err(EatStackToTargetError::Stack)?;
-    validate_eat_with_mode(registries, state, source, &selections, preview_off_boundary)
-        .map(Some)
-        .map_err(EatStackToTargetError::Eat)
+    Ok(Some(required))
 }

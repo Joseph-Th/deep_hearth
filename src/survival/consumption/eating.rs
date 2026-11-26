@@ -410,11 +410,6 @@ pub(super) fn validate_admitted_meal(
 }
 
 impl ValidatedEat {
-    /// Prevalidated portion size for composing caller-level food-use preferences.
-    pub(super) const fn planned_mass(&self) -> Mass {
-        self.outcome.total_mass()
-    }
-
     pub fn commit(self, state: &mut AppState) -> Result<EatOutcome, EatCommitError> {
         self.attention
             .precheck(state)

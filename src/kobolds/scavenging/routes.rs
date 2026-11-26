@@ -5,14 +5,12 @@ use std::cmp::Reverse;
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
-use crate::energy::assess_local_illumination;
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::surface::SurfaceResourceId;
 
-use super::super::patrol::{scout_can_enter, scout_sees_guarded_cell};
-use super::super::visibility::scout_visible_from;
-use super::super::{SCOUT_BULK_SPLIT_BATCH, SCOUT_DETERRENT_LIGHT_LEVEL, SCOUT_MEAL_MASS};
+use super::super::patrol::scout_can_approach_visible_unlit_cell;
+use super::super::{SCOUT_BULK_SPLIT_BATCH, SCOUT_MEAL_MASS};
 use super::{
     best_local_forage, food_serving_priority, is_contestable_drop, is_portable_drop,
     local_unenclosed_stockpile_target, scout_wants_loose_drop,
@@ -80,14 +78,13 @@ pub(in crate::kobolds) fn reachable_side_stockpile(
         .filter(|cell| *cell != route.den && *cell != route.authored_tip)
         .filter(|cell| local_unenclosed_stockpile_target(registries, state, *cell, at).is_some())
         .filter(|cell| {
-            scout_visible_from(registries, state, route.junction, *cell)
-                && unguarded_unlit_cell(
-                    registries,
-                    state,
-                    route.junction,
-                    *cell,
-                    route.player_position,
-                )
+            scout_can_approach_visible_unlit_cell(
+                registries,
+                state,
+                route.junction,
+                *cell,
+                route.player_position,
+            )
         })
         .min()
 }
@@ -207,22 +204,6 @@ fn best_local_drop_priority(
         .min()
 }
 
-pub(super) fn unguarded_unlit_cell(
-    registries: &Registries,
-    state: &AppState,
-    scout: VoxelCoord,
-    position: VoxelCoord,
-    player_position: Option<VoxelCoord>,
-) -> bool {
-    scout_can_enter(registries, state, position, player_position)
-        // Current visibility, not the hypothetical view from a future step,
-        // decides if a live player makes this destination too risky.
-        && !(player_position.is_some()
-            && scout_sees_guarded_cell(registries, state, scout, position))
-        && assess_local_illumination(registries, state, position).level()
-            < SCOUT_DETERRENT_LIGHT_LEVEL
-}
-
 /// Far stockpile, loose-drop, and forage planners must share the same observed
 /// threat boundary. A future waypoint cannot lend its viewpoint to the scout.
 /// Actual patrol movement checks the next edge again at that waypoint.
@@ -232,21 +213,19 @@ fn far_route_is_sighted_and_safe(
     route: ScavengeRoute,
     (first, goal): (VoxelCoord, VoxelCoord),
 ) -> bool {
-    scout_visible_from(registries, state, route.junction, goal)
-        && unguarded_unlit_cell(
-            registries,
-            state,
-            route.junction,
-            first,
-            route.player_position,
-        )
-        && unguarded_unlit_cell(
-            registries,
-            state,
-            route.junction,
-            goal,
-            route.player_position,
-        )
+    scout_can_approach_visible_unlit_cell(
+        registries,
+        state,
+        route.junction,
+        first,
+        route.player_position,
+    ) && scout_can_approach_visible_unlit_cell(
+        registries,
+        state,
+        route.junction,
+        goal,
+        route.player_position,
+    )
 }
 
 /// Rank the neighboring drop candidates once. Hungry scouts also consider the
@@ -277,7 +256,7 @@ fn best_adjacent_drop(
         })
         // Lighting propagation is more expensive than an indexed local parcel lookup.
         .filter(|(_, destination)| {
-            unguarded_unlit_cell(registries, state, junction, *destination, player_position)
+            scout_can_approach_visible_unlit_cell(registries, state, junction, *destination, player_position)
         })
         .min_by_key(|(priority, _)| *priority)
 }
@@ -366,7 +345,13 @@ fn best_adjacent_forage(
                 .map(|(mass, id)| (mass, id, destination))
         })
         .filter(|(_, _, destination)| {
-            unguarded_unlit_cell(registries, state, junction, *destination, player_position)
+            scout_can_approach_visible_unlit_cell(
+                registries,
+                state,
+                junction,
+                *destination,
+                player_position,
+            )
         })
         .max_by_key(|(mass, id, _)| (*mass, Reverse(*id)))
         .map(|(mass, _, destination)| (mass, destination))

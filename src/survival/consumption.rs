@@ -10,10 +10,10 @@ mod eating;
 mod freshness;
 
 pub use direct_use::{
-    DrinkStoreToTargetError, EatLotToTargetError, EatStackPortionsError, EatStackToTargetError,
-    FoodStackPortion, validate_drink_store_to_full, validate_drink_store_to_hydration_target,
-    validate_eat_lot_to_full, validate_eat_lot_to_metabolic_target, validate_eat_stack_portions,
-    validate_eat_stack_to_full, validate_eat_stack_to_metabolic_target,
+    DrinkStoreToTargetError, EatStackPortionsError, EatStackToTargetError, FoodStackPortion,
+    validate_drink_store_to_full, validate_drink_store_to_hydration_target,
+    validate_eat_stack_portions, validate_eat_stack_to_full,
+    validate_eat_stack_to_metabolic_target,
 };
 
 pub use drinking::{
