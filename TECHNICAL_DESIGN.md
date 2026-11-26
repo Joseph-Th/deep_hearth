@@ -1999,8 +1999,11 @@ after a dismantling reservation begins. Terrain excavation, full-cell member rec
 and sapling transplantation share the
 local fixed-footing assessment: stationary material-backed custody, inbound stockpile promises,
 live natural surface opportunities or loose drops, rooted biomass, and opening residents cannot lose
-their floor through these operations. The upper
-trunk is the relevant external footing for a standing tree. Scheduled removal rechecks the claim at
+their floor through these operations. Direct and neighborhood terrain generation reject live surface
+matter without fixed footing in the prospective chunk, including surviving roots. The same floor
+assessment checks loose stockpile obligations and includes prospective trunks and existing full-cell
+members; a floor reserved for removal is not valid support. The upper trunk is the relevant external
+footing for a standing tree. Scheduled removal rechecks the claim at
 start commit and during trusted-load admission; opening patrol movement rejects
 entry onto a floor reserved for removal, including when hauling a loose parcel. Depleted non-perennial surface parcels
 and empty unenclosed stockpile markers do not reserve footing. A player body may still fall when its

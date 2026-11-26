@@ -123,11 +123,11 @@ fn den_disposal_requires_authoritative_terrain_on_both_sides_of_the_edge() {
         u128::from(shelf.value()) * STORAGE_AGE_PARTS_PER_TICK,
     )
     .unwrap();
-    let plan = validate_create_surface_resources(&registries, &state, [spoiled]).unwrap();
-    let parcel = plan.first_resource_id();
-    plan.commit(&mut state).unwrap();
-
     let mut abstract_route = state.clone();
+    let plan =
+        validate_create_surface_resources(&registries, &abstract_route, [spoiled.clone()]).unwrap();
+    let parcel = plan.first_resource_id();
+    plan.commit(&mut abstract_route).unwrap();
     let _ = advance_tick(&registries, &mut abstract_route).unwrap();
     assert_eq!(
         abstract_route.surface().get(parcel).unwrap().position(),
@@ -157,6 +157,11 @@ fn den_disposal_requires_authoritative_terrain_on_both_sides_of_the_edge() {
                 .world()
                 .has_standing_clearance(registries.world(), generated)
         );
+        // Admit the spoiled parcel only after the generated side has real support.
+        let plan =
+            validate_create_surface_resources(&registries, &mixed, [spoiled.clone()]).unwrap();
+        assert_eq!(plan.first_resource_id(), parcel);
+        plan.commit(&mut mixed).unwrap();
         assert_eq!(validate_loaded_state(&registries, &mixed), Ok(()));
         let total = calculate_matter_accounting(&mixed).unwrap().total();
         let _ = advance_tick(&registries, &mut mixed).unwrap();

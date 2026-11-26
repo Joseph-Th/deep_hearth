@@ -75,11 +75,7 @@ pub(super) fn validate_generated_chunk_occupancy(
         return Err(ChunkGenerationError::GroundMatterBuriedByTerrain { voxel });
     }
     let tree = super::super::generated_tree(profile, chunk);
-    if let Some(voxel) =
-        first_unsupported_reserved_output_in_generated_chunk(registry, state, tree, chunk)
-    {
-        return Err(ChunkGenerationError::ReservedOutputRequiresFixedFloor { voxel });
-    }
+    validate_existing_fixed_footing(registry, state, tree, chunk)?;
     if let Some(voxel) = first_fluid_store_collision_in_generated_chunk(registry, state, chunk) {
         return Err(ChunkGenerationError::FluidStoreBuriedByTerrain { voxel });
     }
@@ -163,9 +159,51 @@ pub(super) fn validate_generated_chunk_occupancy(
     Ok(())
 }
 
+/// Both forms of existing stationary matter must survive terrain admission
+/// on actual, non-reserved footing.
+fn validate_existing_fixed_footing(
+    registry: &WorldRegistry,
+    state: &AppState,
+    tree: Option<TreeRecord>,
+    chunk: &WorldChunk,
+) -> Result<(), ChunkGenerationError> {
+    if let Some(voxel) =
+        first_unsupported_surface_matter_in_generated_chunk(registry, state, tree, chunk)
+    {
+        return Err(ChunkGenerationError::SurfaceResourceRequiresFixedFloor { voxel });
+    }
+    if let Some(voxel) =
+        first_unsupported_reserved_output_in_generated_chunk(registry, state, tree, chunk)
+    {
+        return Err(ChunkGenerationError::ReservedOutputRequiresFixedFloor { voxel });
+    }
+    Ok(())
+}
+
+/// The prospective chunk owns terrain and its seeded trunk before either is
+/// committed. Existing full-cell members can also supply persistent footing.
+fn prospective_position_has_fixed_floor(
+    registry: &WorldRegistry,
+    state: &AppState,
+    tree: Option<TreeRecord>,
+    chunk: &WorldChunk,
+    position: VoxelCoord,
+) -> bool {
+    (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&position.y())
+        && position.y().checked_sub(1).is_some_and(|y| {
+            let floor = VoxelCoord::new(position.x(), y, position.z());
+            (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&floor.y())
+                && !crate::world::fixed_floor_reserved_for_removal(state, floor)
+                && (registry
+                    .block_for_state(chunk.block_at(floor))
+                    .is_some_and(|block| block.collision() == BlockCollisionShape::FullCube)
+                    || tree.is_some_and(|tree| tree.occupies_trunk(floor))
+                    || state.structures().blocks_full_cell(floor))
+        })
+}
+
 /// A material reservation admitted in abstract space must retain a real
-/// floor when its column acquires terrain authority. Include the prospective
-/// trunk as well as terrain and existing full-cell structural members.
+/// floor when its column acquires terrain authority.
 fn first_unsupported_reserved_output_in_generated_chunk(
     registry: &WorldRegistry,
     state: &AppState,
@@ -181,17 +219,7 @@ fn first_unsupported_reserved_output_in_generated_chunk(
                     .inventory()
                     .get_stockpile(id)
                     .is_some_and(|pile| !pile.reserved_inbound().is_zero())
-                && !position.y().checked_sub(1).is_some_and(|y| {
-                    let floor = VoxelCoord::new(position.x(), y, position.z());
-                    (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE).contains(&floor.y())
-                        && (registry
-                            .block_for_state(chunk.block_at(floor))
-                            .is_some_and(|block| {
-                                block.collision() == BlockCollisionShape::FullCube
-                            })
-                            || tree.is_some_and(|tree| tree.occupies_trunk(floor))
-                            || state.structures().blocks_full_cell(floor))
-                })
+                && !prospective_position_has_fixed_floor(registry, state, tree, chunk, position)
         })
         .min_by_key(|(id, _)| *id)
         .map(|(_, position)| position)
@@ -226,20 +254,44 @@ fn first_opening_resident_collision_in_chunk(
     None
 }
 
-/// Newly generated solid cells cannot bury exposed matter or still-living
-/// roots. A fully exhausted historical parcel has no physical residue.
+/// Exposed matter and surviving depleted roots are physical; exhausted
+/// historical parcels are not. Both terrain admission checks use this index.
+fn physical_surface_resources_in_chunk(
+    state: &AppState,
+    chunk: ChunkCoord,
+) -> impl Iterator<Item = &crate::surface::SurfaceResourceRecord> {
+    let surface = state.surface();
+    surface.available_resources_in_chunk(chunk).chain(
+        surface
+            .perennial_resources_in_chunk(chunk)
+            .filter(|resource| {
+                resource.lifecycle() == SurfaceResourceLifecycle::Depleted
+                    && resource.rooted_biomass_occupies_site()
+            }),
+    )
+}
+
+fn first_unsupported_surface_matter_in_generated_chunk(
+    registry: &WorldRegistry,
+    state: &AppState,
+    tree: Option<TreeRecord>,
+    chunk: &WorldChunk,
+) -> Option<VoxelCoord> {
+    physical_surface_resources_in_chunk(state, chunk.coord())
+        .filter(|resource| {
+            !prospective_position_has_fixed_floor(registry, state, tree, chunk, resource.position())
+        })
+        .min_by_key(|resource| resource.id())
+        .map(|resource| resource.position())
+}
+
+/// Newly generated solid cells cannot bury exposed matter or still-living roots.
 fn first_surface_resource_collision(
     registry: &WorldRegistry,
     state: &AppState,
     chunk: &WorldChunk,
 ) -> Option<VoxelCoord> {
-    let surface = state.surface();
-    surface
-        .available_resources_in_chunk(chunk.coord())
-        .chain(surface.perennial_resources_in_chunk(chunk.coord()).filter(|resource| {
-            resource.lifecycle() == SurfaceResourceLifecycle::Depleted
-                && resource.rooted_biomass_occupies_site()
-        }))
+    physical_surface_resources_in_chunk(state, chunk.coord())
         .filter(|resource| {
             registry
                 .block_for_state(chunk.block_at(resource.position()))

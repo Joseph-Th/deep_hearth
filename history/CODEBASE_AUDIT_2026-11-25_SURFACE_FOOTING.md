@@ -28,11 +28,10 @@ partial cut but cannot be entirely removed under a 250 g live parcel.
 The test checks rejection without mutation, conservation, valid loaded
 state and round-trip equality.
 
-The scout dismantling fixture previously scheduled removal beneath a
-junction with existing natural parcels. The stronger rule correctly
-rejected that setup. The fixture now collects that matter into explicit
-test inventory custody without advancing the patrol clock, checks mass
-conservation, and retains its original scout and replay assertions.
+The scout dismantling regression checks removal at a junction after
+natural parcels enter explicit test inventory custody. Setup preserves the
+patrol clock and mass accounting. Scout movement and replay assertions
+remain intact.
 
 ## Verification
 

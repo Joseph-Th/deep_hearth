@@ -868,23 +868,11 @@ fn generated_night_scout_forage_transfers_more_finite_food_than_daytime() {
 #[test]
 fn player_guards_diagonal_clearing_but_cannot_deter_through_an_opaque_corner() {
     use crate::content::BLOCK_STATE_STONE;
-    use crate::world::{
-        BlockStateId, ChunkCoord, set_generated_block_for_test, validate_generate_chunk,
-    };
+    use crate::world::{BlockStateId, set_generated_block_for_test};
 
-    let (registries, mut state, _) = generated_opening();
+    let (registries, mut state, _) = generated_terrain_scout_opening();
     let scout = colony(&state).route[1];
     let observer = VoxelCoord::new(scout.x() + 1, scout.y(), scout.z() + 1);
-    validate_generate_chunk(
-        &registries,
-        &state,
-        WorldGenerationSeed::new(0x4B4F_424F_4C44),
-        ChunkCoord::containing(scout),
-        BLOCK_STATE_STONE,
-    )
-    .unwrap()
-    .commit(&mut state)
-    .unwrap();
     let x_corner = VoxelCoord::new(observer.x(), scout.y(), scout.z());
     let z_corner = VoxelCoord::new(scout.x(), scout.y(), observer.z());
     for position in [scout, observer, x_corner, z_corner] {

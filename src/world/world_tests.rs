@@ -3116,10 +3116,59 @@ fn terrain_generation_commit_rejects_surface_matter_added_after_preflight() {
 }
 
 #[test]
-fn terrain_generation_preserves_surface_drop_above_generated_solid() {
+fn terrain_generation_rejects_unsupported_surface_drop() {
     let registries = build_registries();
     let mut state = AppState::new();
     let position = VoxelCoord::new(0, 100, 0);
+    let carried = validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        commodity,
+        Mass::from_milligrams(25_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let dropped = crate::surface::validate_drop_player_material(&registries, &state, commodity)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(dropped.dropped_mass(), Mass::from_milligrams(25_000));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            SEED,
+            ChunkCoord::new(0, 0),
+            BLOCK_STATE_STONE,
+        )
+        .err(),
+        Some(ChunkGenerationError::SurfaceResourceRequiresFixedFloor { voxel: position })
+    );
+    assert_eq!(state, before);
+
+    generate(&mut state, ChunkCoord::new(3, 3));
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_player_neighborhood(&registries, &state).err(),
+        Some(ChunkGenerationError::SurfaceResourceRequiresFixedFloor { voxel: position })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn terrain_generation_preserves_surface_drop_on_generated_solid() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let position = VoxelCoord::new(0, super::generation::terrain_height(SEED, 0, 0) + 1, 0);
     add_unloaded_surface_drop(&registries, &mut state, position);
     validate_generate_chunk(
         &registries,

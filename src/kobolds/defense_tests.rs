@@ -541,7 +541,7 @@ fn generated_unrouted_neighbor_can_receive_a_real_worksite_counterstroke() {
     use crate::content::BLOCK_STATE_STONE;
     use crate::world::{BlockStateId, set_generated_block_for_test};
 
-    let (registries, mut opening, _, head) = prepared_worksite_with_approach_edge(true, false);
+    let (registries, mut opening, _, _) = prepared_worksite_with_approach_edge(true, false);
     to_tick(&registries, &mut opening, 210);
     assert!(!opening.logistics().has_traversal_edge(WORKSITE, APPROACH));
     assert_eq!(
@@ -557,7 +557,7 @@ fn generated_unrouted_neighbor_can_receive_a_real_worksite_counterstroke() {
 
     // The old authored opening needs a real access graph to establish safe
     // contact where no physical block-world geometry has yet been generated.
-    let mut authored = opening.clone();
+    let mut authored = opening;
     validate_admit_player(&registries, &authored, APPROACH)
         .unwrap()
         .commit(&mut authored)
@@ -575,8 +575,8 @@ fn generated_unrouted_neighbor_can_receive_a_real_worksite_counterstroke() {
 
     // The player is physically beside the fixed scout worksite in generated
     // terrain, but that side cell was never a kobold patrol destination.
-    let mut generated = opening;
-    generate_worksite_terrain(&registries, &mut generated);
+    let (_, mut generated, _, head) = prepared_generated_worksite();
+    to_tick(&registries, &mut generated, 210);
     assert!(crate::world::has_clear_two_step_sightline(
         &registries,
         &generated,

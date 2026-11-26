@@ -71,6 +71,9 @@ pub enum ChunkGenerationError {
     SurfaceResourceCollision {
         voxel: VoxelCoord,
     },
+    SurfaceResourceRequiresFixedFloor {
+        voxel: VoxelCoord,
+    },
     TreePlacementObstructed {
         voxel: VoxelCoord,
     },
@@ -223,6 +226,11 @@ impl Display for ChunkGenerationError {
                 voxel.x(),
                 voxel.y(),
                 voxel.z()
+            ),
+            Self::SurfaceResourceRequiresFixedFloor { voxel } => write!(
+                formatter,
+                "terrain generation would leave surface matter without fixed footing at voxel ({},{},{})",
+                voxel.x(), voxel.y(), voxel.z()
             ),
             Self::TreePlacementObstructed { voxel } => write!(
                 formatter,
