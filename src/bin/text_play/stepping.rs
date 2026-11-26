@@ -2,11 +2,13 @@
 
 use std::fmt::Write as _;
 
-use super::{Session, activity, crafting, view};
+use super::{Session, activity, view};
 mod construction;
 #[path = "stepping/excavation.rs"]
 mod excavation;
 mod feedback;
+#[path = "stepping/production_feedback.rs"]
+mod production_feedback;
 #[path = "stepping/travel.rs"]
 mod travel;
 use deep_hearth::core::time::DayPhase;
@@ -512,8 +514,12 @@ impl Session {
                 "Excavated",
                 outcome.block_excavation().map(feedback::excavation),
             );
-            let (slow_interrupt, slow_batch) =
-                self.note_simulation_events(simulation, previous_work_label.as_deref(), output);
+            let (slow_interrupt, slow_batch) = self.note_simulation_events(
+                simulation,
+                before,
+                previous_work_label.as_deref(),
+                output,
+            );
             interrupt |= slow_interrupt;
             batch = slow_batch.or(batch);
         }
@@ -596,6 +602,7 @@ impl Session {
     fn note_simulation_events(
         &self,
         simulation: &TickOutcome,
+        observer: VoxelCoord,
         previous_work_label: Option<&str>,
         output: &mut String,
     ) -> (bool, Option<BatchCompletion>) {
@@ -706,14 +713,20 @@ impl Session {
             }
         }
         for completion in simulation.production_completions() {
-            if let Some(message) =
-                crafting::manual_completion(&self.registries, &self.state, completion)
+            if let Some(feedback) =
+                production_feedback::completion(&self.registries, &self.state, observer, completion)
             {
-                output.push_str(&message);
-                batch = Some(BatchCompletion {
-                    receipt: BatchReceipt::Produced(completion.job()),
-                    surface: None,
-                });
+                output.push_str(&feedback.message);
+                if feedback.manual {
+                    batch = Some(BatchCompletion {
+                        receipt: BatchReceipt::Produced(completion.job()),
+                        surface: None,
+                    });
+                } else {
+                    // Unattended local settlement is independent of any current
+                    // hand-work receipt, even when both land on the same tick.
+                    interrupt = true;
+                }
             }
         }
         // A resume with remaining active time installs a new attention hold.

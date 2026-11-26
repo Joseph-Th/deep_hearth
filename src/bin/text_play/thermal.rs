@@ -328,7 +328,7 @@ pub(super) fn start(
         .expect("authored process")
         .name();
     Ok(format!(
-        "Started {name} (job {}). Runs unattended; scheduled completion in {}. Advance time with wait; inspect inventory for the result.\n",
+        "Started {name} (job {}). Runs unattended; scheduled completion in {}. Advance time with wait; local completion will be reported.\n",
         job.value(),
         activity::gathering_duration(duration)
     ))
