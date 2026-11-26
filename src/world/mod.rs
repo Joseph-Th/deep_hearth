@@ -68,10 +68,10 @@ pub(crate) use generation::seeded_perennial_matches;
 pub(crate) use generation::temple_residents_at;
 pub(crate) use generation::temple_warden_route_at;
 pub use generation::{
-    ChunkGenerationCommitError, ChunkGenerationError, HabitatKind, ValidatedChunkGeneration,
-    ValidatedNaturalChunkGeneration, WorldGenerationSeed, assess_player_habitat,
-    select_natural_world_spawn, validate_generate_chunk, validate_generate_natural_chunk,
-    validate_generate_player_neighborhood,
+    ChunkGenerationCommitError, ChunkGenerationError, HabitatKind, NaturalWorldStartError,
+    ValidatedChunkGeneration, ValidatedNaturalChunkGeneration, WorldGenerationSeed,
+    assess_player_habitat, generate_natural_world_start, validate_generate_chunk,
+    validate_generate_natural_chunk, validate_generate_player_neighborhood,
 };
 pub(crate) use local_visibility::{
     has_clear_two_step_sightline, nearby_two_step_cells, player_can_see_from_eye,

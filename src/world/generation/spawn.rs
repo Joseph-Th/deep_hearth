@@ -3,6 +3,9 @@
 //! This is world-creation logic, not an actor observation or a second player
 //! admission path. The player owner still validates and commits the chosen site.
 
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+
 use crate::content::BLOCK_STATE_STONE;
 use crate::core::state::AppState;
 use crate::logistics::{PlayerBodyState, body_has_fixed_placement_floor};
@@ -12,12 +15,75 @@ use crate::spatial::VoxelCoord;
 use crate::world::{BlockStateId, CHUNK_SIDE, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y};
 
 use super::habitat::{HabitatKind, habitat_at};
+use super::terrain::mix64;
+use super::{
+    ChunkGenerationCommitError, ChunkGenerationError, WorldGenerationSeed,
+    validate_generate_natural_chunk,
+};
+
+#[derive(Debug)]
+pub enum NaturalWorldStartError {
+    Generation(ChunkGenerationError),
+    Commit(ChunkGenerationCommitError),
+    NoSafeSite,
+}
+
+impl Display for NaturalWorldStartError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Generation(error) => write!(formatter, "natural terrain generation failed: {error}"),
+            Self::Commit(error) => write!(formatter, "natural terrain commit failed: {error}"),
+            Self::NoSafeSite => formatter.write_str(
+                "no safely occupiable natural terrain in 64 seeded districts matching the requested habitat",
+            ),
+        }
+    }
+}
+
+impl Error for NaturalWorldStartError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Generation(error) => Some(error),
+            Self::Commit(error) => Some(error),
+            Self::NoSafeSite => None,
+        }
+    }
+}
+
+/// Create the first natural district and select a safe starting cell. Rejected
+/// candidates never enter the returned world. Adapters admit the player and
+/// expand residency separately; this operation grants no carried resources.
+pub fn generate_natural_world_start(
+    registries: &Registries,
+    seed: WorldGenerationSeed,
+    desired: Option<HabitatKind>,
+) -> Result<(AppState, VoxelCoord), NaturalWorldStartError> {
+    let hash = |value: u64| mix64(value.wrapping_add(0x9E37_79B9_7F4A_7C15));
+    for attempt in 0..64_u64 {
+        let salt = seed.value() ^ attempt.wrapping_mul(0xD1B5_4A32_D192_ED03);
+        let x = hash(salt ^ 0x4E41_5455_5241_4C58);
+        let z = hash(salt ^ 0x4E41_5455_5241_4C5A);
+        let chunk = ChunkCoord::new((x % 49) as i64 - 24, (z % 49) as i64 - 24);
+        let mut state = AppState::new();
+        validate_generate_natural_chunk(registries, &state, seed, chunk, BLOCK_STATE_STONE)
+            .map_err(NaturalWorldStartError::Generation)?
+            .commit(&mut state)
+            .map_err(NaturalWorldStartError::Commit)?;
+        let position_hash = hash(salt ^ 0x4E41_5455_5241_4C50);
+        if let Some(spawn) =
+            select_natural_world_spawn(registries, &state, chunk, position_hash, desired)
+        {
+            return Ok((state, spawn));
+        }
+    }
+    Err(NaturalWorldStartError::NoSafeSite)
+}
 
 /// Prefer a physically admissible site with a two-step level walking route,
 /// falling back to a single exit where the generated hillside offers no such
 /// route. The odd stride visits each column once; habitat remains per-site.
 #[must_use]
-pub fn select_natural_world_spawn(
+fn select_natural_world_spawn(
     registries: &Registries,
     state: &AppState,
     chunk: ChunkCoord,

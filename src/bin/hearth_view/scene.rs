@@ -11,15 +11,16 @@ use deep_hearth::shader::BakedShaderSet;
 use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::texture::BakedTextureArray;
 use deep_hearth::world::{
-    ChunkCoord, WorldGenerationSeed, select_natural_world_spawn, validate_generate_natural_chunk,
+    CHUNK_SIDE, ChunkCoord, SECTION_SIDE, WorldGenerationSeed, generate_natural_world_start,
+    validate_generate_natural_chunk,
 };
 use deep_hearth::{AppState, Registries, build_registries};
 
 use crate::args::Options;
 
-const SECTION_SIDE: i64 = 16;
-/// Standing eye height above the spawn cell floor, in blocks.
-const EYE_HEIGHT: f32 = 1.62;
+#[cfg(test)]
+#[path = "scene_tests.rs"]
+mod tests;
 
 /// One drawable mesh with an origin-relative bounding box for frustum culling.
 pub struct Placed {
@@ -41,19 +42,13 @@ pub struct Scene {
     pub tick: SimulationTick,
 }
 
-fn mix64(mut value: u64) -> u64 {
-    value = value.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    value ^ (value >> 31)
-}
-
 impl Scene {
     pub fn generate(options: &Options) -> Result<Self, String> {
         let started = Instant::now();
         let registries = build_registries();
         let seed = WorldGenerationSeed::new(options.seed);
-        let (mut state, spawn) = find_spawn(&registries, seed, options.seed)?;
+        let (mut state, spawn) = generate_natural_world_start(&registries, seed, None)
+            .map_err(|error| error.to_string())?;
         let center = ChunkCoord::containing(spawn);
         let mut chunks = Vec::new();
         for dx in -options.radius..=options.radius {
@@ -89,7 +84,13 @@ impl Scene {
 
     /// Origin-relative eye position of a standing player at the spawn cell.
     pub fn spawn_eye(&self) -> [f32; 3] {
-        [0.5, EYE_HEIGHT, 0.5]
+        let height = self
+            .registries
+            .survival()
+            .physiology()
+            .locomotion()
+            .standing_eye_height();
+        [0.5, height.micrometers() as f32 / 1_000_000.0, 0.5]
     }
 
     pub fn ticks_per_day(&self) -> u64 {
@@ -121,15 +122,18 @@ impl Scene {
             let min = relative(
                 origin,
                 [
-                    chunk.x() * SECTION_SIDE,
-                    y * SECTION_SIDE,
-                    chunk.z() * SECTION_SIDE,
+                    chunk.x() * CHUNK_SIDE as i64,
+                    y * SECTION_SIDE as i64,
+                    chunk.z() * CHUNK_SIDE as i64,
                 ],
             );
-            let side = SECTION_SIDE as f32;
             (!mesh.is_empty()).then(|| Placed {
                 min,
-                max: [min[0] + side, min[1] + side, min[2] + side],
+                max: [
+                    min[0] + CHUNK_SIDE as f32,
+                    min[1] + SECTION_SIDE as f32,
+                    min[2] + CHUNK_SIDE as f32,
+                ],
                 mesh,
             })
         });
@@ -154,17 +158,9 @@ impl Scene {
         let (origin, tick) = (self.origin, self.tick);
         self.trees = parallel_map(&self.chunks, |&chunk| {
             let mesh = mesher.mesh_chunk_trees(world, chunk, tick, origin);
-            let min = relative(
-                origin,
-                [chunk.x() * SECTION_SIDE, -64, chunk.z() * SECTION_SIDE],
-            );
-            let side = SECTION_SIDE as f32;
-            // Crowns may overhang the root chunk by their radius.
-            (!mesh.is_empty()).then(|| Placed {
-                min: [min[0] - 4.0, min[1], min[2] - 4.0],
-                max: [min[0] + side + 4.0, min[1] + 384.0, min[2] + side + 4.0],
-                mesh,
-            })
+            // Use the actual rendered extent, including overhanging crowns.
+            let (min, max) = mesh_bounds(&mesh)?;
+            Some(Placed { min, max, mesh })
         });
     }
 }
@@ -177,24 +173,23 @@ fn relative(origin: VoxelCoord, cell: [i64; 3]) -> [f32; 3] {
     ]
 }
 
-/// Searches seeded districts for a safely occupiable natural standing cell, as world creation does.
-fn find_spawn(
-    registries: &Registries,
-    seed: WorldGenerationSeed,
-    raw_seed: u64,
-) -> Result<(AppState, VoxelCoord), String> {
-    for attempt in 0..64_u64 {
-        let salt = mix64(raw_seed ^ attempt.wrapping_mul(0xD1B5_4A32_D192_ED03));
-        let chunk = ChunkCoord::new((salt % 49) as i64 - 24, ((salt >> 20) % 49) as i64 - 24);
-        let mut state = AppState::new();
-        generate_chunk(registries, &mut state, seed, chunk)?;
-        if let Some(spawn) =
-            select_natural_world_spawn(registries, &state, chunk, mix64(salt), None)
-        {
-            return Ok((state, spawn));
+fn mesh_bounds(mesh: &SectionMesh) -> Option<([f32; 3], [f32; 3])> {
+    let mut positions = mesh
+        .opaque()
+        .vertices()
+        .iter()
+        .chain(mesh.cutout().vertices())
+        .map(|vertex| vertex.position());
+    let first = positions.next()?;
+    let mut min = first;
+    let mut max = first;
+    for position in positions {
+        for axis in 0..3 {
+            min[axis] = min[axis].min(position[axis]);
+            max[axis] = max[axis].max(position[axis]);
         }
     }
-    Err("no occupiable natural terrain in 64 seeded districts".to_owned())
+    Some((min, max))
 }
 
 fn generate_chunk(

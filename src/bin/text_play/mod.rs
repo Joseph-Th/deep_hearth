@@ -33,8 +33,7 @@ use deep_hearth::player::{validate_admit_player, validate_respawn_player};
 use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::world::{
     BlockStateId, ChunkCoord, HabitatKind, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
-    select_natural_world_spawn, validate_generate_chunk, validate_generate_natural_chunk,
-    validate_generate_player_neighborhood,
+    generate_natural_world_start, validate_generate_chunk, validate_generate_player_neighborhood,
 };
 use deep_hearth::world_generation::validate_generate_initial_wilderness;
 use deep_hearth::{AppState, Registries, build_registries};
@@ -58,42 +57,19 @@ impl Session {
 
     pub fn new_natural_in_habitat(seed: u64, desired: Option<HabitatKind>) -> Result<Self, String> {
         let registries = build_registries();
-        // The seed selects a different district for each attempt. Habitat
-        // targeting is a world-creation choice, not a player-visible oracle.
-        // Only the accepted district enters the persisted world; later chunks
-        // use exactly the same seed without any special biome overrides.
-        for attempt in 0..64_u64 {
-            let site_salt = attempt.wrapping_mul(0xD1B5_4A32_D192_ED03);
-            let x_hash = natural_site_hash(seed ^ 0x4E41_5455_5241_4C58 ^ site_salt);
-            let z_hash = natural_site_hash(seed ^ 0x4E41_5455_5241_4C5A ^ site_salt);
-            let chunk = ChunkCoord::new((x_hash % 49) as i64 - 24, (z_hash % 49) as i64 - 24);
-            let mut state = AppState::new();
-            validate_generate_natural_chunk(
-                &registries,
-                &state,
-                WorldGenerationSeed::new(seed),
-                chunk,
-                BLOCK_STATE_STONE,
-            )
-            .map_err(|error| format!("natural terrain generation failed: {error}"))?
+        let (mut state, spawn) =
+            generate_natural_world_start(&registries, WorldGenerationSeed::new(seed), desired)
+                .map_err(|error| error.to_string())?;
+        validate_admit_player(&registries, &state, spawn)
+            .map_err(|error| format!("natural player admission failed: {error}"))?
             .commit(&mut state)
-            .map_err(|error| format!("natural terrain commit failed: {error}"))?;
-            let position_hash = natural_site_hash(seed ^ 0x4E41_5455_5241_4C50 ^ site_salt);
-            let spawn =
-                select_natural_world_spawn(&registries, &state, chunk, position_hash, desired);
-            let Some(spawn) = spawn else { continue };
-            validate_admit_player(&registries, &state, spawn)
-                .map_err(|error| format!("natural player admission failed: {error}"))?
-                .commit(&mut state)
-                .map_err(|error| format!("natural player admission commit failed: {error}"))?;
-            Self::expand_neighborhood(&registries, &mut state)?;
-            return Ok(Self {
-                registries,
-                state,
-                seed: Some(seed),
-            });
-        }
-        Err("no safely occupiable natural terrain in 64 seeded districts matching the requested habitat".to_owned())
+            .map_err(|error| format!("natural player admission commit failed: {error}"))?;
+        Self::expand_neighborhood(&registries, &mut state)?;
+        Ok(Self {
+            registries,
+            state,
+            seed: Some(seed),
+        })
     }
 
     pub fn new(seed: u64) -> Result<Self, String> {
@@ -299,13 +275,4 @@ impl Session {
         output.push_str(&view::look(&self.registries, &self.state, None));
         Ok(output)
     }
-}
-
-/// Deterministic seed diffusion for world-creation site selection only. The
-/// world owners remain authoritative for terrain and resource generation.
-fn natural_site_hash(mut value: u64) -> u64 {
-    value = value.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    value ^ (value >> 31)
 }

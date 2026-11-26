@@ -32,7 +32,10 @@ cargo run --locked --profile test --features graphics --bin hearth-view -- --see
 
 Inspect the captured image when changing rendered output. The optional viewer
 uses a free camera over a generated world; it does not advance gameplay.
-Text play remains the gameplay interface.
+Its seed selects the same starting district and cell as `text-play --natural --seed` without a
+habitat preference, through the world owner's `generate_natural_world_start`. The initial eye
+height comes from the authored player locomotion definition; tree culling bounds enclose the
+actual opaque and cutout mesh vertices. Text play remains the gameplay interface.
 
 ## Frame order
 

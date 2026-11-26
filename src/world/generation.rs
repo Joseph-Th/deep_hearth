@@ -24,7 +24,7 @@ pub(crate) use occupancy::{
     first_buried_stationary_enclosure_in_world, first_embodied_structure_collision_in_world,
     first_solid_block_in_structural_bounds,
 };
-pub use spawn::select_natural_world_spawn;
+pub use spawn::{NaturalWorldStartError, generate_natural_world_start};
 use temple_presence::temple_site_for_chunk;
 pub(crate) use temple_presence::{
     nearby_temple_residents, temple_residents_at, temple_warden_route_at,

@@ -5,6 +5,41 @@ use crate::content::build_registries;
 use crate::world::{WorldGenerationSeed, validate_generate_chunk};
 
 #[test]
+fn generated_natural_start_is_replayable_and_keeps_only_the_accepted_district() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(1_837_596_006);
+    for desired in [
+        None,
+        Some(HabitatKind::DampGrove),
+        Some(HabitatKind::DryScrub),
+    ] {
+        let (mut state, spawn) = generate_natural_world_start(&registries, seed, desired).unwrap();
+        let (replay, replay_spawn) =
+            generate_natural_world_start(&registries, seed, desired).unwrap();
+        assert_eq!(spawn, replay_spawn);
+        assert_eq!(state, replay);
+        assert_eq!(state.world().chunks().len(), 1);
+        assert!(
+            state
+                .world()
+                .get_chunk(ChunkCoord::containing(spawn))
+                .is_some()
+        );
+        assert!(state.logistics().player().is_none());
+        assert!(desired.is_none_or(|kind| habitat_at(seed, spawn.x(), spawn.z()) == kind));
+        validate_admit_player(&registries, &state, spawn)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        assert_eq!(state.logistics().player().unwrap().position(), spawn);
+        assert_eq!(
+            crate::core::state::validate_loaded_state(&registries, &state),
+            Ok(())
+        );
+    }
+}
+
+#[test]
 fn spawn_walking_exit_requires_fixed_footing_not_a_resident() {
     use crate::world::{set_generated_block_for_test, temple_warden_route_at};
 
