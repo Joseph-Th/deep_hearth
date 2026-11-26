@@ -9,7 +9,7 @@ mod indexed_positions;
 mod motion;
 mod view;
 
-pub(crate) use indexed_positions::indexed_positions_in_box;
+pub(crate) use indexed_positions::{OrderedVoxelKey, indexed_positions_in_box};
 pub use motion::{HorizontalVelocity, NANOMETERS_PER_VOXEL, VerticalVelocity, WorldPoint};
 pub use view::{VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection, ViewDirectionError};
 

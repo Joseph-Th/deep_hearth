@@ -821,6 +821,11 @@ than filtering every entry in an X-only slab, preserving voxel and per-voxel ide
 order without a second index. Chunk-column queries use representable inclusive horizontal
 bounds and the full vertical coordinate range; half-open construction bounds retain their
 exclusive endpoints. No derived index or query state is persisted.
+Standing-trunk clearance reuses the bounded B-tree traversal in canonical X/Z/Y
+root order, including the root layer immediately below the requested volume for
+upper-trunk obstruction. Generated terrain intersection and authority queries
+seek past excluded Z runs in the sorted X/Z chunk vector. Both operate on existing
+records without enumerating missing coordinate space or changing diagnostic order.
 The geology owner likewise derives a horizontal chunk index over immutable
 deposit bounds. Local sight, survey, mining resolution, generation and
 historical evidence replay query both horizontal axes and then exact geometry.

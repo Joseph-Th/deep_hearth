@@ -58,6 +58,16 @@ impl ChunkCoord {
         )
     }
 
+    /// First and last chunk intersecting nonempty half-open voxel bounds.
+    fn covering_span(bounds: crate::spatial::VoxelBounds) -> (Self, Self) {
+        let min = bounds.min();
+        let max = bounds.max_exclusive();
+        (
+            Self::containing(min),
+            Self::containing(VoxelCoord::new(max.x() - 1, 0, max.z() - 1)),
+        )
+    }
+
     #[must_use]
     pub fn world_min_x(self) -> Option<i64> {
         self.x.checked_mul(CHUNK_SIDE_I64)
@@ -279,6 +289,16 @@ impl From<VoxelCoord> for TreeSpatialKey {
     }
 }
 
+impl crate::spatial::OrderedVoxelKey for TreeSpatialKey {
+    fn components(self) -> [i64; 3] {
+        [self.x, self.z, self.y]
+    }
+
+    fn from_components([x, z, y]: [i64; 3]) -> Self {
+        Self::new(x, z, y)
+    }
+}
+
 impl TreeIndexRecord for TreeRecord {
     fn index_key(&self) -> VoxelCoord {
         (*self).root()
@@ -391,25 +411,33 @@ impl WorldState {
     }
 
     /// Generated columns intersecting a physical horizontal footprint, in canonical order.
-    /// Chunk identity is sorted by x then z, so bound the x range by binary search
-    /// rather than scanning distant columns for each structural construction request.
+    /// Bound both axes in the canonical sorted chunk vector. Seek past excluded
+    /// runs within an X row rather than visiting remote columns or enumerating gaps.
     pub(crate) fn chunks_intersecting_horizontal_bounds(
         &self,
         bounds: crate::spatial::VoxelBounds,
     ) -> impl Iterator<Item = &WorldChunk> {
-        let first_x = bounds.min().x().div_euclid(CHUNK_SIDE_I64);
-        let last_x = (bounds.max_exclusive().x() - 1).div_euclid(CHUNK_SIDE_I64);
-        let first_z = bounds.min().z().div_euclid(CHUNK_SIDE_I64);
-        let last_z = (bounds.max_exclusive().z() - 1).div_euclid(CHUNK_SIDE_I64);
-        let from = self
-            .chunks
-            .partition_point(|chunk| chunk.coord().x() < first_x);
-        let to = self
-            .chunks
-            .partition_point(|chunk| chunk.coord().x() <= last_x);
-        self.chunks[from..to]
-            .iter()
-            .filter(move |chunk| (first_z..=last_z).contains(&chunk.coord().z()))
+        let (first, last) = ChunkCoord::covering_span(bounds);
+        let from = self.chunks.partition_point(|chunk| chunk.coord() < first);
+        let to = self.chunks.partition_point(|chunk| chunk.coord() <= last);
+        let mut remaining = &self.chunks[from..to];
+        std::iter::from_fn(move || {
+            loop {
+                let (chunk, tail) = remaining.split_first()?;
+                remaining = tail;
+                let coord = chunk.coord();
+                if coord.z() < first.z() {
+                    let next = ChunkCoord::new(coord.x(), first.z());
+                    remaining =
+                        &remaining[remaining.partition_point(|chunk| chunk.coord() < next)..];
+                } else if coord.z() > last.z() {
+                    remaining = &remaining
+                        [remaining.partition_point(|chunk| chunk.coord().x() == coord.x())..];
+                } else {
+                    return Some(chunk);
+                }
+            }
+        })
     }
 
     #[must_use]
@@ -436,12 +464,9 @@ impl WorldState {
         if min.y() < WORLD_MIN_Y || max.y() > WORLD_MAX_Y_EXCLUSIVE {
             return false;
         }
-        let first_x = min.x().div_euclid(CHUNK_SIDE_I64);
-        let last_x = (max.x() - 1).div_euclid(CHUNK_SIDE_I64);
-        let first_z = min.z().div_euclid(CHUNK_SIDE_I64);
-        let last_z = (max.z() - 1).div_euclid(CHUNK_SIDE_I64);
-        let required =
-            (u128::from(last_x.abs_diff(first_x)) + 1) * (u128::from(last_z.abs_diff(first_z)) + 1);
+        let (first, last) = ChunkCoord::covering_span(bounds);
+        let required = (u128::from(last.x().abs_diff(first.x())) + 1)
+            * (u128::from(last.z().abs_diff(first.z())) + 1);
         required <= self.chunks.len() as u128
             && self.chunks_intersecting_horizontal_bounds(bounds).count() as u128 == required
     }
@@ -628,3 +653,7 @@ fn local_index(voxel: VoxelCoord) -> usize {
     let z = voxel.z().rem_euclid(SECTION_SIDE_I64) as usize;
     (y * SECTION_SIDE + z) * SECTION_SIDE + x
 }
+
+#[cfg(test)]
+#[path = "state/chunk_range_tests.rs"]
+mod chunk_range_tests;

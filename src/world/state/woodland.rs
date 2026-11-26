@@ -60,15 +60,17 @@ impl WorldState {
         })
     }
 
-    /// Bounded trunk lookup for construction geometry; the sorted root index avoids scanning
-    /// every distant tree in an expanding world.
+    /// Bounded trunk lookup in canonical X/Z/Y root order. Roots one cell
+    /// below the bounds can still obstruct them with their upper trunk.
     pub(crate) fn first_tree_trunk_in_bounds(
         &self,
         bounds: crate::spatial::VoxelBounds,
     ) -> Option<VoxelCoord> {
-        let from = TreeSpatialKey::new(bounds.min().x(), i64::MIN, i64::MIN);
-        let to = TreeSpatialKey::new(bounds.max_exclusive().x(), i64::MIN, i64::MIN);
-        for tree in self.trees.range(from..to).map(|(_, tree)| tree) {
+        let min = bounds.min();
+        let max = bounds.max_exclusive();
+        let from = TreeSpatialKey::new(min.x(), min.z(), min.y().saturating_sub(1));
+        let to = TreeSpatialKey::new(max.x() - 1, max.z() - 1, max.y() - 1);
+        for (_, tree) in crate::spatial::indexed_positions_in_box(&self.trees, from, to) {
             let root = tree.root();
             if bounds.has_voxel(root) {
                 return Some(root);
