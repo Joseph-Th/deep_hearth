@@ -21,8 +21,24 @@ pub(crate) fn validate_loaded_geological_knowledge(
     current: SimulationTick,
 ) -> Result<(), GeologicalKnowledgeValidationError> {
     validate_observation_cursor(state)?;
+    let mut previous = None;
     for (id, record) in &state.observations {
         validate_observation(materials, state, *id, record, current)?;
+        // Allocation order is acquisition order, including the members of
+        // one multi-voxel survey. Time cannot move backwards between them.
+        if let Some((earlier, earlier_at)) = previous
+            && record.observed_at < earlier_at
+        {
+            return Err(
+                GeologicalKnowledgeValidationError::ObservationTimeReversed {
+                    earlier,
+                    earlier_at,
+                    observation: *id,
+                    observed_at: record.observed_at,
+                },
+            );
+        }
+        previous = Some((*id, record.observed_at));
     }
     validate_material_observation_index(materials, state)
 }

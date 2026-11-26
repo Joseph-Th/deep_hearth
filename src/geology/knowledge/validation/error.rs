@@ -86,6 +86,17 @@ pub enum GeologicalKnowledgeValidationError {
         lower: Mass,
         upper: Mass,
     },
+    ResourceMassIncreasesAcrossObservations {
+        deposit: GeologicalDepositId,
+        earlier: GeologicalObservationId,
+        observation: GeologicalObservationId,
+    },
+    ObservationTimeReversed {
+        earlier: GeologicalObservationId,
+        earlier_at: SimulationTick,
+        observation: GeologicalObservationId,
+        observed_at: SimulationTick,
+    },
     ObservedInFuture {
         observation: GeologicalObservationId,
         observed_at: SimulationTick,
@@ -257,6 +268,30 @@ impl Display for GeologicalKnowledgeValidationError {
                 lower.milligrams(),
                 upper.milligrams(),
                 material.value()
+            ),
+            Self::ResourceMassIncreasesAcrossObservations {
+                deposit,
+                earlier,
+                observation,
+            } => write!(
+                formatter,
+                "geological observations {} and {} require deposit {} to regain extracted mass",
+                earlier.value(),
+                observation.value(),
+                deposit.value(),
+            ),
+            Self::ObservationTimeReversed {
+                earlier,
+                earlier_at,
+                observation,
+                observed_at,
+            } => write!(
+                formatter,
+                "geological observation {} at tick {} precedes earlier allocated observation {} at tick {}",
+                observation.value(),
+                observed_at.value(),
+                earlier.value(),
+                earlier_at.value(),
             ),
             Self::ObservedInFuture {
                 observation,

@@ -8,7 +8,7 @@ use crate::geology::{GeneratedDepositSpec, validate_generate_geological_deposit}
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::spatial::{VoxelBounds, VoxelCoord};
 
-use super::{historical_resource_mass_matches, resolve_region_resource_mass, resource_mass_bucket};
+use super::{maximum_historical_resource_mass, resolve_region_resource_mass, resource_mass_bucket};
 use crate::geology::ResourceMassEstimate;
 
 fn voxel(x: i64) -> VoxelBounds {
@@ -176,9 +176,10 @@ fn representational_ceiling_retains_full_authored_resource_mass_resolution() {
     assert_eq!(estimate.upper(), Mass::from_milligrams(u64::MAX));
     assert_eq!(estimate.width(), resolution);
     assert!(estimate.lower() <= actual && actual <= estimate.upper());
-    assert!(historical_resource_mass_matches(
-        estimate, resolution, actual, actual
-    ));
+    assert_eq!(
+        maximum_historical_resource_mass(estimate, resolution, actual, actual),
+        Some(actual)
+    );
 }
 
 #[test]
@@ -191,9 +192,10 @@ fn resource_mass_resolution_shape_rejects_narrow_ceiling_band() {
     .unwrap_or_else(|error| panic!("narrow ceiling estimate fixture failed: {error}"));
 
     let actual = Mass::from_milligrams(u64::MAX - 100);
-    assert!(!historical_resource_mass_matches(
-        narrow, resolution, actual, actual
-    ));
+    assert_eq!(
+        maximum_historical_resource_mass(narrow, resolution, actual, actual),
+        None
+    );
 }
 
 #[test]
@@ -203,12 +205,42 @@ fn historical_ceiling_band_requires_a_mass_that_emits_it() {
     let band = resource_mass_bucket(ceiling, resolution);
     let earlier = band.lower();
     assert_ne!(resource_mass_bucket(earlier, resolution), band);
-    assert!(!historical_resource_mass_matches(
-        band, resolution, earlier, earlier
-    ));
-    assert!(historical_resource_mass_matches(
-        band, resolution, earlier, ceiling
-    ));
+    assert_eq!(
+        maximum_historical_resource_mass(band, resolution, earlier, earlier),
+        None
+    );
+    assert_eq!(
+        maximum_historical_resource_mass(band, resolution, earlier, ceiling),
+        Some(ceiling)
+    );
+}
+
+#[test]
+fn historical_mass_ceiling_excludes_the_next_ordinary_bucket() {
+    let mass = Mass::from_milligrams;
+    let resolution = mass(5_000_000);
+    let band = resource_mass_bucket(mass(8_000_000), resolution);
+    assert_eq!(
+        maximum_historical_resource_mass(band, resolution, mass(1), mass(12_000_000)),
+        Some(mass(9_999_999))
+    );
+    assert_eq!(
+        maximum_historical_resource_mass(band, resolution, mass(1), mass(7_000_000)),
+        Some(mass(7_000_000))
+    );
+    assert_eq!(
+        maximum_historical_resource_mass(band, resolution, mass(1), mass(4_999_999)),
+        None
+    );
+    assert_eq!(
+        maximum_historical_resource_mass(band, resolution, mass(10_000_000), mass(12_000_000)),
+        None
+    );
+    let zero = resource_mass_bucket(Mass::ZERO, resolution);
+    assert_eq!(
+        maximum_historical_resource_mass(zero, resolution, Mass::ZERO, Mass::ZERO),
+        None
+    );
 }
 
 #[test]

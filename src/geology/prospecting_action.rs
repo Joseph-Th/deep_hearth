@@ -22,7 +22,7 @@ pub(crate) use interruption::{
 #[cfg(test)]
 pub(crate) use resource_mass::resolve_region_resource_mass;
 pub(in crate::geology) use resource_mass::{
-    historical_resource_mass_matches, localized_resource_body,
+    localized_resource_body, maximum_historical_resource_mass,
 };
 pub(crate) use start::prospecting_region_has_authority;
 pub use start::{

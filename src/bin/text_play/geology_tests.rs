@@ -137,6 +137,66 @@ fn repeated_mining_matches_explicit_batches_and_conserves_matter() {
 }
 
 #[test]
+fn resource_mass_history_keeps_the_tightest_earlier_physical_bound() {
+    use deep_hearth::core::state::StateValidationError;
+    use deep_hearth::geology::{GeologicalKnowledgeValidationError, GeologicalObservationId};
+    use deep_hearth::persistence::LoadError;
+
+    let mut session = equipped_for_copper_survey_and_mining();
+    run(&mut session, "prospect copper 2 with 1");
+    finish_work(&mut session);
+    let conserved = calculate_matter_accounting(&session.state).unwrap().total();
+    let mining = run(&mut session, "mine copper 200 with 2 repeat 32");
+    assert!(
+        mining.contains("Mining repeat: 32 batches completed."),
+        "{mining}"
+    );
+    for command in [
+        "prospect copper 8 with 1",
+        "prospect copper 2 with 1",
+        "prospect copper 8 with 1",
+    ] {
+        run(&mut session, command);
+        assert!(finish_work(&mut session).contains("Prospecting finished"));
+    }
+    let report = run(&mut session, "knowledge");
+    assert!(report.contains("sampled mass 25000..30000 g"), "{report}");
+    assert!(report.contains("sampled mass 20000..25000 g"), "{report}");
+    assert_eq!(
+        report.matches("sampled mass 22000..23000 g").count(),
+        2,
+        "{report}"
+    );
+    assert_eq!(
+        calculate_matter_accounting(&session.state).unwrap().total(),
+        conserved
+    );
+    let encoded =
+        serde_json::to_vec(&SaveEnvelope::new(&session.registries, &session.state)).unwrap();
+    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+        .unwrap()
+        .into_state(&session.registries)
+        .unwrap();
+    assert_eq!(
+        serde_json::to_vec(&SaveEnvelope::new(&session.registries, &loaded)).unwrap(),
+        encoded
+    );
+
+    // The last band is individually possible and fits inside sample 3's
+    // coarser band, but sample 2 has already ruled it out permanently.
+    let mut forged: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+    forged["state"]["systems"]["geological_knowledge"]["observations"]["4"]["resource_mass"] =
+        serde_json::json!({"lower": 23_000_000, "upper": 24_000_000});
+    let result = serde_json::from_value::<LoadedSaveEnvelope>(forged)
+        .unwrap()
+        .into_state(&session.registries);
+    assert!(
+        matches!(result, Err(LoadError::InvalidState(StateValidationError::GeologicalKnowledge(GeologicalKnowledgeValidationError::ResourceMassIncreasesAcrossObservations { earlier, observation, .. }))) if earlier == GeologicalObservationId::new(2) && observation == GeologicalObservationId::new(4)),
+        "{result:?}"
+    );
+}
+
+#[test]
 fn mined_copper_ore_can_be_broken_and_sorted_into_finite_native_metal() {
     let mut session = equipped_for_copper_survey_and_mining();
     run(&mut session, "prospect copper 1");

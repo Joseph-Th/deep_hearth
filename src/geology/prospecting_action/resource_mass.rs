@@ -59,22 +59,29 @@ pub(in crate::geology) fn localized_resource_body<'a>(
     Some(deposit)
 }
 
-/// Historical mass is not recorded at every extraction. Require at least one
-/// positive mass in the possible interval to emit the exact canonical bucket.
-/// At the representational ceiling, the widened final bucket can start below
-/// the first mass that actually emits it, so test the upper end as well.
-pub(in crate::geology) fn historical_resource_mass_matches(
+/// Greatest positive mass in the possible historical interval that emits the
+/// exact canonical bucket. Ordinary upper endpoints are exclusive; the last
+/// representable bucket can include u64::MAX. Quantize the candidate rather
+/// than assuming every mass inside a widened ceiling band can emit it.
+pub(in crate::geology) fn maximum_historical_resource_mass(
     resource_mass: ResourceMassEstimate,
     resolution: Mass,
     remaining: Mass,
-    initial: Mass,
-) -> bool {
-    let minimum = remaining
-        .max(Mass::from_milligrams(1))
-        .max(resource_mass.lower());
-    minimum <= initial
-        && (resource_mass_bucket(minimum, resolution) == resource_mass
-            || resource_mass_bucket(initial, resolution) == resource_mass)
+    maximum: Mass,
+) -> Option<Mass> {
+    let minimum = remaining.max(Mass::from_milligrams(1));
+    let upper = resource_mass.upper();
+    let candidate = maximum.min(upper);
+    if candidate >= minimum && resource_mass_bucket(candidate, resolution) == resource_mass {
+        return Some(candidate);
+    }
+    // A normal bucket's upper endpoint emits the next bucket instead.
+    if candidate != upper {
+        return None;
+    }
+    let candidate = upper.checked_sub(Mass::from_milligrams(1))?;
+    (candidate >= minimum && resource_mass_bucket(candidate, resolution) == resource_mass)
+        .then_some(candidate)
 }
 
 pub(super) fn resolve_region_resource_mass_from_deposits<'a>(

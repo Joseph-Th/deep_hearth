@@ -1,8 +1,10 @@
 //! Cross-owner trusted-load replay for acquired geological evidence.
 
+use std::collections::BTreeMap;
+
 use crate::core::quantity::Mass;
-use crate::geology::GeologyState;
 use crate::geology::state::GeologicalDepositRecord;
+use crate::geology::{GeologicalDepositId, GeologyState};
 use crate::labor::{LaborRegistry, ProspectingDefinition};
 use crate::material::MaterialId;
 
@@ -12,7 +14,7 @@ use super::super::{
 };
 use super::GeologicalKnowledgeValidationError;
 use crate::geology::prospecting_action::{
-    historical_resource_mass_matches, localized_resource_body,
+    localized_resource_body, maximum_historical_resource_mass,
     resolve_region_abundance_bounds_from_deposits,
     resolve_region_excavation_hardness_from_deposits,
 };
@@ -25,12 +27,18 @@ use crate::geology::prospecting_action::{
 /// same quantization used by live prospecting over bodies available at the observation tick.
 /// Historical resource mass is time-varying. Require the measurement exactly when the authored
 /// method and localized body would emit it, and require a canonical bucket for some positive
-/// mass between immutable initial mass and current remaining mass.
+/// mass between immutable initial mass and current remaining mass. Each
+/// subsequent sample must also be possible without regrowing the same body.
 pub(crate) fn validate_loaded_geological_evidence_against_world(
     labor: &LaborRegistry,
     geology: &GeologyState,
     knowledge: &GeologicalKnowledgeState,
 ) -> Result<(), GeologicalKnowledgeValidationError> {
+    // The knowledge owner's load validation establishes nondecreasing
+    // acquisition ticks in persistent observation-ID order. Keep the largest
+    // feasible mass at the latest sample of each physical body: choosing any
+    // smaller mass could only make its subsequent history harder to satisfy.
+    let mut mass_history = BTreeMap::<GeologicalDepositId, (GeologicalObservationId, Mass)>::new();
     for (observation, record) in &knowledge.observations {
         let [finding] = record.findings.as_slice() else {
             return Err(
@@ -79,6 +87,48 @@ pub(crate) fn validate_loaded_geological_evidence_against_world(
                 },
             );
         }
+        if let (Some(resource_mass), Some(deposit)) = (record.resource_mass, localized_body) {
+            validate_resource_mass_history(
+                &mut mass_history,
+                *observation,
+                deposit,
+                resource_mass,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_resource_mass_history(
+    history: &mut BTreeMap<GeologicalDepositId, (GeologicalObservationId, Mass)>,
+    observation: GeologicalObservationId,
+    deposit: &GeologicalDepositRecord,
+    resource_mass: ResourceMassEstimate,
+) -> Result<(), GeologicalKnowledgeValidationError> {
+    // A canonical bucket always has exactly its authored resolution's width,
+    // including the widened ceiling bucket. The individual method replay
+    // has already proved that this resolution is applicable.
+    let bound = history
+        .entry(deposit.id())
+        .or_insert((observation, deposit.initial_mass()));
+    let (earlier, prior_maximum) = *bound;
+    let maximum = maximum_historical_resource_mass(
+        resource_mass,
+        resource_mass.width(),
+        deposit.remaining_mass(),
+        prior_maximum,
+    )
+    .ok_or(
+        GeologicalKnowledgeValidationError::ResourceMassIncreasesAcrossObservations {
+            deposit: deposit.id(),
+            earlier,
+            observation,
+        },
+    )?;
+    // Keep the observation that actually imposed the limiting bound, not a
+    // newer, wider measurement that happens to include it.
+    if maximum < prior_maximum {
+        *bound = (observation, maximum);
     }
     Ok(())
 }
@@ -123,12 +173,13 @@ fn authored_method_can_emit_observation(
         .filter(|_| finding.lower_ppm() > 0)
         .zip(localized_body);
     match (record.resource_mass, expected_measurement) {
-        (Some(resource_mass), Some((resolution, deposit))) => historical_resource_mass_matches(
+        (Some(resource_mass), Some((resolution, deposit))) => maximum_historical_resource_mass(
             resource_mass,
             resolution,
             deposit.remaining_mass(),
             deposit.initial_mass(),
-        ),
+        )
+        .is_some(),
         (None, None) => true,
         _ => false,
     }

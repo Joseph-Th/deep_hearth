@@ -7,15 +7,16 @@ use crate::content::{
     FORM_ORE, MATERIAL_COPPER, MATERIAL_SLAG, PROSPECTING_DETAILED_FIELD_SURVEY, build_registries,
 };
 use crate::core::quantity::{Mass, Pressure, Temperature};
-use crate::core::state::{apply_clock_advance, validate_loaded_state};
+use crate::core::state::{StateValidationError, apply_clock_advance, validate_loaded_state};
 use crate::core::time::SimulationTick;
 use crate::geology::{
     ExcavationHardnessEstimate, GeneratedDepositSpec, GeologicalEvidenceConsistency,
-    MaterialAbundanceEstimate, ResourceMassEstimate, assess_geological_knowledge,
-    build_geological_knowledge_map, validate_generate_geological_deposit,
+    GeologicalKnowledgeValidationError, MaterialAbundanceEstimate, ResourceMassEstimate,
+    assess_geological_knowledge, build_geological_knowledge_map,
+    validate_generate_geological_deposit,
 };
 use crate::material::{CommodityKey, MaterialComposition};
-use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
 use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
 
@@ -245,6 +246,48 @@ fn authored_resource_mass_recency_round_trips() {
     assert_eq!(
         loaded_assessment.resource_mass_observed_at(),
         Some(SimulationTick::new(1))
+    );
+
+    // Both bands remain individually possible given the final deposit's
+    // initial and remaining mass. Reversing them fabricates regrowth, however:
+    // the finite physical owner can only lose mass through extraction.
+    let mut reversed: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+    let observations = &mut reversed["state"]["systems"]["geological_knowledge"]["observations"];
+    observations["1"]["resource_mass"] = serde_json::to_value(newer_resource).unwrap();
+    observations["2"]["resource_mass"] = serde_json::to_value(older_resource).unwrap();
+    let loaded = serde_json::from_value::<LoadedSaveEnvelope>(reversed).unwrap();
+    assert_eq!(
+        loaded.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::GeologicalKnowledge(
+                GeologicalKnowledgeValidationError::ResourceMassIncreasesAcrossObservations {
+                    deposit,
+                    earlier: GeologicalObservationId::new(1),
+                    observation: GeologicalObservationId::new(2),
+                }
+            )
+        ))
+    );
+
+    // A forged acquisition time must not make an impossible history appear
+    // chronological by reordering the persistent identity sequence.
+    let mut reversed: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+    let observations = &mut reversed["state"]["systems"]["geological_knowledge"]["observations"];
+    observations["1"]["observed_at"] = serde_json::json!(1);
+    observations["2"]["observed_at"] = serde_json::json!(0);
+    let loaded = serde_json::from_value::<LoadedSaveEnvelope>(reversed).unwrap();
+    assert_eq!(
+        loaded.into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::GeologicalKnowledge(
+                GeologicalKnowledgeValidationError::ObservationTimeReversed {
+                    earlier: GeologicalObservationId::new(1),
+                    earlier_at: SimulationTick::new(1),
+                    observation: GeologicalObservationId::new(2),
+                    observed_at: SimulationTick::ZERO,
+                }
+            )
+        ))
     );
 }
 
