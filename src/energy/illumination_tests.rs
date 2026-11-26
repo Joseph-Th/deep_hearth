@@ -616,6 +616,11 @@ fn local_light_index_excludes_remote_emitters_rebuilds_and_preserves_stable_ties
         VoxelCoord::new(-15, 0, 0),
         VoxelCoord::new(900_000, 0, 0),
         VoxelCoord::new(i64::MAX, 0, 0),
+        VoxelCoord::new(0, 0, -15),
+        VoxelCoord::new(0, 0, 15),
+        VoxelCoord::new(0, -15, 0),
+        VoxelCoord::new(0, 15, 0),
+        VoxelCoord::new(0, 0, 900_000),
     ];
     let mut ids = Vec::new();
     for position in placements {

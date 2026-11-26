@@ -6,33 +6,21 @@ use crate::energy::EnergyStoreId;
 use crate::equipment::EquipmentId;
 use crate::fluid::FluidStoreId;
 use crate::inventory::StockpileId;
-use crate::spatial::VoxelCoord;
-use crate::world::{CHUNK_SIDE, ChunkCoord};
+use crate::spatial::{VoxelCoord, indexed_positions_in_box};
+use crate::world::ChunkCoord;
 
 use super::LogisticsState;
 
-/// Limit chunk-column queries to indexed x positions before checking z.
-///
-/// A full scan of all located stores for every generated chunk would make
-/// sparse exploration depend on the number of distant world occupants.
+/// Visit only the positions in a representable chunk column, including the
+/// final inclusive voxel at either coordinate extreme.
 fn indexed_positions_in_chunk<T: Ord>(
     positions: &BTreeMap<VoxelCoord, BTreeSet<T>>,
     chunk: ChunkCoord,
 ) -> impl Iterator<Item = (&VoxelCoord, &BTreeSet<T>)> {
-    let x_span = chunk.world_min_x().map(|min| {
-        (
-            VoxelCoord::new(min, i64::MIN, i64::MIN),
-            VoxelCoord::new(
-                min.saturating_add(CHUNK_SIDE as i64 - 1),
-                i64::MAX,
-                i64::MAX,
-            ),
-        )
-    });
-    x_span
+    chunk
+        .inclusive_column_bounds()
         .into_iter()
-        .flat_map(move |(low, high)| positions.range(low..=high))
-        .filter(move |(position, _)| ChunkCoord::containing(**position) == chunk)
+        .flat_map(move |(low, high)| indexed_positions_in_box(positions, low, high))
 }
 
 /// Invert authoritative custody into the derived location index used by
@@ -54,14 +42,17 @@ fn indexed_positions_near<T: Copy + Ord>(
     radius: u8,
 ) -> impl Iterator<Item = (T, VoxelCoord)> + '_ {
     let reach = i64::from(radius);
-    let low = VoxelCoord::new(position.x().saturating_sub(reach), i64::MIN, i64::MIN);
-    let high = VoxelCoord::new(position.x().saturating_add(reach), i64::MAX, i64::MAX);
-    positions
-        .range(low..=high)
-        .filter(move |(at, _)| {
-            at.y().abs_diff(position.y()) <= u64::from(radius)
-                && at.z().abs_diff(position.z()) <= u64::from(radius)
-        })
+    let low = VoxelCoord::new(
+        position.x().saturating_sub(reach),
+        position.y().saturating_sub(reach),
+        position.z().saturating_sub(reach),
+    );
+    let high = VoxelCoord::new(
+        position.x().saturating_add(reach),
+        position.y().saturating_add(reach),
+        position.z().saturating_add(reach),
+    );
+    indexed_positions_in_box(positions, low, high)
         .flat_map(|(at, ids)| ids.iter().map(move |id| (*id, *at)))
 }
 

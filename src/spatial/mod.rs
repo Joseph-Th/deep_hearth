@@ -5,9 +5,11 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Deserializer, Serialize};
 
+mod indexed_positions;
 mod motion;
 mod view;
 
+pub(crate) use indexed_positions::indexed_positions_in_box;
 pub use motion::{HorizontalVelocity, NANOMETERS_PER_VOXEL, VerticalVelocity, WorldPoint};
 pub use view::{VIEW_DIRECTION_PARTS_PER_MILLION, ViewDirection, ViewDirectionError};
 

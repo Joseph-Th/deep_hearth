@@ -77,6 +77,17 @@ impl ChunkCoord {
         min_z.checked_add(CHUNK_SIDE_I64 - 1)?;
         Some((min_x, min_z))
     }
+
+    /// Inclusive column bounds retain even the final representable voxel.
+    /// Vertical custody is not restricted to the generated terrain height.
+    pub(crate) fn inclusive_column_bounds(self) -> Option<(VoxelCoord, VoxelCoord)> {
+        let (x, z) = self.bounded_world_origin()?;
+        let last = CHUNK_SIDE_I64 - 1;
+        Some((
+            VoxelCoord::new(x, i64::MIN, z),
+            VoxelCoord::new(x + last, i64::MAX, z + last),
+        ))
+    }
 }
 
 #[cfg(test)]

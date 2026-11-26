@@ -21,6 +21,8 @@ fn stationary_occupancy_uses_exact_positions_and_survives_reconstruction() {
             .expect("finite test stockpile");
         let location = if index < 2 {
             shared
+        } else if index % 2 == 0 {
+            VoxelCoord::new(shared.x(), shared.y(), -far.x() - i64::from(index))
         } else {
             VoxelCoord::new(far.x() + i64::from(index), far.y(), far.z())
         };
@@ -63,6 +65,12 @@ fn stationary_occupancy_uses_exact_positions_and_survives_reconstruction() {
         vec![(edge_stockpile, last)]
     );
     assert_eq!(state.logistics().stockpiles_at(empty).count(), 0);
+    for chunk in [
+        crate::world::ChunkCoord::new(i64::MAX, 0),
+        crate::world::ChunkCoord::new(0, i64::MIN),
+    ] {
+        assert_eq!(state.logistics().stockpiles_in_chunk(chunk).count(), 0);
+    }
     assert_eq!(
         state
             .logistics()

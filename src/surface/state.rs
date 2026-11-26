@@ -12,7 +12,7 @@ use crate::inventory::{
     MaterialStorageHistory,
 };
 use crate::material::{CommodityKey, MaterialComposition, ParticleSizeRange};
-use crate::spatial::{VoxelBounds, VoxelCoord};
+use crate::spatial::{VoxelBounds, VoxelCoord, indexed_positions_in_box};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SurfaceResourceId(u32);
@@ -415,8 +415,7 @@ impl SurfaceResourceState {
     }
 
     /// Reads live surface custody within physical bounds using the local position index.
-    /// Restricting the B-tree range by X avoids a scan over remote and depleted resources;
-    /// Y and Z are checked against the full half-open bounds before resolving each identity.
+    /// Skip out-of-bounds runs on all axes before resolving each identity.
     pub(crate) fn available_resources_in_bounds(
         &self,
         bounds: VoxelBounds,
@@ -437,18 +436,17 @@ impl SurfaceResourceState {
         index: &'a BTreeMap<VoxelCoord, BTreeSet<SurfaceResourceId>>,
         bounds: VoxelBounds,
     ) -> impl Iterator<Item = &'a SurfaceResourceRecord> + 'a {
-        let start = VoxelCoord::new(bounds.min().x(), i64::MIN, i64::MIN);
-        let end = VoxelCoord::new(bounds.max_exclusive().x(), i64::MIN, i64::MIN);
-        index
-            .range(start..end)
-            .filter(move |(position, _)| bounds.has_voxel(**position))
-            .flat_map(|(_, ids)| {
-                ids.iter().map(|id| {
-                    self.resources.get(id).unwrap_or_else(|| {
-                        unreachable!("surface location index references missing resource")
-                    })
+        let end = bounds.max_exclusive();
+        // Nonempty half-open bounds guarantee every exclusive endpoint can
+        // be decremented to its final included voxel.
+        let last = VoxelCoord::new(end.x() - 1, end.y() - 1, end.z() - 1);
+        indexed_positions_in_box(index, bounds.min(), last).flat_map(|(_, ids)| {
+            ids.iter().map(|id| {
+                self.resources.get(id).unwrap_or_else(|| {
+                    unreachable!("surface location index references missing resource")
                 })
             })
+        })
     }
 
     /// Live surface matter in a chunk column, even when its inclusive final
@@ -473,20 +471,10 @@ impl SurfaceResourceState {
         index: &'a BTreeMap<VoxelCoord, BTreeSet<SurfaceResourceId>>,
         chunk: crate::world::ChunkCoord,
     ) -> impl Iterator<Item = &'a SurfaceResourceRecord> + 'a {
-        let x_span = chunk.world_min_x().map(|min| {
-            (
-                VoxelCoord::new(min, i64::MIN, i64::MIN),
-                VoxelCoord::new(
-                    min.saturating_add(crate::world::CHUNK_SIDE as i64 - 1),
-                    i64::MAX,
-                    i64::MAX,
-                ),
-            )
-        });
-        x_span
+        chunk
+            .inclusive_column_bounds()
             .into_iter()
-            .flat_map(move |(low, high)| index.range(low..=high))
-            .filter(move |(position, _)| crate::world::ChunkCoord::containing(**position) == chunk)
+            .flat_map(move |(low, high)| indexed_positions_in_box(index, low, high))
             .flat_map(|(_, ids)| {
                 ids.iter().map(|id| {
                     self.resources.get(id).unwrap_or_else(|| {

@@ -815,6 +815,12 @@ placements and player death-cache creation update the stockpile index alongside
 their authoritative location custody. These indexes are never persisted:
 trusted loading rebuilds them from the canonical locations and validation
 rejects any live divergence. Multiple assets may still share one voxel.
+Bounded stationary and surface-position queries share an inclusive voxel-range traversal
+over their existing X/Y/Z-ordered B-trees. It seeks past excluded Y and Z runs rather
+than filtering every entry in an X-only slab, preserving voxel and per-voxel identity
+order without a second index. Chunk-column queries use representable inclusive horizontal
+bounds and the full vertical coordinate range; half-open construction bounds retain their
+exclusive endpoints. No derived index or query state is persisted.
 The geology owner likewise derives a horizontal chunk index over immutable
 deposit bounds. Local sight, survey, mining resolution, generation and
 historical evidence replay query both horizontal axes and then exact geometry.

@@ -299,6 +299,9 @@ fn indexed_surface_bounds_exclude_remote_and_depleted_custody() {
         VoxelCoord::new(-3, 0, 0),
         VoxelCoord::new(2, 0, 0),
         VoxelCoord::new(i64::MAX, 0, 0),
+        VoxelCoord::new(0, 0, i64::MIN),
+        VoxelCoord::new(0, 0, i64::MAX),
+        VoxelCoord::new(1, -4, 0),
     ];
     let specs = positions.map(|position| {
         SurfaceResourceSpec::new(
@@ -364,8 +367,15 @@ fn indexed_surface_bounds_exclude_remote_and_depleted_custody() {
             .available_resources_in_chunk(crate::world::ChunkCoord::new(0, 0))
             .map(|record| record.id())
             .collect::<Vec<_>>(),
-        vec![ids[5], ids[0], ids[3], ids[7]],
+        vec![ids[5], ids[0], ids[11], ids[3], ids[7]],
         "negative and remote columns and depleted records are excluded"
+    );
+    assert_eq!(
+        state
+            .surface()
+            .available_resources_in_chunk(crate::world::ChunkCoord::new(0, i64::MAX))
+            .count(),
+        0
     );
 }
 
