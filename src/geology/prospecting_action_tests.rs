@@ -1571,6 +1571,23 @@ fn detailed_field_survey_refines_ambiguous_surface_evidence_into_a_mining_target
         detailed_record.resource_mass(),
         "completed physical-sample resource-scale knowledge must round-trip exactly"
     );
+    let mut missing: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+    let observation = detailed_record.id();
+    missing["state"]["systems"]["geological_knowledge"]["observations"]
+        [observation.value().to_string()]["resource_mass"] = serde_json::Value::Null;
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(missing).unwrap();
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(crate::persistence::LoadError::InvalidState(
+            StateValidationError::GeologicalKnowledge(
+                crate::geology::GeologicalKnowledgeValidationError::ObservationCannotMatchAuthoredMethod {
+                    observation,
+                    evidence: GeologicalEvidenceKind::ExcavationSample,
+                },
+            ),
+        )),
+        "a completed localized survey cannot lose its mandatory resource-mass measurement"
+    );
 }
 
 #[test]

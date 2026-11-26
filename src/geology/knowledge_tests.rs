@@ -454,10 +454,8 @@ fn depleted_body_can_still_support_historical_hardness_evidence() {
     let registries = build_registries();
     let mut app = AppState::new();
     let deposit = insert_copper_deposit(&registries, &mut app, Mass::from_milligrams(1_000_000));
-    let (knowledge, _) = knowledge_with_hardness(
-        GeologicalEvidenceKind::ExcavationSample,
-        vec![estimate(MATERIAL_COPPER, 975_000, 1_000_000)],
-    );
+    let (knowledge, _) =
+        knowledge_with_resource_mass(resource_band(detailed_resource_resolution(&registries), 0));
     *app.geological_knowledge_state_mut() = knowledge;
     apply_clock_advance(&mut app, SimulationTick::new(1));
     let next_revision = app

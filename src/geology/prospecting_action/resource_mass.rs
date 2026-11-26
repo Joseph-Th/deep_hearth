@@ -41,31 +41,13 @@ fn resource_mass_bucket(actual: Mass, resolution: Mass) -> ResourceMassEstimate 
     .unwrap_or_else(|error| panic!("validated resource-mass bucket is invalid: {error}"))
 }
 
-pub(in crate::geology) fn resource_mass_band_matches_resolution(
-    resource_mass: ResourceMassEstimate,
-    resolution: Mass,
-) -> bool {
-    let resolution_mg = resolution.milligrams();
-    if resolution_mg == 0 {
-        return false;
-    }
-    let lower_mg = resource_mass.lower().milligrams();
-    let upper_mg = resource_mass.upper().milligrams();
-    if upper_mg == u64::MAX {
-        let ceiling_lower = u64::MAX.checked_sub(resolution_mg).unwrap_or_else(|| {
-            unreachable!("represented mass range contains one sampling resolution")
-        });
-        return lower_mg == ceiling_lower;
-    }
-    lower_mg.is_multiple_of(resolution_mg) && upper_mg.checked_sub(lower_mg) == Some(resolution_mg)
-}
-
-pub(super) fn resolve_region_resource_mass_from_deposits<'a>(
+/// The same unique, exact-footprint body determines whether live or historical
+/// evidence can include a resource-scale measurement.
+pub(in crate::geology) fn localized_resource_body<'a>(
     deposits: impl Iterator<Item = &'a GeologicalDepositRecord>,
     region: VoxelBounds,
     material: MaterialId,
-    resolution: Mass,
-) -> Option<ResourceMassEstimate> {
+) -> Option<&'a GeologicalDepositRecord> {
     let mut matching = deposits.filter(|deposit| {
         deposit.bounds().has_intersection(region)
             && deposit.composition().parts_per_million(material) > 0
@@ -74,11 +56,39 @@ pub(super) fn resolve_region_resource_mass_from_deposits<'a>(
     if matching.next().is_some() || region != deposit.bounds() {
         return None;
     }
+    Some(deposit)
+}
+
+/// Historical mass is not recorded at every extraction. Require at least one
+/// positive mass in the possible interval to emit the exact canonical bucket.
+/// At the representational ceiling, the widened final bucket can start below
+/// the first mass that actually emits it, so test the upper end as well.
+pub(in crate::geology) fn historical_resource_mass_matches(
+    resource_mass: ResourceMassEstimate,
+    resolution: Mass,
+    remaining: Mass,
+    initial: Mass,
+) -> bool {
+    let minimum = remaining
+        .max(Mass::from_milligrams(1))
+        .max(resource_mass.lower());
+    minimum <= initial
+        && (resource_mass_bucket(minimum, resolution) == resource_mass
+            || resource_mass_bucket(initial, resolution) == resource_mass)
+}
+
+pub(super) fn resolve_region_resource_mass_from_deposits<'a>(
+    deposits: impl Iterator<Item = &'a GeologicalDepositRecord>,
+    region: VoxelBounds,
+    material: MaterialId,
+    resolution: Mass,
+) -> Option<ResourceMassEstimate> {
+    let deposit = localized_resource_body(deposits, region, material)?;
     Some(resource_mass_bucket(deposit.remaining_mass(), resolution))
 }
 
 #[cfg(test)]
-pub(super) fn resolve_region_resource_mass(
+pub(crate) fn resolve_region_resource_mass(
     state: &AppState,
     region: VoxelBounds,
     material: MaterialId,

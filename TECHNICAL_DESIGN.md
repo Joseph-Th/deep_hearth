@@ -1550,8 +1550,10 @@ truth.
 
 Trusted load validates observations against the authored method and the geological bodies that could have
 existed at acquisition time. Abundance and excavation-hardness evidence replay the same canonical quantization
-used by live prospecting over those historical bodies; resource-scale evidence retains bounded historical
-plausibility because later extraction means exact observation-time remaining mass is not reconstructible.
+used by live prospecting over those historical bodies. Resource-scale evidence must be present exactly when
+the authored method would measure a uniquely localized body with definite material presence. Its band must
+be obtainable by canonical quantization of some positive mass between current and initial mass; later
+extraction means exact observation-time remaining mass is not reconstructible.
 Evidence cannot gain precision retroactively from later-generated bodies or current state, and resource-scale
 evidence remains observation-time evidence rather than a live reserve oracle.
 

@@ -999,6 +999,15 @@ fn insert_known_deposit(
         )
         .unwrap_or_else(|error| panic!("mining known-deposit hardness evidence failed: {error}")),
     );
+    let evidence = match detailed
+        .resource_mass_resolution()
+        .filter(|_| estimate.lower_ppm() > 0)
+        .and_then(|resolution| {
+            crate::geology::resolve_region_resource_mass(state, localized, material, resolution)
+        }) {
+        Some(resource_mass) => evidence.with_resource_mass_for_fixture(resource_mass),
+        None => evidence,
+    };
     record_prospecting_for_test(registries, state, evidence)
         .unwrap_or_else(|error| panic!("mining known-deposit evidence failed: {error}"));
     Ok(deposit)

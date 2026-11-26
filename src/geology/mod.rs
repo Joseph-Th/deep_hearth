@@ -29,6 +29,8 @@ pub use knowledge::{
     MaterialAbundanceEstimateError, ResourceMassEstimate, ResourceMassEstimateError,
     assess_geological_knowledge, build_geological_knowledge_map,
 };
+#[cfg(test)]
+pub(crate) use prospecting_action::resolve_region_resource_mass;
 pub use prospecting_action::{
     FieldProspectingCommitError, FieldProspectingOutcome, FieldProspectingRequest,
     FieldProspectingStartError, PlayerProspectingInstrumentOption, PlayerProspectingOption,

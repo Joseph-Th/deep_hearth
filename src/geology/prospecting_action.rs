@@ -19,7 +19,11 @@ pub(crate) use interruption::{
     FieldProspectingInterruptionPlan, apply_field_prospecting_interruption,
     decide_field_prospecting_interruption,
 };
-pub(in crate::geology) use resource_mass::resource_mass_band_matches_resolution;
+#[cfg(test)]
+pub(crate) use resource_mass::resolve_region_resource_mass;
+pub(in crate::geology) use resource_mass::{
+    historical_resource_mass_matches, localized_resource_body,
+};
 pub(crate) use start::prospecting_region_has_authority;
 pub use start::{
     FieldProspectingRequest, ValidatedFieldProspectingStart, validate_start_field_prospecting,

@@ -1,5 +1,6 @@
 //! Cross-owner trusted-load replay for acquired geological evidence.
 
+use crate::core::quantity::Mass;
 use crate::geology::GeologyState;
 use crate::geology::state::GeologicalDepositRecord;
 use crate::labor::{LaborRegistry, ProspectingDefinition};
@@ -11,8 +12,9 @@ use super::super::{
 };
 use super::GeologicalKnowledgeValidationError;
 use crate::geology::prospecting_action::{
+    historical_resource_mass_matches, localized_resource_body,
     resolve_region_abundance_bounds_from_deposits,
-    resolve_region_excavation_hardness_from_deposits, resource_mass_band_matches_resolution,
+    resolve_region_excavation_hardness_from_deposits,
 };
 
 /// Validates persisted acquired evidence against authored methods and geological bodies that
@@ -21,9 +23,9 @@ use crate::geology::prospecting_action::{
 /// Authored method replay prevents persistence from inventing a footprint or precision that no
 /// current method can produce. Abundance and excavation-hardness evidence is recomputed with the
 /// same quantization used by live prospecting over bodies available at the observation tick.
-/// Historical resource mass is time-varying, so its replay accepts only an exact-footprint body
-/// whose observation-time remaining mass could have fallen between immutable initial mass and
-/// current remaining mass.
+/// Historical resource mass is time-varying. Require the measurement exactly when the authored
+/// method and localized body would emit it, and require a canonical bucket for some positive
+/// mass between immutable initial mass and current remaining mass.
 pub(crate) fn validate_loaded_geological_evidence_against_world(
     labor: &LaborRegistry,
     geology: &GeologyState,
@@ -43,6 +45,8 @@ pub(crate) fn validate_loaded_geological_evidence_against_world(
             .deposits_intersecting(record.region)
             .filter(|deposit| deposit.was_available_at(record.observed_at))
             .collect();
+        let localized_body =
+            localized_resource_body(historical_deposits.iter().copied(), record.region, material);
         if let Some(hardness) = record.excavation_hardness {
             validate_loaded_hardness_against_geology(
                 &historical_deposits,
@@ -53,15 +57,20 @@ pub(crate) fn validate_loaded_geological_evidence_against_world(
         }
         if let Some(resource_mass) = record.resource_mass {
             validate_loaded_resource_mass_against_geology(
-                &historical_deposits,
+                localized_body,
                 *observation,
-                record,
                 material,
                 resource_mass,
             )?;
         }
         if !labor.prospecting_definitions().copied().any(|method| {
-            authored_method_can_emit_observation(method, &historical_deposits, record, *finding)
+            authored_method_can_emit_observation(
+                method,
+                &historical_deposits,
+                localized_body,
+                record,
+                *finding,
+            )
         }) {
             return Err(
                 GeologicalKnowledgeValidationError::ObservationCannotMatchAuthoredMethod {
@@ -77,6 +86,7 @@ pub(crate) fn validate_loaded_geological_evidence_against_world(
 fn authored_method_can_emit_observation(
     method: ProspectingDefinition,
     historical_deposits: &[&GeologicalDepositRecord],
+    localized_body: Option<&GeologicalDepositRecord>,
     record: &GeologicalObservationRecord,
     finding: MaterialAbundanceEstimate,
 ) -> bool {
@@ -108,15 +118,20 @@ fn authored_method_can_emit_observation(
     if record.excavation_hardness != expected_hardness {
         return false;
     }
-    if let Some(resource_mass) = record.resource_mass {
-        let Some(resolution) = method.resource_mass_resolution() else {
-            return false;
-        };
-        if !resource_mass_band_matches_resolution(resource_mass, resolution) {
-            return false;
-        }
+    let expected_measurement = method
+        .resource_mass_resolution()
+        .filter(|_| finding.lower_ppm() > 0)
+        .zip(localized_body);
+    match (record.resource_mass, expected_measurement) {
+        (Some(resource_mass), Some((resolution, deposit))) => historical_resource_mass_matches(
+            resource_mass,
+            resolution,
+            deposit.remaining_mass(),
+            deposit.initial_mass(),
+        ),
+        (None, None) => true,
+        _ => false,
     }
-    true
 }
 
 fn validate_loaded_hardness_against_geology(
@@ -160,28 +175,23 @@ fn validate_loaded_hardness_against_geology(
 }
 
 fn validate_loaded_resource_mass_against_geology(
-    historical_deposits: &[&GeologicalDepositRecord],
+    localized_body: Option<&GeologicalDepositRecord>,
     observation: GeologicalObservationId,
-    record: &GeologicalObservationRecord,
     material: MaterialId,
     resource_mass: ResourceMassEstimate,
 ) -> Result<(), GeologicalKnowledgeValidationError> {
     let can_match_mass = |deposit: &GeologicalDepositRecord| {
-        let candidate = resource_mass.lower().max(deposit.remaining_mass());
+        let candidate = resource_mass
+            .lower()
+            .max(deposit.remaining_mass())
+            .max(Mass::from_milligrams(1));
         candidate <= deposit.initial_mass()
             && (candidate < resource_mass.upper()
                 || (candidate.milligrams() == u64::MAX
                     && resource_mass.upper().milligrams() == u64::MAX))
     };
-    let mut historical_matches = historical_deposits
-        .iter()
-        .copied()
-        .filter(|deposit| deposit.composition().parts_per_million(material) > 0);
-    if let Some(historical) = historical_matches.next() {
-        let unique = historical_matches.next().is_none();
-        if unique && historical.bounds() == record.region && can_match_mass(historical) {
-            return Ok(());
-        }
+    if localized_body.is_some_and(can_match_mass) {
+        return Ok(());
     }
 
     Err(
