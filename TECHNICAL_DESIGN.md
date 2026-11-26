@@ -108,11 +108,16 @@ settlement status, so local settlement and support changes need not search unrel
 are reconstructed from durable records and independently validated; they add no persistent save fields.
 
 Buffered structural breaks retain the exact target member, player body origin,
-view direction and active quick-access selection. A change in selection cancels
-the old request on its due slow boundary; a freshly held break can replace the
-old request before that boundary. Current-schema saves require the selection
-field even when the original hand was empty, just as buffered contextual use
-already does. Neither delayed action may execute under a different hand context.
+view direction and active quick-access selection. Buffered contextual use also
+retains its resolved physical action and destination: a grounded timber voxel,
+a supported timber member and destination, a combustion store, or a combustion
+assembly definition. The due slow boundary revalidates that action through its
+owner; it cannot redirect construction into combustion, redirect fuel into a
+different store, or choose a replacement construction destination. A change in
+selection cancels the old request at its due boundary; freshly held input can
+replace the request before that boundary. Current-schema saves require both
+the contextual target and the selection field. Neither delayed action may
+execute under a different hand context.
 
 Direct-control hand gestures are arbitrated within each 20 Hz sample. A primary
 combat command suppresses a concurrent selection drop even if combat rejects;

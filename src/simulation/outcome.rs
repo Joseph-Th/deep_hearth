@@ -156,7 +156,6 @@ pub enum SecondaryActionOutcome {
     QueuedUntilSimulationBoundary,
     BufferedContextChanged,
     BufferRejected(PlayerPendingSecondaryUseError),
-    DeferredUntilSimulationBoundary,
     PlayerNotAdmitted,
     PlayerDead,
     NoActiveSelection,

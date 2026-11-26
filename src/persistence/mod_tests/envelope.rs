@@ -348,7 +348,7 @@ fn stockpile_enclosure_and_support_are_required_even_when_absent() {
 }
 
 #[test]
-fn buffered_secondary_use_requires_selection_on_load() {
+fn buffered_secondary_use_requires_selection_and_target_on_load() {
     use crate::logistics::validate_buffer_player_secondary_use;
     use crate::spatial::ViewDirection;
 
@@ -360,10 +360,16 @@ fn buffered_secondary_use_requires_selection_on_load() {
         .unwrap();
     let _ = advance_control_tick(&registries, &mut state).unwrap();
     let direction = ViewDirection::new(1_000_000, 0, 0).unwrap();
-    validate_buffer_player_secondary_use(&state, direction)
-        .unwrap()
-        .commit(&mut state)
-        .unwrap();
+    validate_buffer_player_secondary_use(
+        &state,
+        direction,
+        crate::logistics::BufferedSecondaryTarget::GroundedTimber {
+            destination: VoxelCoord::new(1, 0, 0),
+        },
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
     let saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
     assert_eq!(
         serde_json::from_value::<LoadedSaveEnvelope>(saved.clone())
@@ -382,18 +388,20 @@ fn buffered_secondary_use_requires_selection_on_load() {
         "obsolete buffered gathering fields must not be admitted by the new schema"
     );
 
-    let mut incomplete = saved;
-    assert!(
-        incomplete["state"]["systems"]["logistics"]["pending_secondary_use"]
-            .as_object_mut()
-            .unwrap()
-            .remove("selection")
-            .is_some()
-    );
-    assert!(
-        serde_json::from_value::<LoadedSaveEnvelope>(incomplete).is_err(),
-        "omitted buffered-use selection must not change the delayed action"
-    );
+    for field in ["selection", "target"] {
+        let mut incomplete = saved.clone();
+        assert!(
+            incomplete["state"]["systems"]["logistics"]["pending_secondary_use"]
+                .as_object_mut()
+                .unwrap()
+                .remove(field)
+                .is_some()
+        );
+        assert!(
+            serde_json::from_value::<LoadedSaveEnvelope>(incomplete).is_err(),
+            "omitted buffered-use {field} must not change the delayed action"
+        );
+    }
 }
 
 #[test]

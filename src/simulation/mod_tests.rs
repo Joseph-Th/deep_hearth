@@ -158,10 +158,16 @@ fn fatal_simulation_boundary_clears_buffered_direct_actions_before_state_validat
                 .commit(&mut state)
                 .unwrap_or_else(|error| panic!("primary buffering commit failed: {error}"));
         } else {
-            validate_buffer_player_secondary_use(&state, direction)
-                .unwrap_or_else(|error| panic!("secondary buffering failed: {error}"))
-                .commit(&mut state)
-                .unwrap_or_else(|error| panic!("secondary buffering commit failed: {error}"));
+            validate_buffer_player_secondary_use(
+                &state,
+                direction,
+                crate::logistics::BufferedSecondaryTarget::GroundedTimber {
+                    destination: VoxelCoord::new(1, 0, 0),
+                },
+            )
+            .unwrap_or_else(|error| panic!("secondary buffering failed: {error}"))
+            .commit(&mut state)
+            .unwrap_or_else(|error| panic!("secondary buffering commit failed: {error}"));
         }
         let before = state
             .survival()

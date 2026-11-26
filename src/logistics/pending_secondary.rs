@@ -9,7 +9,7 @@ use crate::player::{
 };
 use crate::spatial::ViewDirection;
 
-use super::PlayerPendingSecondaryUse;
+use super::{BufferedSecondaryTarget, PlayerPendingSecondaryUse};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerPendingSecondaryUseError {
@@ -103,6 +103,7 @@ impl ValidatedPlayerPendingSecondaryUse {
 pub(crate) fn validate_buffer_player_secondary_use(
     state: &AppState,
     direction: ViewDirection,
+    target: BufferedSecondaryTarget,
 ) -> Result<ValidatedPlayerPendingSecondaryUse, PlayerPendingSecondaryUseError> {
     let player_action = validate_player_action(state).map_err(|error| match error {
         PlayerActionValidationError::PlayerNotAdmitted => {
@@ -139,6 +140,7 @@ pub(crate) fn validate_buffer_player_secondary_use(
             player.body().foot_position(),
             state.logistics().active_selection(),
             direction,
+            target,
         ),
     })
 }

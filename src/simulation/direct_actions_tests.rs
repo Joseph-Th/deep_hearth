@@ -230,10 +230,16 @@ fn new_primary_input_cancels_queued_secondary_before_or_on_its_due_boundary() {
             let _ = advance_control_tick(&registries, &mut state).unwrap();
         }
         let direction = ViewDirection::new(1_000_000, 0, 0).unwrap();
-        validate_buffer_player_secondary_use(&state, direction)
-            .unwrap()
-            .commit(&mut state)
-            .unwrap();
+        validate_buffer_player_secondary_use(
+            &state,
+            direction,
+            crate::logistics::BufferedSecondaryTarget::GroundedTimber {
+                destination: VoxelCoord::new(1, 0, 0),
+            },
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
         assert!(state.logistics().pending_secondary_use().is_some());
         assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
         let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();

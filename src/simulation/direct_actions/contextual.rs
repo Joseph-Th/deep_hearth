@@ -1,7 +1,10 @@
 //! Contextual use, gathering and storage placement admission at the direct-control boundary.
 
 use crate::core::state::AppState;
-use crate::logistics::{take_player_pending_secondary_use, validate_buffer_player_secondary_use};
+use crate::logistics::{
+    BufferedSecondaryTarget, PlayerActiveSelection, take_player_pending_secondary_use,
+    validate_buffer_player_secondary_use,
+};
 use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
 use crate::spatial::ViewDirection;
@@ -10,9 +13,9 @@ use super::super::control::SecondaryControlIntent;
 use super::super::outcome::SecondaryActionOutcome;
 use super::placement::attempt_storage_placement;
 use super::secondary::{
-    attempt_empty_hand_secondary_action, attempt_explicit_surface_gathering,
-    attempt_selected_drinking, attempt_selected_eating, attempt_selected_secondary_action,
-    attempt_selected_surface_gathering,
+    attempt_buffered_selected_action, attempt_empty_hand_secondary_action,
+    attempt_explicit_surface_gathering, attempt_selected_drinking, attempt_selected_eating,
+    attempt_selected_secondary_action, attempt_selected_surface_gathering,
 };
 
 pub(super) fn attempt_secondary_action(
@@ -67,12 +70,16 @@ pub(super) fn attempt_secondary_action(
             });
         }
     };
-    let outcome = attempt_secondary_action_now(registries, state, direction);
-    if outcome != SecondaryActionOutcome::DeferredUntilSimulationBoundary {
-        return Some(outcome);
-    }
-    let buffered = validate_buffer_player_secondary_use(state, direction);
-    Some(match buffered {
+    Some(attempt_secondary_action_now(registries, state, direction))
+}
+
+/// Reserve one resolved physical action, not a new contextual search at the due tick.
+pub(super) fn queue_secondary_use(
+    state: &mut AppState,
+    direction: ViewDirection,
+    target: BufferedSecondaryTarget,
+) -> SecondaryActionOutcome {
+    match validate_buffer_player_secondary_use(state, direction, target) {
         Ok(validated) => {
             validated.commit(state).unwrap_or_else(|error| {
                 panic!(
@@ -82,7 +89,7 @@ pub(super) fn attempt_secondary_action(
             SecondaryActionOutcome::QueuedUntilSimulationBoundary
         }
         Err(error) => SecondaryActionOutcome::BufferRejected(error),
-    })
+    }
 }
 
 fn attempt_secondary_action_now(
@@ -121,8 +128,17 @@ pub(in crate::simulation) fn attempt_pending_secondary_action(
     {
         return Some(SecondaryActionOutcome::BufferedContextChanged);
     }
+    let Some(PlayerActiveSelection::Material(commodity)) = pending.selection() else {
+        return Some(SecondaryActionOutcome::BufferedContextChanged);
+    };
     let direction = pending.direction().unwrap_or_else(|| {
         panic!("runtime invariant broken: trusted buffered contextual use has invalid direction")
     });
-    Some(attempt_secondary_action_now(registries, state, direction))
+    Some(attempt_buffered_selected_action(
+        registries,
+        state,
+        commodity,
+        direction,
+        pending.target(),
+    ))
 }

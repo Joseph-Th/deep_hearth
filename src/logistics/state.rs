@@ -20,7 +20,8 @@ mod control;
 mod custody_mutations;
 mod queries;
 pub(crate) use control::{
-    LocomotionExertionAccumulator, PlayerPendingPrimaryBreak, PlayerPendingSecondaryUse,
+    BufferedSecondaryTarget, LocomotionExertionAccumulator, PlayerPendingPrimaryBreak,
+    PlayerPendingSecondaryUse,
 };
 /// Familiar fixed quick-access bar width.
 pub const PLAYER_QUICK_ACCESS_SLOT_COUNT: usize = 9;

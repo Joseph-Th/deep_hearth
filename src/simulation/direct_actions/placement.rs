@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use crate::content::STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER;
 use crate::core::state::AppState;
-use crate::logistics::player_body_occupies_voxel;
+use crate::logistics::{BufferedSecondaryTarget, player_body_occupies_voxel};
 use crate::registry::Registries;
 use crate::spatial::{CubeFace, ViewDirection, VoxelBounds, VoxelCoord};
 use crate::structural::{StructuralElementId, validate_start_player_structural_dismantling};
@@ -20,7 +20,8 @@ mod timber;
 pub(super) use storage::{attempt_selected_storage_placement, attempt_storage_placement};
 pub(in crate::simulation) use timber::validate_supported_timber_at;
 pub(super) use timber::{
-    attempt_selected_timber_cover_placement, attempt_selected_timber_placement,
+    attempt_buffered_timber_placement, attempt_selected_timber_cover_placement,
+    attempt_selected_timber_placement,
 };
 
 /// Read-only counterpart of timber-panel pointed target resolution.
@@ -31,14 +32,14 @@ pub(in crate::simulation) fn project_pointed_timber_cover_target(
     state: &AppState,
     direction: ViewDirection,
 ) -> Result<Option<VoxelCoord>, SecondaryActionOutcome> {
-    let (bounds, _) = match resolve_supported_timber_target(registries, state, direction) {
+    let target = match resolve_supported_timber_target(registries, state, direction) {
         Ok(Some(target)) => target,
         Ok(None) => return Ok(None),
         Err(error) => return Err(error),
     };
-    validate_full_footprint_placement_position(state, bounds.min())
+    validate_full_footprint_placement_position(state, target.bounds.min())
         .map_err(structural_placement_error)?;
-    Ok(Some(bounds.min()))
+    Ok(Some(target.bounds.min()))
 }
 
 fn validate_direct_placement_position(
@@ -130,13 +131,28 @@ pub(super) fn has_pointed_timber_target(
     )
 }
 
+struct SupportedTimberTarget {
+    element: StructuralElementId,
+    bounds: VoxelBounds,
+    supports: Vec<StructuralElementId>,
+}
+
+impl SupportedTimberTarget {
+    fn buffered_target(&self) -> BufferedSecondaryTarget {
+        BufferedSecondaryTarget::SupportedTimber {
+            element: self.element,
+            destination: self.bounds.min(),
+        }
+    }
+}
+
 /// Resolves shared pointed structural support and adjacent free geometry for timber members.
 /// Absence is retained so logs can fall back to terrain, while boards require a member target.
 fn resolve_supported_timber_target(
     registries: &Registries,
     state: &AppState,
     direction: ViewDirection,
-) -> Result<Option<(VoxelBounds, Vec<StructuralElementId>)>, SecondaryActionOutcome> {
+) -> Result<Option<SupportedTimberTarget>, SecondaryActionOutcome> {
     let target = match resolve_direct_structural_face_target(registries, state, direction) {
         Ok(Some(target)) => target,
         Ok(None)
@@ -163,10 +179,11 @@ fn resolve_supported_timber_target(
         .map_err(structural_placement_error)?;
     let bounds = single_voxel_bounds(position)
         .ok_or(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow)?;
-    Ok(Some((
+    Ok(Some(SupportedTimberTarget {
+        element: target.element,
         bounds,
-        local_active_face_supports(state, position, bounds),
-    )))
+        supports: local_active_face_supports(state, position, bounds),
+    }))
 }
 
 /// Resolve supported placement from the structural spatial index, not a global member scan.

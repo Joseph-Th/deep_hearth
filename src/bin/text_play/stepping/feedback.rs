@@ -247,7 +247,7 @@ pub(super) fn secondary(registries: &Registries, outcome: &SecondaryActionOutcom
         }
         Action::StructuralPlacementRejected(error) => error.to_string(),
         Action::AlreadySatisfied => "The food or hydration target is already satisfied; no intake was needed.".to_owned(),
-        Action::QueuedUntilSimulationBoundary | Action::DeferredUntilSimulationBoundary => {
+        Action::QueuedUntilSimulationBoundary => {
             "Action queued for the next simulation boundary.".to_owned()
         }
         Action::BufferedContextChanged => {

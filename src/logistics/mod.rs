@@ -123,11 +123,13 @@ pub use selection::{
 };
 #[cfg(any(test, feature = "test-gameplay"))]
 pub(crate) use state::add_traversable_edge_for_test;
+pub(crate) use state::{
+    BufferedSecondaryTarget, PlayerPendingPrimaryBreak, PlayerPendingSecondaryUse,
+};
 pub use state::{
     LogisticsState, PLAYER_QUICK_ACCESS_SLOT_COUNT, PlayerActiveSelection,
     PlayerCarryingAssessment, PlayerLogisticsRecord, PlayerQuickAccessSlot, assess_player_carrying,
 };
-pub(crate) use state::{PlayerPendingPrimaryBreak, PlayerPendingSecondaryUse};
 pub(crate) use traversal::TraversalEdge;
 pub use validation::LogisticsValidationError;
 pub(crate) use validation::validate_loaded_logistics;

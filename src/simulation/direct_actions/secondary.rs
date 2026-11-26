@@ -5,7 +5,7 @@ use crate::core::state::AppState;
 use crate::inventory::{
     MaterialStackChoice, MaterialStackProjection, resolve_material_stack_choice,
 };
-use crate::logistics::PlayerActiveSelection;
+use crate::logistics::{BufferedSecondaryTarget, PlayerActiveSelection};
 use crate::material::CommodityKey;
 use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
@@ -14,15 +14,18 @@ use crate::survival::{EatStackToTargetError, validate_eat_stack_to_full_control_
 
 use super::SecondaryActionOutcome;
 use super::placement::{
-    attempt_selected_storage_placement, attempt_selected_timber_cover_placement,
-    attempt_selected_timber_placement, has_pointed_timber_target,
+    attempt_buffered_timber_placement, attempt_selected_storage_placement,
+    attempt_selected_timber_cover_placement, attempt_selected_timber_placement,
+    has_pointed_timber_target,
 };
 
 mod combustion;
 mod gathering;
 mod material_choice;
 
-use combustion::{attempt_selected_combustion, has_selected_combustion_target};
+use combustion::{
+    attempt_buffered_combustion, attempt_selected_combustion, queue_or_attempt_selected_combustion,
+};
 pub(super) use gathering::{
     attempt_empty_hand_secondary_action, attempt_explicit_surface_gathering,
     attempt_selected_drinking, attempt_selected_surface_gathering,
@@ -81,14 +84,11 @@ pub(super) fn attempt_selected_secondary_action(
                 | SecondaryActionOutcome::StructuralPlacementWorldUnavailable { .. }
                 | SecondaryActionOutcome::StructuralPlacementCoordinateOverflow
         ) {
-            // Fuel transactions remain on the slow boundary even when the
-            // impossible construction attempt rejects on the input frame.
-            if !state.control_tick().is_simulation_boundary()
-                && has_selected_combustion_target(registries, state, commodity)
+            // Retain the exact fuel target when this construction gesture
+            // resolves to delayed refueling.
+            if let Some(combustion) =
+                queue_or_attempt_selected_combustion(registries, state, commodity, direction)
             {
-                return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
-            }
-            if let Some(combustion) = attempt_selected_combustion(registries, state, commodity) {
                 return combustion;
             }
         }
@@ -110,6 +110,26 @@ pub(super) fn attempt_selected_secondary_action(
         Err(outcome) => return outcome,
     };
     eat_stack(registries, state, &stack)
+}
+
+/// Execute only the physical action selected when the gesture was queued.
+pub(super) fn attempt_buffered_selected_action(
+    registries: &Registries,
+    state: &mut AppState,
+    commodity: CommodityKey,
+    direction: ViewDirection,
+    target: BufferedSecondaryTarget,
+) -> SecondaryActionOutcome {
+    match target {
+        BufferedSecondaryTarget::GroundedTimber { .. }
+        | BufferedSecondaryTarget::SupportedTimber { .. } => {
+            attempt_buffered_timber_placement(registries, state, commodity, direction, target)
+        }
+        BufferedSecondaryTarget::CombustionStore { .. }
+        | BufferedSecondaryTarget::CombustionAssembly { .. } => {
+            attempt_buffered_combustion(registries, state, commodity, target)
+        }
+    }
 }
 
 /// Explicit stack choices use the same direct eating transaction as selected

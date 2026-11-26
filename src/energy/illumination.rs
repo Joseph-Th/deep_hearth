@@ -72,12 +72,6 @@ fn light_sources_at_locations<'a>(
     locations: impl Iterator<Item = (EnergyStoreId, VoxelCoord)> + 'a,
 ) -> impl Iterator<Item = LocalLightSourceProjection> + 'a {
     locations.filter_map(move |(store, position)| {
-        // Terrain can be generated and structures materialized around an
-        // existing store. The charge remains owned, but a full-cell obstacle
-        // at the emitter position must not radiate through itself.
-        if !voxel_transmits_light(registries, state, position) {
-            return None;
-        }
         let record = state.energy().get_store(store).unwrap_or_else(|| {
             panic!("runtime invariant broken: located energy store disappeared")
         });
@@ -90,6 +84,12 @@ fn light_sources_at_locations<'a>(
             .unwrap_or_else(|| panic!("runtime invariant broken: energy definition disappeared"));
         let maximum_level = definition.local_light_level();
         if maximum_level == 0 {
+            return None;
+        }
+        // Only active emitters need spatial checks. Terrain can be generated
+        // and structures materialized around a store, but a full-cell
+        // obstacle at the emitter position must not radiate through itself.
+        if !voxel_transmits_light(registries, state, position) {
             return None;
         }
         // A combustion emitter fades as its finite heat charge is spent. A smaller
@@ -253,8 +253,10 @@ fn propagated_light_level(
             if u128::from(next_level) <= manhattan_distance(adjacent, target) {
                 continue;
             }
-            if !voxel_transmits_light_on_route(registries, state, adjacent, locally_generated)
-                || !visited.insert(adjacent)
+            // Occlusion is constant throughout this read-only search. Remember
+            // blocked cells as well, so another path cannot repeat their lookup.
+            if !visited.insert(adjacent)
+                || !voxel_transmits_light_on_route(registries, state, adjacent, locally_generated)
             {
                 continue;
             }
@@ -299,11 +301,10 @@ fn voxel_transmits_light_on_route(
 }
 
 fn manhattan_distance(a: VoxelCoord, b: VoxelCoord) -> u128 {
-    let axis = |left: i64, right: i64| (i128::from(left) - i128::from(right)).unsigned_abs();
-    axis(a.x(), b.x())
-        .checked_add(axis(a.y(), b.y()))
-        .and_then(|distance| distance.checked_add(axis(a.z(), b.z())))
-        .unwrap_or(u128::MAX)
+    // Three u64 coordinate differences always fit in u128.
+    u128::from(a.x().abs_diff(b.x()))
+        + u128::from(a.y().abs_diff(b.y()))
+        + u128::from(a.z().abs_diff(b.z()))
 }
 
 #[cfg(test)]

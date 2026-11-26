@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::quantity::{Energy, Volume};
 use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, ControlTick};
-use crate::spatial::{ViewDirection, WorldPoint};
+use crate::energy::{EnergyStoreDefinitionId, EnergyStoreId};
+use crate::spatial::{ViewDirection, VoxelCoord, WorldPoint};
 use crate::structural::StructuralElementId;
 use crate::survival::SurvivalExertion;
 
@@ -86,16 +87,36 @@ impl PlayerPendingPrimaryBreak {
     }
 }
 
+/// Physical action chosen by contextual use before slow-boundary admission.
+/// A vanished or replaced target is not permission to choose a different action.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) enum BufferedSecondaryTarget {
+    GroundedTimber {
+        destination: VoxelCoord,
+    },
+    SupportedTimber {
+        element: StructuralElementId,
+        destination: VoxelCoord,
+    },
+    CombustionStore {
+        store: EnergyStoreId,
+    },
+    CombustionAssembly {
+        definition: EnergyStoreDefinitionId,
+    },
+}
+
 /// Persisted one-shot contextual-use input waiting for the next slow-simulation boundary.
 ///
-/// The record retains the exact body origin and selection from the press. The eventual action
-/// resolves against current owner state only if that origin and selection still match, so a
-/// small movement within one voxel cannot silently retarget the old gesture.
+/// Retains the resolved physical action, body origin and selection. The due
+/// boundary revalidates that action instead of reinterpreting the gesture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct PlayerPendingSecondaryUse {
     requested_at: ControlTick,
     position: WorldPoint,
+    target: BufferedSecondaryTarget,
     #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
     selection: Option<PlayerActiveSelection>,
     direction_x_ppm: i32,
@@ -109,10 +130,12 @@ impl PlayerPendingSecondaryUse {
         position: WorldPoint,
         selection: Option<PlayerActiveSelection>,
         direction: ViewDirection,
+        target: BufferedSecondaryTarget,
     ) -> Self {
         Self {
             requested_at,
             position,
+            target,
             selection,
             direction_x_ppm: direction.x_parts_per_million(),
             direction_y_ppm: direction.y_parts_per_million(),
@@ -145,6 +168,13 @@ impl PlayerPendingSecondaryUse {
         .ok()
     }
 }
+impl PlayerPendingSecondaryUse {
+    #[must_use]
+    pub(crate) const fn target(self) -> BufferedSecondaryTarget {
+        self.target
+    }
+}
+
 impl LocomotionExertionAccumulator {
     pub(crate) const ZERO: Self = Self {
         pending_energy: Energy::ZERO,

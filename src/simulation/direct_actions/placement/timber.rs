@@ -8,36 +8,35 @@ use crate::content::{
     STRUCTURAL_PROFILE_TIMBER_DRIVE_COUPLING,
 };
 use crate::core::state::AppState;
+use crate::logistics::BufferedSecondaryTarget;
 use crate::material::CommodityKey;
 use crate::registry::Registries;
-use crate::spatial::{CubeFace, ViewDirection};
+use crate::spatial::{CubeFace, ViewDirection, VoxelBounds};
 use crate::structural::{
     GroundedStructuralElementPlan, MultiSupportedStructuralElementPlan, StructuralElementGeometry,
     validate_start_player_grounded_structural_construction_from_stack,
     validate_start_player_multi_supported_structural_construction_from_stack,
 };
 
+use super::super::contextual::queue_secondary_use;
 use super::super::secondary::resolve_unique_carried_stack;
 use super::{
-    resolve_direct_placement_target, resolve_supported_timber_target, single_voxel_bounds,
-    structural_placement_error, validate_full_footprint_placement_position,
+    SupportedTimberTarget, resolve_direct_placement_target, resolve_supported_timber_target,
+    single_voxel_bounds, structural_placement_error, validate_full_footprint_placement_position,
 };
 use crate::simulation::outcome::SecondaryActionOutcome;
 
-fn attempt_supported_timber_placement(
+fn queue_or_commit_supported_timber(
     registries: &Registries,
     state: &mut AppState,
     stack: &crate::inventory::MaterialStackProjection,
     direction: ViewDirection,
-) -> Option<SecondaryActionOutcome> {
-    let (bounds, supports) = match resolve_supported_timber_target(registries, state, direction) {
-        Ok(Some(target)) => target,
-        Ok(None) => return None,
-        Err(error) => return Some(error),
-    };
-    Some(commit_supported_timber(
-        registries, state, stack, bounds, supports,
-    ))
+    target: SupportedTimberTarget,
+) -> SecondaryActionOutcome {
+    if !state.control_tick().is_simulation_boundary() {
+        return queue_secondary_use(state, direction, target.buffered_target());
+    }
+    commit_supported_timber(registries, state, stack, target.bounds, target.supports)
 }
 
 fn validate_supported_timber(
@@ -135,12 +134,12 @@ pub(in crate::simulation::direct_actions) fn attempt_selected_timber_cover_place
     state: &mut AppState,
     direction: ViewDirection,
 ) -> SecondaryActionOutcome {
-    let (bounds, supports) = match resolve_supported_timber_target(registries, state, direction) {
+    let target = match resolve_supported_timber_target(registries, state, direction) {
         Ok(Some(target)) => target,
         Ok(None) => return SecondaryActionOutcome::NoStructuralPlacementTarget,
         Err(error) => return error,
     };
-    if let Err(error) = validate_full_footprint_placement_position(state, bounds.min()) {
+    if let Err(error) = validate_full_footprint_placement_position(state, target.bounds.min()) {
         return structural_placement_error(error);
     }
     let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
@@ -148,12 +147,7 @@ pub(in crate::simulation::direct_actions) fn attempt_selected_timber_cover_place
         Ok(stack) => stack,
         Err(outcome) => return outcome,
     };
-    // Physical context and carried material are observable on the input frame.
-    // Construction admission still occurs on the next authoritative slow tick.
-    if !state.control_tick().is_simulation_boundary() {
-        return SecondaryActionOutcome::DeferredUntilSimulationBoundary;
-    }
-    commit_supported_timber(registries, state, &stack, bounds, supports)
+    queue_or_commit_supported_timber(registries, state, &stack, direction, target)
 }
 
 /// Placement needs one physical material cohort, but an invalid pointed post
@@ -197,37 +191,56 @@ pub(in crate::simulation::direct_actions) fn attempt_selected_timber_placement(
         Ok(stack) => stack,
         Err(outcome) => return Some(outcome),
     };
-    let stack = &stack;
     if !is_roller {
-        if state.control_tick().is_simulation_boundary() {
-            if let Some(outcome) =
-                attempt_supported_timber_placement(registries, state, stack, direction)
-            {
-                return Some(outcome);
+        match resolve_supported_timber_target(registries, state, direction) {
+            Ok(Some(target)) => {
+                return Some(queue_or_commit_supported_timber(
+                    registries, state, &stack, direction, target,
+                ));
             }
-        } else {
-            match resolve_supported_timber_target(registries, state, direction) {
-                Ok(Some(_)) => {
-                    return Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary);
-                }
-                Ok(None) => {}
-                Err(error) => return Some(error),
-            }
+            Ok(None) => {}
+            Err(error) => return Some(error),
         }
     }
-    let (face, position) = match resolve_direct_placement_target(registries, state, direction) {
-        Ok(target) => target,
-        Err(error) => return Some(structural_placement_error(error)),
-    };
-    if face != CubeFace::Top {
-        return Some(SecondaryActionOutcome::StructuralPlacementRequiresTopFace { face });
-    }
-    let Some(bounds) = single_voxel_bounds(position) else {
-        return Some(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow);
+    let bounds = match resolve_grounded_timber_bounds(registries, state, direction) {
+        Ok(bounds) => bounds,
+        Err(error) => return Some(error),
     };
     if !state.control_tick().is_simulation_boundary() {
-        return Some(SecondaryActionOutcome::DeferredUntilSimulationBoundary);
+        return Some(queue_secondary_use(
+            state,
+            direction,
+            BufferedSecondaryTarget::GroundedTimber {
+                destination: bounds.min(),
+            },
+        ));
     }
+    Some(commit_grounded_timber(
+        registries, state, &stack, bounds, is_roller,
+    ))
+}
+
+fn resolve_grounded_timber_bounds(
+    registries: &Registries,
+    state: &AppState,
+    direction: ViewDirection,
+) -> Result<VoxelBounds, SecondaryActionOutcome> {
+    let (face, position) = resolve_direct_placement_target(registries, state, direction)
+        .map_err(structural_placement_error)?;
+    if face != CubeFace::Top {
+        return Err(SecondaryActionOutcome::StructuralPlacementRequiresTopFace { face });
+    }
+    single_voxel_bounds(position)
+        .ok_or(SecondaryActionOutcome::StructuralPlacementCoordinateOverflow)
+}
+
+fn commit_grounded_timber(
+    registries: &Registries,
+    state: &mut AppState,
+    stack: &crate::inventory::MaterialStackProjection,
+    bounds: VoxelBounds,
+    is_roller: bool,
+) -> SecondaryActionOutcome {
     let geometry = StructuralElementGeometry::new(
         bounds,
         if is_roller {
@@ -251,23 +264,79 @@ pub(in crate::simulation::direct_actions) fn attempt_selected_timber_placement(
         MATERIAL_WOOD,
         geometry,
     );
-    Some(
-        match validate_start_player_grounded_structural_construction_from_stack(
-            registries,
-            state,
-            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
-            plan,
-            stack,
-        ) {
-            Ok(validated) => {
-                let work = validated.commit(state).unwrap_or_else(|error| {
-                    panic!(
-                        "runtime invariant broken: synchronous timber placement became stale: {error}"
-                    )
-                });
-                SecondaryActionOutcome::StructuralConstructionStarted(work)
+    match validate_start_player_grounded_structural_construction_from_stack(
+        registries,
+        state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        plan,
+        stack,
+    ) {
+        Ok(validated) => {
+            let work = validated.commit(state).unwrap_or_else(|error| {
+                panic!(
+                    "runtime invariant broken: synchronous timber placement became stale: {error}"
+                )
+            });
+            SecondaryActionOutcome::StructuralConstructionStarted(work)
+        }
+        Err(error) => SecondaryActionOutcome::StructuralPlacementRejected(error),
+    }
+}
+
+/// Revalidate the original physical destination without allowing contextual
+/// fallback to another member, terrain placement, storage, or combustion.
+pub(in crate::simulation::direct_actions) fn attempt_buffered_timber_placement(
+    registries: &Registries,
+    state: &mut AppState,
+    commodity: CommodityKey,
+    direction: ViewDirection,
+    expected: BufferedSecondaryTarget,
+) -> SecondaryActionOutcome {
+    let is_board = commodity == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
+    let is_log = commodity == CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let is_roller = commodity == CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE);
+    match expected {
+        BufferedSecondaryTarget::SupportedTimber { .. } if is_board || is_log => {
+            let Ok(Some(target)) = resolve_supported_timber_target(registries, state, direction)
+            else {
+                return SecondaryActionOutcome::BufferedContextChanged;
+            };
+            if target.buffered_target() != expected {
+                return SecondaryActionOutcome::BufferedContextChanged;
             }
-            Err(error) => SecondaryActionOutcome::StructuralPlacementRejected(error),
-        },
-    )
+            if is_board
+                && let Err(error) =
+                    validate_full_footprint_placement_position(state, target.bounds.min())
+            {
+                return structural_placement_error(error);
+            }
+            let stack = match resolve_unique_carried_stack(registries, state, commodity) {
+                Ok(stack) => stack,
+                Err(outcome) => return outcome,
+            };
+            commit_supported_timber(registries, state, &stack, target.bounds, target.supports)
+        }
+        BufferedSecondaryTarget::GroundedTimber { destination } if is_log || is_roller => {
+            if is_log
+                && !matches!(
+                    resolve_supported_timber_target(registries, state, direction),
+                    Ok(None)
+                )
+            {
+                return SecondaryActionOutcome::BufferedContextChanged;
+            }
+            let Ok(bounds) = resolve_grounded_timber_bounds(registries, state, direction) else {
+                return SecondaryActionOutcome::BufferedContextChanged;
+            };
+            if bounds.min() != destination {
+                return SecondaryActionOutcome::BufferedContextChanged;
+            }
+            let stack = match resolve_unique_carried_stack(registries, state, commodity) {
+                Ok(stack) => stack,
+                Err(outcome) => return outcome,
+            };
+            commit_grounded_timber(registries, state, &stack, bounds, is_roller)
+        }
+        _ => SecondaryActionOutcome::BufferedContextChanged,
+    }
 }

@@ -66,7 +66,14 @@ fn dead_player_cannot_buffer_primary_or_secondary_direct_actions() {
     let before = state.clone();
 
     assert_eq!(
-        validate_buffer_player_secondary_use(&state, positive_x_view()).err(),
+        validate_buffer_player_secondary_use(
+            &state,
+            positive_x_view(),
+            crate::logistics::BufferedSecondaryTarget::GroundedTimber {
+                destination: VoxelCoord::new(1, 0, 0)
+            }
+        )
+        .err(),
         Some(PlayerPendingSecondaryUseError::PlayerDead)
     );
     assert_eq!(
@@ -85,8 +92,14 @@ fn dead_player_cannot_buffer_primary_or_secondary_direct_actions() {
 #[test]
 fn buffered_direct_action_validation_tracks_survival_revision() {
     let (_registries, mut state) = off_boundary_admitted_player();
-    let validated = validate_buffer_player_secondary_use(&state, positive_x_view())
-        .unwrap_or_else(|error| panic!("stale buffer validation failed: {error}"));
+    let validated = validate_buffer_player_secondary_use(
+        &state,
+        positive_x_view(),
+        crate::logistics::BufferedSecondaryTarget::GroundedTimber {
+            destination: VoxelCoord::new(1, 0, 0),
+        },
+    )
+    .unwrap_or_else(|error| panic!("stale buffer validation failed: {error}"));
     let expected = state.survival().revision();
     mark_admitted_player_dead(&mut state);
     let actual = state.survival().revision();
@@ -104,10 +117,16 @@ fn buffered_direct_action_validation_tracks_survival_revision() {
 fn trusted_load_rejects_dead_player_with_buffered_direct_action() {
     let (registries, state) = off_boundary_admitted_player();
     let mut secondary = state.clone();
-    validate_buffer_player_secondary_use(&secondary, positive_x_view())
-        .unwrap_or_else(|error| panic!("secondary buffer validation failed: {error}"))
-        .commit(&mut secondary)
-        .unwrap_or_else(|error| panic!("secondary buffer commit failed: {error}"));
+    validate_buffer_player_secondary_use(
+        &secondary,
+        positive_x_view(),
+        crate::logistics::BufferedSecondaryTarget::GroundedTimber {
+            destination: VoxelCoord::new(1, 0, 0),
+        },
+    )
+    .unwrap_or_else(|error| panic!("secondary buffer validation failed: {error}"))
+    .commit(&mut secondary)
+    .unwrap_or_else(|error| panic!("secondary buffer commit failed: {error}"));
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &secondary))
         .unwrap_or_else(|error| panic!("secondary dead-buffer serialization failed: {error}"));
     encoded["state"]["systems"]["survival"]["player"]["vitality"] = serde_json::json!(0_u32);
