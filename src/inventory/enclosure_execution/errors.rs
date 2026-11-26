@@ -22,6 +22,7 @@ use crate::structural::{StructuralCommitError, StructuralElementId};
 pub enum StorageEnclosureConstructionError {
     PlayerDead,
     PlayerBusy,
+    PlayerAirborne,
     PreparedStrikeActive,
     UnknownDefinition {
         definition: StorageDefinitionId,
@@ -119,19 +120,6 @@ pub enum PlayerStoragePlacementError {
     PreparedStrikeActive,
     Allocation(PlayerGroundStockpileAllocationError),
     Construction(StorageEnclosureConstructionError),
-    GeneratedSolidTerrain {
-        position: VoxelCoord,
-    },
-    RootedVegetationOccupiesSite {
-        position: VoxelCoord,
-    },
-    ResidentOccupiesSite {
-        position: VoxelCoord,
-    },
-    LooseResidueFooting {
-        position: VoxelCoord,
-        compact_depth_um: u128,
-    },
 }
 
 impl Display for PlayerStoragePlacementError {
@@ -149,39 +137,6 @@ impl Display for PlayerStoragePlacementError {
             Self::Construction(error) => {
                 write!(formatter, "storage placement construction failed: {error}")
             }
-            Self::GeneratedSolidTerrain { position } => write!(
-                formatter,
-                "storage placement at ({},{},{}) intersects solid terrain",
-                position.x(),
-                position.y(),
-                position.z()
-            ),
-            Self::RootedVegetationOccupiesSite { position } => write!(
-                formatter,
-                "storage placement at ({},{},{}) would enclose a living rooted food patch",
-                position.x(),
-                position.y(),
-                position.z()
-            ),
-            Self::ResidentOccupiesSite { position } => write!(
-                formatter,
-                "storage placement at ({},{},{}) intersects an opening or temple resident",
-                position.x(),
-                position.y(),
-                position.z()
-            ),
-            Self::LooseResidueFooting {
-                position,
-                compact_depth_um,
-            } => write!(
-                formatter,
-                "storage foundation ({},{},{}) has {}.{} mm of exposed processing residue (solid-equivalent; limit is below 25 mm); clear it or choose another site",
-                position.x(),
-                position.y(),
-                position.z(),
-                compact_depth_um / 1_000,
-                (compact_depth_um % 1_000) / 100,
-            ),
         }
     }
 }
@@ -192,10 +147,6 @@ impl Error for PlayerStoragePlacementError {
             Self::PlayerBusy | Self::PreparedStrikeActive => None,
             Self::Allocation(error) => Some(error),
             Self::Construction(error) => Some(error),
-            Self::LooseResidueFooting { .. }
-            | Self::GeneratedSolidTerrain { .. }
-            | Self::RootedVegetationOccupiesSite { .. }
-            | Self::ResidentOccupiesSite { .. } => None,
         }
     }
 }
@@ -290,6 +241,9 @@ impl Display for StorageEnclosureConstructionError {
                 maximum.millikelvin(),
             ),
             Self::PlayerDead => formatter.write_str("dead player cannot build storage"),
+            Self::PlayerAirborne => {
+                formatter.write_str("stand on fixed ground before building storage")
+            }
             Self::PlayerBusy => {
                 formatter.write_str("player cannot build storage during exclusive work")
             }
@@ -387,7 +341,7 @@ impl Display for StorageEnclosureConstructionError {
                 compact_depth_um,
             } => write!(
                 formatter,
-                "storage enclosure foundation ({},{},{}) has {}.{} mm of exposed processing residue (solid-equivalent; limit is below 25 mm)",
+                "storage enclosure foundation ({},{},{}) has {}.{} mm of exposed processing residue (solid-equivalent; limit is below 25 mm); clear it or choose another site",
                 position.x(),
                 position.y(),
                 position.z(),
@@ -480,6 +434,7 @@ impl Error for StorageEnclosureConstructionError {
             Self::TargetAccess(error) | Self::SourceAccess(error) => Some(error),
             Self::PlayerDead
             | Self::PlayerBusy
+            | Self::PlayerAirborne
             | Self::PreparedStrikeActive
             | Self::UnknownDefinition { .. }
             | Self::UnknownTarget { .. }

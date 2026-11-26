@@ -3559,10 +3559,12 @@ fn secondary_use_places_selected_storage_body_through_canonical_storage_placemen
                 outcome.secondary_action(),
                 Some(&SecondaryActionOutcome::StoragePlacementRejected {
                     definition: STORAGE_ROUGH_TIMBER_FIELD_BOX,
-                    error: PlayerStoragePlacementError::LooseResidueFooting {
-                        position: placement,
-                        compact_depth_um: 30_769,
-                    },
+                    error: PlayerStoragePlacementError::Construction(
+                        crate::inventory::StorageEnclosureConstructionError::LooseResidueFooting {
+                            position: placement,
+                            compact_depth_um: 30_769,
+                        },
+                    ),
                 }),
                 "deep exposed chips must block real targeted enclosure placement"
             );

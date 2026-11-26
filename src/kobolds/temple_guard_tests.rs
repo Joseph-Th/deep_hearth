@@ -1089,11 +1089,11 @@ fn trusted_load_rejects_stationary_enclosure_overlapping_a_temple_warden() {
             route[0],
         )
         .err(),
-        Some(
-            crate::inventory::PlayerStoragePlacementError::ResidentOccupiesSite {
+        Some(crate::inventory::PlayerStoragePlacementError::Construction(
+            crate::inventory::StorageEnclosureConstructionError::ResidentOccupiesSite {
                 position: route[0],
-            }
-        ),
+            },
+        )),
         "ordinary construction must reject a living temple warden before allocating material",
     );
     assert_eq!(state, before);

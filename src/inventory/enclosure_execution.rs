@@ -9,7 +9,6 @@ use crate::logistics::{
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
-use crate::surface::{OBSTRUCTING_RESIDUE_COMPACT_DEPTH_UM, exposed_residue_compact_depth_um};
 
 use super::{
     MaterialEgressError, StockpileEnclosureRecord, StockpileId, StockpileRecord,
@@ -23,7 +22,7 @@ mod materials;
 mod site;
 
 use materials::{plan_enclosure_materials, select_enclosure_material, validate_enclosure_contents};
-use site::{enclosure_position_is_solid, rooted_foraging_at, validate_world_location};
+use site::{validate_enclosure_site, validate_world_location};
 
 pub use errors::{
     PlayerStoragePlacementCommitError, PlayerStoragePlacementError, StorageEnclosureCommitError,
@@ -171,35 +170,8 @@ pub(crate) fn validate_place_player_storage_at(
     validate_player_stockpile_access(state, source)
         .map_err(StorageEnclosureConstructionError::SourceAccess)
         .map_err(PlayerStoragePlacementError::Construction)?;
-    if enclosure_position_is_solid(registries, state, position) {
-        return Err(PlayerStoragePlacementError::GeneratedSolidTerrain { position });
-    }
-    if rooted_foraging_at(state, position) {
-        return Err(PlayerStoragePlacementError::RootedVegetationOccupiesSite { position });
-    }
-    // Ordinary pointed placement already excludes residents. The owner-level
-    // placement capability must enforce the same physical clearance so that
-    // direct callers cannot construct persistent matter around a living actor.
-    if crate::kobolds::opening_kobold_occupies_voxel(state, position)
-        || crate::kobolds::temple_caste_occupies_voxel(registries, state, position)
-    {
-        return Err(PlayerStoragePlacementError::ResidentOccupiesSite { position });
-    }
-    let residue_depth = exposed_residue_compact_depth_um(registries, state, position);
-    if residue_depth >= OBSTRUCTING_RESIDUE_COMPACT_DEPTH_UM {
-        return Err(PlayerStoragePlacementError::LooseResidueFooting {
-            position,
-            compact_depth_um: residue_depth,
-        });
-    }
-    // Building a new enclosure must meet the same floor rule as enclosing an
-    // existing stockpile. Otherwise direct placement can freeze built matter in
-    // midair even though a constructed stockpile at that site would be rejected.
-    if crate::world::generated_position_lacks_fixed_footing(registries, state, position) {
-        return Err(PlayerStoragePlacementError::Construction(
-            StorageEnclosureConstructionError::UnsupportedFloor { position },
-        ));
-    }
+    validate_enclosure_site(registries, state, position)
+        .map_err(PlayerStoragePlacementError::Construction)?;
     let allocation = validate_allocate_player_ground_stockpile_at(
         state,
         position,
@@ -426,12 +398,6 @@ pub fn validate_build_storage_enclosure(
     let required_profile = StockpileStorageProfile::unbounded_solid_only();
     validate_enclosure_target(definition_record, target_record, target, required_profile)?;
     validate_world_location(registries, state, target, source)?;
-    if let Some(position) = state.logistics().stationary_stockpile_position(target)
-        && (crate::kobolds::opening_kobold_occupies_voxel(state, position)
-            || crate::kobolds::temple_caste_occupies_voxel(registries, state, position))
-    {
-        return Err(StorageEnclosureConstructionError::ResidentOccupiesSite { position });
-    }
     let selection = select_enclosure_material(state, definition_record, source)?;
     let next_profile = definition_record.storage_profile();
     validate_enclosure_contents(

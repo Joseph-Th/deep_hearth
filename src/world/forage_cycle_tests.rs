@@ -463,7 +463,9 @@ fn storage_enclosures_cannot_cover_living_roots_even_after_the_fruit_is_harveste
                 position,
             )
             .err(),
-            Some(PlayerStoragePlacementError::RootedVegetationOccupiesSite { position })
+            Some(PlayerStoragePlacementError::Construction(
+                StorageEnclosureConstructionError::RootedVegetationOccupiesSite { position },
+            ))
         );
         assert_eq!(state, before);
     }

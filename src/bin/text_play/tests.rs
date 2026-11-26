@@ -2992,6 +2992,60 @@ fn field_box_body_from_wilderness() -> Session {
 }
 
 #[test]
+fn local_storage_placement_requires_real_ground_contact() {
+    use deep_hearth::logistics::player_body_is_grounded;
+    use deep_hearth::matter::calculate_matter_accounting;
+
+    let mut session = field_box_body_from_wilderness();
+    for command in ["w 20", "wait 10", "s 20", "wait 10"] {
+        session.command(command).unwrap();
+    }
+    let position = session.player_position().unwrap();
+    let total = calculate_matter_accounting(&session.state).unwrap().total();
+    assert!(player_body_is_grounded(&session.registries, &session.state));
+    session.command("jump").unwrap();
+    assert_eq!(session.player_position().unwrap(), position);
+    assert!(!player_body_is_grounded(
+        &session.registries,
+        &session.state
+    ));
+    let before = snapshot(&session);
+    let catalog = session.command("storage all").unwrap().0;
+    assert!(
+        catalog.contains("stand on fixed ground before building storage"),
+        "{catalog}"
+    );
+    assert!(session.command("place-store 5").is_err());
+    assert_eq!(snapshot(&session), before);
+
+    session.command("wait 60").unwrap();
+    assert!(player_body_is_grounded(&session.registries, &session.state));
+    assert_eq!(session.player_position().unwrap(), position);
+    assert!(
+        session
+            .command("storage")
+            .unwrap()
+            .0
+            .contains("5. rough timber field box | 10000 g capacity | ready")
+    );
+    assert!(
+        session
+            .command("place-store 5")
+            .unwrap()
+            .0
+            .contains("Placed rough timber field box")
+    );
+    assert_eq!(
+        calculate_matter_accounting(&session.state).unwrap().total(),
+        total
+    );
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
+        Ok(())
+    );
+}
+
+#[test]
 fn rough_field_box_placement_and_local_quick_moves_are_production_backed() {
     let mut empty = Session::new(24318).unwrap();
     let before = snapshot(&empty);

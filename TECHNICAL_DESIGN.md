@@ -1388,6 +1388,9 @@ choices are transient 20 Hz control intents, not new persistent inventory or flu
 
 Material-backed storage enclosures own exact consolidated assembly traces and an authored storage profile.
 Both ordinary player placement and in-place construction select exact hand-safe body cohorts at or below 353,150 mK.
+At the player's own voxel, both assembly paths require actual body contact with fixed ground as well as fixed support
+beneath the custody site. Merely sharing a supported voxel during a jump is insufficient. Pointed placement instead
+proves its distinct target cell and its fixed footing.
 An older hot lot cannot block construction when enough newer cool material is present; hot-only stock returns a typed
 construction-material cooling rejection without allocating or modifying custody. Construction moves the selected
 traces into stockpile embodiment after verifying current contents fit the completed enclosure. Dismantling is timed

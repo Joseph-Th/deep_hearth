@@ -36,49 +36,51 @@ pub(super) fn validate_world_location(
             },
         );
     }
-    if enclosure_position_is_solid(registries, state, target_position) {
-        return Err(StorageEnclosureConstructionError::GeneratedSolidTerrain {
-            position: target_position,
-        });
-    }
-    if rooted_foraging_at(state, target_position) {
-        return Err(
-            StorageEnclosureConstructionError::RootedVegetationOccupiesSite {
-                position: target_position,
-            },
-        );
-    }
-    // In-place construction must have the same exposed-residue foundation
-    // clearance as new enclosure placement at this exact voxel.
-    let compact_depth_um = exposed_residue_compact_depth_um(registries, state, target_position);
-    if compact_depth_um >= OBSTRUCTING_RESIDUE_COMPACT_DEPTH_UM {
-        return Err(StorageEnclosureConstructionError::LooseResidueFooting {
-            position: target_position,
-            compact_depth_um,
-        });
-    }
-    if crate::world::generated_position_lacks_fixed_footing(registries, state, target_position) {
-        return Err(StorageEnclosureConstructionError::UnsupportedFloor {
-            position: target_position,
-        });
-    }
-    Ok(())
+    validate_enclosure_site(registries, state, target_position)
 }
 
-/// Harvested patches with live root reserves still occupy their sites; a
-/// rootless and fruitless provenance receipt does not. Query the surface
-/// owner's exact position index rather than all perennial sites in the world.
-pub(super) fn rooted_foraging_at(state: &AppState, position: VoxelCoord) -> bool {
-    state.surface().rooted_biomass_occupies_voxel(position)
-}
-
-pub(super) fn enclosure_position_is_solid(
+/// Both new and in-place storage must satisfy the same physical site rules.
+/// A local assembly also needs actual body contact with fixed ground: a
+/// jumping actor can still share the supported destination's discrete voxel.
+/// Pointed placement separately authorizes a distinct target cell.
+pub(super) fn validate_enclosure_site(
     registries: &Registries,
     state: &AppState,
     position: VoxelCoord,
-) -> bool {
-    state
+) -> Result<(), StorageEnclosureConstructionError> {
+    if state
         .world()
         .full_cell_collision_at(registries.world(), position)
         == Some(true)
+    {
+        return Err(StorageEnclosureConstructionError::GeneratedSolidTerrain { position });
+    }
+    // Harvesting the fruit does not remove the plant's living roots.
+    if state.surface().rooted_biomass_occupies_voxel(position) {
+        return Err(StorageEnclosureConstructionError::RootedVegetationOccupiesSite { position });
+    }
+    if crate::kobolds::opening_kobold_occupies_voxel(state, position)
+        || crate::kobolds::temple_caste_occupies_voxel(registries, state, position)
+    {
+        return Err(StorageEnclosureConstructionError::ResidentOccupiesSite { position });
+    }
+    let compact_depth_um = exposed_residue_compact_depth_um(registries, state, position);
+    if compact_depth_um >= OBSTRUCTING_RESIDUE_COMPACT_DEPTH_UM {
+        return Err(StorageEnclosureConstructionError::LooseResidueFooting {
+            position,
+            compact_depth_um,
+        });
+    }
+    if crate::world::generated_position_lacks_fixed_footing(registries, state, position) {
+        return Err(StorageEnclosureConstructionError::UnsupportedFloor { position });
+    }
+    if state
+        .logistics()
+        .player()
+        .is_some_and(|player| player.position() == position)
+        && !crate::logistics::player_stationary_placement_supported(registries, state)
+    {
+        return Err(StorageEnclosureConstructionError::PlayerAirborne);
+    }
+    Ok(())
 }

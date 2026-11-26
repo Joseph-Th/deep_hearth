@@ -186,6 +186,38 @@ fn both_enclosure_construction_paths_accept_fixed_built_footing_and_bind_structu
     .unwrap()
     .commit(&mut state)
     .unwrap();
+    // A real jump leaves the same discrete custody voxel before it leaves
+    // the floor's vertical meter. Destination support alone is insufficient.
+    let mut airborne = state.clone();
+    let _ = crate::simulation::advance_control_tick_with_input(
+        &registries,
+        &mut airborne,
+        crate::logistics::PlayerControlInput::NEUTRAL.with_jump(true),
+    )
+    .unwrap();
+    assert_eq!(airborne.logistics().player().unwrap().position(), at);
+    assert!(!player_body_is_grounded(&registries, &airborne));
+    let before = airborne.clone();
+    assert_eq!(
+        validate_place_player_storage(&registries, &airborne, STORAGE_ROUGH_TIMBER_FIELD_BOX).err(),
+        Some(PlayerStoragePlacementError::Construction(
+            StorageEnclosureConstructionError::PlayerAirborne,
+        )),
+    );
+    assert_eq!(
+        validate_build_storage_enclosure(
+            &registries,
+            &airborne,
+            STORAGE_ROUGH_TIMBER_FIELD_BOX,
+            target,
+            carried,
+        )
+        .err(),
+        Some(StorageEnclosureConstructionError::PlayerAirborne),
+    );
+    assert_eq!(airborne, before);
+    assert_eq!(validate_loaded_state(&registries, &airborne), Ok(()));
+
     let place =
         validate_place_player_storage(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX).unwrap();
     let build = validate_build_storage_enclosure(

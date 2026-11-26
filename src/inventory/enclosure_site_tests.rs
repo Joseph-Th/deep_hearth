@@ -11,7 +11,10 @@ use crate::material::{CommodityKey, MaterialComposition};
 use crate::matter::calculate_matter_accounting;
 use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 use crate::simulation::advance_control_tick;
-use crate::surface::{SurfaceResourceKind, SurfaceResourceSpec, validate_create_surface_resources};
+use crate::surface::{
+    OBSTRUCTING_RESIDUE_COMPACT_DEPTH_UM, SurfaceResourceKind, SurfaceResourceSpec,
+    exposed_residue_compact_depth_um, validate_create_surface_resources,
+};
 
 const ROOM_TEMPERATURE: Temperature = Temperature::from_millikelvin(293_150);
 

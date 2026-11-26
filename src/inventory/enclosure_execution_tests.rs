@@ -105,7 +105,9 @@ fn owner_level_storage_placement_cannot_enclose_living_tree_root_or_trunk() {
                 voxel,
             )
             .err(),
-            Some(PlayerStoragePlacementError::GeneratedSolidTerrain { position: voxel }),
+            Some(PlayerStoragePlacementError::Construction(
+                StorageEnclosureConstructionError::GeneratedSolidTerrain { position: voxel },
+            )),
         );
         assert_eq!(state, unchanged);
     }
@@ -424,7 +426,9 @@ fn enclosure_owner_rejects_constructing_persistent_matter_inside_a_living_kobold
     assert_eq!(
         validate_place_player_storage_at(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX, den)
             .err(),
-        Some(PlayerStoragePlacementError::ResidentOccupiesSite { position: den }),
+        Some(PlayerStoragePlacementError::Construction(
+            StorageEnclosureConstructionError::ResidentOccupiesSite { position: den }
+        )),
         "owner-level direct placement must also exclude occupied actor cells",
     );
     assert_eq!(state, before);
@@ -750,7 +754,9 @@ fn player_storage_placement_rejects_generated_rock_and_stale_world_truth() {
             position
         )
         .err(),
-        Some(PlayerStoragePlacementError::GeneratedSolidTerrain { position })
+        Some(PlayerStoragePlacementError::Construction(
+            StorageEnclosureConstructionError::GeneratedSolidTerrain { position }
+        ))
     );
 
     set_generated_block_for_test(registries.world(), &mut state, position, BlockStateId::AIR);
@@ -829,7 +835,9 @@ fn carried_storage_enclosure_cannot_materialize_inside_a_living_tree() {
                 position,
             )
             .err(),
-            Some(PlayerStoragePlacementError::GeneratedSolidTerrain { position }),
+            Some(PlayerStoragePlacementError::Construction(
+                StorageEnclosureConstructionError::GeneratedSolidTerrain { position }
+            )),
         );
         assert_eq!(state, original);
     }
@@ -1005,7 +1013,7 @@ fn exposed_woodworking_residue_obstructs_storage_footing_until_player_clears_it(
     );
     assert!(matches!(
         validate_place_player_storage(&registries, &state, STORAGE_ROUGH_TIMBER_FIELD_BOX),
-        Err(PlayerStoragePlacementError::LooseResidueFooting { position: at, compact_depth_um })
+        Err(PlayerStoragePlacementError::Construction(StorageEnclosureConstructionError::LooseResidueFooting { position: at, compact_depth_um }))
             if at == position && compact_depth_um == depth
     ));
     let before_stale = state.clone();
