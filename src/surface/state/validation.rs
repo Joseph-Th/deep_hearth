@@ -2,19 +2,18 @@
 
 use std::collections::BTreeMap;
 
+use crate::core::state::AppState;
 use crate::core::time::{ControlTick, SimulationTick};
 use crate::material::{
     MaterialPhase, MaterialRegistry, validate_material_particle_size_state,
     validate_material_phase_state,
 };
+use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
-use crate::structural::StructureState;
 use crate::surface::material_drop::PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS;
 use crate::world::{BlockCollisionShape, ChunkCoord, WorldRegistry, WorldState};
 
-use super::{
-    SurfaceResourceId, SurfaceResourceLifecycle, SurfaceResourceRecord, SurfaceResourceState,
-};
+use super::{SurfaceResourceId, SurfaceResourceLifecycle, SurfaceResourceRecord};
 
 mod errors;
 pub use errors::SurfaceResourceValidationError;
@@ -256,17 +255,8 @@ pub(in crate::surface) fn validate_surface_resource_record(
     validate_resource_material_history(materials, key, record)
 }
 
-/// Shared physical world obstruction for new, relocated, and decoded loose custody.
 /// Tree trunks occupy cells whose underlying terrain block is still air.
 /// A missing world column is not yet solid authority.
-pub(in crate::surface) fn surface_position_has_solid_world(
-    world_registry: &WorldRegistry,
-    world: &WorldState,
-    position: VoxelCoord,
-) -> bool {
-    surface_position_has_solid_world_after_felling(world_registry, world, position, None)
-}
-
 fn surface_position_has_solid_world_after_felling(
     world_registry: &WorldRegistry,
     world: &WorldState,
@@ -284,48 +274,57 @@ fn surface_position_has_solid_world_after_felling(
     world.full_cell_collision_at(world_registry, position) == Some(true)
 }
 
+/// Creation, relocation and trusted load share one physical custody admission.
+pub(in crate::surface) fn validate_surface_resource_site(
+    registries: &Registries,
+    state: &AppState,
+    resource: SurfaceResourceId,
+    voxel: VoxelCoord,
+    felled_root: Option<VoxelCoord>,
+) -> Result<(), SurfaceResourceValidationError> {
+    if surface_position_has_solid_world_after_felling(
+        registries.world(),
+        state.world(),
+        voxel,
+        felled_root,
+    ) {
+        return Err(SurfaceResourceValidationError::EmbeddedInSolidWorld { resource, voxel });
+    }
+    if state.structures().blocks_full_cell(voxel) {
+        return Err(SurfaceResourceValidationError::EmbeddedInSolidStructure { resource, voxel });
+    }
+    if crate::world::generated_position_lacks_fixed_footing(registries, state, voxel) {
+        return Err(SurfaceResourceValidationError::RequiresFixedFloor { resource, voxel });
+    }
+    Ok(())
+}
+
 pub(in crate::surface) fn validate_surface_resource_physical_position(
-    world_registry: &WorldRegistry,
-    world: &WorldState,
-    structures: &StructureState,
+    registries: &Registries,
+    state: &AppState,
     record: &SurfaceResourceRecord,
     felled_root: Option<VoxelCoord>,
 ) -> Result<(), SurfaceResourceValidationError> {
-    if (record.lifecycle() == SurfaceResourceLifecycle::Available
-        || record.rooted_biomass_occupies_site())
-        && surface_position_has_solid_world_after_felling(
-            world_registry,
-            world,
+    if record.lifecycle() == SurfaceResourceLifecycle::Available
+        || record.rooted_biomass_occupies_site()
+    {
+        validate_surface_resource_site(
+            registries,
+            state,
+            record.id(),
             record.position(),
             felled_root,
-        )
-    {
-        return Err(SurfaceResourceValidationError::EmbeddedInSolidWorld {
-            resource: record.id(),
-            voxel: record.position(),
-        });
-    }
-    if (record.lifecycle() == SurfaceResourceLifecycle::Available
-        || record.rooted_biomass_occupies_site())
-        && structures.blocks_full_cell(record.position())
-    {
-        return Err(SurfaceResourceValidationError::EmbeddedInSolidStructure {
-            resource: record.id(),
-            voxel: record.position(),
-        });
+        )?;
     }
     Ok(())
 }
 
 pub(crate) fn validate_loaded_surface_resources(
-    materials: &MaterialRegistry,
-    state: &SurfaceResourceState,
-    current: SimulationTick,
-    current_control: ControlTick,
-    world_registry: &WorldRegistry,
-    world: &WorldState,
-    structures: &StructureState,
+    registries: &Registries,
+    app: &AppState,
 ) -> Result<(), SurfaceResourceValidationError> {
+    let state = app.surface();
+    let world = app.world();
     if state.next_resource_id == 0 {
         return Err(SurfaceResourceValidationError::ZeroNextResourceId);
     }
@@ -342,7 +341,13 @@ pub(crate) fn validate_loaded_surface_resources(
     // cannot both be loaded, even when each is individually seed-plausible.
     let mut perennial_by_chunk = BTreeMap::<(ChunkCoord, bool), SurfaceResourceId>::new();
     for (key, record) in &state.resources {
-        validate_surface_resource_record(materials, *key, record, current, current_control)?;
+        validate_surface_resource_record(
+            registries.materials(),
+            *key,
+            record,
+            app.tick(),
+            app.control_tick(),
+        )?;
         if let Some(plant) = record.perennial {
             // Natural biomass enters custody only with the terrain chunk that
             // generated it. A seed-plausible site in an unexplored chunk is
@@ -375,13 +380,7 @@ pub(crate) fn validate_loaded_surface_resources(
                 });
             }
         }
-        validate_surface_resource_physical_position(
-            world_registry,
-            world,
-            structures,
-            record,
-            None,
-        )?;
+        validate_surface_resource_physical_position(registries, app, record, None)?;
     }
     if !state.has_valid_derived_indexes() {
         return Err(SurfaceResourceValidationError::InvalidLocationIndex);

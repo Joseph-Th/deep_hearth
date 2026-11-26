@@ -152,6 +152,9 @@ impl ValidatedTreeFelling {
                 SurfaceResourceCreationCommitError::StructureRevision { .. } => {
                     TreeFellingCommitError::StructureRevisionChanged
                 }
+                SurfaceResourceCreationCommitError::PlayerWorkRevision { .. } => {
+                    TreeFellingCommitError::WorkChanged
+                }
                 SurfaceResourceCreationCommitError::NextResourceId { .. } => {
                     TreeFellingCommitError::SurfaceResourceIdChanged
                 }

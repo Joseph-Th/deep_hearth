@@ -159,14 +159,24 @@ fn dismantling_rechecks_fixed_custody_before_commit_and_on_load() {
     let mut forged = state.clone();
     let _ = start(&forged).commit(&mut forged).unwrap();
 
-    // Model an intervening surface owner mutation independently of inventory,
-    // then a malformed saved reservation over the same physical custody.
-    for actor in [&mut state, &mut forged] {
-        validate_create_surface_resources(&registries, actor, [make_parcel()])
-            .unwrap()
-            .commit(actor)
-            .unwrap();
-    }
+    // Admit a parcel before removal in one branch. The other branch owns
+    // an already reserved floor and must reject the same new custody.
+    let creation = validate_create_surface_resources(&registries, &state, [make_parcel()]).unwrap();
+    let resource = creation.first_resource_id();
+    creation.commit(&mut state).unwrap();
+    assert_eq!(
+        validate_create_surface_resources(&registries, &forged, [make_parcel()]).err(),
+        Some(
+            crate::surface::SurfaceResourceCreationError::InvalidResource(
+                crate::surface::SurfaceResourceValidationError::RequiresFixedFloor {
+                    resource,
+                    voxel: position,
+                }
+            )
+        )
+    );
+    // A forged save combines the incompatible owner snapshots.
+    *forged.surface_state_mut() = state.surface().clone();
     let before = state.clone();
     assert_eq!(
         token.commit(&mut state),

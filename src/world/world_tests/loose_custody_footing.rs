@@ -112,6 +112,76 @@ fn assert_surface_parcel_keeps_floor(kind: SurfaceResourceKind) {
 }
 
 #[test]
+fn surface_footing_creation_cannot_cross_floor_removal_reservation() {
+    let (registries, mut state, pick, floor, above) = nearly_mined_floor();
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Drop,
+        above,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        Mass::from_milligrams(250_000),
+        Temperature::from_millikelvin(293_150),
+        crate::material::MaterialComposition::pure(MATERIAL_STONE),
+    )
+    .unwrap();
+    let creation = validate_create_surface_resources(&registries, &state, [spec.clone()]).unwrap();
+    let resource = creation.first_resource_id();
+    let mut with_parcel = state.clone();
+    creation.clone().commit(&mut with_parcel).unwrap();
+    let expected = state.player_work().revision();
+    let started = validate_start_player_block_excavation(&registries, &state, final_cut(pick))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let actual = state.player_work().revision();
+    let before = state.clone();
+    assert_eq!(
+        creation.commit(&mut state),
+        Err(
+            crate::surface::SurfaceResourceCreationCommitError::PlayerWorkRevision {
+                expected,
+                actual,
+            }
+        )
+    );
+    assert_eq!(
+        validate_create_surface_resources(&registries, &state, [spec]).err(),
+        Some(
+            crate::surface::SurfaceResourceCreationError::InvalidResource(
+                crate::surface::SurfaceResourceValidationError::RequiresFixedFloor {
+                    resource,
+                    voxel: above,
+                }
+            )
+        )
+    );
+    assert_eq!(state, before);
+
+    // A decoded combination of individually valid owner snapshots may not
+    // introduce a new dependent parcel onto the already reserved floor.
+    let mut forged = state.clone();
+    *forged.surface_state_mut() = with_parcel.surface().clone();
+    assert_eq!(
+        validate_loaded_state(&registries, &forged),
+        Err(StateValidationError::Surface(
+            crate::surface::SurfaceResourceValidationError::RequiresFixedFloor {
+                resource,
+                voxel: above,
+            }
+        ))
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    while state.control_tick() < started.completes_at() {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(state.world().block_at(floor), Some(BlockStateId::AIR));
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn occupied_unenclosed_ground_cache_cannot_be_left_floating_by_full_excavation() {
     let (registries, mut state, pick, floor, above) = nearly_mined_floor();
     let cache = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(500_000)).unwrap();

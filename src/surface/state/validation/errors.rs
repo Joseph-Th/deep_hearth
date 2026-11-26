@@ -36,6 +36,10 @@ pub enum SurfaceResourceValidationError {
         resource: SurfaceResourceId,
         voxel: VoxelCoord,
     },
+    RequiresFixedFloor {
+        resource: SurfaceResourceId,
+        voxel: VoxelCoord,
+    },
     ZeroNextResourceId,
     NextIdNotAfterExisting {
         next: u32,
@@ -171,6 +175,14 @@ impl Display for SurfaceResourceValidationError {
             Self::EmbeddedInSolidStructure { resource, voxel } => write!(
                 formatter,
                 "surface resource {} has physical biomass embedded in a full-cell structural member at ({},{},{})",
+                resource.value(),
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
+            Self::RequiresFixedFloor { resource, voxel } => write!(
+                formatter,
+                "surface resource {} lacks fixed footing at ({},{},{})",
                 resource.value(),
                 voxel.x(),
                 voxel.y(),
@@ -342,6 +354,7 @@ impl Error for SurfaceResourceValidationError {
             | Self::DuplicateSeededPerennial { .. }
             | Self::EmbeddedInSolidWorld { .. }
             | Self::EmbeddedInSolidStructure { .. }
+            | Self::RequiresFixedFloor { .. }
             | Self::ZeroNextResourceId
             | Self::NextIdNotAfterExisting { .. }
             | Self::ZeroResourceId

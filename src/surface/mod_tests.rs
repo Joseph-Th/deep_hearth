@@ -2,6 +2,8 @@
 
 use super::*;
 
+#[path = "mod_tests/footing.rs"]
+mod footing;
 #[path = "mod_tests/scavenger_gathering.rs"]
 mod scavenger_gathering;
 use crate::content::{
@@ -514,6 +516,12 @@ fn tree_trunk_rejects_new_loose_matter_and_scavenged_drop_relocation() {
         ));
         assert_eq!(state, before);
     }
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(adjacent.x(), adjacent.y() - 1, adjacent.z()),
+        BLOCK_STATE_STONE,
+    );
     let creation =
         validate_create_surface_resources(&registries, &state, [spec(adjacent)]).unwrap();
     let id = creation.first_resource_id();
@@ -554,6 +562,14 @@ fn scavenged_drop_cannot_relocate_into_generated_full_cube() {
     .unwrap()
     .commit(&mut state)
     .unwrap();
+    for position in [air, solid] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(position.x(), position.y() - 1, position.z()),
+            BLOCK_STATE_STONE,
+        );
+    }
     set_generated_block_for_test(registries.world(), &mut state, solid, BLOCK_STATE_STONE);
     assert_eq!(state.world().block_at(air), Some(BlockStateId::AIR));
     let spec = SurfaceResourceSpec::new(

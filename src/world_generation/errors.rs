@@ -189,6 +189,10 @@ pub enum InitialWildernessGenerationCommitError {
         expected: u64,
         actual: u64,
     },
+    StalePlayerWorkRevision {
+        expected: u64,
+        actual: u64,
+    },
     StaleSurfaceIdentity {
         expected: u32,
         actual: u32,
@@ -254,6 +258,10 @@ impl Display for InitialWildernessGenerationCommitError {
             Self::StaleStructureRevision { expected, actual } => write!(
                 formatter,
                 "structure revision changed from {expected} to {actual} before wilderness commit"
+            ),
+            Self::StalePlayerWorkRevision { expected, actual } => write!(
+                formatter,
+                "player work revision changed from {expected} to {actual} before wilderness commit"
             ),
             Self::StaleSurfaceIdentity { expected, actual } => write!(
                 formatter,

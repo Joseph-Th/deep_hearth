@@ -13,8 +13,7 @@ use crate::player::validate_admit_player;
 use crate::simulation::advance_control_tick;
 use crate::spatial::VoxelCoord;
 use crate::surface::{
-    SurfaceGatheringError, SurfaceGatheringRequest, insert_surface_resource_for_test,
-    validate_start_surface_gathering,
+    SurfaceResourceCreationError, SurfaceResourceValidationError, validate_create_surface_resources,
 };
 use crate::world::{
     ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed, validate_generate_chunk,
@@ -328,34 +327,32 @@ fn an_adjacent_ledge_under_the_body_cannot_support_stationary_custody_in_an_open
         .unwrap()
         .commit(&mut state)
         .unwrap();
-    let resource = insert_surface_resource_for_test(
-        &registries,
-        &mut state,
-        SurfaceResourceSpec::new(
-            SurfaceResourceKind::Opportunity,
-            spawn,
-            commodity,
-            Mass::from_milligrams(100_000),
-            Temperature::from_millikelvin(293_150),
-            crate::material::MaterialComposition::pure(MATERIAL_STONE),
-        )
-        .unwrap(),
+    let before = state.clone();
+    // An unsupported site cannot own either a source parcel or an inbound
+    // destination. Test both owners without manufacturing a floating source.
+    let spec = SurfaceResourceSpec::new(
+        SurfaceResourceKind::Opportunity,
+        spawn,
+        commodity,
+        Mass::from_milligrams(100_000),
+        Temperature::from_millikelvin(293_150),
+        crate::material::MaterialComposition::pure(MATERIAL_STONE),
     )
     .unwrap();
-    let before = state.clone();
     assert_eq!(
-        validate_start_surface_gathering(
-            &registries,
-            &state,
-            SurfaceGatheringRequest::new(
-                crate::content::SURFACE_GATHERING_HAND_COLLECT_STONE_CHIPS,
-                resource,
-                stockpile,
-                Mass::from_milligrams(100_000),
-            ),
-        )
-        .err(),
-        Some(SurfaceGatheringError::DestinationRequiresFixedFloor {
+        validate_create_surface_resources(&registries, &state, [spec]).err(),
+        Some(SurfaceResourceCreationError::InvalidResource(
+            SurfaceResourceValidationError::RequiresFixedFloor {
+                resource: crate::surface::SurfaceResourceId::new(
+                    state.surface().next_resource_id()
+                ),
+                voxel: spawn,
+            }
+        ))
+    );
+    assert_eq!(
+        crate::world::validate_stockpile_landing(&registries, &state, stockpile),
+        Err(crate::world::StockpileLandingError::RequiresFixedFloor {
             stockpile,
             position: spawn,
         })

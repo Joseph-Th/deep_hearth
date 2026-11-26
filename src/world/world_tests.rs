@@ -3202,6 +3202,12 @@ fn trusted_load_rejects_exposed_matter_inside_generated_full_cube() {
     // Test-only terrain mutation forges the invalid state after otherwise
     // valid resource creation, bypassing ordinary placement checks.
     let voxel = VoxelCoord::new(0, 100, 0);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(0, 99, 0),
+        BLOCK_STATE_STONE,
+    );
     add_unloaded_surface_drop(&registries, &mut state, voxel);
     set_generated_block_for_test(registries.world(), &mut state, voxel, BLOCK_STATE_STONE);
     let resource = state.surface().resources().next().unwrap().id();

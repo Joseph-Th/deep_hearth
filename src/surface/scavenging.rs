@@ -42,12 +42,8 @@ pub(crate) fn relocate_scavenged_drop_step(
     if !state.can_spend_surface_revisions(1)
         || resource_reserved_for_player_gathering(state, resource)
         || !from.is_face_adjacent_to(to)
-        || state::validation::surface_position_has_solid_world(
-            registries.world(),
-            state.world(),
-            to,
-        )
-        || state.structures().blocks_full_cell(to)
+        || state::validation::validate_surface_resource_site(registries, state, resource, to, None)
+            .is_err()
         || !state.surface().get(resource).is_some_and(|record| {
             record.kind() == SurfaceResourceKind::Drop
                 && record.lifecycle() == SurfaceResourceLifecycle::Available

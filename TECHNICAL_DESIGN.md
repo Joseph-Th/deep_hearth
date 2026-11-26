@@ -2002,7 +2002,11 @@ live natural surface opportunities or loose drops, rooted biomass, and opening r
 their floor through these operations. Direct and neighborhood terrain generation reject live surface
 matter without fixed footing in the prospective chunk, including surviving roots. The same floor
 assessment checks loose stockpile obligations and includes prospective trunks and existing full-cell
-members; a floor reserved for removal is not valid support. The upper trunk is the relevant external
+members; a floor reserved for removal is not valid support. Surface creation, scavenger relocation,
+portion settlement and trusted load share that same committed-world footing contract and reject
+unsupported live matter. Validated surface creation binds the player-work revision as well as terrain
+and structural revisions, so a floor-removal reservation cannot invalidate a retained creation token.
+The upper trunk is the relevant external
 footing for a standing tree. Scheduled removal rechecks the claim at
 start commit and during trusted-load admission; opening patrol movement rejects
 entry onto a floor reserved for removal, including when hauling a loose parcel. Depleted non-perennial surface parcels

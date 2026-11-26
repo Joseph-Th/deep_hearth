@@ -1015,7 +1015,25 @@ fn removing_the_stone_footing_stops_a_depleted_shrub_from_regrowing() {
         calculate_matter_accounting(&state).unwrap().total(),
         conserved
     );
-    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    // The forced terrain mutation is not a legal saved world, even though
+    // the depleted crop correctly remains dormant rather than minting matter.
+    let expected = crate::core::state::StateValidationError::Surface(
+        crate::surface::SurfaceResourceValidationError::RequiresFixedFloor {
+            resource: id,
+            voxel: position,
+        },
+    );
+    assert_eq!(
+        validate_loaded_state(&registries, &state),
+        Err(expected.clone())
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+            .unwrap()
+            .into_state(&registries),
+        Err(crate::persistence::LoadError::InvalidState(expected))
+    );
 }
 
 #[test]

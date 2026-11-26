@@ -2,6 +2,90 @@
 
 use super::*;
 
+/// Move incidental opening opportunities into explicit test custody before
+/// forcing a terrain obstruction that must not strand unrelated parcels.
+fn collect_fixture_opportunities_at(
+    registries: &crate::Registries,
+    state: &mut AppState,
+    position: VoxelCoord,
+) {
+    let matter = calculate_matter_accounting(state).unwrap().total();
+    let parcels: Vec<_> = state
+        .surface()
+        .available_resources_at(Some(position))
+        .filter(|resource| resource.kind() == SurfaceResourceKind::Opportunity)
+        .map(|resource| {
+            assert!(!resource.rooted_biomass_occupies_site());
+            (
+                resource.id(),
+                resource.remaining_mass(),
+                resource.commodity(),
+                resource.temperature(),
+                resource.composition().clone(),
+            )
+        })
+        .collect();
+    for (id, mass, commodity, temperature, composition) in parcels {
+        let storage = crate::inventory::add_solid_stockpile_for_test(state, mass).unwrap();
+        crate::inventory::deposit_composed_lot_for_test(
+            registries,
+            state,
+            storage,
+            commodity,
+            mass,
+            temperature,
+            composition,
+        )
+        .unwrap();
+        let tick = state.tick();
+        let revision = state.surface().revision() + 1;
+        state
+            .surface_state_mut()
+            .apply_gathering(id, mass, tick, revision);
+    }
+    assert_eq!(calculate_matter_accounting(state).unwrap().total(), matter);
+}
+
+/// The unsupported cargo fixture bypasses normal terrain removal admission.
+/// Only the repaired, physically valid branch may resume from a trusted save.
+fn repair_parcel_footing_and_load_replay(
+    registries: &crate::Registries,
+    state: &mut AppState,
+    floor: VoxelCoord,
+) -> AppState {
+    let expected = crate::core::state::validate_loaded_state(registries, state).unwrap_err();
+    assert!(matches!(
+        expected,
+        crate::core::state::StateValidationError::Surface(
+            crate::surface::SurfaceResourceValidationError::RequiresFixedFloor { voxel, .. }
+        ) if voxel == VoxelCoord::new(floor.x(), floor.y() + 1, floor.z())
+    ));
+    let invalid = serde_json::to_vec(&SaveEnvelope::new(registries, state)).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&invalid)
+            .unwrap()
+            .into_state(registries),
+        Err(crate::persistence::LoadError::InvalidState(expected))
+    );
+    crate::world::set_generated_block_for_test(
+        registries.world(),
+        state,
+        floor,
+        crate::content::BLOCK_STATE_STONE,
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(registries, state),
+        Ok(())
+    );
+    let saved = serde_json::to_vec(&SaveEnvelope::new(registries, state)).unwrap();
+    let replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(registries)
+        .unwrap();
+    assert_eq!(&replay, state);
+    replay
+}
+
 #[test]
 fn undermined_generated_den_preserves_fresh_ration_until_scout_has_footing() {
     use crate::content::{BLOCK_STATE_STONE, FORM_FOOD, MATERIAL_BERRIES};
@@ -24,6 +108,7 @@ fn undermined_generated_den_preserves_fresh_ration_until_scout_has_footing() {
     );
     // Keep the scout home until the first scheduled meal by blocking its
     // departure at the junction, without changing the den's own footing.
+    collect_fixture_opportunities_at(&registries, &mut state, junction);
     set_generated_block_for_test(
         registries.world(),
         &mut state,
@@ -87,15 +172,8 @@ fn undermined_generated_den_preserves_fresh_ration_until_scout_has_footing() {
         calculate_matter_accounting(&state).unwrap().total(),
         unsupported_total
     );
-    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
-
-    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
-    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
-        .unwrap()
-        .into_state(&registries)
-        .unwrap();
+    let mut replay = repair_parcel_footing_and_load_replay(&registries, &mut state, den_floor);
     for actor in [&mut state, &mut replay] {
-        set_generated_block_for_test(registries.world(), actor, den_floor, BLOCK_STATE_STONE);
         advance_to_tick(&registries, actor, 585);
         assert_eq!(
             actor.surface().get(parcel).unwrap().remaining_mass(),
@@ -110,7 +188,7 @@ fn undermined_generated_den_preserves_fresh_ration_until_scout_has_footing() {
 
 #[test]
 fn undermined_generated_scout_cannot_consume_local_water_until_footing_returns() {
-    use crate::content::{BLOCK_STATE_STONE, FLUID_WATER};
+    use crate::content::FLUID_WATER;
     use crate::core::quantity::{Temperature, Volume};
     use crate::core::state::validate_loaded_state;
     use crate::fluid::{
@@ -180,15 +258,8 @@ fn undermined_generated_scout_cannot_consume_local_water_until_footing_returns()
         calculate_fluid_volume_accounting(&state).unwrap(),
         fluid_before
     );
-    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
-
-    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
-    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
-        .unwrap()
-        .into_state(&registries)
-        .unwrap();
+    let mut replay = repair_parcel_footing_and_load_replay(&registries, &mut state, floor);
     for actor in [&mut state, &mut replay] {
-        set_generated_block_for_test(registries.world(), actor, floor, BLOCK_STATE_STONE);
         advance_to_tick(&registries, actor, 985);
         assert_eq!(
             actor.fluid().get_store(water).unwrap().stored_volume(),
@@ -206,9 +277,7 @@ fn undermined_generated_scout_cannot_consume_local_water_until_footing_returns()
 
 #[test]
 fn undermined_generated_junction_cannot_fit_a_pry_tool_until_footing_returns() {
-    use crate::content::{
-        BLOCK_STATE_STONE, FORM_HANDLE, FORM_INGOT, MATERIAL_COPPER, MATERIAL_WOOD,
-    };
+    use crate::content::{FORM_HANDLE, FORM_INGOT, MATERIAL_COPPER, MATERIAL_WOOD};
     use crate::core::quantity::Temperature;
     use crate::core::state::validate_loaded_state;
     use crate::material::{CommodityKey, MaterialComposition};
@@ -269,15 +338,8 @@ fn undermined_generated_junction_cannot_fit_a_pry_tool_until_footing_returns() {
         calculate_matter_accounting(&state).unwrap().total(),
         matter_stranded
     );
-    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
-
-    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
-    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
-        .unwrap()
-        .into_state(&registries)
-        .unwrap();
+    let mut replay = repair_parcel_footing_and_load_replay(&registries, &mut state, floor);
     for actor in [&mut state, &mut replay] {
-        set_generated_block_for_test(registries.world(), actor, floor, BLOCK_STATE_STONE);
         advance_to_tick(&registries, actor, 190);
         assert!(colony(actor).pry_fitting.is_some());
         assert!(
@@ -367,6 +429,7 @@ fn undermined_generated_worksite_cannot_raid_exposed_inventory_until_supported()
         total
     );
     let raid_tick = arrived_at + 5;
+    collect_fixture_opportunities_at(&registries, &mut state, junction);
     let mut grounded = state.clone();
     advance_to_tick(&registries, &mut grounded, raid_tick);
     assert!(
@@ -442,6 +505,7 @@ fn opening_scout_cannot_walk_from_an_excavated_unsupported_floor() {
             .has_standing_clearance(registries.world(), junction),
         "generated scout patrol begins with a supported junction"
     );
+    collect_fixture_opportunities_at(&registries, &mut state, junction);
     let mut supported = state.clone();
     advance_to_tick(&registries, &mut supported, 185);
     assert_ne!(
@@ -591,43 +655,8 @@ fn scout_cannot_acquire_a_floor_reserved_for_structural_dismantling() {
     let (registries, mut state, _) = generated_terrain_scout_opening();
     let [den, junction, tip] = colony(&state).route;
     advance_to_tick(&registries, &mut state, 179);
-    // Isolate the scout's prospective footing claim: the existing natural
-    // parcels must already have been collected before dismantling can begin.
-    // Prepare that custody in the fixture without advancing the patrol clock.
-    let matter = calculate_matter_accounting(&state).unwrap().total();
-    let parcels: Vec<_> = state
-        .surface()
-        .available_resources_at(Some(junction))
-        .map(|resource| {
-            assert!(!resource.rooted_biomass_occupies_site());
-            (
-                resource.id(),
-                resource.remaining_mass(),
-                resource.commodity(),
-                resource.temperature(),
-                resource.composition().clone(),
-            )
-        })
-        .collect();
-    for (id, mass, commodity, temperature, composition) in parcels {
-        let storage = crate::inventory::add_solid_stockpile_for_test(&mut state, mass).unwrap();
-        crate::inventory::deposit_composed_lot_for_test(
-            &registries,
-            &mut state,
-            storage,
-            commodity,
-            mass,
-            temperature,
-            composition,
-        )
-        .unwrap();
-        let tick = state.tick();
-        let revision = state.surface().revision() + 1;
-        state
-            .surface_state_mut()
-            .apply_gathering(id, mass, tick, revision);
-    }
-    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+    // Isolate the scout's prospective footing claim without advancing patrol time.
+    collect_fixture_opportunities_at(&registries, &mut state, junction);
     let floor = VoxelCoord::new(junction.x(), junction.y() - 1, junction.z());
     set_generated_block_for_test(registries.world(), &mut state, floor, BlockStateId::AIR);
     let member = add_structural_element(
@@ -725,7 +754,6 @@ fn scout_cannot_acquire_a_floor_reserved_for_structural_dismantling() {
 
 #[test]
 fn unsupported_scout_retains_exact_stolen_cargo_until_its_real_return_edge_is_restored() {
-    use crate::content::BLOCK_STATE_STONE;
     use crate::core::state::validate_loaded_state;
     use crate::world::{BlockStateId, set_generated_block_for_test};
 
@@ -751,15 +779,7 @@ fn unsupported_scout_retains_exact_stolen_cargo_until_its_real_return_edge_is_re
         calculate_matter_accounting(&state).unwrap().total(),
         matter_without_floor
     );
-    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
-
-    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
-    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
-        .unwrap()
-        .into_state(&registries)
-        .unwrap();
-    set_generated_block_for_test(registries.world(), &mut state, floor, BLOCK_STATE_STONE);
-    set_generated_block_for_test(registries.world(), &mut replay, floor, BLOCK_STATE_STONE);
+    let mut replay = repair_parcel_footing_and_load_replay(&registries, &mut state, floor);
     advance_to_tick(&registries, &mut state, 200);
     advance_to_tick(&registries, &mut replay, 200);
     assert_eq!(replay, state);
@@ -815,6 +835,7 @@ fn undermined_generated_den_cannot_discard_food_across_an_unwalkable_exit() {
 
     // Keep the scout at home until care is due, then uncover its walking exit
     // while undermining only the den. The destination is entirely passable.
+    collect_fixture_opportunities_at(&registries, &mut state, junction);
     set_generated_block_for_test(
         registries.world(),
         &mut state,
@@ -856,15 +877,8 @@ fn undermined_generated_den_cannot_discard_food_across_an_unwalkable_exit() {
         calculate_matter_accounting(&state).unwrap().total(),
         stranded_mass
     );
-    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
-
-    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
-    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
-        .unwrap()
-        .into_state(&registries)
-        .unwrap();
+    let mut replay = repair_parcel_footing_and_load_replay(&registries, &mut state, den_floor);
     for actor in [&mut state, &mut replay] {
-        set_generated_block_for_test(registries.world(), actor, den_floor, BLOCK_STATE_STONE);
         advance_to_tick(&registries, actor, 585);
     }
     assert_eq!(replay, state);
@@ -2034,6 +2048,9 @@ fn terrain_scout_waits_for_floor_and_head_clearance_and_resumes_after_repair() {
             BLOCK_STATE_STONE
         };
         assert_ne!(original, obstruction);
+        if block_floor {
+            collect_fixture_opportunities_at(&registries, &mut state, junction);
+        }
         set_generated_block_for_test(registries.world(), &mut state, blocked, obstruction);
         assert!(
             !state

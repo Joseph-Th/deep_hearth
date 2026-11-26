@@ -80,16 +80,7 @@ pub fn validate_loaded_state(
     .map_err(StateValidationError::Structure)?;
     validate_loaded_world(registries.world(), &state.systems.world)
         .map_err(StateValidationError::World)?;
-    validate_loaded_surface_resources(
-        registries.materials(),
-        &state.systems.surface,
-        state.tick(),
-        state.control_tick(),
-        registries.world(),
-        state.world(),
-        state.structures(),
-    )
-    .map_err(StateValidationError::Surface)?;
+    validate_loaded_surface_resources(registries, state).map_err(StateValidationError::Surface)?;
     validate_loaded_kobolds(registries, state).map_err(StateValidationError::Kobolds)?;
     state
         .combat()

@@ -571,6 +571,12 @@ fn explicit_supported_timber_distinguishes_slender_and_full_footprint_occupancy(
         .unwrap()
         .commit(&mut state)
         .unwrap();
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(destination.x(), destination.y() - 1, destination.z()),
+        BLOCK_STATE_STONE,
+    );
     let drop = insert_surface_resource_for_test(
         &registries,
         &mut state,

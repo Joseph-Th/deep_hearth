@@ -614,15 +614,27 @@ fn generated_unrouted_neighbor_can_receive_a_real_worksite_counterstroke() {
             .any(|sighting| sighting.role() == KoboldRole::Scout && sighting.is_defending()),
         "unsupported weapon work must not advertise an active counterstroke"
     );
+    let invalid = validate_loaded_state(&registries, &undermined).unwrap_err();
+    assert!(matches!(
+        invalid,
+        crate::core::state::StateValidationError::Surface(
+            crate::surface::SurfaceResourceValidationError::RequiresFixedFloor {
+                voxel: WORKSITE,
+                ..
+            }
+        )
+    ));
     let undermined_save = serde_json::to_vec(&SaveEnvelope::new(&registries, &undermined)).unwrap();
-    let mut undermined_replay = serde_json::from_slice::<LoadedSaveEnvelope>(&undermined_save)
-        .unwrap()
-        .into_state(&registries)
-        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&undermined_save)
+            .unwrap()
+            .into_state(&registries),
+        Err(crate::persistence::LoadError::InvalidState(invalid))
+    );
     // Restoring floor support before the threatened encounter restores the
     // actual blow. Once the unsupported encounter has already happened,
     // ordinary close-contact caution still applies independently of footing.
-    let mut repaired_before_contact = undermined_replay.clone();
+    let mut repaired_before_contact = undermined.clone();
     set_generated_block_for_test(
         registries.world(),
         &mut repaired_before_contact,
@@ -648,8 +660,6 @@ fn generated_unrouted_neighbor_can_receive_a_real_worksite_counterstroke() {
         Vec::<(SurfaceResourceId, u32)>::new(),
         "an unsupported scout cannot deliver a damaging counterstroke"
     );
-    assert!(to_tick(&registries, &mut undermined_replay, 215).is_empty());
-    assert_eq!(undermined, undermined_replay);
     assert_eq!(
         undermined
             .survival()
@@ -669,7 +679,15 @@ fn generated_unrouted_neighbor_can_receive_a_real_worksite_counterstroke() {
         calculate_matter_accounting(&undermined).unwrap().total(),
         unsupported_matter
     );
-    assert_eq!(validate_loaded_state(&registries, &undermined), Ok(()));
+    assert!(matches!(
+        validate_loaded_state(&registries, &undermined),
+        Err(crate::core::state::StateValidationError::Surface(
+            crate::surface::SurfaceResourceValidationError::RequiresFixedFloor {
+                voxel: WORKSITE,
+                ..
+            }
+        ))
+    ));
 
     let mut away = generated.clone();
     crate::logistics::relocate_player_for_test(&mut away, VoxelCoord::new(0, 0, 2));

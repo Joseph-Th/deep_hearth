@@ -224,6 +224,10 @@ pub(crate) enum SurfaceResourceCreationCommitError {
         expected: u64,
         actual: u64,
     },
+    PlayerWorkRevision {
+        expected: u64,
+        actual: u64,
+    },
     NextResourceId {
         expected: u32,
         actual: u32,
@@ -251,6 +255,10 @@ impl Display for SurfaceResourceCreationCommitError {
                 formatter,
                 "structural revision changed from {expected} to {actual} before surface creation commit"
             ),
+            Self::PlayerWorkRevision { expected, actual } => write!(
+                formatter,
+                "player work revision changed from {expected} to {actual} before surface creation commit"
+            ),
             Self::NextResourceId { expected, actual } => write!(
                 formatter,
                 "surface resource creation expected next id {expected} but found {actual} before commit"
@@ -268,6 +276,7 @@ pub(crate) struct ValidatedSurfaceResourceCreation {
     expected_revision: u64,
     expected_world_revision: u64,
     expected_structure_revision: u64,
+    expected_player_work_revision: u64,
     expected_next_resource_id: u32,
     records: Vec<SurfaceResourceRecord>,
     next_resource_id: u32,
@@ -313,6 +322,13 @@ impl ValidatedSurfaceResourceCreation {
             return Err(SurfaceResourceCreationCommitError::StructureRevision {
                 expected: self.expected_structure_revision,
                 actual: actual_structure_revision,
+            });
+        }
+        let actual_player_work_revision = state.player_work().revision();
+        if actual_player_work_revision != self.expected_player_work_revision {
+            return Err(SurfaceResourceCreationCommitError::PlayerWorkRevision {
+                expected: self.expected_player_work_revision,
+                actual: actual_player_work_revision,
             });
         }
         let actual_next_resource_id = state.surface().next_resource_id();
@@ -449,14 +465,8 @@ fn validate_create_surface_resources_with_felling_at(
             state.control_tick(),
         )
         .map_err(SurfaceResourceCreationError::InvalidResource)?;
-        validate_surface_resource_physical_position(
-            registries.world(),
-            state.world(),
-            state.structures(),
-            &record,
-            felled_root,
-        )
-        .map_err(SurfaceResourceCreationError::InvalidResource)?;
+        validate_surface_resource_physical_position(registries, state, &record, felled_root)
+            .map_err(SurfaceResourceCreationError::InvalidResource)?;
         records.push(record);
     }
     Ok(ValidatedSurfaceResourceCreation {
@@ -464,6 +474,7 @@ fn validate_create_surface_resources_with_felling_at(
         expected_revision,
         expected_world_revision: state.world().revision(),
         expected_structure_revision: state.structures().revision(),
+        expected_player_work_revision: state.player_work().revision(),
         expected_next_resource_id,
         records,
         next_resource_id,

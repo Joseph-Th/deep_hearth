@@ -148,6 +148,12 @@ impl ValidatedInitialWildernessGeneration {
                         actual,
                     }
                 }
+                SurfaceResourceCreationCommitError::PlayerWorkRevision { expected, actual } => {
+                    InitialWildernessGenerationCommitError::StalePlayerWorkRevision {
+                        expected,
+                        actual,
+                    }
+                }
                 SurfaceResourceCreationCommitError::NextResourceId { expected, actual } => {
                     InitialWildernessGenerationCommitError::StaleSurfaceIdentity {
                         expected,
