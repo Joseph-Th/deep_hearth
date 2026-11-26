@@ -42,7 +42,11 @@ pub(super) fn continues_secondary(state: &AppState, direction: ViewDirection) ->
         .pending_secondary_use()
         .is_some_and(|pending| {
             pending.direction() == Some(direction)
-                && buffered_context_matches(state, pending.position(), pending.selection())
+                && buffered_context_matches(
+                    state,
+                    pending.position(),
+                    Some(PlayerActiveSelection::Material(pending.commodity())),
+                )
         })
 }
 

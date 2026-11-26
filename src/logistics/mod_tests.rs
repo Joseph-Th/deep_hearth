@@ -60,6 +60,28 @@ fn off_boundary_admitted_player() -> (crate::registry::Registries, AppState) {
     (registries, state)
 }
 
+fn select_buffer_timber(registries: &crate::registry::Registries, state: &mut AppState) {
+    let timber = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    crate::inventory::deposit_lot_for_test(
+        registries,
+        state,
+        carried,
+        timber,
+        crate::core::quantity::Mass::from_milligrams(6_500_000),
+        crate::core::quantity::Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    crate::logistics::validate_set_active_selection(
+        registries,
+        state,
+        Some(crate::logistics::PlayerActiveSelection::material(timber)),
+    )
+    .unwrap()
+    .commit(state)
+    .unwrap();
+}
+
 #[test]
 fn dead_player_cannot_buffer_primary_or_secondary_direct_actions() {
     let (_registries, mut state) = off_boundary_admitted_player();
@@ -91,8 +113,27 @@ fn dead_player_cannot_buffer_primary_or_secondary_direct_actions() {
 }
 
 #[test]
+fn empty_hand_cannot_buffer_material_only_contextual_use() {
+    let (_registries, state) = off_boundary_admitted_player();
+    assert!(state.logistics().active_selection().is_none());
+    assert_eq!(
+        validate_buffer_player_secondary_use(
+            &state,
+            positive_x_view(),
+            BufferedSecondaryTarget::GroundedTimber {
+                destination: VoxelCoord::new(1, 0, 0),
+            },
+        )
+        .err(),
+        Some(PlayerPendingSecondaryUseError::MaterialSelectionRequired)
+    );
+    assert!(!state.logistics().has_pending_direct_action());
+}
+
+#[test]
 fn buffered_direct_action_validation_tracks_survival_revision() {
-    let (_registries, mut state) = off_boundary_admitted_player();
+    let (registries, mut state) = off_boundary_admitted_player();
+    select_buffer_timber(&registries, &mut state);
     let validated = validate_buffer_player_secondary_use(
         &state,
         positive_x_view(),
@@ -117,6 +158,7 @@ fn buffered_direct_action_validation_tracks_survival_revision() {
 #[test]
 fn buffered_action_admission_rejects_a_stale_control_sample() {
     let (registries, mut state) = off_boundary_admitted_player();
+    select_buffer_timber(&registries, &mut state);
     let primary = validate_buffer_player_primary_break(
         &state,
         StructuralElementId::new(1),
@@ -156,6 +198,7 @@ fn buffered_action_admission_rejects_a_stale_control_sample() {
 fn trusted_load_rejects_dead_player_with_buffered_direct_action() {
     let (registries, state) = off_boundary_admitted_player();
     let mut secondary = state.clone();
+    select_buffer_timber(&registries, &mut secondary);
     validate_buffer_player_secondary_use(
         &secondary,
         positive_x_view(),

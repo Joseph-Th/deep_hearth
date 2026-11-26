@@ -230,6 +230,28 @@ fn new_primary_input_cancels_queued_secondary_before_or_on_its_due_boundary() {
             let _ = advance_control_tick(&registries, &mut state).unwrap();
         }
         let direction = ViewDirection::new(1_000_000, 0, 0).unwrap();
+        let timber = crate::material::CommodityKey::new(
+            crate::content::MATERIAL_WOOD,
+            crate::content::FORM_LOG,
+        );
+        let carried = state.logistics().player().unwrap().carried_stockpile();
+        crate::inventory::deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            timber,
+            crate::core::quantity::Mass::from_milligrams(6_500_000),
+            crate::core::quantity::Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+        crate::logistics::validate_set_active_selection(
+            &registries,
+            &state,
+            Some(crate::logistics::PlayerActiveSelection::material(timber)),
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
         validate_buffer_player_secondary_use(
             &state,
             direction,

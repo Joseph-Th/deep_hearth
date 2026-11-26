@@ -160,6 +160,28 @@ fn fatal_simulation_boundary_clears_buffered_direct_actions_before_state_validat
                 .commit(&mut state)
                 .unwrap_or_else(|error| panic!("primary buffering commit failed: {error}"));
         } else {
+            let timber = crate::material::CommodityKey::new(
+                crate::content::MATERIAL_WOOD,
+                crate::content::FORM_LOG,
+            );
+            let carried = state.logistics().player().unwrap().carried_stockpile();
+            crate::inventory::deposit_lot_for_test(
+                &registries,
+                &mut state,
+                carried,
+                timber,
+                crate::core::quantity::Mass::from_milligrams(6_500_000),
+                crate::core::quantity::Temperature::from_millikelvin(293_150),
+            )
+            .unwrap();
+            crate::logistics::validate_set_active_selection(
+                &registries,
+                &state,
+                Some(crate::logistics::PlayerActiveSelection::material(timber)),
+            )
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
             validate_buffer_player_secondary_use(
                 &state,
                 direction,

@@ -10,13 +10,14 @@ use crate::player::{
 };
 use crate::spatial::ViewDirection;
 
-use super::{BufferedSecondaryTarget, PlayerPendingSecondaryUse};
+use super::{BufferedSecondaryTarget, PlayerActiveSelection, PlayerPendingSecondaryUse};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayerPendingSecondaryUseError {
     PlayerNotAdmitted,
     PlayerDead,
     AlreadyPending,
+    MaterialSelectionRequired,
     SimulationBoundary,
     LogisticsRevisionExhausted,
 }
@@ -31,6 +32,9 @@ impl Display for PlayerPendingSecondaryUseError {
             Self::AlreadyPending => formatter.write_str(
                 "one contextual use is already buffered for the next simulation boundary",
             ),
+            Self::MaterialSelectionRequired => {
+                formatter.write_str("buffered contextual use requires a selected material")
+            }
             Self::SimulationBoundary => formatter
                 .write_str("contextual use does not need buffering on a simulation boundary"),
             Self::LogisticsRevisionExhausted => formatter.write_str(
@@ -147,6 +151,10 @@ pub(crate) fn validate_buffer_player_secondary_use(
     if state.control_tick().is_simulation_boundary() {
         return Err(PlayerPendingSecondaryUseError::SimulationBoundary);
     }
+    let Some(PlayerActiveSelection::Material(commodity)) = state.logistics().active_selection()
+    else {
+        return Err(PlayerPendingSecondaryUseError::MaterialSelectionRequired);
+    };
     // One revision records the buffered input and one remains reserved for clearing it. The
     // latter becomes resident future demand after commit.
     if !state.can_spend_logistics_revisions(2) {
@@ -163,7 +171,7 @@ pub(crate) fn validate_buffer_player_secondary_use(
         pending: PlayerPendingSecondaryUse::new(
             state.control_tick(),
             player.body().foot_position(),
-            state.logistics().active_selection(),
+            commodity,
             direction,
             target,
         ),

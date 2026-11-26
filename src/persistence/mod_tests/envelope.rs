@@ -348,7 +348,7 @@ fn stockpile_enclosure_and_support_are_required_even_when_absent() {
 }
 
 #[test]
-fn buffered_secondary_use_requires_selection_and_target_on_load() {
+fn buffered_secondary_use_requires_material_and_target_on_load() {
     use crate::logistics::validate_buffer_player_secondary_use;
     use crate::spatial::ViewDirection;
 
@@ -359,6 +359,25 @@ fn buffered_secondary_use_requires_selection_and_target_on_load() {
         .commit(&mut state)
         .unwrap();
     let _ = advance_control_tick(&registries, &mut state).unwrap();
+    let timber = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    crate::inventory::deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        timber,
+        crate::core::quantity::Mass::from_milligrams(6_500_000),
+        crate::core::quantity::Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    crate::logistics::validate_set_active_selection(
+        &registries,
+        &state,
+        Some(crate::logistics::PlayerActiveSelection::material(timber)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
     let direction = ViewDirection::new(1_000_000, 0, 0).unwrap();
     validate_buffer_player_secondary_use(
         &state,
@@ -378,6 +397,10 @@ fn buffered_secondary_use_requires_selection_and_target_on_load() {
             .unwrap(),
         state
     );
+    let mut invalid = saved.clone();
+    invalid["state"]["systems"]["logistics"]["pending_secondary_use"]["commodity"] =
+        serde_json::Value::Null;
+    assert!(serde_json::from_value::<LoadedSaveEnvelope>(invalid).is_err());
     let mut obsolete = saved.clone();
     obsolete["state"]["systems"]["logistics"]["pending_secondary_use"]
         .as_object_mut()
@@ -388,7 +411,7 @@ fn buffered_secondary_use_requires_selection_and_target_on_load() {
         "obsolete buffered gathering fields must not be admitted by the new schema"
     );
 
-    for field in ["selection", "target"] {
+    for field in ["commodity", "target"] {
         let mut incomplete = saved.clone();
         assert!(
             incomplete["state"]["systems"]["logistics"]["pending_secondary_use"]

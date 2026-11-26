@@ -116,19 +116,20 @@ pub(super) fn attempt_pending_secondary_action(
     state: &mut AppState,
 ) -> Option<SecondaryActionOutcome> {
     let pending = take_player_pending_secondary_use(state)?;
-    if !buffered_context_matches(state, pending.position(), pending.selection()) {
+    if !buffered_context_matches(
+        state,
+        pending.position(),
+        Some(PlayerActiveSelection::Material(pending.commodity())),
+    ) {
         return Some(SecondaryActionOutcome::BufferedContextChanged);
     }
-    let Some(PlayerActiveSelection::Material(commodity)) = pending.selection() else {
-        return Some(SecondaryActionOutcome::BufferedContextChanged);
-    };
     let direction = pending.direction().unwrap_or_else(|| {
         panic!("runtime invariant broken: trusted buffered contextual use has invalid direction")
     });
     Some(attempt_buffered_selected_action(
         registries,
         state,
-        commodity,
+        pending.commodity(),
         direction,
         pending.target(),
     ))

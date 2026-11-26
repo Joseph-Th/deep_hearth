@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::core::quantity::{Energy, Volume};
 use crate::core::time::{CONTROL_TICKS_PER_SIMULATION_TICK, ControlTick};
 use crate::energy::{EnergyStoreDefinitionId, EnergyStoreId};
+use crate::material::CommodityKey;
 use crate::spatial::{ViewDirection, VoxelCoord, WorldPoint};
 use crate::structural::StructuralElementId;
 use crate::survival::SurvivalExertion;
@@ -109,7 +110,7 @@ pub(crate) enum BufferedSecondaryTarget {
 
 /// Persisted one-shot contextual-use input waiting for the next slow-simulation boundary.
 ///
-/// Retains the resolved physical action, body origin and selection. The due
+/// Retains the resolved physical action, body origin and selected commodity. The due
 /// boundary revalidates that action instead of reinterpreting the gesture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -117,8 +118,7 @@ pub(crate) struct PlayerPendingSecondaryUse {
     requested_at: ControlTick,
     position: WorldPoint,
     target: BufferedSecondaryTarget,
-    #[serde(deserialize_with = "crate::core::serialization::deserialize_required_optional")]
-    selection: Option<PlayerActiveSelection>,
+    commodity: CommodityKey,
     direction_x_ppm: i32,
     direction_y_ppm: i32,
     direction_z_ppm: i32,
@@ -128,7 +128,7 @@ impl PlayerPendingSecondaryUse {
     pub(crate) const fn new(
         requested_at: ControlTick,
         position: WorldPoint,
-        selection: Option<PlayerActiveSelection>,
+        commodity: CommodityKey,
         direction: ViewDirection,
         target: BufferedSecondaryTarget,
     ) -> Self {
@@ -136,7 +136,7 @@ impl PlayerPendingSecondaryUse {
             requested_at,
             position,
             target,
-            selection,
+            commodity,
             direction_x_ppm: direction.x_parts_per_million(),
             direction_y_ppm: direction.y_parts_per_million(),
             direction_z_ppm: direction.z_parts_per_million(),
@@ -154,8 +154,8 @@ impl PlayerPendingSecondaryUse {
     }
 
     #[must_use]
-    pub(crate) const fn selection(self) -> Option<PlayerActiveSelection> {
-        self.selection
+    pub(crate) const fn commodity(self) -> CommodityKey {
+        self.commodity
     }
 
     #[must_use]
@@ -167,8 +167,7 @@ impl PlayerPendingSecondaryUse {
         )
         .ok()
     }
-}
-impl PlayerPendingSecondaryUse {
+
     #[must_use]
     pub(crate) const fn target(self) -> BufferedSecondaryTarget {
         self.target

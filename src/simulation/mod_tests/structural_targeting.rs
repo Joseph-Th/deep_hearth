@@ -271,6 +271,28 @@ fn held_break_requeues_after_selection_change_before_its_due_boundary() {
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
+fn select_buffer_timber(registries: &Registries, state: &mut AppState) {
+    let timber = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    deposit_lot_for_test(
+        registries,
+        state,
+        carried,
+        timber,
+        Mass::from_milligrams(6_500_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    validate_set_active_selection(
+        registries,
+        state,
+        Some(PlayerActiveSelection::material(timber)),
+    )
+    .unwrap()
+    .commit(state)
+    .unwrap();
+}
+
 #[test]
 fn queued_use_does_not_erase_movement_on_its_due_control_sample() {
     use crate::core::state::validate_loaded_state;
@@ -281,6 +303,7 @@ fn queued_use_does_not_erase_movement_on_its_due_control_sample() {
     for _ in 1..CONTROL_TICKS_PER_SIMULATION_TICK {
         let _ = advance_control_tick(&registries, &mut state).unwrap();
     }
+    select_buffer_timber(&registries, &mut state);
     let origin = state.logistics().player().unwrap().body().foot_position();
     let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
     validate_buffer_player_secondary_use(
@@ -409,6 +432,7 @@ fn queued_contextual_use_rejects_sub_voxel_movement_after_save_load() {
 
     let (registries, mut state, _) = generated_grounded_player_at(0, 0);
     let _ = advance_control_tick(&registries, &mut state).unwrap();
+    select_buffer_timber(&registries, &mut state);
     let origin = state.logistics().player().unwrap().body().foot_position();
     let direction = ViewDirection::new(VIEW_DIRECTION_PARTS_PER_MILLION, 0, 0).unwrap();
     validate_buffer_player_secondary_use(
