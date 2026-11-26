@@ -382,6 +382,31 @@ fn validate_structural_construction_world(
                 voxel,
             });
         }
+        // Spring identity and location survive drainage. Only terrain generation
+        // creates a natural basin, so the existing world revision also binds
+        // this clearance check through materialization.
+        let bounds = record.bounds();
+        let spring = if bounds.voxel_count() == Some(1) {
+            let voxel = bounds.min();
+            state
+                .logistics()
+                .fluid_stores_at(voxel)
+                .find(|&store| state.fluid().is_natural_spring(store))
+                .map(|store| (store, voxel))
+        } else {
+            state
+                .fluid()
+                .spring_soil()
+                .find(|(_, soil)| bounds.has_voxel(soil.position))
+                .map(|(store, soil)| (store, soil.position))
+        };
+        if let Some((store, voxel)) = spring {
+            return Err(StructuralConstructionError::NaturalSpringOccupied {
+                element: record.id(),
+                store,
+                voxel,
+            });
+        }
         // Harvested perennial fruit is no longer surface custody, but its
         // finite living roots still physically occupy the construction site.
         // Inspect the sparse perennial index so inert, fully spent history

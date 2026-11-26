@@ -1989,8 +1989,10 @@ on trusted load; embodiment and activation change the same indexed member withou
 Unusually large valid bounds use exact geometric fallbacks rather than allocating unbounded per-voxel or
 per-column entries. The index does not change collision rules:
 only embodied members with a complete horizontal footprint block the player's body, whereas any embodied
-member can obstruct a heavy resident. Player-directed placement and opening-resident admission use those
-canonical local-occupancy predicates; structural dismantling uses the existing reverse support index at
+member can obstruct a heavy resident. Natural springs retain their basin cell even after drainage:
+natural generation, full-cell structural materialization, and trusted-load validation exclude a
+solid member occupying that cell. Narrow framing may share the basin cell without owning its water.
+Player-directed placement and opening-resident admission use canonical local-occupancy predicates; structural dismantling uses the existing reverse support index at
 admission and completion rather than scanning the entire topology. A timed dismantling start
 reserves exact recovered matter in the player's inventory and excludes its target from new supported
 blueprints until the work completes or is interrupted. Supported placement forecasts share that admission

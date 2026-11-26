@@ -151,6 +151,236 @@ fn generated_water_neighborhood() -> (crate::registry::Registries, AppState, Vox
 }
 
 #[test]
+fn full_cell_construction_cannot_entomb_a_natural_basin_even_when_dry() {
+    use crate::content::{
+        BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS, FORM_BOARD,
+        MATERIAL_WOOD, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    };
+    use crate::inventory::{deposit_lot_for_test, project_material_stacks};
+    use crate::logistics::{project_player_standing_space, relocate_player_for_test};
+    use crate::material::CommodityKey;
+    use crate::spatial::VoxelBounds;
+    use crate::structural::{
+        GroundedStructuralElementPlan, PlayerGroundedStructuralConstructionError,
+        PlayerStructuralConstructionError, StructuralConstructionError, StructuralElementGeometry,
+        validate_plan_player_grounded_structural_element,
+        validate_start_player_grounded_structural_construction_from_stack,
+    };
+
+    let (registries, mut state, position) = generated_water_neighborhood();
+    let store = state.logistics().fluid_stores_at(position).next().unwrap();
+    let neighbor = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+        .into_iter()
+        .map(|(dx, dz)| VoxelCoord::new(position.x() + dx, position.y(), position.z() + dz))
+        .find(|&at| project_player_standing_space(&registries, &state, at))
+        .expect("spring fixture must have a reachable standing cell");
+    relocate_player_for_test(&mut state, neighbor);
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_BOARD),
+        Mass::from_milligrams(6_500_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let plan = GroundedStructuralElementPlan::new(
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        StructuralElementGeometry::new(
+            VoxelBounds::new(
+                position,
+                VoxelCoord::new(position.x() + 1, position.y() + 1, position.z() + 1),
+            )
+            .unwrap(),
+            BASIC_TIMBER_COVER_PANEL_THICKNESS,
+            BASIC_TIMBER_COVER_PANEL_AREA,
+        )
+        .unwrap(),
+    );
+    for dry in [false, true] {
+        let mut candidate = state.clone();
+        if dry {
+            let volume = candidate.fluid().get_store(store).unwrap().stored_volume();
+            let receiver = crate::fluid::add_fluid_store(&mut candidate, volume).unwrap();
+            crate::logistics::validate_place_fluid_store(&candidate, receiver, position)
+                .unwrap()
+                .commit(&mut candidate)
+                .unwrap();
+            let accounting = calculate_fluid_volume_accounting(&candidate).unwrap();
+            relocate_player_for_test(&mut candidate, position);
+            let _ = crate::fluid::validate_transfer_fluid_between_local_stores(
+                &registries,
+                &candidate,
+                store,
+                receiver,
+                volume,
+            )
+            .unwrap()
+            .commit(&mut candidate)
+            .unwrap();
+            relocate_player_for_test(&mut candidate, neighbor);
+            assert_eq!(
+                calculate_fluid_volume_accounting(&candidate).unwrap(),
+                accounting
+            );
+        }
+        assert_eq!(
+            candidate
+                .fluid()
+                .get_store(store)
+                .unwrap()
+                .stored_volume()
+                .is_zero(),
+            dry
+        );
+        assert_eq!(validate_loaded_state(&registries, &candidate), Ok(()));
+        let stack = project_material_stacks(&registries, &candidate, carried)
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        let before = candidate.clone();
+        let result = validate_start_player_grounded_structural_construction_from_stack(
+            &registries,
+            &candidate,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+            plan,
+            &stack,
+        );
+        let element =
+            validate_plan_player_grounded_structural_element(&registries, &candidate, plan)
+                .unwrap()
+                .element();
+        assert_eq!(
+            result.err(),
+            Some(PlayerGroundedStructuralConstructionError::Construction(
+                PlayerStructuralConstructionError::Material(
+                    StructuralConstructionError::NaturalSpringOccupied {
+                        element,
+                        store,
+                        voxel: position
+                    }
+                )
+            )),
+            "a natural basin claims its cell even when dry: {dry}"
+        );
+        assert_eq!(candidate, before);
+
+        // Narrow members do not block access to the basin and do not acquire its water.
+        let narrow = GroundedStructuralElementPlan::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            StructuralElementGeometry::new(
+                VoxelBounds::new(
+                    position,
+                    VoxelCoord::new(position.x() + 1, position.y() + 1, position.z() + 1),
+                )
+                .unwrap(),
+                crate::core::quantity::Length::from_micrometers(2_000_000),
+                crate::core::quantity::Area::from_square_millimeters(5_000),
+            )
+            .unwrap(),
+        );
+        let matter = crate::matter::calculate_matter_accounting(&candidate)
+            .unwrap()
+            .total();
+        let accounting = calculate_fluid_volume_accounting(&candidate).unwrap();
+        let work = validate_start_player_grounded_structural_construction_from_stack(
+            &registries,
+            &candidate,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+            narrow,
+            &stack,
+        )
+        .unwrap()
+        .commit(&mut candidate)
+        .unwrap();
+        while candidate.tick() < work.completes_at() {
+            let _ = crate::simulation::advance_tick(&registries, &mut candidate).unwrap();
+        }
+        assert!(!candidate.structures().blocks_full_cell(position));
+        assert_eq!(
+            crate::matter::calculate_matter_accounting(&candidate)
+                .unwrap()
+                .total(),
+            matter
+        );
+        assert_eq!(
+            calculate_fluid_volume_accounting(&candidate).unwrap(),
+            accounting
+        );
+        assert_eq!(validate_loaded_state(&registries, &candidate), Ok(()));
+        let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &candidate)).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+                .unwrap()
+                .into_state(&registries)
+                .unwrap(),
+            candidate
+        );
+    }
+}
+
+#[test]
+fn trusted_load_rejects_a_full_cell_member_inside_a_natural_basin() {
+    use crate::content::{
+        BASIC_TIMBER_COVER_PANEL_AREA, BASIC_TIMBER_COVER_PANEL_THICKNESS, FORM_BOARD,
+        MATERIAL_WOOD, STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+    };
+    use crate::spatial::VoxelBounds;
+    use crate::structural::{
+        StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
+    };
+
+    let (registries, mut state, position) = generated_water_neighborhood();
+    let store = state.logistics().fluid_stores_at(position).next().unwrap();
+    let at = VoxelCoord::new(position.x(), 100, position.z());
+    crate::world::set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(at.x(), 99, at.z()),
+        BLOCK_STATE_STONE,
+    );
+    let bounds = VoxelBounds::new(at, VoxelCoord::new(at.x() + 1, at.y() + 1, at.z() + 1)).unwrap();
+    let member = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        StructuralElementGeometry::new(
+            bounds,
+            BASIC_TIMBER_COVER_PANEL_THICKNESS,
+            BASIC_TIMBER_COVER_PANEL_AREA,
+        )
+        .unwrap(),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, member, FORM_BOARD);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let geometry = &mut encoded["state"]["systems"]["structures"]["elements"]
+        [member.value().to_string()]["configuration"]["geometry"];
+    geometry["bounds"]["min"] = serde_json::to_value(position).unwrap();
+    geometry["bounds"]["max_exclusive"] = serde_json::to_value(VoxelCoord::new(
+        position.x() + 1,
+        position.y() + 1,
+        position.z() + 1,
+    ))
+    .unwrap();
+    let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded).unwrap();
+    assert_eq!(
+        decoded.into_state(&registries),
+        Err(crate::persistence::LoadError::InvalidState(
+            StateValidationError::Fluid(FluidValidationError::InvalidNaturalSpring { store })
+        ))
+    );
+}
+
+#[test]
 fn regional_spring_is_real_finite_water_and_drinking_preserves_total_volume() {
     let (registries, mut state, position) = generated_water_neighborhood();
     let store = state

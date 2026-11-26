@@ -42,6 +42,11 @@ pub enum StructuralConstructionError {
         element: StructuralElementId,
         voxel: VoxelCoord,
     },
+    NaturalSpringOccupied {
+        element: StructuralElementId,
+        store: crate::fluid::FluidStoreId,
+        voxel: VoxelCoord,
+    },
     RootedVegetationOccupied {
         element: StructuralElementId,
         voxel: VoxelCoord,
@@ -187,6 +192,19 @@ impl Display for StructuralConstructionError {
                 voxel.y(),
                 voxel.z()
             ),
+            Self::NaturalSpringOccupied {
+                element,
+                store,
+                voxel,
+            } => write!(
+                formatter,
+                "structural element {} cannot enclose natural spring {} at ({},{},{})",
+                element.value(),
+                store.value(),
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
             Self::RootedVegetationOccupied { element, voxel } => write!(
                 formatter,
                 "structural element {} cannot receive matter over living rooted vegetation at ({},{},{})",
@@ -268,6 +286,7 @@ impl Error for StructuralConstructionError {
             | Self::EmbeddedInSolidTerrain { .. }
             | Self::GroundedMemberRequiresTerrainFoundation { .. }
             | Self::ExposedSurfaceMatter { .. }
+            | Self::NaturalSpringOccupied { .. }
             | Self::RootedVegetationOccupied { .. }
             | Self::OverlappingEmbodiedMember { .. }
             | Self::ActorOccupied { .. }

@@ -73,6 +73,7 @@ pub(crate) fn validate_loaded_natural_spring_locations(
         });
         if state.logistics().fluid_store_position(id) != Some(soil.position)
             || !state.world().has_generated_terrain_at(soil.position)
+            || state.structures().blocks_full_cell(soil.position)
             || !soil.position.y().checked_sub(1).is_some_and(|floor_y| {
                 state.world().block_at(VoxelCoord::new(
                     soil.position.x(),
