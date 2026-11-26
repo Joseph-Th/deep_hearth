@@ -157,6 +157,70 @@ fn carried_equipment_follows_player_relocation_and_remains_accessible() {
 }
 
 #[test]
+fn equipment_carry_proves_local_access_before_mount_state() {
+    use crate::content::STRUCTURAL_PROFILE_AXIAL_COMPRESSION;
+    use crate::core::quantity::{Area, Length};
+    use crate::equipment::validate_mount_equipment;
+    use crate::spatial::VoxelBounds;
+    use crate::structural::{
+        add_structural_element, make_test_structural_geometry,
+        materialize_structural_element_for_test, validate_activate_structural_element,
+    };
+
+    let (registries, mut state, pick) = admitted_pick_fixture();
+    let support = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        make_test_structural_geometry(
+            VoxelBounds::new(ORIGIN, VoxelCoord::new(1, 1, 1)).unwrap(),
+            Length::from_micrometers(1),
+            Area::from_square_millimeters(1_000),
+        ),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, support, FORM_LOG);
+    let _ = validate_activate_structural_element(&registries, &state, support)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = validate_mount_equipment(&registries, &state, pick, support)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let local = state.clone();
+    assert_eq!(
+        validate_pickup_equipment(&registries, &state, pick).err(),
+        Some(PlayerEquipmentCarryError::EquipmentMounted { equipment: pick })
+    );
+    assert_eq!(state, local);
+
+    let remote = VoxelCoord::new(2, 0, 0);
+    relocate_player_for_test(&mut state, remote);
+    let before = state.clone();
+    let expected = Some(PlayerEquipmentCarryError::EquipmentRemote {
+        equipment: pick,
+        equipment_position: ORIGIN,
+        player_position: remote,
+    });
+    assert_eq!(
+        validate_pickup_equipment(&registries, &state, pick).err(),
+        expected
+    );
+    assert_eq!(
+        validate_drop_equipment(&registries, &state, pick).err(),
+        expected
+    );
+    assert_eq!(state, before);
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+}
+
+#[test]
 fn trusted_load_rejects_duplicate_carried_equipment_identity() {
     let (registries, mut state, pick) = admitted_pick_fixture();
     validate_pickup_equipment(&registries, &state, pick)

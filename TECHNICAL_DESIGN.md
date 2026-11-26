@@ -1688,12 +1688,15 @@ dispersion, soil/water contamination, spoil heaps, and bulk waste conveyance are
 
 **Residue as useful fuel:** Campfire combustion supports explicit alternative solid fuel charges,
 not an implicit material substitution. Alongside its original 1 kg log charge (12 MJ usable
-heat), the stone-ring campfire now takes 500 g of wood-processing chips for 5 MJ usable heat.
+heat), the stone-ring campfire takes 500 g of wood-processing chips for 5 MJ or 500 g of
+timber boards for 6 MJ usable heat.
 `validate_combust_selected_fuel` binds that commodity at admission; selected-material direct use
-chooses the matching charge, while the original `validate_combust_fuel` retains the log default.
+chooses the matching charge, while `validate_combust_fuel` retains the log default. Selected
+boards prioritize a pointed structural cover target, then pointed storage placement. When neither
+target exists, the local combustion owner handles the selected fuel before reporting a placement miss.
 Both paths share finite heat capacity, locality, occupancy, revision checks, structural loads,
-inventory egress and the existing terminal combusted-mass account. A short chip supply rejects
-without consuming logs, and an old log charge can still be added after burning chips. This is
+inventory egress and the existing terminal combusted-mass account. A short alternative fuel supply
+rejects without consuming logs, and log charges can still be added afterward. This is
 wood-waste heat recovery, not complete combustion chemistry, air emissions, or modeled ash.
 
 **Exposed residue footprint:** Player-created loose solid residue drops retain their exact

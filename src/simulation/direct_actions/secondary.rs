@@ -41,14 +41,12 @@ pub(super) fn attempt_selected_secondary_action(
         }
         PlayerActiveSelection::Material(commodity) => commodity,
     };
-    // Boards are both structural cover material and the entire input to a fuel rack.
+    // Boards are cover material, fuel-rack material, and campfire fuel.
     // A physically pointed member selects cover construction first; a terrain face
-    // instead selects storage. A skyward miss still reports the structural miss,
-    // rather than choosing a storage project with no physical destination.
+    // instead selects storage. Without either target, try local combustion before
+    // reporting the structural miss.
     if commodity == CommodityKey::new(MATERIAL_WOOD, FORM_BOARD) {
-        let cover =
-            attempt_selected_timber_cover_placement(registries, state, commodity, direction)
-                .expect("board selection always has a cover placement interpretation");
+        let cover = attempt_selected_timber_cover_placement(registries, state, direction);
         if cover != SecondaryActionOutcome::NoStructuralPlacementTarget {
             return cover;
         }
@@ -58,7 +56,7 @@ pub(super) fn attempt_selected_secondary_action(
         {
             return storage;
         }
-        return cover;
+        return attempt_selected_combustion(registries, state, commodity).unwrap_or(cover);
     }
     if let Some(outcome) =
         attempt_selected_storage_placement(registries, state, commodity, direction)

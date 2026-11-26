@@ -10,7 +10,10 @@ use crate::inventory::{
     StockpileCapacityChangeCommitError, StockpileCapacityChangeError,
     ValidatedStockpileCapacityChange, validate_stockpile_capacity_change,
 };
-use crate::logistics::player_stationary_placement_supported;
+use crate::logistics::{
+    PlayerEquipmentAccessError, player_stationary_placement_supported,
+    validate_player_equipment_access,
+};
 use crate::player::{PlayerActionGuard, PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -355,6 +358,20 @@ fn common_validation(
         .equipment()
         .get_equipment(equipment)
         .ok_or(PlayerEquipmentCarryError::UnknownEquipment { equipment })?;
+    validate_player_equipment_access(state, equipment).map_err(|error| match error {
+        PlayerEquipmentAccessError::UnlocatedEquipment { equipment } => {
+            PlayerEquipmentCarryError::EquipmentNotLocated { equipment }
+        }
+        PlayerEquipmentAccessError::RemoteKnownEquipment {
+            equipment,
+            equipment_position,
+            player_position,
+        } => PlayerEquipmentCarryError::EquipmentRemote {
+            equipment,
+            equipment_position,
+            player_position,
+        },
+    })?;
     let definition = registries
         .equipment()
         .get_equipment(record.definition())
@@ -405,13 +422,6 @@ pub fn validate_pickup_equipment(
         .logistics()
         .stationary_equipment_position(equipment)
         .ok_or(PlayerEquipmentCarryError::EquipmentNotLocated { equipment })?;
-    if position != player.position() {
-        return Err(PlayerEquipmentCarryError::EquipmentRemote {
-            equipment,
-            equipment_position: position,
-            player_position: player.position(),
-        });
-    }
     let carried = state
         .inventory()
         .get_stockpile(player.carried_stockpile())
