@@ -6,9 +6,51 @@ use crate::core::quantity::{Area, Length};
 use crate::core::state::validate_loaded_state;
 use crate::spatial::VoxelBounds;
 use crate::structural::{
-    StructuralElementGeometry, add_structural_element, materialize_structural_element_for_test,
-    validate_activate_structural_element,
+    StructuralElementGeometry, StructuralElementId, add_structural_element,
+    materialize_structural_element_for_test, validate_activate_structural_element,
+    validate_link_support,
 };
+
+fn roof_anchor(registries: &Registries, state: &mut AppState, floor_y: i64) -> StructuralElementId {
+    set_generated_block_for_test(
+        registries.world(),
+        state,
+        VoxelCoord::new(1, floor_y - 1, 0),
+        BLOCK_STATE_STONE,
+    );
+    for y in floor_y..=floor_y + 3 {
+        set_generated_block_for_test(
+            registries.world(),
+            state,
+            VoxelCoord::new(1, y, 0),
+            BlockStateId::AIR,
+        );
+    }
+    let anchor = add_structural_element(
+        registries,
+        state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        StructuralElementGeometry::new(
+            VoxelBounds::new(
+                VoxelCoord::new(1, floor_y, 0),
+                VoxelCoord::new(2, floor_y + 4, 1),
+            )
+            .unwrap(),
+            Length::from_micrometers(4_000_000),
+            Area::from_square_millimeters(250_000),
+        )
+        .unwrap(),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(registries, state, anchor, FORM_LOG);
+    let _ = validate_activate_structural_element(registries, state, anchor)
+        .unwrap()
+        .commit(state)
+        .unwrap();
+    anchor
+}
 
 #[test]
 fn natural_overhead_cover_tracks_high_generated_roofs_and_excavation() {
@@ -60,11 +102,49 @@ fn a_structure_beyond_generated_sky_cannot_provide_overhead_cover() {
         true,
     )
     .unwrap();
-    materialize_structural_element_for_test(&registries, &mut state, roof, FORM_LOG);
-    let _ = validate_activate_structural_element(&registries, &state, roof)
-        .unwrap()
-        .commit(&mut state)
-        .unwrap();
+    use crate::inventory::{
+        MaterialLotSelection, add_solid_stockpile_for_test, deposit_lot_for_test,
+    };
+    use crate::material::CommodityKey;
+    use crate::structural::{
+        StructuralConstructionError, bind_structural_construction_selection,
+        calculate_prismatic_material_mass_ceiling, validate_structural_construction,
+    };
+    let mass = calculate_prismatic_material_mass_ceiling(
+        registries.materials(),
+        MATERIAL_WOOD,
+        Area::from_square_millimeters(1_000_000),
+        Length::from_micrometers(1_000_000),
+    )
+    .unwrap();
+    let source = add_solid_stockpile_for_test(&mut state, mass).unwrap();
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let resolution = bind_structural_construction_selection(
+        &state,
+        roof,
+        source,
+        &[MaterialLotSelection::new(lot, mass)],
+    )
+    .unwrap();
+    let before = state.clone();
+    assert_eq!(
+        validate_structural_construction(&registries, &state, resolution).err(),
+        Some(
+            StructuralConstructionError::GroundedMemberRequiresTerrainFoundation {
+                element: roof,
+                voxel: sky_above
+            }
+        )
+    );
+    assert_eq!(state, before);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     assert_eq!(
         assess_player_overhead_cover(&registries, &state),
@@ -84,6 +164,7 @@ fn narrow_framing_does_not_become_a_solid_roof_in_skylight_or_thermal_assessment
 
     let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
     let player_cell = VoxelCoord::new(0, floor_y, 0);
+    let anchor = roof_anchor(&registries, &mut state, floor_y);
     let frame_cell = VoxelCoord::new(0, floor_y + 3, 0);
     let geometry = StructuralElementGeometry::new(
         VoxelBounds::new(frame_cell, VoxelCoord::new(1, frame_cell.y() + 1, 1)).unwrap(),
@@ -97,9 +178,13 @@ fn narrow_framing_does_not_become_a_solid_roof_in_skylight_or_thermal_assessment
         STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
         MATERIAL_WOOD,
         geometry,
-        true,
+        false,
     )
     .unwrap();
+    let _ = validate_link_support(&registries, &state, frame, anchor)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
     materialize_structural_element_for_test(&registries, &mut state, frame, FORM_LOG);
     let _ = validate_activate_structural_element(&registries, &state, frame)
         .unwrap()
@@ -128,6 +213,7 @@ fn indexed_overhead_cover_requires_active_local_roof_and_survives_save_load() {
         assess_generated_skylight(&registries, &state, player_cell),
         9
     );
+    let anchor = roof_anchor(&registries, &mut state, floor_y);
     let roof_cell = VoxelCoord::new(0, floor_y + 3, 0);
     let geometry = StructuralElementGeometry::new(
         VoxelBounds::new(roof_cell, VoxelCoord::new(1, roof_cell.y() + 1, 1)).unwrap(),
@@ -141,9 +227,13 @@ fn indexed_overhead_cover_requires_active_local_roof_and_survives_save_load() {
         STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
         MATERIAL_WOOD,
         geometry,
-        true,
+        false,
     )
     .unwrap();
+    let _ = validate_link_support(&registries, &state, roof, anchor)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
     assert_eq!(
         assess_player_overhead_cover(&registries, &state),
         Some(PlayerOverheadCoverAssessment::Open),

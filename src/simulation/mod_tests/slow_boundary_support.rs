@@ -470,6 +470,38 @@ fn due_supported_craft_fixture_with_lead(
             .commit(&mut state)
             .unwrap();
     }
+    let anchor = if shared_support {
+        floor
+    } else {
+        // The output shares the player's location, not the player's support path.
+        let side = VoxelCoord::new(1, floor_y, 0);
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(1, floor_y - 1, 0),
+            BLOCK_STATE_STONE,
+        );
+        set_generated_block_for_test(registries.world(), &mut state, side, BlockStateId::AIR);
+        let anchor = add_structural_element(
+            &registries,
+            &mut state,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            crate::structural::make_test_structural_geometry(
+                VoxelBounds::new(side, VoxelCoord::new(2, floor_y + 1, 1)).unwrap(),
+                Length::from_micrometers(1_000),
+                Area::from_square_millimeters(10_000),
+            ),
+            true,
+        )
+        .unwrap();
+        materialize_structural_element_for_test(&registries, &mut state, anchor, FORM_LOG);
+        let _ = validate_activate_structural_element(&registries, &state, anchor)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        anchor
+    };
     let post = add_structural_element(
         &registries,
         &mut state,
@@ -480,16 +512,14 @@ fn due_supported_craft_fixture_with_lead(
             Length::from_micrometers(1_000),
             Area::from_square_millimeters(1_000),
         ),
-        !shared_support,
+        false,
     )
     .unwrap();
     materialize_structural_element_for_test(&registries, &mut state, post, FORM_LOG);
-    if shared_support {
-        let _ = validate_link_support(&registries, &state, post, floor)
-            .unwrap()
-            .commit(&mut state)
-            .unwrap();
-    }
+    let _ = validate_link_support(&registries, &state, post, anchor)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
     let _ = validate_activate_structural_element(&registries, &state, post)
         .unwrap()
         .commit(&mut state)

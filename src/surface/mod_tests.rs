@@ -2571,6 +2571,12 @@ fn selected_boards_build_material_backed_overhead_cover_that_reduces_exposure() 
         )
         .unwrap_or_else(|error| panic!("cover support geometry failed: {error}"))
     };
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(1, foot_y - 1, 0),
+        BLOCK_STATE_STONE,
+    );
     let lower_position = VoxelCoord::new(1, foot_y, 0);
     let middle_position = VoxelCoord::new(1, foot_y + 1, 0);
     for voxel in [lower_position, middle_position] {
@@ -3461,6 +3467,12 @@ fn secondary_use_places_selected_storage_body_through_canonical_storage_placemen
     let mut floored = state.clone();
     let floor = VoxelCoord::new(placement.x(), placement.y() - 1, placement.z());
     assert_eq!(floored.world().block_at(floor), Some(BlockStateId::AIR));
+    set_generated_block_for_test(
+        registries.world(),
+        &mut floored,
+        VoxelCoord::new(floor.x(), floor.y() - 1, floor.z()),
+        BLOCK_STATE_STONE,
+    );
     materialize_test_wall(&registries, &mut floored, floor, true);
     let matter_before = calculate_matter_accounting(&floored).unwrap().total();
     let placed = advance_control_tick_with_direct_input(

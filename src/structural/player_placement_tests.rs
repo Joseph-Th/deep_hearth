@@ -50,6 +50,144 @@ fn local_member_plan() -> GroundedStructuralElementPlan {
 }
 
 #[test]
+fn grounded_foundation_rejects_ordinary_materialization_over_generated_air() {
+    use crate::content::BLOCK_STATE_STONE;
+    use crate::world::{
+        BlockStateId, ChunkCoord, WorldGenerationSeed, set_generated_block_for_test,
+        validate_generate_chunk,
+    };
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let actor = VoxelCoord::new(0, 100, 0);
+    let at = VoxelCoord::new(1, 100, 0);
+    let floor = VoxelCoord::new(1, 99, 0);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(41),
+        ChunkCoord::containing(at),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(0, 99, 0),
+        BLOCK_STATE_STONE,
+    );
+    set_generated_block_for_test(registries.world(), &mut state, floor, BlockStateId::AIR);
+    let carried = validate_admit_player(&registries, &state, actor)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        MEMBER_MASS,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let stack = project_material_stacks(&registries, &state, carried)
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+    let plan = GroundedStructuralElementPlan::new(
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        StructuralElementGeometry::new(
+            VoxelBounds::new(at, VoxelCoord::new(2, 101, 1)).unwrap(),
+            Length::from_micrometers(2_000_000),
+            Area::from_square_millimeters(5_000),
+        )
+        .unwrap(),
+    );
+    let before = state.clone();
+    let element = StructuralElementId::new(state.structures().next_element_id());
+    assert_eq!(
+        validate_start_player_grounded_structural_construction_from_stack(
+            &registries,
+            &state,
+            STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+            plan,
+            &stack,
+        )
+        .err(),
+        Some(PlayerGroundedStructuralConstructionError::Construction(
+            PlayerStructuralConstructionError::Material(
+                StructuralConstructionError::GroundedMemberRequiresTerrainFoundation {
+                    element,
+                    voxel: at
+                }
+            )
+        ))
+    );
+    assert_eq!(state, before);
+    set_generated_block_for_test(registries.world(), &mut state, floor, BLOCK_STATE_STONE);
+    let pending = validate_start_player_grounded_structural_construction_from_stack(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        plan,
+        &stack,
+    )
+    .unwrap();
+    let expected = state.world().revision();
+    set_generated_block_for_test(registries.world(), &mut state, floor, BlockStateId::AIR);
+    let actual = state.world().revision();
+    let before = state.clone();
+    assert_eq!(
+        pending.commit(&mut state),
+        Err(PlayerGroundedStructuralConstructionCommitError::Plan(
+            PlanPlayerStructuralElementCommitError::StaleWorldRevision { expected, actual }
+        ))
+    );
+    assert_eq!(state, before);
+    set_generated_block_for_test(registries.world(), &mut state, floor, BLOCK_STATE_STONE);
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    let work = validate_start_player_grounded_structural_construction_from_stack(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        plan,
+        &stack,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    while state.tick() < work.completes_at() {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(
+        state.structures().get_element(element).unwrap().lifecycle(),
+        StructuralLifecycle::Active
+    );
+    assert_eq!(
+        state
+            .structures()
+            .get_element(element)
+            .unwrap()
+            .embodied_mass(),
+        MEMBER_MASS
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+            .unwrap()
+            .into_state(&registries),
+        Ok(state)
+    );
+}
+
+#[test]
 fn atomic_grounded_construction_rejects_unsafe_carried_stock_before_creating_a_member() {
     let registries = build_registries();
     let mut state = AppState::new();

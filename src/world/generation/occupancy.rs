@@ -151,6 +151,7 @@ pub(super) fn validate_generated_chunk_occupancy(
             }
         }
     }
+    validate_grounded_foundations_in_generated_chunk(registry, state, chunk)?;
     Ok(())
 }
 
@@ -482,6 +483,45 @@ fn first_ground_matter_collision_in_generated_chunk(
         })
         .min_by_key(|(id, _)| *id)
         .map(|(_, voxel)| voxel)
+}
+
+/// Grounded members must terminate their load paths in the incoming terrain.
+fn validate_grounded_foundations_in_generated_chunk(
+    registry: &WorldRegistry,
+    state: &AppState,
+    chunk: &WorldChunk,
+) -> Result<(), ChunkGenerationError> {
+    let Some(x) = chunk.coord().world_min_x() else {
+        return Ok(());
+    };
+    let Some(z) = chunk.coord().world_min_z() else {
+        return Ok(());
+    };
+    for member in state
+        .structures()
+        .elements_intersecting_horizontal_columns(
+            x,
+            x + (CHUNK_SIDE - 1) as i64,
+            z,
+            z + (CHUNK_SIDE - 1) as i64,
+        )
+        .filter(|member| crate::world::grounded_member_claims_foundation(member))
+    {
+        if let Some(voxel) = crate::world::first_missing_terrain_foundation_in_chunk(
+            registry,
+            state,
+            chunk,
+            member.bounds(),
+        ) {
+            return Err(
+                ChunkGenerationError::GroundedStructureRequiresTerrainFoundation {
+                    element: member.id(),
+                    voxel,
+                },
+            );
+        }
+    }
+    Ok(())
 }
 
 /// A built member has physical matter even when its narrow cross-section

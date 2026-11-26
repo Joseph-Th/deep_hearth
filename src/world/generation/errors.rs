@@ -50,6 +50,10 @@ pub enum ChunkGenerationError {
     StructureBuriedByTerrain {
         voxel: VoxelCoord,
     },
+    GroundedStructureRequiresTerrainFoundation {
+        element: crate::structural::StructuralElementId,
+        voxel: VoxelCoord,
+    },
     StorageEnclosureBuriedByTerrain {
         voxel: VoxelCoord,
     },
@@ -188,6 +192,11 @@ impl Display for ChunkGenerationError {
                 voxel.x(),
                 voxel.y(),
                 voxel.z()
+            ),
+            Self::GroundedStructureRequiresTerrainFoundation { element, voxel } => write!(
+                formatter,
+                "terrain generation would leave grounded structural element {} without a solid terrain foundation at ({},{},{})",
+                element.value(), voxel.x(), voxel.y(), voxel.z()
             ),
             Self::StorageEnclosureBuriedByTerrain { voxel } => write!(
                 formatter,

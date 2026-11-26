@@ -34,6 +34,10 @@ pub enum StructuralConstructionError {
         element: StructuralElementId,
         voxel: VoxelCoord,
     },
+    GroundedMemberRequiresTerrainFoundation {
+        element: StructuralElementId,
+        voxel: VoxelCoord,
+    },
     ExposedSurfaceMatter {
         element: StructuralElementId,
         voxel: VoxelCoord,
@@ -167,6 +171,14 @@ impl Display for StructuralConstructionError {
                 voxel.y(),
                 voxel.z()
             ),
+            Self::GroundedMemberRequiresTerrainFoundation { element, voxel } => write!(
+                formatter,
+                "grounded structural element {} requires a solid, unreserved terrain foundation at ({},{},{})",
+                element.value(),
+                voxel.x(),
+                voxel.y(),
+                voxel.z()
+            ),
             Self::ExposedSurfaceMatter { element, voxel } => write!(
                 formatter,
                 "structural element {} cannot receive matter over exposed surface matter at ({},{},{})",
@@ -247,65 +259,28 @@ impl Display for StructuralConstructionError {
 impl Error for StructuralConstructionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Geometry {
-                element: _element,
-                error,
-            } => Some(error),
+            Self::Geometry { error, .. } => Some(error),
             Self::StructuralLoad(error) => Some(error),
-            Self::UnknownElement { element: _element }
-            | Self::AlreadyMaterialized { element: _element }
-            | Self::EmbeddedInSolidTerrain {
-                element: _element, ..
-            }
-            | Self::ExposedSurfaceMatter {
-                element: _element, ..
-            }
-            | Self::RootedVegetationOccupied {
-                element: _element, ..
-            }
-            | Self::OverlappingEmbodiedMember {
-                element: _element, ..
-            }
-            | Self::ActorOccupied {
-                element: _element, ..
-            }
-            | Self::SelfWeightOverflow { element: _element } => None,
-            Self::UnknownProfile {
-                element: _element,
-                profile: _profile,
-            } => None,
-            Self::ElementNotPlanned {
-                element: _element,
-                lifecycle: _lifecycle,
-            } => None,
-            Self::MaterialMismatch {
-                element: _element,
-                expected: _expected,
-                found: _found,
-            } => None,
-            Self::UnsupportedComposition {
-                element: _element,
-                material: _material,
-            } => None,
-            Self::MaterialTooHot { .. } => None,
-            Self::UnknownMaterialForm {
-                element: _element,
-                form: _form,
-            }
-            | Self::UnconsolidatedForm {
-                element: _element,
-                form: _form,
-            } => None,
-            Self::MaterialQuantityMismatch {
-                element: _element,
-                required: _required,
-                selected: _selected,
-            } => None,
-            Self::InventorySelectionStale {
-                expected: _expected,
-                actual: _actual,
-            } => None,
-            Self::InventoryRevisionExhausted | Self::StructureRevisionExhausted => None,
+            Self::UnknownElement { .. }
+            | Self::UnknownProfile { .. }
+            | Self::ElementNotPlanned { .. }
+            | Self::AlreadyMaterialized { .. }
+            | Self::EmbeddedInSolidTerrain { .. }
+            | Self::GroundedMemberRequiresTerrainFoundation { .. }
+            | Self::ExposedSurfaceMatter { .. }
+            | Self::RootedVegetationOccupied { .. }
+            | Self::OverlappingEmbodiedMember { .. }
+            | Self::ActorOccupied { .. }
+            | Self::MaterialMismatch { .. }
+            | Self::UnsupportedComposition { .. }
+            | Self::UnknownMaterialForm { .. }
+            | Self::UnconsolidatedForm { .. }
+            | Self::MaterialTooHot { .. }
+            | Self::MaterialQuantityMismatch { .. }
+            | Self::InventorySelectionStale { .. }
+            | Self::InventoryRevisionExhausted
+            | Self::StructureRevisionExhausted
+            | Self::SelfWeightOverflow { .. } => None,
         }
     }
 }
@@ -315,6 +290,7 @@ impl Error for StructuralConstructionError {
 pub enum StructuralConstructionCommitError {
     StaleWorldRevision { expected: u64, actual: u64 },
     StaleSurfaceRevision { expected: u64, actual: u64 },
+    StalePlayerWorkRevision { expected: u64, actual: u64 },
     StaleLogisticsRevision { expected: u64, actual: u64 },
     StaleStructureRevision { expected: u64, actual: u64 },
     StaleInventoryRevision { expected: u64, actual: u64 },
@@ -332,6 +308,10 @@ impl Display for StructuralConstructionCommitError {
             Self::StaleSurfaceRevision { expected, actual } => write!(
                 formatter,
                 "validated construction expected surface revision {expected} but current revision is {actual}"
+            ),
+            Self::StalePlayerWorkRevision { expected, actual } => write!(
+                formatter,
+                "validated construction expected player-work revision {expected} but current revision is {actual}"
             ),
             Self::StaleLogisticsRevision { expected, actual } => write!(
                 formatter,
@@ -362,24 +342,13 @@ impl Error for StructuralConstructionCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleWorldRevision { .. } => None,
-            Self::StaleSurfaceRevision {
-                expected: _expected,
-                actual: _actual,
-            }
-            | Self::StaleLogisticsRevision {
-                expected: _expected,
-                actual: _actual,
-            }
-            | Self::StaleStructureRevision {
-                expected: _expected,
-                actual: _actual,
-            }
-            | Self::StaleInventoryRevision {
-                expected: _expected,
-                actual: _actual,
-            } => None,
-            Self::StateChanged { element: _element } => None,
+            Self::StaleWorldRevision { .. }
+            | Self::StaleSurfaceRevision { .. }
+            | Self::StalePlayerWorkRevision { .. }
+            | Self::StaleLogisticsRevision { .. }
+            | Self::StaleStructureRevision { .. }
+            | Self::StaleInventoryRevision { .. }
+            | Self::StateChanged { .. } => None,
         }
     }
 }

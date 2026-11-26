@@ -37,9 +37,10 @@ fn materialize_narrow_post(
         STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
         MATERIAL_WOOD,
         geometry,
-        true,
+        false,
     )
     .unwrap();
+    // Unfinished embodied matter obstructs trunks without claiming a terrain anchor.
     materialize_structural_element_for_test(registries, state, post, FORM_LOG);
     assert!(state.structures().has_embodied_member_at(voxel));
     assert!(!state.structures().blocks_full_cell(voxel));

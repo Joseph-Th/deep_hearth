@@ -183,6 +183,12 @@ fn retargeted_tree_chop_replaces_queued_structural_break_without_later_ghost_act
         -1_i64
     };
     let panel_voxel = VoxelCoord::new(player.x(), root.y() + 1, player.z() + 2 * sign);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(panel_voxel.x(), panel_voxel.y() - 1, panel_voxel.z()),
+        BLOCK_STATE_STONE,
+    );
     for distance in 1..=2 {
         set_generated_block_for_test(
             registries.world(),

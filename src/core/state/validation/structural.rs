@@ -166,6 +166,22 @@ pub(super) fn validate_structural_integrations(
     {
         return Err(StateValidationError::StructureEmbeddedInSolidTerrain { voxel });
     }
+    for member in state
+        .structures()
+        .elements()
+        .filter(|member| crate::world::grounded_member_claims_foundation(member))
+    {
+        if let Some(voxel) =
+            crate::world::first_missing_terrain_foundation(registries, state, member.bounds())
+        {
+            return Err(
+                StateValidationError::GroundedStructureRequiresTerrainFoundation {
+                    element: member.id(),
+                    voxel,
+                },
+            );
+        }
+    }
     validate_equipment_structural_loads(registries, state)?;
     validate_stockpile_structural_loads(registries, state)?;
     validate_fluid_structural_loads(registries, state)?;

@@ -84,6 +84,12 @@ fn built_panel_occludes_terrain_and_distant_structural_air_targets() {
     let (registries, mut state, floor_y) = generated_targeting_player_at(0, 0);
     let y = floor_y + 1;
     let barrier = VoxelCoord::new(2, y, 0);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(2, y - 1, 0),
+        BLOCK_STATE_STONE,
+    );
     let beyond = VoxelCoord::new(3, y, 0);
     let terrain = VoxelCoord::new(4, y, 0);
     for x in 1..=4 {

@@ -18,6 +18,8 @@ fn powered_heating_fixture() -> (
         build_registries,
     };
     use crate::equipment::validate_mount_equipment;
+    use crate::structural::validate_link_support;
+    use crate::world::BlockStateId;
 
     let registries = build_registries();
     let mut state = AppState::new();
@@ -42,20 +44,64 @@ fn powered_heating_fixture() -> (
         Condition::PRISTINE,
     )
     .unwrap();
-    let support = add_structural_element(
+    // Pick a real two-cell ledge in the terrain that will eventually be admitted.
+    let preview = validate_generate_chunk(
         &registries,
-        &mut state,
-        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
-        MATERIAL_WOOD,
-        crate::structural::make_test_structural_geometry(
-            VoxelBounds::new(VoxelCoord::new(100, 100, 0), VoxelCoord::new(101, 101, 1)).unwrap(),
-            Length::from_micrometers(1),
-            Area::from_square_millimeters(500_000),
-        ),
-        true,
+        &state,
+        WorldGenerationSeed::new(41),
+        ChunkCoord::new(6, 0),
+        BLOCK_STATE_STONE,
     )
     .unwrap();
-    materialize_structural_element_for_test(&registries, &mut state, support, FORM_LOG);
+    let chunk = preview.chunk();
+    let at = (96..111)
+        .find_map(|x| {
+            (WORLD_MIN_Y + 1..WORLD_MAX_Y_EXCLUSIVE - 2)
+                .rev()
+                .find_map(|y| {
+                    [x, x + 1]
+                        .into_iter()
+                        .all(|xx| {
+                            chunk.block_at(VoxelCoord::new(xx, y - 1, 0)) == BLOCK_STATE_STONE
+                                && chunk.block_at(VoxelCoord::new(xx, y, 0)) == BlockStateId::AIR
+                                && chunk.block_at(VoxelCoord::new(xx, y + 1, 0))
+                                    == BlockStateId::AIR
+                        })
+                        .then_some(VoxelCoord::new(x, y, 0))
+                })
+        })
+        .expect("fixture seed must contain a level ledge");
+    let mut add_member = |voxel: VoxelCoord, grounded| {
+        let member = add_structural_element(
+            &registries,
+            &mut state,
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            crate::structural::make_test_structural_geometry(
+                VoxelBounds::new(
+                    voxel,
+                    VoxelCoord::new(voxel.x() + 1, voxel.y() + 1, voxel.z() + 1),
+                )
+                .unwrap(),
+                Length::from_micrometers(1),
+                Area::from_square_millimeters(500_000),
+            ),
+            grounded,
+        )
+        .unwrap();
+        materialize_structural_element_for_test(&registries, &mut state, member, FORM_LOG);
+        member
+    };
+    let anchor = add_member(VoxelCoord::new(at.x() + 1, at.y(), at.z()), true);
+    let support = add_member(at, false);
+    let _ = validate_activate_structural_element(&registries, &state, anchor)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = validate_link_support(&registries, &state, support, anchor)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
     let _ = validate_activate_structural_element(&registries, &state, support)
         .unwrap()
         .commit(&mut state)
@@ -97,7 +143,19 @@ fn player_heating_fixture() -> (
     use crate::logistics::{place_energy_store_for_fixture, place_equipment_for_fixture};
 
     let (registries, mut state, source, _, resolution) = powered_heating_fixture();
-    let at = VoxelCoord::new(100, 100, 0);
+    let at = state
+        .structures()
+        .get_element(
+            state
+                .equipment()
+                .get_equipment(resolution.equipment())
+                .unwrap()
+                .supported_by()
+                .unwrap(),
+        )
+        .unwrap()
+        .bounds()
+        .min();
     validate_place_ground_stockpile(&state, source, at)
         .unwrap()
         .commit(&mut state)

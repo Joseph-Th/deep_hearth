@@ -51,6 +51,10 @@ pub enum StateValidationError {
     StructureEmbeddedInSolidTerrain {
         voxel: VoxelCoord,
     },
+    GroundedStructureRequiresTerrainFoundation {
+        element: StructuralElementId,
+        voxel: VoxelCoord,
+    },
     World(WorldValidationError),
     Surface(SurfaceResourceValidationError),
     Kobolds(&'static str),

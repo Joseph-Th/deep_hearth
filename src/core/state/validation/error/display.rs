@@ -37,6 +37,11 @@ impl Display for StateValidationError {
                 voxel.y(),
                 voxel.z()
             ),
+            Self::GroundedStructureRequiresTerrainFoundation { element, voxel } => write!(
+                formatter,
+                "grounded structural element {} lacks a solid terrain foundation at ({},{},{})",
+                element.value(), voxel.x(), voxel.y(), voxel.z()
+            ),
             Self::World(error) => write!(formatter, "invalid block-world state: {error}"),
             Self::Surface(error) => write!(formatter, "invalid surface-resource state: {error}"),
             Self::Kobolds(error) => write!(formatter, "invalid kobold colony state: {error}"),

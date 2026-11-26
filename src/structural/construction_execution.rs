@@ -54,6 +54,7 @@ pub(crate) struct ValidatedStructuralConstruction {
     element: StructuralElementId,
     expected_world_revision: u64,
     expected_surface_revision: u64,
+    expected_player_work_revision: u64,
     expected_logistics_revision: Option<u64>,
     expected_structure_revision: u64,
     next_structure_revision: u64,
@@ -84,6 +85,12 @@ impl ValidatedStructuralConstruction {
             return Err(StructuralConstructionCommitError::StaleSurfaceRevision {
                 expected: self.expected_surface_revision,
                 actual: state.surface().revision(),
+            });
+        }
+        if state.player_work().revision() != self.expected_player_work_revision {
+            return Err(StructuralConstructionCommitError::StalePlayerWorkRevision {
+                expected: self.expected_player_work_revision,
+                actual: state.player_work().revision(),
             });
         }
         if let Some(expected) = self.expected_logistics_revision {
@@ -154,6 +161,12 @@ impl ValidatedStructuralConstruction {
             return Err(StructuralConstructionCommitError::StaleSurfaceRevision {
                 expected: self.expected_surface_revision,
                 actual: state.surface().revision(),
+            });
+        }
+        if state.player_work().revision() != self.expected_player_work_revision {
+            return Err(StructuralConstructionCommitError::StalePlayerWorkRevision {
+                expected: self.expected_player_work_revision,
+                actual: state.player_work().revision(),
             });
         }
         if let Some(expected) = self.expected_logistics_revision {
@@ -313,6 +326,7 @@ pub(crate) fn validate_structural_construction_for_planned_member(
         element,
         expected_world_revision: state.world().revision(),
         expected_surface_revision: state.surface().revision(),
+        expected_player_work_revision: state.player_work().revision(),
         expected_logistics_revision: expected_player_overlap_revision(state, record),
         expected_structure_revision,
         next_structure_revision,
@@ -394,6 +408,17 @@ fn validate_structural_construction_world(
             element: record.id(),
             voxel,
         });
+    }
+    if record.is_grounded()
+        && let Some(voxel) =
+            crate::world::first_missing_terrain_foundation(registries, state, record.bounds())
+    {
+        return Err(
+            StructuralConstructionError::GroundedMemberRequiresTerrainFoundation {
+                element: record.id(),
+                voxel,
+            },
+        );
     }
     Ok(())
 }
@@ -574,6 +599,7 @@ pub(crate) fn validate_structural_construction(
         element,
         expected_world_revision: state.world().revision(),
         expected_surface_revision: state.surface().revision(),
+        expected_player_work_revision: state.player_work().revision(),
         expected_logistics_revision: expected_player_overlap_revision(state, record),
         expected_structure_revision,
         next_structure_revision,

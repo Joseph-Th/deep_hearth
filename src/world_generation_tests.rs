@@ -1245,6 +1245,193 @@ fn neighborhood_generation_rejects_burying_existing_structural_matter_atomically
     assert_eq!(state, before);
 }
 
+fn materialize_grounded_post_at(
+    registries: &Registries,
+    state: &mut AppState,
+    at: VoxelCoord,
+) -> crate::structural::StructuralElementId {
+    let geometry = StructuralElementGeometry::new(
+        VoxelBounds::new(at, VoxelCoord::new(at.x() + 1, at.y() + 1, at.z() + 1)).unwrap(),
+        crate::core::quantity::Length::from_micrometers(1_000_000),
+        crate::core::quantity::Area::from_square_millimeters(5_000),
+    )
+    .unwrap();
+    let member = add_structural_element(
+        registries,
+        state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        geometry,
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(registries, state, member, FORM_LOG);
+    let _ = crate::structural::validate_activate_structural_element(registries, state, member)
+        .unwrap()
+        .commit(state)
+        .unwrap();
+    member
+}
+
+#[test]
+fn grounded_foundation_rejects_unsupported_terrain_admission() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let at = VoxelCoord::new(5, 100, 5);
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(3, 3),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    validate_admit_player(&registries, &state, VoxelCoord::new(6, 100, 5))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let member = materialize_grounded_post_at(&registries, &mut state, at);
+    assert!(
+        state
+            .structures()
+            .get_element(member)
+            .unwrap()
+            .is_grounded()
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let before = state.clone();
+    let expected = ChunkGenerationError::GroundedStructureRequiresTerrainFoundation {
+        element: member,
+        voxel: at,
+    };
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            seed,
+            ChunkCoord::containing(at),
+            BLOCK_STATE_STONE
+        )
+        .err(),
+        Some(expected.clone())
+    );
+    assert_eq!(
+        validate_generate_player_neighborhood(&registries, &state).err(),
+        Some(expected)
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn grounded_foundation_rejects_unsupported_trusted_load() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let at = VoxelCoord::new(5, 100, 5);
+    let floor = VoxelCoord::new(5, 99, 5);
+    let mut state = AppState::new();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::containing(at),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    set_generated_block_for_test(registries.world(), &mut state, floor, BLOCK_STATE_STONE);
+    let member = materialize_grounded_post_at(&registries, &mut state, at);
+    assert!(
+        !state
+            .structures()
+            .get_element(member)
+            .unwrap()
+            .embodied_mass()
+            .is_zero()
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+            .unwrap()
+            .into_state(&registries),
+        Ok(state.clone())
+    );
+    set_generated_block_for_test(registries.world(), &mut state, floor, BlockStateId::AIR);
+    let expected = StateValidationError::GroundedStructureRequiresTerrainFoundation {
+        element: member,
+        voxel: at,
+    };
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Err(expected.clone())
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+            .unwrap()
+            .into_state(&registries),
+        Err(crate::persistence::LoadError::InvalidState(expected))
+    );
+}
+
+#[test]
+fn grounded_foundation_preserves_a_real_terrain_anchored_member() {
+    let registries = build_registries();
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let mut state = AppState::new();
+    let preview = validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap();
+    let floor_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| preview.chunk().block_at(VoxelCoord::new(5, y, 5)) == BLOCK_STATE_STONE)
+        .unwrap();
+    let at = VoxelCoord::new(5, floor_y + 1, 5);
+    let member = materialize_grounded_post_at(&registries, &mut state, at);
+    let structure = state.structures().clone();
+    validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::containing(at),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(state.structures(), &structure);
+    assert_eq!(
+        state.structures().get_element(member).unwrap().lifecycle(),
+        crate::structural::StructuralLifecycle::Active
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+    let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+            .unwrap()
+            .into_state(&registries),
+        Ok(state)
+    );
+}
+
 #[test]
 fn terrain_generation_preserves_embodied_construction_above_the_generated_ground() {
     let registries = build_registries();

@@ -2010,8 +2010,14 @@ Material-built stationary energy stores, unmounted material-built equipment, and
 completed storage enclosures require the same fixed footing during terrain admission and trusted
 loading as during ordinary assembly and terrain removal. An enclosure claims support even when
 its contents are empty. Mounted equipment and enclosures route their weight through explicit
-member support; unmounting physical custody requires a valid ground floor. Unembodied
-capability fixtures do not claim physical footing. The upper trunk is the relevant external
+member support; unmounting physical custody requires a valid ground floor. A grounded structural
+member terminates its load path in solid terrain, not a living trunk or another member. Its
+embodied base requires an unreserved terrain foundation in every generated column of its
+footprint, including during materialization, prospective terrain admission, and trusted loading.
+An inert blueprint does not claim a foundation; construction authorization binds the player-work
+revision so a pending floor-removal reservation cannot invalidate it. Member-supported structures
+use their explicit load paths. Unembodied capability fixtures do not claim physical footing.
+The upper trunk is the relevant external
 footing for a standing tree. Scheduled removal rechecks the claim at
 start commit and during trusted-load admission; opening patrol movement rejects
 entry onto a floor reserved for removal, including when hauling a loose parcel. Depleted non-perennial surface parcels

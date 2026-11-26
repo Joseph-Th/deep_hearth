@@ -283,9 +283,10 @@ fn narrow_upper_corner_post_blocks_the_massive_archivist_but_an_empty_plan_does_
         STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
         MATERIAL_WOOD,
         geometry,
-        true,
+        false,
     )
     .unwrap();
+    // Unfinished embodied matter is physical even without an active load path.
     assert_eq!(validate_loaded_state(&registries, &planned), Ok(()));
     let mut built = planned.clone();
     materialize_structural_element_for_test(&registries, &mut built, post, FORM_LOG);

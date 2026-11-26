@@ -18,6 +18,12 @@ fn materialized_break_target(
     floor_y: i64,
 ) -> StructuralElementId {
     let target = VoxelCoord::new(2, floor_y + 1, 0);
+    set_generated_block_for_test(
+        registries.world(),
+        state,
+        VoxelCoord::new(2, floor_y, 0),
+        BLOCK_STATE_STONE,
+    );
     for x in 1..=2 {
         set_generated_block_for_test(
             registries.world(),
@@ -632,6 +638,12 @@ fn direct_targeting_prefers_materialized_member_over_overlapping_inert_plan() {
     for cross_section in [1_000_000, 5_000] {
         let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
         let target = VoxelCoord::new(2, floor_y + 1, 0);
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(2, floor_y, 0),
+            BLOCK_STATE_STONE,
+        );
         for x in 1..=2 {
             set_generated_block_for_test(
                 registries.world(),
@@ -739,6 +751,12 @@ fn inert_front_blueprint_cannot_occlude_reachable_real_structural_member() {
         let (registries, mut state, floor_y) = generated_grounded_player_at(0, 0);
         let first = VoxelCoord::new(1, floor_y + 1, 0);
         let second = VoxelCoord::new(2, floor_y + 1, 0);
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(2, floor_y, 0),
+            BLOCK_STATE_STONE,
+        );
         for target in [first, second] {
             set_generated_block_for_test(registries.world(), &mut state, target, BlockStateId::AIR);
         }

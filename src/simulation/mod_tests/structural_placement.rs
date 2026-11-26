@@ -22,6 +22,12 @@ fn selected_boards_prioritize_physical_cover_over_storage() {
     let (registries, mut state, foot_y) = generated_grounded_player_at(0, 0);
     let destination = VoxelCoord::new(1, foot_y + 1, 0);
     let support_cell = VoxelCoord::new(2, foot_y + 1, 0);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(2, foot_y, 0),
+        BLOCK_STATE_STONE,
+    );
     for position in [destination, support_cell] {
         set_generated_block_for_test(registries.world(), &mut state, position, BlockStateId::AIR);
     }
@@ -429,6 +435,12 @@ fn pointed_embodied_support_takes_priority_over_local_fire() {
     let (registries, mut state, foot_y) = generated_grounded_player_at(0, 0);
     let destination = VoxelCoord::new(1, foot_y + 1, 0);
     let support_cell = VoxelCoord::new(2, foot_y + 1, 0);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(2, foot_y, 0),
+        BLOCK_STATE_STONE,
+    );
     for cell in [destination, support_cell] {
         set_generated_block_for_test(registries.world(), &mut state, cell, BlockStateId::AIR);
     }
@@ -549,6 +561,12 @@ fn explicit_supported_timber_distinguishes_slender_and_full_footprint_occupancy(
     let (registries, mut state, foot_y) = generated_grounded_player_at(0, 0);
     let destination = VoxelCoord::new(1, foot_y + 1, 0);
     let support_cell = VoxelCoord::new(2, foot_y + 1, 0);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(2, foot_y, 0),
+        BLOCK_STATE_STONE,
+    );
     for cell in [destination, support_cell] {
         set_generated_block_for_test(registries.world(), &mut state, cell, BlockStateId::AIR);
     }

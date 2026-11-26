@@ -151,6 +151,82 @@ fn player_built_timber_post_must_be_dismantled_before_its_stone_footing_can_be_m
 }
 
 #[test]
+fn grounded_construction_cannot_claim_a_reserved_excavation_floor() {
+    use crate::inventory::{MaterialLotSelection, add_solid_stockpile_for_test};
+    use crate::structural::{
+        StructuralConstructionCommitError, StructuralConstructionError,
+        bind_structural_construction_selection, validate_structural_construction,
+    };
+
+    let (registries, mut state, pick, floor) = almost_excavated_foundation();
+    let member = build_ground_anchor(&registries, &mut state, floor, false);
+    let base = state
+        .structures()
+        .get_element(member)
+        .unwrap()
+        .bounds()
+        .min();
+    let mass = Mass::from_milligrams(3_250_000);
+    let source = add_solid_stockpile_for_test(&mut state, mass).unwrap();
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let selection = |state: &AppState| {
+        bind_structural_construction_selection(
+            state,
+            member,
+            source,
+            &[MaterialLotSelection::new(lot, mass)],
+        )
+        .unwrap()
+    };
+    let token = validate_structural_construction(&registries, &state, selection(&state)).unwrap();
+    let expected = state.player_work().revision();
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    let work = validate_start_player_block_excavation(&registries, &state, dig_request(pick, 2))
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(state.world().block_at(floor), Some(BLOCK_STATE_STONE));
+    let actual = state.player_work().revision();
+    let before = state.clone();
+    assert_eq!(
+        token.commit(&mut state).err(),
+        Some(StructuralConstructionCommitError::StalePlayerWorkRevision { expected, actual })
+    );
+    assert_eq!(
+        validate_structural_construction(&registries, &state, selection(&state)).err(),
+        Some(
+            StructuralConstructionError::GroundedMemberRequiresTerrainFoundation {
+                element: member,
+                voxel: base
+            }
+        )
+    );
+    assert_eq!(state, before);
+    while state.control_tick() < work.completes_at() {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(state.world().block_at(floor), Some(BlockStateId::AIR));
+    assert!(
+        state
+            .structures()
+            .get_element(member)
+            .unwrap()
+            .embodied_mass()
+            .is_zero()
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn grounded_member_protects_last_floor_mass_but_not_partial_excavation() {
     let (registries, mut state, pick, target) = almost_excavated_foundation();
     let post = build_ground_anchor(&registries, &mut state, target, true);

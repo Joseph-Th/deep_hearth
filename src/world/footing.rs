@@ -7,8 +7,8 @@ use crate::core::state::AppState;
 use crate::equipment::EquipmentId;
 use crate::inventory::StockpileId;
 use crate::registry::Registries;
-use crate::spatial::VoxelCoord;
-use crate::structural::StructuralElementId;
+use crate::spatial::{VoxelBounds, VoxelCoord};
+use crate::structural::{StructuralElementId, StructuralElementRecord};
 use crate::surface::SurfaceResourceId;
 
 /// The ground voxel of an unenclosed, unmounted, stationary stockpile.
@@ -398,9 +398,65 @@ fn stationary_equipment_resting_on(state: &AppState, floor: VoxelCoord) -> Optio
         .find(|&id| equipment_requires_fixed_footing(state, id))
 }
 
-/// Ground anchors remain attached to their actual supporting terrain until
-/// dismantled. An empty blueprint does not own physical matter and cannot
-/// reserve a permanent veto over earthworks.
+/// Embodied ground anchors remain attached to their actual terrain until
+/// dismantled. An empty blueprint does not claim a foundation.
+pub(crate) fn grounded_member_claims_foundation(record: &StructuralElementRecord) -> bool {
+    record.is_grounded() && !record.embodied_material().is_empty()
+}
+
+/// Ground anchors terminate structural loads in terrain, not in another
+/// member or a living trunk. Check the base of each generated column of
+/// the bounds, clipping to the actual chunk rather than expanding an
+/// arbitrary authored volume. The same check admits prospective terrain.
+pub(crate) fn first_missing_terrain_foundation_in_chunk(
+    registry: &super::WorldRegistry,
+    state: &AppState,
+    chunk: &super::WorldChunk,
+    bounds: VoxelBounds,
+) -> Option<VoxelCoord> {
+    let min = bounds.min();
+    let max = bounds.max_exclusive();
+    let chunk_x = chunk.coord().world_min_x()?;
+    let chunk_z = chunk.coord().world_min_z()?;
+    let x0 = min.x().max(chunk_x);
+    let x1 = (max.x() - 1).min(chunk_x + (super::CHUNK_SIDE - 1) as i64);
+    let z0 = min.z().max(chunk_z);
+    let z1 = (max.z() - 1).min(chunk_z + (super::CHUNK_SIDE - 1) as i64);
+    for z in z0..=z1 {
+        for x in x0..=x1 {
+            let base = VoxelCoord::new(x, min.y(), z);
+            if min.y() <= super::WORLD_MIN_Y || max.y() > super::WORLD_MAX_Y_EXCLUSIVE {
+                return Some(base);
+            }
+            let floor = VoxelCoord::new(x, min.y() - 1, z);
+            if fixed_floor_reserved_for_removal(state, floor)
+                || !registry
+                    .block_for_state(chunk.block_at(floor))
+                    .is_some_and(|block| block.collision() == super::BlockCollisionShape::FullCube)
+            {
+                return Some(base);
+            }
+        }
+    }
+    None
+}
+
+/// Abstract space has no terrain authority; once generated, every base
+/// voxel must bear on terrain. Member-supported construction uses its
+/// explicit support graph instead of this ground-anchor assessment.
+pub(crate) fn first_missing_terrain_foundation(
+    registries: &Registries,
+    state: &AppState,
+    bounds: VoxelBounds,
+) -> Option<VoxelCoord> {
+    state
+        .world()
+        .chunks_intersecting_horizontal_bounds(bounds)
+        .find_map(|chunk| {
+            first_missing_terrain_foundation_in_chunk(registries.world(), state, chunk, bounds)
+        })
+}
+
 fn grounded_structure_resting_on(
     state: &AppState,
     floor: VoxelCoord,
@@ -410,9 +466,7 @@ fn grounded_structure_resting_on(
         .structures()
         .elements_covering(above)
         .filter(|member| {
-            member.is_grounded()
-                && !member.embodied_material().is_empty()
-                && member.bounds().min().y() == above.y()
+            grounded_member_claims_foundation(member) && member.bounds().min().y() == above.y()
         })
         .map(|member| member.id())
         .min()
