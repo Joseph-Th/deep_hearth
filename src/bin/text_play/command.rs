@@ -306,6 +306,7 @@ impl Session {
         let remainder = clock_before % scale;
         let mut report = String::new();
         if remainder != 0 {
+            let work_location = self.player_position()?;
             let alignment = self.advance_many_with_report(
                 PlayerDirectControlInput::NEUTRAL,
                 scale - remainder,
@@ -316,6 +317,12 @@ impl Session {
             if alignment.stop != super::stepping::TimedStop::HorizonReached {
                 report.push_str(
                     "Begin interrupted during boundary alignment; requested work was not started.\n",
+                );
+                return Ok((report, true));
+            }
+            if self.player_position()? != work_location {
+                report.push_str(
+                    "Begin interrupted: your location changed during boundary alignment; requested work was not started.\n",
                 );
                 return Ok((report, true));
             }

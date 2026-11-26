@@ -864,6 +864,49 @@ fn begin_scheduled_work_aligns_the_real_clock_and_preserves_normal_admission() {
 }
 
 #[test]
+fn begin_does_not_retarget_work_when_momentum_changes_the_work_location() {
+    use deep_hearth::core::time::{DayPhase, SimulationTick};
+
+    let mut session = Session::new(24318).unwrap();
+    let night = session
+        .registries
+        .core()
+        .calendar()
+        .ticks_until_day_phase(SimulationTick::ZERO, DayPhase::Night)
+        .unwrap()
+        .value()
+        + 1;
+    let mut saved: serde_json::Value = serde_json::from_slice(&snapshot(&session)).unwrap();
+    saved["state"]["clock"]["simulation_tick"] = serde_json::json!(night);
+    saved["state"]["clock"]["control_tick"] =
+        serde_json::json!(night * CONTROL_TICKS_PER_SIMULATION_TICK);
+    // Isolate movement from the opening colony's independent schedule.
+    saved["state"]["systems"]["kobolds"]["colony"] = serde_json::Value::Null;
+    session.state = serde_json::from_value::<LoadedSaveEnvelope>(saved)
+        .unwrap()
+        .into_state(&session.registries)
+        .unwrap();
+    for command in ["e 1", "wait 10", "e 3"] {
+        session.command(command).unwrap();
+    }
+    let before = session.player_position().unwrap();
+    let mut reference = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot(&session))
+            .unwrap()
+            .into_state(&session.registries)
+            .unwrap(),
+        seed: None,
+    };
+    reference.command("wait boundary").unwrap();
+    let (report, _) = session.command("begin gather 1 100").unwrap();
+    assert_ne!(session.player_position().unwrap(), before, "{report}");
+    assert!(session.state.player_work().active().is_none(), "{report}");
+    assert!(report.contains("your location changed"), "{report}");
+    assert_eq!(snapshot(&session), snapshot(&reference));
+}
+
+#[test]
 fn queued_finish_stops_at_admission_when_pickup_occurs_on_the_same_frame() {
     use deep_hearth::content::{FORM_BOARD, FORM_CHIP, MATERIAL_WOOD};
     use deep_hearth::material::CommodityKey;
