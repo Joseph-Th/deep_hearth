@@ -288,6 +288,7 @@ reserve. After their first fruit withers or is harvested, cool spring and autumn
 weather fronts can transfer more stored fungal biomass into new mushrooms.
 Shade and natural spring moisture improve yield without minting nutrients,
 food or water; fungi can fruit beneath a canopy or roof without daylight.
+Opaque overhead geometry counts as complete shade for fungal yield.
 Late exploration discovers already-senesced first mushrooms, not free fresh food.
 Soil nutrients, rain-driven growth, actual foliage geometry, wildlife,
 reproduction and planting are not yet simulated. A bounded

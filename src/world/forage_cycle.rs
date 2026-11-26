@@ -16,7 +16,9 @@ use crate::registry::Registries;
 use crate::surface::{SurfaceResourceLifecycle, SurfaceResourceRecord};
 
 use super::generation::{HabitatKind, habitat_at};
-use super::sky::{daylight_exposure_after_canopy, has_open_sky, living_canopy_shade_at};
+use super::sky::{
+    MAX_SKYLIGHT_LEVEL, daylight_exposure_after_canopy, has_open_sky, living_canopy_shade_at,
+};
 use super::weather::weather_at;
 
 mod moisture;
@@ -181,9 +183,11 @@ fn ripening_site_shade(
     if state.world().block_at(at_floor) != Some(BLOCK_STATE_STONE)
         || state.structures().blocks_full_cell(source.position())
         || state.has_enclosed_stockpile_at(source.position())
-        || (!fungal && !has_open_sky(registries, state, source.position()))
     {
         return None;
+    }
+    if !has_open_sky(registries, state, source.position()) {
+        return fungal.then_some(MAX_SKYLIGHT_LEVEL);
     }
     let shade = living_canopy_shade_at(registries, state, source.position(), at);
     (fungal || daylight_exposure_after_canopy(registries.core().calendar(), shade) > 0)

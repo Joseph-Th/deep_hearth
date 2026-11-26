@@ -11,6 +11,7 @@ use crate::spatial::VoxelCoord;
 
 use super::{ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y};
 
+pub(super) const MAX_SKYLIGHT_LEVEL: u8 = 15;
 const MAX_CANOPY_RADIUS: i64 = 3;
 const CANOPY_VERTICAL_REACH_ABOVE_ROOT: i64 = 5;
 
@@ -87,7 +88,7 @@ pub(crate) fn living_canopy_shade_at(
             })
         })
         .fold(0_u8, u8::saturating_add)
-        .min(15)
+        .min(MAX_SKYLIGHT_LEVEL)
 }
 
 /// Conservative direct daylight levels on the same 0..15 scale as local fire.

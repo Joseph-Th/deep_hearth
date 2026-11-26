@@ -239,6 +239,54 @@ fn first_fungal_crop_already_withered_before_late_discovery() {
 }
 
 #[test]
+fn overhead_rock_shades_fungal_crops_as_well_as_canopy() {
+    let (registries, mut state, _, id) = fungal_world();
+    let first_end = SimulationTick::new(FIRST_CROP_END);
+    apply_clock_advance(&mut state, first_end);
+    apply_natural_forage_cycle(&registries, &mut state, first_end).unwrap();
+    let site = state.surface().get(id).unwrap().position();
+    let next = SimulationTick::new(NEXT_COOL_FRONT);
+    assert!(has_open_sky(&registries, &state, site));
+    assert_eq!(living_canopy_shade_at(&registries, &state, site, next), 0);
+    let mut open = state.clone();
+    let roof = VoxelCoord::new(site.x(), site.y() + 2, site.z());
+    assert_eq!(state.world().block_at(roof), Some(BlockStateId::AIR));
+    crate::world::set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        roof,
+        BLOCK_STATE_STONE,
+    );
+    assert!(!has_open_sky(&registries, &state, site));
+    let reserve = state.surface().get(id).unwrap().perennial_root_mass();
+    let open_total = calculate_matter_accounting(&open).unwrap().total();
+    let total = calculate_matter_accounting(&state).unwrap().total();
+    apply_clock_advance(&mut open, next);
+    apply_natural_forage_cycle(&registries, &mut open, next).unwrap();
+    apply_clock_advance(&mut state, next);
+    apply_natural_forage_cycle(&registries, &mut state, next).unwrap();
+    let crop = state.surface().get(id).unwrap();
+    let exposed_crop = open.surface().get(id).unwrap();
+    assert!(exposed_crop.remaining_mass() > Mass::ZERO);
+    assert!(
+        crop.remaining_mass() > exposed_crop.remaining_mass(),
+        "the same mycelium under an opaque roof must benefit from shade"
+    );
+    assert_eq!(
+        crop.perennial_root_mass()
+            .checked_add(crop.remaining_mass()),
+        Some(reserve)
+    );
+    assert_eq!(
+        calculate_matter_accounting(&open).unwrap().total(),
+        open_total
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), total);
+    assert_eq!(validate_loaded_state(&registries, &open), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn real_fungal_mycelium_does_not_fruit_in_summer_but_can_in_autumn() {
     let (registries, mut state, seed, id) = fungal_world();
     let initial = calculate_matter_accounting(&state).unwrap().total();
