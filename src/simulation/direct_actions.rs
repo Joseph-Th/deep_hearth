@@ -1,5 +1,6 @@
 //! Ordered direct player interactions evaluated after authoritative body motion.
 
+mod buffered;
 mod contextual;
 mod placement;
 mod primary;
@@ -66,9 +67,8 @@ pub(super) fn project_pointed_structural_break_target(
     }
 }
 
-pub(super) use contextual::attempt_pending_secondary_action;
+pub(super) use buffered::BufferedActionKind;
 use contextual::attempt_secondary_action;
-pub(super) use primary::attempt_pending_primary_break;
 use primary::attempt_primary_action;
 
 use crate::core::state::AppState;
@@ -169,7 +169,7 @@ pub(super) fn attempt_direct_actions_after_quick_access(
             Some(intent) => attempt_secondary_action(registries, state, Some(intent)),
         })
     } else {
-        attempt_secondary_action(registries, state, input.secondary()).or(pending_secondary)
+        pending_secondary.or_else(|| attempt_secondary_action(registries, state, input.secondary()))
     };
     // Newly buffered breaking cannot survive the concurrent drop. Work which
     // already reserved a tool retains custody and rejects the attempted drop.

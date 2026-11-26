@@ -1,5 +1,6 @@
 //! Contracts for persistent player world location and carried custody.
 
+use super::pending_primary::PlayerPendingPrimaryBreakCommitError;
 use super::pending_secondary::PlayerPendingSecondaryUseCommitError;
 use super::*;
 use crate::content::{
@@ -111,6 +112,44 @@ fn buffered_direct_action_validation_tracks_survival_revision() {
     );
     assert_eq!(state, before);
     assert!(!state.logistics().has_pending_direct_action());
+}
+
+#[test]
+fn buffered_action_admission_rejects_a_stale_control_sample() {
+    let (registries, mut state) = off_boundary_admitted_player();
+    let primary = validate_buffer_player_primary_break(
+        &state,
+        StructuralElementId::new(1),
+        positive_x_view(),
+    )
+    .unwrap();
+    let secondary = validate_buffer_player_secondary_use(
+        &state,
+        positive_x_view(),
+        BufferedSecondaryTarget::GroundedTimber {
+            destination: VoxelCoord::new(1, 0, 0),
+        },
+    )
+    .unwrap();
+    let logistics_revision = state.logistics().revision();
+    let survival_revision = state.survival().revision();
+    let expected = state.control_tick();
+    let _ = advance_control_tick(&registries, &mut state).unwrap();
+    let actual = state.control_tick();
+    assert_eq!(state.logistics().revision(), logistics_revision);
+    assert_eq!(state.survival().revision(), survival_revision);
+    let before = state.clone();
+    let mut primary_state = state.clone();
+    assert_eq!(
+        primary.commit(&mut primary_state),
+        Err(PlayerPendingPrimaryBreakCommitError::StaleControlTick { expected, actual })
+    );
+    assert_eq!(primary_state, before);
+    assert_eq!(
+        secondary.commit(&mut state),
+        Err(PlayerPendingSecondaryUseCommitError::StaleControlTick { expected, actual })
+    );
+    assert_eq!(state, before);
 }
 
 #[test]

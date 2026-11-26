@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
+use crate::core::time::ControlTick;
 use crate::player::{
     PlayerActionGuard, PlayerActionValidationError, StalePlayerSurvival, validate_player_action,
 };
@@ -43,13 +44,29 @@ impl Error for PlayerPendingSecondaryUseError {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PlayerPendingSecondaryUseCommitError {
-    StaleSurvivalRevision { expected: u64, actual: u64 },
-    StaleLogisticsRevision { expected: u64, actual: u64 },
+    StaleControlTick {
+        expected: ControlTick,
+        actual: ControlTick,
+    },
+    StaleSurvivalRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
 }
 
 impl Display for PlayerPendingSecondaryUseCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleControlTick { expected, actual } => write!(
+                formatter,
+                "buffered contextual use expected control tick {} but current control tick is {}",
+                expected.value(),
+                actual.value()
+            ),
             Self::StaleSurvivalRevision { expected, actual } => write!(
                 formatter,
                 "buffered contextual use expected survival revision {expected} but current revision is {actual}"
@@ -77,6 +94,14 @@ impl ValidatedPlayerPendingSecondaryUse {
         self,
         state: &mut AppState,
     ) -> Result<(), PlayerPendingSecondaryUseCommitError> {
+        let expected = self.pending.requested_at();
+        let actual = state.control_tick();
+        if expected != actual {
+            return Err(PlayerPendingSecondaryUseCommitError::StaleControlTick {
+                expected,
+                actual,
+            });
+        }
         self.player_action.precheck(state).map_err(
             |StalePlayerSurvival { expected, actual }| {
                 PlayerPendingSecondaryUseCommitError::StaleSurvivalRevision { expected, actual }

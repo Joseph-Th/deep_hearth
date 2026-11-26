@@ -13,6 +13,7 @@ use crate::world::validate_start_player_block_excavation_active;
 
 use super::super::control::PrimaryControlIntent;
 use super::super::outcome::PrimaryActionOutcome;
+use super::buffered::{buffered_context_matches, continues_primary};
 use super::placement::attempt_structural_dismantling_now;
 use super::structural_target::{DirectStructuralTargetError, resolve_direct_structural_target};
 
@@ -88,23 +89,21 @@ pub(super) fn attempt_primary_action(
     }
 }
 
-pub(in crate::simulation) fn attempt_pending_primary_break(
+pub(super) fn attempt_pending_primary_break(
     registries: &Registries,
     state: &mut AppState,
 ) -> Option<PrimaryActionOutcome> {
     let pending = take_player_pending_primary_break(state)?;
-    let current_position = state
-        .logistics()
-        .player()
-        .map(|player| player.body().foot_position());
-    if current_position != Some(pending.position())
-        || state.logistics().active_selection() != pending.selection()
-    {
+    if !buffered_context_matches(state, pending.position(), pending.selection()) {
         return Some(PrimaryActionOutcome::BufferedContextChanged);
     }
     let direction = pending.direction().unwrap_or_else(|| {
         panic!("runtime invariant broken: trusted buffered structural break has invalid direction")
     });
+    // Standing-tree priority is the same at initial selection and settlement.
+    if super::pointed_tree_root(registries, state, direction).is_some() {
+        return Some(PrimaryActionOutcome::BufferedContextChanged);
+    }
     match resolve_direct_structural_target(registries, state, direction) {
         Ok(element) if element == pending.element() => Some(attempt_structural_dismantling_now(
             registries, state, element,
@@ -123,11 +122,16 @@ fn attempt_primary_break(
     state: &mut AppState,
     direction: ViewDirection,
 ) -> PrimaryActionOutcome {
-    if let Some(root) = super::pointed_tree_root(registries, state, direction) {
-        // Tree chopping executes immediately rather than using the structural
-        // boundary queue. It supersedes a previously buffered break even when
-        // the newly selected chopping tool cannot start this different work.
+    if state.logistics().pending_primary_break().is_some() {
+        if continues_primary(state, direction) {
+            // Held breaking is one scheduled action, not repeated failed admissions.
+            // Target/world changes are still revalidated on its due boundary.
+            return PrimaryActionOutcome::QueuedUntilSimulationBoundary;
+        }
+        // A new direction, hand selection or actor location replaces the stale request.
         let _ = take_player_pending_primary_break(state);
+    }
+    if let Some(root) = super::pointed_tree_root(registries, state, direction) {
         return match crate::world::validate_start_player_tree_felling(registries, state, root) {
             Ok(validated) => {
                 PrimaryActionOutcome::TreeFellingStarted(validated.commit(state).unwrap_or_else(
@@ -136,22 +140,6 @@ fn attempt_primary_break(
             }
             Err(error) => PrimaryActionOutcome::TreeFellingRejected(error),
         };
-    }
-    if let Some(pending) = state.logistics().pending_primary_break() {
-        if pending.direction() == Some(direction)
-            && pending.selection() == state.logistics().active_selection()
-            && state
-                .logistics()
-                .player()
-                .map(|player| player.body().foot_position())
-                == Some(pending.position())
-        {
-            // Held breaking is one scheduled action, not repeated failed admissions.
-            // Target/world changes are still revalidated on its due boundary.
-            return PrimaryActionOutcome::QueuedUntilSimulationBoundary;
-        }
-        // A new direction, hand selection or actor location replaces the stale request.
-        let _ = take_player_pending_primary_break(state);
     }
     let element = match resolve_direct_structural_target(registries, state, direction) {
         Ok(element) => Some(element),

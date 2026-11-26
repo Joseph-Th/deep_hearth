@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::core::state::AppState;
+use crate::core::time::ControlTick;
 use crate::player::{
     PlayerActionGuard, PlayerActionValidationError, StalePlayerSurvival, validate_player_action,
 };
@@ -44,13 +45,29 @@ impl Error for PlayerPendingPrimaryBreakError {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PlayerPendingPrimaryBreakCommitError {
-    StaleSurvivalRevision { expected: u64, actual: u64 },
-    StaleLogisticsRevision { expected: u64, actual: u64 },
+    StaleControlTick {
+        expected: ControlTick,
+        actual: ControlTick,
+    },
+    StaleSurvivalRevision {
+        expected: u64,
+        actual: u64,
+    },
+    StaleLogisticsRevision {
+        expected: u64,
+        actual: u64,
+    },
 }
 
 impl Display for PlayerPendingPrimaryBreakCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::StaleControlTick { expected, actual } => write!(
+                formatter,
+                "buffered structural break expected control tick {} but current control tick is {}",
+                expected.value(),
+                actual.value()
+            ),
             Self::StaleSurvivalRevision { expected, actual } => write!(
                 formatter,
                 "buffered structural break expected survival revision {expected} but current revision is {actual}"
@@ -78,6 +95,14 @@ impl ValidatedPlayerPendingPrimaryBreak {
         self,
         state: &mut AppState,
     ) -> Result<(), PlayerPendingPrimaryBreakCommitError> {
+        let expected = self.pending.requested_at();
+        let actual = state.control_tick();
+        if expected != actual {
+            return Err(PlayerPendingPrimaryBreakCommitError::StaleControlTick {
+                expected,
+                actual,
+            });
+        }
         self.player_action.precheck(state).map_err(
             |StalePlayerSurvival { expected, actual }| {
                 PlayerPendingPrimaryBreakCommitError::StaleSurvivalRevision { expected, actual }

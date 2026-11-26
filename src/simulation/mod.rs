@@ -81,8 +81,7 @@ use crate::world::{
 };
 
 use direct_actions::{
-    attempt_direct_actions, attempt_direct_actions_after_quick_access,
-    attempt_pending_primary_break, attempt_pending_secondary_action,
+    BufferedActionKind, attempt_direct_actions, attempt_direct_actions_after_quick_access,
     attempt_quick_access_selection,
 };
 use fast_forward::control_stepping_required;
@@ -249,8 +248,7 @@ fn advance_control_tick_unstaged(
         .map_or(0, |plan| plan.settled_fall_vitality_loss_ppm());
     // The slow tick may be fatal. Record buffered intent before the death transition clears it:
     // the outer control step still owes the actor an observable rejection.
-    let has_pending_primary = state.logistics().pending_primary_break().is_some();
-    let has_pending_secondary = state.logistics().pending_secondary_use().is_some();
+    let buffered_action = BufferedActionKind::current(state);
     let simulation = advance_simulation_tick(
         registries,
         state,
@@ -271,35 +269,9 @@ fn advance_control_tick_unstaged(
     let surface_drop_pickup = decide_automatic_surface_drop_pickup(registries, state)
         .map(|plan| apply_automatic_surface_drop_pickup(state, plan));
     let quick_access = attempt_quick_access_selection(state, input.quick_access_slot());
-    let pending_primary = if has_pending_primary && player_dead {
-        (input.primary().is_none() && input.secondary().is_none() && !input.drop_active_selection())
-            .then_some(PrimaryActionOutcome::PlayerDead)
-    } else if has_pending_primary
-        && (input.primary().is_some()
-            || input.secondary().is_some()
-            || input.drop_active_selection())
-    {
-        let _ = crate::logistics::take_player_pending_primary_break(state);
-        None
-    } else {
-        attempt_pending_primary_break(registries, state)
-    };
-    let pending_secondary = if has_pending_secondary && player_dead {
-        (input.primary().is_none() && input.secondary().is_none() && !input.drop_active_selection())
-            .then_some(SecondaryActionOutcome::PlayerDead)
-    } else if has_pending_secondary
-        && (input.primary().is_some()
-            || input.secondary().is_some()
-            || input.drop_active_selection())
-    {
-        // A new command on either button, or dropping the selection,
-        // supersedes its buffered use even on the exact due boundary,
-        // before that use can start eating or drinking.
-        let _ = crate::logistics::take_player_pending_secondary_use(state);
-        None
-    } else {
-        attempt_pending_secondary_action(registries, state)
-    };
+    let (pending_primary, pending_secondary) = buffered_action.map_or((None, None), |action| {
+        action.settle(registries, state, input, player_dead)
+    });
     let direct_actions = attempt_direct_actions_after_quick_access(
         registries,
         state,

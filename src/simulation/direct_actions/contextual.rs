@@ -11,6 +11,7 @@ use crate::spatial::ViewDirection;
 
 use super::super::control::SecondaryControlIntent;
 use super::super::outcome::SecondaryActionOutcome;
+use super::buffered::{buffered_context_matches, continues_secondary};
 use super::placement::attempt_storage_placement;
 use super::secondary::{
     attempt_buffered_selected_action, attempt_empty_hand_secondary_action,
@@ -24,14 +25,10 @@ pub(super) fn attempt_secondary_action(
     intent: Option<SecondaryControlIntent>,
 ) -> Option<SecondaryActionOutcome> {
     let intent = intent?;
-    if let Some(pending) = state.logistics().pending_secondary_use() {
+    if state.logistics().pending_secondary_use().is_some() {
         if matches!(
             intent,
-            SecondaryControlIntent::UseActive { direction }
-                if pending.direction() == Some(direction)
-                    && pending.selection() == state.logistics().active_selection()
-                    && state.logistics().player().map(|player| player.body().foot_position())
-                        == Some(pending.position())
+            SecondaryControlIntent::UseActive { direction } if continues_secondary(state, direction)
         ) {
             return Some(SecondaryActionOutcome::QueuedUntilSimulationBoundary);
         }
@@ -114,18 +111,12 @@ fn attempt_secondary_action_now(
     }
 }
 
-pub(in crate::simulation) fn attempt_pending_secondary_action(
+pub(super) fn attempt_pending_secondary_action(
     registries: &Registries,
     state: &mut AppState,
 ) -> Option<SecondaryActionOutcome> {
     let pending = take_player_pending_secondary_use(state)?;
-    let current_position = state
-        .logistics()
-        .player()
-        .map(|player| player.body().foot_position());
-    if current_position != Some(pending.position())
-        || state.logistics().active_selection() != pending.selection()
-    {
+    if !buffered_context_matches(state, pending.position(), pending.selection()) {
         return Some(SecondaryActionOutcome::BufferedContextChanged);
     }
     let Some(PlayerActiveSelection::Material(commodity)) = pending.selection() else {

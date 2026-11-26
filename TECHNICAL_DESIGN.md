@@ -113,11 +113,16 @@ retains its resolved physical action and destination: a grounded timber voxel,
 a supported timber member and destination, a combustion store, or a combustion
 assembly definition. The due slow boundary revalidates that action through its
 owner; it cannot redirect construction into combustion, redirect fuel into a
-different store, or choose a replacement construction destination. A change in
-selection cancels the old request at its due boundary; freshly held input can
-replace the request before that boundary. Current-schema saves require both
-the contextual target and the selection field. Neither delayed action may
-execute under a different hand context.
+different store, or choose a replacement construction destination. An unchanged
+held gesture (same origin, selection and direction) continues the existing
+request even on its exact due boundary; settlement consumes that sample once.
+A changed hand, origin or direction may submit fresh intent; a different
+command can supersede a queued request. Without new intent, a changed
+selection or position cancels the old request at its due boundary. Buffer
+admission tokens are bound to their exact control sample as well as survival
+and logistics revisions. Current-schema saves require both the contextual
+target and the selection field. Neither delayed action may execute under a
+different hand context.
 
 Direct-control hand gestures are arbitrated within each 20 Hz sample. A primary
 combat command suppresses a concurrent selection drop even if combat rejects;
