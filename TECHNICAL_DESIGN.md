@@ -68,6 +68,10 @@ authorization remain with the canonical resolver/validator path.
 
 ### Temporal stepping contract
 
+The calendar owns the four discrete daylight phases, their actual durations and next-phase
+forecasts. Weather, skylight, crop daylight exposure and adapter watches share this projection;
+a short valid day can omit a phase rather than assign it a nonexistent tick.
+
 `advance_control_tick(registries, state)` is the canonical 20 Hz direct-control mutation. It advances one
 `ControlTick`, integrates any active generated-world player body, and every 72nd call executes the same
 slow-simulation transaction used by `advance_tick`.

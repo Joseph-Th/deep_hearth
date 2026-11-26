@@ -6,11 +6,11 @@ use super::super::{
     stepping::{TimedStop, TimedWaitMode},
 };
 use super::{Direction, Session, parse_index};
+use deep_hearth::core::time::DayPhase;
 use deep_hearth::logistics::{PlayerControlInput, PlayerQuickAccessSlot};
 use deep_hearth::simulation::{
     PlayerDirectControlInput, PrimaryControlIntent, SecondaryControlIntent,
 };
-use deep_hearth::world::DayPhase;
 
 const MAX_MOVEMENT_TICKS: u64 = 240;
 

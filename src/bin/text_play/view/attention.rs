@@ -4,7 +4,7 @@
 //! changed threats, not routine patrol motion or irrelevant weather churn.
 
 use deep_hearth::core::quantity::Temperature;
-use deep_hearth::core::time::Season;
+use deep_hearth::core::time::{DayPhase, Season};
 use deep_hearth::kobolds::{
     KoboldFootfall, KoboldRole, KoboldSighting, KoboldTrack, available_nearby_kobold_footfalls,
     available_nearby_kobold_scouts, available_nearby_kobold_tracks,
@@ -16,8 +16,8 @@ use deep_hearth::survival::{
     available_local_drink_sources,
 };
 use deep_hearth::world::{
-    DayPhase, ForageScent, VisibleWaterSource, WindCondition, WindDirection,
-    assess_player_forage_scents, assess_player_weather, available_visible_generated_water,
+    ForageScent, VisibleWaterSource, WindCondition, WindDirection, assess_player_forage_scents,
+    assess_player_weather, available_visible_generated_water,
 };
 use deep_hearth::{AppState, Registries};
 

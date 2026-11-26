@@ -162,6 +162,23 @@ pub enum Season {
     Winter,
 }
 
+/// Four broad daylight phases of the authored world calendar.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DayPhase {
+    Morning,
+    Afternoon,
+    Evening,
+    Night,
+}
+
+impl DayPhase {
+    pub(crate) const ALL: [Self; 4] = [Self::Morning, Self::Afternoon, Self::Evening, Self::Night];
+
+    pub(crate) const fn index(self) -> usize {
+        self as usize
+    }
+}
+
 /// Immutable world-calendar definition used to interpret authoritative ticks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CalendarDefinition {
@@ -240,6 +257,48 @@ impl CalendarDefinition {
     #[must_use]
     pub const fn months_per_year(self) -> u16 {
         self.months_per_year
+    }
+
+    /// First tick of each phase, rounded up for days not divisible by four.
+    fn day_phase_boundary(self, index: usize) -> u64 {
+        (u128::from(self.ticks_per_day) * index as u128).div_ceil(4) as u64
+    }
+
+    /// Observe the actual phase at an authoritative tick.
+    #[must_use]
+    pub fn day_phase_at(self, tick: SimulationTick) -> DayPhase {
+        let day_tick = tick.value() % self.ticks_per_day;
+        DayPhase::ALL[(u128::from(day_tick) * 4 / u128::from(self.ticks_per_day)) as usize]
+    }
+
+    pub(crate) fn day_phase_duration(self, phase: DayPhase) -> TickSpan {
+        TickSpan::new(
+            self.day_phase_boundary(phase.index() + 1) - self.day_phase_boundary(phase.index()),
+        )
+    }
+
+    pub(crate) fn ticks_until_day_phase_end(self, tick: SimulationTick) -> TickSpan {
+        let day_tick = tick.value() % self.ticks_per_day;
+        TickSpan::new(self.day_phase_boundary(self.day_phase_at(tick).index() + 1) - day_tick)
+    }
+
+    /// Earliest offset at which the requested phase is observed. Returns zero
+    /// for the current phase and `None` for a phase absent from a short day.
+    #[must_use]
+    pub fn ticks_until_day_phase(self, tick: SimulationTick, phase: DayPhase) -> Option<TickSpan> {
+        if self.day_phase_duration(phase).is_zero() {
+            return None;
+        }
+        if self.day_phase_at(tick) == phase {
+            return Some(TickSpan::ZERO);
+        }
+        let day_tick = tick.value() % self.ticks_per_day;
+        let start = self.day_phase_boundary(phase.index());
+        Some(TickSpan::new(if start > day_tick {
+            start - day_tick
+        } else {
+            self.ticks_per_day - day_tick + start
+        }))
     }
 
     /// Projects one authoritative tick into a stable calendar date.

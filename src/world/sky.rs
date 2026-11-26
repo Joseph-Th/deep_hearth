@@ -5,7 +5,7 @@
 //! through a roof, a stone ceiling or an unknown column.
 
 use crate::core::state::AppState;
-use crate::core::time::{CalendarDefinition, Season, SimulationTick};
+use crate::core::time::{CalendarDefinition, DayPhase, Season, SimulationTick};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
@@ -24,17 +24,14 @@ const SKY_PHASE_BRIGHTNESS: [u8; 4] = [9, 14, 6, 0];
 /// every phase equal weight would give plants a different light budget from
 /// the one actually seen during that day.
 pub(super) fn daylight_exposure_after_canopy(calendar: CalendarDefinition, shade: u8) -> u128 {
-    let day_ticks = u128::from(calendar.ticks_per_day());
-    let mut phase_start = 0_u128;
-    let mut exposure = 0_u128;
-    for (phase, level) in (1_u128..=4).zip(SKY_PHASE_BRIGHTNESS) {
-        // sky_brightness uses floor(day_tick * 4 / day_ticks), so the
-        // first tick of each new phase is ceil(phase * day_ticks / 4).
-        let phase_end = (phase * day_ticks).div_ceil(4);
-        exposure += (phase_end - phase_start) * u128::from(level.saturating_sub(shade));
-        phase_start = phase_end;
-    }
-    exposure
+    DayPhase::ALL
+        .into_iter()
+        .map(|phase| {
+            let level = SKY_PHASE_BRIGHTNESS[phase.index()];
+            u128::from(calendar.day_phase_duration(phase).value())
+                * u128::from(level.saturating_sub(shade))
+        })
+        .sum()
 }
 
 /// The crown core extends to neighboring cells; farther rings receive
@@ -94,10 +91,7 @@ pub(crate) fn living_canopy_shade_at(
 /// Conservative direct daylight levels on the same 0..15 scale as local fire.
 /// There is no indirect bounce or weather-driven cloud cover yet.
 fn sky_brightness(registries: &Registries, at: SimulationTick) -> u8 {
-    let calendar = registries.core().calendar();
-    let day = calendar.date_at(at).day_tick();
-    let phase = u128::from(day) * 4 / u128::from(calendar.ticks_per_day());
-    SKY_PHASE_BRIGHTNESS[usize::try_from(phase).expect("four sky phases fit usize")]
+    SKY_PHASE_BRIGHTNESS[registries.core().calendar().day_phase_at(at).index()]
 }
 
 /// Outdoor day/night applies to inhabitants only in actually generated land;

@@ -111,6 +111,52 @@ fn calendar_projects_four_equal_seasons_without_state() {
 }
 
 #[test]
+fn daylight_phase_durations_and_forecasts_match_every_tick_of_short_and_uneven_days() {
+    let short = CalendarDefinition::new(3, 3, 1, 4);
+    assert_eq!(
+        (0..3)
+            .map(|at| short.day_phase_at(SimulationTick::new(at)))
+            .collect::<Vec<_>>(),
+        [DayPhase::Morning, DayPhase::Afternoon, DayPhase::Evening]
+    );
+    assert_eq!(
+        short.ticks_until_day_phase(SimulationTick::ZERO, DayPhase::Night),
+        None
+    );
+    for day in 1..=24_u64 {
+        let calendar = CalendarDefinition::new(day, day as u32, 1, 4);
+        let phases = (0..day)
+            .map(|at| calendar.day_phase_at(SimulationTick::new(at)))
+            .collect::<Vec<_>>();
+        for phase in DayPhase::ALL {
+            assert_eq!(
+                calendar.day_phase_duration(phase).value(),
+                phases.iter().filter(|&&actual| actual == phase).count() as u64
+            );
+            for at in 0..day {
+                let tick = SimulationTick::new(at + day);
+                let expected =
+                    (0..day).find(|offset| phases[((at + offset) % day) as usize] == phase);
+                assert_eq!(
+                    calendar
+                        .ticks_until_day_phase(tick, phase)
+                        .map(TickSpan::value),
+                    expected
+                );
+                let end = calendar.ticks_until_day_phase_end(tick).value();
+                assert!(end > 0 && end <= day - at);
+                assert!(
+                    (0..end).all(|offset| phases[(at + offset) as usize] == phases[at as usize])
+                );
+                if at + end < day {
+                    assert_ne!(phases[(at + end) as usize], phases[at as usize]);
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn calendar_projects_maximum_authoritative_tick_without_overflow() {
     let calendar = CalendarDefinition::new(1, 1, 1, 4);
     let date = calendar.date_at(SimulationTick::new(u64::MAX));

@@ -9,6 +9,7 @@ mod excavation;
 mod feedback;
 #[path = "stepping/travel.rs"]
 mod travel;
+use deep_hearth::core::time::DayPhase;
 use deep_hearth::energy::project_player_nearby_warmth_sources;
 use deep_hearth::labor::PlayerWork;
 use deep_hearth::mining::MiningJobId;
@@ -20,7 +21,7 @@ use deep_hearth::simulation::{
 use deep_hearth::spatial::{HorizontalVelocity, VerticalVelocity, VoxelCoord};
 use deep_hearth::surface::{SurfaceGatheringError, SurfaceResourceId};
 use deep_hearth::survival::Vitality;
-use deep_hearth::world::{DayPhase, assess_player_weather};
+use deep_hearth::world::assess_player_weather;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum BatchReceipt {
@@ -161,24 +162,10 @@ impl Session {
             );
         }
         let calendar = self.registries.core().calendar();
-        let ticks_per_day = calendar.ticks_per_day();
-        let day_tick = calendar.date_at(self.state.tick()).day_tick();
-        let target_quarter = match target {
-            DayPhase::Morning => 0_u128,
-            DayPhase::Afternoon => 1,
-            DayPhase::Evening => 2,
-            DayPhase::Night => 3,
-        };
-        let target_day_tick =
-            u64::try_from((u128::from(ticks_per_day) * target_quarter).div_ceil(4))
-                .map_err(|_| "daylight wait target exceeds the clock range")?;
-        let slow_ticks = if target_day_tick > day_tick {
-            target_day_tick - day_tick
-        } else {
-            (ticks_per_day - day_tick)
-                .checked_add(target_day_tick)
-                .ok_or("daylight wait target exceeds the clock range")?
-        };
+        let slow_ticks = calendar
+            .ticks_until_day_phase(self.state.tick(), target)
+            .ok_or("requested daylight phase is absent from this calendar")?
+            .value();
         let scale = deep_hearth::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
         let maximum = slow_ticks
             .checked_mul(scale)
@@ -207,12 +194,6 @@ impl Session {
                 break;
             }
             if self.state.tick() != previous_tick {
-                if assess_player_weather(&self.registries, &self.state)
-                    .is_some_and(|weather| weather.phase() == target)
-                {
-                    let _ = writeln!(output, "Reached {phase_name}.");
-                    break;
-                }
                 if !initial_lit_fires.is_empty() && {
                     let still_lit = lit_nearby_fires(&self.registries, &self.state);
                     initial_lit_fires
@@ -231,6 +212,10 @@ impl Session {
                 )) {
                     let _ = writeln!(output, "{description}");
                     output.push_str("Daylight watch interrupted by a local change.\n");
+                    break;
+                }
+                if calendar.day_phase_at(self.state.tick()) == target {
+                    let _ = writeln!(output, "Reached {phase_name}.");
                     break;
                 }
             }

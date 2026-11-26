@@ -5,7 +5,7 @@
 
 use crate::core::quantity::Temperature;
 use crate::core::state::AppState;
-use crate::core::time::{Season, SimulationTick, TickSpan};
+use crate::core::time::{DayPhase, Season, SimulationTick, TickSpan};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
@@ -142,14 +142,6 @@ impl WindDirection {
             Self::South => (0, 1),
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DayPhase {
-    Morning,
-    Afternoon,
-    Evening,
-    Night,
 }
 
 /// Actor-local outdoor conditions at the actual current simulation tick.
@@ -294,21 +286,13 @@ pub(super) fn weather_at(
 ) -> PlayerWeather {
     let calendar = registries.core().calendar();
     let date = calendar.date_at(at);
-    let day_ticks = calendar.ticks_per_day();
-    let day_tick = date.day_tick();
-    let phase_index = (u128::from(day_tick) * 4 / u128::from(day_ticks)) as u8;
-    let phase = match phase_index {
-        0 => DayPhase::Morning,
-        1 => DayPhase::Afternoon,
-        2 => DayPhase::Evening,
-        _ => DayPhase::Night,
-    };
+    let phase = calendar.day_phase_at(at);
     let base_celsius: i32 = match date.season() {
         Season::Spring => [12, 17, 11, 7],
         Season::Summer => [20, 26, 21, 16],
         Season::Autumn => [9, 14, 8, 3],
         Season::Winter => [-3, 2, -4, -8],
-    }[usize::from(phase_index)];
+    }[phase.index()];
     let weather_window = at.value() / WEATHER_FRONT_TICKS;
     let hash = mix64(
         seed ^ (position.x().div_euclid(REGION_SIDE_VOXELS) as u64)
@@ -344,9 +328,7 @@ pub(super) fn weather_at(
     let celsius = base_celsius + ((hash >> 20) % 5) as i32 - 2 + local_ground_delta;
     let cooling = air_cooling_multiplier_ppm(celsius, wind_cooling_ppm(wind));
     let front_in = WEATHER_FRONT_TICKS - at.value() % WEATHER_FRONT_TICKS;
-    let day_phase_end = ((u128::from(phase_index) + 1) * u128::from(day_ticks))
-        .div_ceil(4)
-        .min(u128::from(day_ticks)) as u64;
+    let phase_remaining = calendar.ticks_until_day_phase_end(at).value();
     PlayerWeather {
         season: date.season(),
         phase,
@@ -357,7 +339,7 @@ pub(super) fn weather_at(
         wind,
         wind_direction,
         cooling_multiplier_ppm: cooling,
-        changes_in: TickSpan::new(front_in.min(day_phase_end - day_tick)),
+        changes_in: TickSpan::new(front_in.min(phase_remaining)),
     }
 }
 
