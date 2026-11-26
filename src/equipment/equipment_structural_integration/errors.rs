@@ -7,7 +7,7 @@ use crate::core::quantity::Force;
 use crate::core::time::{ControlTick, SimulationTick};
 use crate::logistics::PlayerEquipmentAccessError;
 use crate::mining::MiningJobId;
-use crate::production::ProductionJobId;
+use crate::production::{ProductionJobId, ProductionOccupancyRelease};
 use crate::spatial::VoxelCoord;
 use crate::structural::{
     StructuralCommitError, StructuralElementId, StructuralLifecycle, StructuralMutationError,
@@ -41,7 +41,7 @@ pub enum EquipmentSupportError {
     EquipmentBusy {
         equipment: EquipmentId,
         job: ProductionJobId,
-        completes_at: SimulationTick,
+        release: ProductionOccupancyRelease,
     },
     EquipmentBusyMining {
         equipment: EquipmentId,
@@ -127,13 +127,12 @@ impl Display for EquipmentSupportError {
             Self::EquipmentBusy {
                 equipment,
                 job,
-                completes_at,
+                release,
             } => write!(
                 formatter,
-                "equipment {} is occupied by production job {} until tick {} and cannot be moved",
+                "equipment {} is occupied by production job {} {release} and cannot be moved",
                 equipment.value(),
-                job.value(),
-                completes_at.value()
+                job.value()
             ),
             Self::EquipmentBusyTreeFelling {
                 equipment,
@@ -306,7 +305,7 @@ pub enum EquipmentSupportCommitError {
     EquipmentBusy {
         equipment: EquipmentId,
         job: ProductionJobId,
-        completes_at: SimulationTick,
+        release: ProductionOccupancyRelease,
     },
     EquipmentBusyMining {
         equipment: EquipmentId,
@@ -378,13 +377,12 @@ impl Display for EquipmentSupportCommitError {
             Self::EquipmentBusy {
                 equipment,
                 job,
-                completes_at,
+                release,
             } => write!(
                 formatter,
-                "equipment {} became occupied by production job {} until tick {} before support commit",
+                "equipment {} became occupied by production job {} {release} before support commit",
                 equipment.value(),
-                job.value(),
-                completes_at.value()
+                job.value()
             ),
             Self::EquipmentBusyTreeFelling {
                 equipment,

@@ -283,7 +283,8 @@ impl ProductionJobRecord {
     }
 
     /// Whether this operation was authorized only while its equipment had an active structural
-    /// support. Unsupported/free-standing providers do not acquire this requirement implicitly.
+    /// support. Support-dependent work may replace its mount while suspended; freestanding
+    /// work retains unmounted equipment until completion.
     #[must_use]
     pub const fn has_required_active_support(&self) -> bool {
         self.equipment.requires_active_support

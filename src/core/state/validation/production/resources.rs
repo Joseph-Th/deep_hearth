@@ -235,7 +235,11 @@ pub(super) fn validate_job_equipment(
             },
         );
     }
-    if !job.is_suspended() && job.has_required_active_support() != record.supported_by().is_some() {
+    let mounted = record.supported_by().is_some();
+    let requires_support = job.has_required_active_support();
+    // Only an originally mounted job may temporarily lose its support while
+    // suspended. Freestanding work never acquires a support dependency.
+    if (mounted && !requires_support) || (!mounted && requires_support && !job.is_suspended()) {
         return Err(StateValidationError::JobEquipmentSupportStateMismatch {
             job: job.id(),
             equipment: provider.equipment(),

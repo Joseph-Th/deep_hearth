@@ -1622,6 +1622,11 @@ at execution, but suspension can separate schedules, so availability transitions
 beyond the final-completion obligations retained by jobs that remain. Output support mount/unmount reprojects the
 retained structural obligation atomically. Loss of required support/provider availability may suspend a job while
 preserving work-in-process, reservations, remaining active duration, and those future completion obligations.
+Equipment support mode is fixed at process admission. Suspended support-dependent work may unload and
+remount its provider to recover a valid support; freestanding work retains unmounted equipment until
+completion, including during suspension. Both admission and retained support-change commits enforce
+this occupancy rule, with the same scheduled-or-awaiting-resume release descriptor as other production
+occupancy diagnostics. Trusted loads reject a mounted provider belonging to a freestanding job.
 Manual production releases player attention while suspended and must reacquire labor/survival budget before
 resumption.
 

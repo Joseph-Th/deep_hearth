@@ -589,6 +589,12 @@ fn prevalidated_mount_is_blocked_if_job_starts_first() {
     let (registries, mut state, source, destination, equipment, energy_store) =
         make_loaded_fixture(EnergyCarrier::Electrical);
     let support = add_active_support(&registries, &mut state, 0);
+    let output_support = add_active_support(&registries, &mut state, 2);
+    let _ = validate_mount_stockpile(&registries, &state, destination, output_support)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let paused_mount = validate_mount_equipment(&registries, &state, equipment, support).unwrap();
     let mount = match validate_mount_equipment(&registries, &state, equipment, support) {
         Ok(token) => token,
         Err(error) => panic!("occupancy-race mount validation failed: {error}"),
@@ -630,10 +636,25 @@ fn prevalidated_mount_is_blocked_if_job_starts_first() {
         Err(EquipmentSupportCommitError::EquipmentBusy {
             equipment,
             job,
-            completes_at,
+            release: ProductionOccupancyRelease::Scheduled(completes_at),
         })
     );
     assert_eq!(state, before_mount);
+
+    fail_support(&registries, &mut state, output_support);
+    let _ = advance_tick(&registries, &mut state).unwrap();
+    assert!(state.production().get_job(job).unwrap().is_suspended());
+    let before_mount = state.clone();
+    assert_eq!(
+        paused_mount.commit(&mut state),
+        Err(EquipmentSupportCommitError::EquipmentBusy {
+            equipment,
+            job,
+            release: ProductionOccupancyRelease::AwaitingResume,
+        })
+    );
+    assert_eq!(state, before_mount);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 }
 
 #[test]

@@ -3,6 +3,211 @@
 use super::*;
 
 #[test]
+fn suspended_craft_preserves_its_equipment_support_mode() {
+    use crate::equipment::{
+        EquipmentSupportError, validate_mount_equipment, validate_unmount_equipment,
+    };
+    use crate::production::ProductionOccupancyRelease;
+
+    let (registries, mut state, source, _, destination) = make_fixture();
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let temperature = Temperature::from_millikelvin(293_150);
+    for (commodity, mass) in [
+        (CommodityKey::new(MATERIAL_STONE, FORM_TOOL), 800_000),
+        (CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE), 200_000),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            commodity,
+            Mass::from_milligrams(mass),
+            temperature,
+        )
+        .unwrap();
+    }
+    let equipment = validate_assemble_equipment(
+        &registries,
+        &state,
+        EQUIPMENT_STONE_WOODWORKING_ADZE,
+        carried,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let log = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
+        Mass::from_milligrams(1_000_000),
+        temperature,
+    )
+    .unwrap();
+    let output_support = active_stockpile_support(&registries, &mut state);
+    let equipment_support = active_stockpile_support(&registries, &mut state);
+    let _ = validate_mount_stockpile(&registries, &state, destination, output_support)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    for mounted_at_start in [false, true] {
+        let mut state = state.clone();
+        if mounted_at_start {
+            let _ = validate_mount_equipment(&registries, &state, equipment, equipment_support)
+                .unwrap()
+                .commit(&mut state)
+                .unwrap();
+        }
+        let job = validate_start_manual_craft(
+            &registries,
+            &state,
+            ManualCraftStartRequest::new(
+                ManualCraftRequest::single(
+                    PROCESS_SHAPE_WOOD_BOARDS,
+                    source,
+                    MaterialLotSelection::new(log, Mass::from_milligrams(1_000_000)),
+                )
+                .with_equipment(equipment),
+                destination,
+            ),
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+        let record = state.production().get_job(job).unwrap();
+        assert_eq!(record.has_required_active_support(), mounted_at_start);
+        let expected_condition = record.equipment_condition_after().unwrap();
+        let reserved = state
+            .inventory()
+            .get_stockpile(destination)
+            .unwrap()
+            .reserved_inbound();
+        assert_eq!(reserved, Mass::from_milligrams(1_000_000));
+        let _ = validate_set_structural_load(
+            &registries,
+            &state,
+            output_support,
+            StructuralLoadKind::Snow,
+            Force::from_millinewtons(50_000_000),
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+        let paused = advance_tick(&registries, &mut state).unwrap();
+        assert!(matches!(
+            paused.production_availability_changes(),
+            [ProductionAvailabilityChange::Suspended {
+                job: id,
+                reason: ProductionSuspensionReason::OutputSupportUnavailable { stockpile },
+                ..
+            }] if *id == job && *stockpile == destination
+        ));
+        assert_eq!(state.player_work().active(), None);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        if mounted_at_start {
+            // A forged freestanding job may not retain a mounted provider even during a pause.
+            let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+            encoded["state"]["systems"]["production"]["jobs"][job.value().to_string()]["equipment"]
+                ["requires_active_support"] = serde_json::json!(false);
+            let decoded: LoadedSaveEnvelope = serde_json::from_value(encoded).unwrap();
+            assert_eq!(
+                decoded.into_state(&registries),
+                Err(LoadError::InvalidState(
+                    StateValidationError::JobEquipmentSupportStateMismatch {
+                        job,
+                        equipment,
+                        requires_active_support: false,
+                        supported_by: Some(equipment_support)
+                    }
+                ))
+            );
+            let _ = validate_unmount_equipment(&registries, &state, equipment)
+                .unwrap()
+                .commit(&mut state)
+                .unwrap();
+            assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+            let _ = advance_tick(&registries, &mut state).unwrap();
+            assert_eq!(
+                state
+                    .production()
+                    .get_job(job)
+                    .unwrap()
+                    .suspension()
+                    .unwrap()
+                    .reason(),
+                ProductionSuspensionReason::EquipmentSupportUnavailable { equipment }
+            );
+            let _ = validate_mount_equipment(&registries, &state, equipment, equipment_support)
+                .unwrap()
+                .commit(&mut state)
+                .unwrap();
+        } else {
+            let before = state.clone();
+            assert_eq!(
+                validate_mount_equipment(&registries, &state, equipment, equipment_support).err(),
+                Some(EquipmentSupportError::EquipmentBusy {
+                    equipment,
+                    job,
+                    release: ProductionOccupancyRelease::AwaitingResume,
+                })
+            );
+            assert_eq!(state, before);
+        }
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(destination)
+                .unwrap()
+                .reserved_inbound(),
+            reserved
+        );
+        let _ = validate_unmount_stockpile(&registries, &state, destination)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        let _ = advance_tick(&registries, &mut state).unwrap();
+        let record = state.production().get_job(job).unwrap();
+        assert!(!record.is_suspended());
+        let completes_at = record.completes_at();
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        let bytes = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&bytes)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        while state.tick() < completes_at {
+            assert_eq!(
+                advance_tick(&registries, &mut state).unwrap(),
+                advance_tick(&registries, &mut replay).unwrap(),
+            );
+        }
+        assert_eq!(state, replay);
+        assert!(state.production().get_job(job).is_none());
+        let output = state.inventory().get_stockpile(destination).unwrap();
+        assert_eq!(output.stored_mass(), reserved);
+        assert_eq!(output.reserved_inbound(), Mass::ZERO);
+        assert_eq!(
+            state
+                .equipment()
+                .get_equipment(equipment)
+                .unwrap()
+                .condition(),
+            expected_condition
+        );
+        assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        if !mounted_at_start {
+            let _ = validate_mount_equipment(&registries, &state, equipment, equipment_support)
+                .unwrap()
+                .commit(&mut state)
+                .unwrap();
+            assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        }
+    }
+}
+
+#[test]
 fn early_manual_craft_suspension_preserves_boundary_pickup() {
     use crate::core::time::CONTROL_TICKS_PER_SIMULATION_TICK;
     use crate::simulation::{TickError, advance_control_tick};

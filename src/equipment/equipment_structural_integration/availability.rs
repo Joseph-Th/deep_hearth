@@ -10,13 +10,13 @@ use super::{EquipmentSupportCommitError, EquipmentSupportError};
 
 /// Current runtime ownership that prevents physically changing an equipment support assignment.
 ///
-/// Suspended production deliberately does not block relocation because support recovery is one of
-/// the canonical ways to make that retained work resumable.
+/// A suspended support-dependent job permits support recovery. A freestanding job retains its
+/// original support mode until completion, even while paused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum EquipmentSupportBlocker {
     Production {
         job: ProductionJobId,
-        completes_at: SimulationTick,
+        release: ProductionOccupancyRelease,
     },
     Mining {
         job: MiningJobId,
@@ -38,14 +38,14 @@ enum EquipmentSupportBlocker {
 
 fn blocker(state: &AppState, equipment: EquipmentId) -> Option<EquipmentSupportBlocker> {
     equipment_occupancy(state, equipment).and_then(|occupancy| match occupancy {
-        EquipmentOccupancy::Production {
-            job,
-            release: ProductionOccupancyRelease::Scheduled(completes_at),
-        } => Some(EquipmentSupportBlocker::Production { job, completes_at }),
-        EquipmentOccupancy::Production {
-            release: ProductionOccupancyRelease::AwaitingResume,
-            ..
-        } => None,
+        EquipmentOccupancy::Production { job, release } => {
+            let permits_recovery = release == ProductionOccupancyRelease::AwaitingResume
+                && state
+                    .production()
+                    .get_job(job)
+                    .is_some_and(|record| record.has_required_active_support());
+            (!permits_recovery).then_some(EquipmentSupportBlocker::Production { job, release })
+        }
         EquipmentOccupancy::Mining { job } => Some(EquipmentSupportBlocker::Mining { job }),
         EquipmentOccupancy::ManualPower { .. } => Some(EquipmentSupportBlocker::ManualPower),
         EquipmentOccupancy::Prospecting { completes_at } => {
@@ -68,11 +68,11 @@ pub(super) fn support_validation_error(
     equipment: EquipmentId,
 ) -> Option<EquipmentSupportError> {
     blocker(state, equipment).map(|blocker| match blocker {
-        EquipmentSupportBlocker::Production { job, completes_at } => {
+        EquipmentSupportBlocker::Production { job, release } => {
             EquipmentSupportError::EquipmentBusy {
                 equipment,
                 job,
-                completes_at,
+                release,
             }
         }
         EquipmentSupportBlocker::Mining { job } => {
@@ -113,11 +113,11 @@ pub(super) fn support_commit_error(
     equipment: EquipmentId,
 ) -> Option<EquipmentSupportCommitError> {
     blocker(state, equipment).map(|blocker| match blocker {
-        EquipmentSupportBlocker::Production { job, completes_at } => {
+        EquipmentSupportBlocker::Production { job, release } => {
             EquipmentSupportCommitError::EquipmentBusy {
                 equipment,
                 job,
-                completes_at,
+                release,
             }
         }
         EquipmentSupportBlocker::Mining { job } => {
