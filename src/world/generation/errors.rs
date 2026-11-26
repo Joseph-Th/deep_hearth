@@ -68,6 +68,12 @@ pub enum ChunkGenerationError {
     EquipmentBuriedByTerrain {
         voxel: VoxelCoord,
     },
+    EnergyStoreRequiresFixedFloor {
+        voxel: VoxelCoord,
+    },
+    EquipmentRequiresFixedFloor {
+        voxel: VoxelCoord,
+    },
     SurfaceResourceCollision {
         voxel: VoxelCoord,
     },
@@ -219,6 +225,16 @@ impl Display for ChunkGenerationError {
                 voxel.x(),
                 voxel.y(),
                 voxel.z()
+            ),
+            Self::EnergyStoreRequiresFixedFloor { voxel } => write!(
+                formatter,
+                "terrain generation would leave a material-built energy store without fixed footing at voxel ({},{},{})",
+                voxel.x(), voxel.y(), voxel.z()
+            ),
+            Self::EquipmentRequiresFixedFloor { voxel } => write!(
+                formatter,
+                "terrain generation would leave unmounted material-built equipment without fixed footing at voxel ({},{},{})",
+                voxel.x(), voxel.y(), voxel.z()
             ),
             Self::SurfaceResourceCollision { voxel } => write!(
                 formatter,

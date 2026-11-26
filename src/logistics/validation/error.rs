@@ -62,6 +62,14 @@ pub enum LogisticsValidationError {
     LocatedEquipmentIntersectsSolidTerrain {
         voxel: VoxelCoord,
     },
+    LocatedEnergyStoreRequiresFixedFloor {
+        store: EnergyStoreId,
+        voxel: VoxelCoord,
+    },
+    LocatedEquipmentRequiresFixedFloor {
+        equipment: EquipmentId,
+        voxel: VoxelCoord,
+    },
     UnknownLocatedEquipment {
         equipment: EquipmentId,
     },
@@ -379,6 +387,16 @@ impl Display for LogisticsValidationError {
                 voxel.x(),
                 voxel.y(),
                 voxel.z()
+            ),
+            Self::LocatedEnergyStoreRequiresFixedFloor { store, voxel } => write!(
+                formatter,
+                "material-built energy store {} lacks fixed footing at ({},{},{})",
+                store.value(), voxel.x(), voxel.y(), voxel.z()
+            ),
+            Self::LocatedEquipmentRequiresFixedFloor { equipment, voxel } => write!(
+                formatter,
+                "unmounted material-built equipment {} lacks fixed footing at ({},{},{})",
+                equipment.value(), voxel.x(), voxel.y(), voxel.z()
             ),
             Self::TraversalEdgeNotCanonical { first, second } => write!(
                 formatter,

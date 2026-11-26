@@ -77,6 +77,21 @@ pub(super) fn validate_equipment_terrain(
     {
         return Err(LogisticsValidationError::LocatedEquipmentIntersectsSolidTerrain { voxel });
     }
+    if let Some((equipment, voxel)) =
+        state
+            .logistics()
+            .equipment_locations()
+            .find(|&(id, voxel)| {
+                crate::world::equipment_requires_fixed_footing(state, id)
+                    && crate::world::generated_position_lacks_fixed_footing(
+                        registries, state, voxel,
+                    )
+            })
+    {
+        return Err(
+            LogisticsValidationError::LocatedEquipmentRequiresFixedFloor { equipment, voxel },
+        );
+    }
     Ok(())
 }
 
@@ -96,6 +111,18 @@ pub(super) fn validate_energy_terrain(
         })
     {
         return Err(LogisticsValidationError::LocatedEnergyStoreIntersectsSolidTerrain { voxel });
+    }
+    if let Some((store, voxel)) = state
+        .logistics()
+        .energy_store_locations()
+        .find(|&(id, voxel)| {
+            crate::world::energy_store_requires_fixed_footing(state, id)
+                && crate::world::generated_position_lacks_fixed_footing(registries, state, voxel)
+        })
+    {
+        return Err(
+            LogisticsValidationError::LocatedEnergyStoreRequiresFixedFloor { store, voxel },
+        );
     }
     Ok(())
 }

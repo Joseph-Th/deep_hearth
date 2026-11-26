@@ -310,10 +310,25 @@ fn generated_stone_cannot_bury_a_material_built_campfire() {
 fn corrupted_stone_overlap_rejects_embodied_campfire_save_without_losing_heat() {
     let registries = build_registries();
     let mut state = AppState::new();
-    // In the ungenerated opening there is no implicit solid floor or rock.
-    // Above the ordinary terrain envelope, the same stationary campfire
-    // remains clear and valid after its surrounding chunk becomes generated.
+    // Establish a physically supported, unobstructed source before assembly.
+    // The fixture subsequently forges only the solid overlap under test.
     let source = VoxelCoord::new(8, 100, 8);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(0x4C49_4748_545F_534F),
+        ChunkCoord::containing(source),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(8, 99, 8),
+        BLOCK_STATE_STONE,
+    );
     let carried = validate_admit_player(&registries, &state, source)
         .unwrap()
         .commit(&mut state)
@@ -342,16 +357,6 @@ fn corrupted_stone_overlap_rejects_embodied_campfire_save_without_losing_heat() 
         .unwrap();
     let heat = state.energy().get_store(fire).unwrap().stored();
     relocate_player_for_test(&mut state, VoxelCoord::new(24, 100, 8));
-    validate_generate_chunk(
-        &registries,
-        &state,
-        WorldGenerationSeed::new(0x4C49_4748_545F_534F),
-        ChunkCoord::containing(source),
-        BLOCK_STATE_STONE,
-    )
-    .unwrap()
-    .commit(&mut state)
-    .unwrap();
     assert_eq!(state.world().block_at(source), Some(BlockStateId::AIR));
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     let valid = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();

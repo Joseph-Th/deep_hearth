@@ -79,12 +79,7 @@ pub(super) fn validate_generated_chunk_occupancy(
     if let Some(voxel) = first_fluid_store_collision_in_generated_chunk(registry, state, chunk) {
         return Err(ChunkGenerationError::FluidStoreBuriedByTerrain { voxel });
     }
-    if let Some(voxel) = first_energy_store_collision_in_generated_chunk(registry, state, chunk) {
-        return Err(ChunkGenerationError::EnergyStoreBuriedByTerrain { voxel });
-    }
-    if let Some(voxel) = first_equipment_collision_in_generated_chunk(registry, state, chunk) {
-        return Err(ChunkGenerationError::EquipmentBuriedByTerrain { voxel });
-    }
+    validate_existing_asset_custody(registry, state, tree, chunk)?;
     if let Some(player) = state.logistics().player()
         && let Some(voxel) = first_player_body_collision_in_chunk(
             registry,
@@ -178,6 +173,63 @@ fn validate_existing_fixed_footing(
         return Err(ChunkGenerationError::ReservedOutputRequiresFixedFloor { voxel });
     }
     Ok(())
+}
+
+/// Material-built tools and machines use the same prospective footing rule
+/// as loose custody. Preserve the existing burial diagnostics before checking
+/// support, and inspect only the locations indexed in this incoming column.
+fn validate_existing_asset_custody(
+    registry: &WorldRegistry,
+    state: &AppState,
+    tree: Option<TreeRecord>,
+    chunk: &WorldChunk,
+) -> Result<(), ChunkGenerationError> {
+    if let Some(voxel) = first_energy_store_collision_in_generated_chunk(registry, state, chunk) {
+        return Err(ChunkGenerationError::EnergyStoreBuriedByTerrain { voxel });
+    }
+    if let Some(voxel) = first_equipment_collision_in_generated_chunk(registry, state, chunk) {
+        return Err(ChunkGenerationError::EquipmentBuriedByTerrain { voxel });
+    }
+    if let Some(voxel) = first_unsupported_asset(
+        registry,
+        state,
+        tree,
+        chunk,
+        state
+            .logistics()
+            .energy_stores_in_chunk(chunk.coord())
+            .filter(|&(id, _)| crate::world::energy_store_requires_fixed_footing(state, id)),
+    ) {
+        return Err(ChunkGenerationError::EnergyStoreRequiresFixedFloor { voxel });
+    }
+    if let Some(voxel) = first_unsupported_asset(
+        registry,
+        state,
+        tree,
+        chunk,
+        state
+            .logistics()
+            .equipment_in_chunk(chunk.coord())
+            .filter(|&(id, _)| crate::world::equipment_requires_fixed_footing(state, id)),
+    ) {
+        return Err(ChunkGenerationError::EquipmentRequiresFixedFloor { voxel });
+    }
+    Ok(())
+}
+
+fn first_unsupported_asset<Id: Ord>(
+    registry: &WorldRegistry,
+    state: &AppState,
+    tree: Option<TreeRecord>,
+    chunk: &WorldChunk,
+    locations: impl Iterator<Item = (Id, VoxelCoord)>,
+) -> Option<VoxelCoord> {
+    locations
+        .filter(|&(_, position)| {
+            !prospective_position_has_fixed_floor(registry, state, tree, chunk, position)
+        })
+        .min_by(|(left, _), (right, _)| left.cmp(right))
+        .map(|(_, position)| position)
 }
 
 /// The prospective chunk owns terrain and its seeded trunk before either is

@@ -33,14 +33,46 @@ fn warmth_requires_authoritative_air_across_a_generated_boundary() {
     use crate::material::CommodityKey;
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
     use crate::player::validate_admit_player;
-    use crate::world::{ChunkCoord, WorldGenerationSeed, validate_generate_chunk};
+    use crate::world::{
+        BlockStateId, ChunkCoord, WORLD_MAX_Y_EXCLUSIVE, WORLD_MIN_Y, WorldGenerationSeed,
+        validate_generate_chunk,
+    };
 
     let registries = build_registries();
     let mut state = AppState::new();
-    // These adjacent sites straddle a chunk boundary, above natural terrain.
-    // Place the finite source in graph-only custody before terrain exists.
-    let source = VoxelCoord::new(-1, 100, 8);
-    let observer = VoxelCoord::new(0, 100, 8);
+    let seed = WorldGenerationSeed::new(41);
+    // Resolve a level pair of adjacent, supported cells from actual terrain
+    // without committing either column. The heat source remains in graph-only
+    // custody until its own chunk receives authoritative geometry.
+    let left = validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(-1, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap();
+    let right = validate_generate_chunk(
+        &registries,
+        &state,
+        seed,
+        ChunkCoord::new(0, 0),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap();
+    let (source, observer) = (0..16)
+        .find_map(|z| {
+            let floor_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+                .rev()
+                .find(|&y| left.chunk().block_at(VoxelCoord::new(-1, y, z)) != BlockStateId::AIR)?;
+            let source = VoxelCoord::new(-1, floor_y + 1, z);
+            let observer = VoxelCoord::new(0, floor_y + 1, z);
+            (right.chunk().block_at(VoxelCoord::new(0, floor_y, z)) == BLOCK_STATE_STONE
+                && right.chunk().block_at(observer) == BlockStateId::AIR
+                && right.chunk().block_at(VoxelCoord::new(0, floor_y + 2, z)) == BlockStateId::AIR)
+                .then_some((source, observer))
+        })
+        .expect("seed has a level standing route across the chunk boundary");
     let carried = validate_admit_player(&registries, &state, source)
         .unwrap()
         .commit(&mut state)
@@ -69,7 +101,6 @@ fn warmth_requires_authoritative_air_across_a_generated_boundary() {
         .unwrap();
     let charge = state.energy().get_store(fire).unwrap().stored();
     relocate_player_for_test(&mut state, observer);
-    let seed = WorldGenerationSeed::new(41);
     validate_generate_chunk(
         &registries,
         &state,

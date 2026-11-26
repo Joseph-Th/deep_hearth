@@ -2006,7 +2006,10 @@ members; a floor reserved for removal is not valid support. Surface creation, sc
 portion settlement and trusted load share that same committed-world footing contract and reject
 unsupported live matter. Validated surface creation binds the player-work revision as well as terrain
 and structural revisions, so a floor-removal reservation cannot invalidate a retained creation token.
-The upper trunk is the relevant external
+Material-built stationary energy stores and unmounted material-built equipment require the same
+fixed footing during terrain admission and trusted loading as during ordinary assembly and
+terrain removal. Mounted equipment retains its explicit member support, and unembodied
+capability fixtures do not claim physical footing. The upper trunk is the relevant external
 footing for a standing tree. Scheduled removal rechecks the claim at
 start commit and during trusted-load admission; opening patrol movement rejects
 entry onto a floor reserved for removal, including when hauling a loose parcel. Depleted non-perennial surface parcels

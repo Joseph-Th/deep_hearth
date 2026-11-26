@@ -350,35 +350,46 @@ fn rooted_forage_resting_on(state: &AppState, floor: VoxelCoord) -> bool {
     })
 }
 
-/// A material-built energy store cannot stay suspended when its original
-/// terrain footing is fully removed. Unembodied capability fixtures do not
-/// claim this physical support. Use the indexed local position, not all stores.
+/// A material-built stationary energy store has no falling motion.
+/// Unembodied capability fixtures do not claim physical ground support.
+pub(crate) fn energy_store_requires_fixed_footing(
+    state: &AppState,
+    store: crate::energy::EnergyStoreId,
+) -> bool {
+    state
+        .energy()
+        .get_store(store)
+        .is_some_and(|record| !record.embodied_material().is_empty())
+}
+
+/// Unmounted, material-built stationary equipment has no falling motion.
+/// Mounted equipment depends on its explicit structural support instead.
+pub(crate) fn equipment_requires_fixed_footing(state: &AppState, equipment: EquipmentId) -> bool {
+    state
+        .equipment()
+        .get_equipment(equipment)
+        .is_some_and(|record| {
+            record.supported_by().is_none() && !record.embodied_material().is_empty()
+        })
+}
+
 fn stationary_energy_store_resting_on(
     state: &AppState,
     floor: VoxelCoord,
 ) -> Option<crate::energy::EnergyStoreId> {
     let above = VoxelCoord::new(floor.x(), floor.y().checked_add(1)?, floor.z());
-    state.logistics().energy_stores_at(above).find(|&id| {
-        state
-            .energy()
-            .get_store(id)
-            .is_some_and(|store| !store.embodied_material().is_empty())
-    })
+    state
+        .logistics()
+        .energy_stores_at(above)
+        .find(|&id| energy_store_requires_fixed_footing(state, id))
 }
 
-/// Unmounted, material-built equipment has no simulated falling motion after
-/// it is assembled or dropped. Once mounted, its structural member owns the
-/// support instead of the ground directly beneath its current voxel.
 fn stationary_equipment_resting_on(state: &AppState, floor: VoxelCoord) -> Option<EquipmentId> {
     let above = VoxelCoord::new(floor.x(), floor.y().checked_add(1)?, floor.z());
-    state.logistics().equipment_at(above).find(|&id| {
-        state
-            .equipment()
-            .get_equipment(id)
-            .is_some_and(|equipment| {
-                equipment.supported_by().is_none() && !equipment.embodied_material().is_empty()
-            })
-    })
+    state
+        .logistics()
+        .equipment_at(above)
+        .find(|&id| equipment_requires_fixed_footing(state, id))
 }
 
 /// Ground anchors remain attached to their actual supporting terrain until

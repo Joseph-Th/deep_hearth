@@ -19,6 +19,225 @@ use crate::world::{
 
 use super::{ChunkGenerationError, WorldGenerationSeed};
 
+#[derive(Clone, Copy)]
+enum StationaryAsset {
+    Pick,
+    Campfire,
+}
+
+fn assemble_at_player(
+    registries: &Registries,
+    state: &mut AppState,
+    position: VoxelCoord,
+    asset: StationaryAsset,
+) {
+    let carried = crate::player::validate_admit_player(registries, state, position)
+        .unwrap()
+        .commit(state)
+        .unwrap()
+        .carried_stockpile();
+    let materials = match asset {
+        StationaryAsset::Pick => [
+            (CommodityKey::new(MATERIAL_STONE, FORM_TOOL), 800_000),
+            (CommodityKey::new(MATERIAL_WOOD, FORM_HANDLE), 200_000),
+        ],
+        StationaryAsset::Campfire => [
+            (
+                CommodityKey::new(MATERIAL_STONE, crate::content::FORM_LUMP),
+                1_000_000,
+            ),
+            (
+                CommodityKey::new(MATERIAL_WOOD, crate::content::FORM_LOG),
+                1_000_000,
+            ),
+        ],
+    };
+    for (commodity, milligrams) in materials {
+        deposit_lot_for_test(
+            registries,
+            state,
+            carried,
+            commodity,
+            Mass::from_milligrams(milligrams),
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+    }
+    let conserved = crate::matter::calculate_matter_accounting(state)
+        .unwrap()
+        .total();
+    match asset {
+        StationaryAsset::Pick => {
+            let pick =
+                validate_assemble_equipment(registries, state, EQUIPMENT_STONE_PICK, carried)
+                    .unwrap()
+                    .commit(state)
+                    .unwrap();
+            assert_eq!(
+                state.logistics().stationary_equipment_position(pick),
+                Some(position)
+            );
+        }
+        StationaryAsset::Campfire => {
+            let fire = crate::energy::validate_assemble_energy_store(
+                registries,
+                state,
+                crate::content::ENERGY_STONE_RING_CAMPFIRE,
+                carried,
+            )
+            .unwrap()
+            .commit(state)
+            .unwrap();
+            assert_eq!(
+                state.logistics().energy_store_position(fire),
+                Some(position)
+            );
+        }
+    }
+    assert_eq!(
+        crate::matter::calculate_matter_accounting(state)
+            .unwrap()
+            .total(),
+        conserved
+    );
+}
+
+#[test]
+fn stationary_asset_footing_generation_rejects_unsupported_material_assembly() {
+    for asset in [StationaryAsset::Pick, StationaryAsset::Campfire] {
+        let registries = build_registries();
+        let mut state = AppState::new();
+        let position = VoxelCoord::new(5, 100, 5);
+        // Give neighborhood demand an established generation profile, without
+        // introducing terrain authority at the abstract assembly location.
+        validate_generate_chunk(
+            &registries,
+            &state,
+            SEED,
+            ChunkCoord::new(3, 3),
+            BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+        assemble_at_player(&registries, &mut state, position, asset);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        let before = state.clone();
+        let expected = match asset {
+            StationaryAsset::Pick => {
+                ChunkGenerationError::EquipmentRequiresFixedFloor { voxel: position }
+            }
+            StationaryAsset::Campfire => {
+                ChunkGenerationError::EnergyStoreRequiresFixedFloor { voxel: position }
+            }
+        };
+        assert_eq!(
+            validate_generate_chunk(
+                &registries,
+                &state,
+                SEED,
+                ChunkCoord::containing(position),
+                BLOCK_STATE_STONE,
+            )
+            .err(),
+            Some(expected.clone()),
+            "terrain admission must not leave an assembled tool or machine suspended"
+        );
+        assert_eq!(
+            crate::world::validate_generate_player_neighborhood(&registries, &state).err(),
+            Some(expected)
+        );
+        assert_eq!(state, before);
+    }
+}
+
+#[test]
+fn stationary_asset_footing_trusted_load_rejects_unsupported_material_assembly() {
+    for asset in [StationaryAsset::Pick, StationaryAsset::Campfire] {
+        let registries = build_registries();
+        let mut state = AppState::new();
+        let position = VoxelCoord::new(5, 100, 5);
+        let floor = VoxelCoord::new(5, 99, 5);
+        validate_generate_chunk(
+            &registries,
+            &state,
+            SEED,
+            ChunkCoord::containing(position),
+            BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+        set_generated_block_for_test(registries.world(), &mut state, floor, BLOCK_STATE_STONE);
+        assemble_at_player(&registries, &mut state, position, asset);
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        let valid = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<LoadedSaveEnvelope>(&valid)
+                .unwrap()
+                .into_state(&registries),
+            Ok(state.clone())
+        );
+        set_generated_block_for_test(registries.world(), &mut state, floor, BlockStateId::AIR);
+        let expected = StateValidationError::Logistics(match asset {
+            StationaryAsset::Pick => LogisticsValidationError::LocatedEquipmentRequiresFixedFloor {
+                equipment: state.logistics().equipment_locations().next().unwrap().0,
+                voxel: position,
+            },
+            StationaryAsset::Campfire => {
+                LogisticsValidationError::LocatedEnergyStoreRequiresFixedFloor {
+                    store: state.logistics().energy_store_locations().next().unwrap().0,
+                    voxel: position,
+                }
+            }
+        });
+        assert_eq!(
+            validate_loaded_state(&registries, &state),
+            Err(expected.clone())
+        );
+        let invalid = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<LoadedSaveEnvelope>(&invalid)
+                .unwrap()
+                .into_state(&registries),
+            Err(crate::persistence::LoadError::InvalidState(expected))
+        );
+    }
+}
+
+#[test]
+fn stationary_asset_footing_generation_preserves_supported_assembly() {
+    for asset in [StationaryAsset::Pick, StationaryAsset::Campfire] {
+        let registries = build_registries();
+        let mut state = AppState::new();
+        let position = VoxelCoord::new(0, super::terrain_height(SEED, 0, 0) + 1, 0);
+        assemble_at_player(&registries, &mut state, position, asset);
+        let before = state.clone();
+        validate_generate_chunk(
+            &registries,
+            &state,
+            SEED,
+            ChunkCoord::containing(position),
+            BLOCK_STATE_STONE,
+        )
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+        assert_eq!(state.equipment(), before.equipment());
+        assert_eq!(state.energy(), before.energy());
+        assert_eq!(state.inventory(), before.inventory());
+        assert_eq!(state.logistics(), before.logistics());
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+        let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+                .unwrap()
+                .into_state(&registries),
+            Ok(state)
+        );
+    }
+}
+
 const SEED: WorldGenerationSeed = WorldGenerationSeed::new(0x4551_5549_504D_454E);
 
 /// Build a real stone pick from an inventory, then locate the finished matter
@@ -95,7 +314,7 @@ fn generation_cannot_bury_stationary_material_built_equipment() {
 fn loaded_state_rejects_material_equipment_intersecting_generated_stone() {
     let registries = build_registries();
     let mut state = AppState::new();
-    let position = VoxelCoord::new(5, WORLD_MIN_Y, 5);
+    let position = VoxelCoord::new(5, WORLD_MIN_Y + 1, 5);
     validate_generate_chunk(
         &registries,
         &state,
