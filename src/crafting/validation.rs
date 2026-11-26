@@ -2,9 +2,11 @@
 
 use crate::core::time::TickSpan;
 use crate::energy::calculate_mass_specific_energy;
+use crate::inventory::AMBIENT_PRESERVATION_MULTIPLIER_PPM;
 use crate::material::{MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE, MaterialLotSpec};
 use crate::production::{ProcessOutputStreamId, ProductionJobRecord};
 use crate::registry::Registries;
+use crate::survival::{FoodFreshness, freshness_from_history};
 
 use super::powered::{PoweredCraftTimingError, resolve_powered_craft_rate};
 use super::{
@@ -330,6 +332,28 @@ pub(crate) fn validate_loaded_crafting_job(
             commodity: trace.profile().commodity(),
             temperature: trace.profile().temperature(),
             maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+        });
+    }
+    // Manual preservation requires every selected raw-food lot to be fresh
+    // at admission. The reservation checkpoints the oldest selected exposure
+    // at job start, and batch validation establishes one input commodity.
+    // Thus this single history suffices to replay that admission predicate.
+    // The input may age past its original shelf life during valid work.
+    if required_duration.is_none()
+        && let Some(food) = registries.survival().get_food(definition.input())
+        && !matches!(
+            freshness_from_history(
+                job.material_storage_history(),
+                AMBIENT_PRESERVATION_MULTIPLIER_PPM,
+                job.started_at(),
+                food.shelf_life(),
+            ),
+            Ok(FoodFreshness::Fresh { .. })
+        )
+    {
+        return Err(CraftingJobValidationError::FoodInputFreshnessInvalid {
+            job: job.id(),
+            commodity: definition.input(),
         });
     }
     let batches = batch.batches();

@@ -22,62 +22,8 @@ use crate::player::validate_admit_player;
 use crate::simulation::advance_tick;
 use crate::spatial::VoxelCoord;
 
-#[test]
-fn winter_preparation_rejects_spoiled_forage_without_mutating_inventory() {
-    use crate::content::{FORM_FOOD, MATERIAL_WILD_NUTS, PROCESS_SORT_WILD_NUTS_FOR_WINTER};
-    use crate::core::state::apply_clock_advance;
-    use crate::core::time::SimulationTick;
-    use crate::crafting::{ManualCraftError, resolve_manual_craft};
-    use crate::inventory::MaterialLotSelection;
-    use crate::survival::{FoodFreshness, assess_food_freshness};
-
-    let registries = build_registries();
-    let mut state = AppState::new();
-    let carried = validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
-        .unwrap()
-        .commit(&mut state)
-        .unwrap()
-        .carried_stockpile();
-    let commodity = CommodityKey::new(MATERIAL_WILD_NUTS, FORM_FOOD);
-    deposit_lot_for_test(
-        &registries,
-        &mut state,
-        carried,
-        commodity,
-        Mass::from_milligrams(500_000),
-        Temperature::from_millikelvin(293_150),
-    )
-    .unwrap();
-    let lot = state
-        .inventory()
-        .lot_ids_for_commodity(carried, commodity)
-        .next()
-        .unwrap();
-    let craft = ManualCraftRequest::single(
-        PROCESS_SORT_WILD_NUTS_FOR_WINTER,
-        carried,
-        MaterialLotSelection::new(lot, Mass::from_milligrams(500_000)),
-    );
-    assert!(matches!(
-        assess_food_freshness(&registries, &state, lot),
-        Ok(FoodFreshness::Fresh { .. })
-    ));
-    assert!(resolve_manual_craft(&registries, &state, &craft).is_ok());
-    apply_clock_advance(
-        &mut state,
-        SimulationTick::new(11 * registries.core().calendar().ticks_per_day()),
-    );
-    assert!(matches!(
-        assess_food_freshness(&registries, &state, lot),
-        Ok(FoodFreshness::Spoiled { .. })
-    ));
-    let before = state.clone();
-    assert!(matches!(
-        resolve_manual_craft(&registries, &state, &craft),
-        Err(ManualCraftError::SpoiledFoodInput { lot: found }) if found == lot
-    ));
-    assert_eq!(state, before);
-}
+#[path = "personal_tests/food.rs"]
+mod food;
 
 fn one_batch() -> NonZeroU64 {
     NonZeroU64::new(1).unwrap_or_else(|| unreachable!("one batch is nonzero"))

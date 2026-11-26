@@ -95,6 +95,10 @@ pub enum CraftingJobValidationError {
         temperature: Temperature,
         maximum: Temperature,
     },
+    FoodInputFreshnessInvalid {
+        job: ProductionJobId,
+        commodity: CommodityKey,
+    },
     InputMassNotWholeBatches {
         job: ProductionJobId,
         consumed: Mass,
@@ -258,6 +262,13 @@ impl Display for CraftingJobValidationError {
                 temperature.millikelvin(),
                 maximum.millikelvin()
             ),
+            Self::FoodInputFreshnessInvalid { job, commodity } => write!(
+                formatter,
+                "manual craft job {} did not have fresh food input (material {} form {}) at admission",
+                job.value(),
+                commodity.material().value(),
+                commodity.form().value(),
+            ),
             Self::InputMassNotWholeBatches {
                 job,
                 consumed,
@@ -330,6 +341,7 @@ impl Error for CraftingJobValidationError {
             | Self::EmptyInput { .. }
             | Self::InputCompositionMismatch { .. }
             | Self::InputTooHot { .. }
+            | Self::FoodInputFreshnessInvalid { .. }
             | Self::InputMassNotWholeBatches { .. }
             | Self::DurationOverflow { .. }
             | Self::DurationMismatch { .. }

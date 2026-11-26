@@ -1623,7 +1623,11 @@ binds provider occupancy and required owner revisions, and records any modeled e
 continuation. Ordinary player-facing production authorization additionally requires a fully admitted living player,
 exact-local access to every retained endpoint, and an unchanged survival revision through commit; capability-level
 setup remains separate for controlled fixtures.
-Storage exposure remains wall-clock based while matter is in process.
+Storage exposure remains wall-clock based while matter is in process. Manual food preservation
+requires fresh input at admission. Trusted load replays that predicate using the oldest selected
+input's ambient-equivalent exposure checkpoint at job start and its authored raw-food shelf life.
+Crossing that shelf-life threshold during already admitted work does not retroactively invalidate
+the job; output exposure still includes all elapsed in-process time.
 
 Completion is revision-bound and moves exact outputs to their reserved destinations, applies resolved wear/energy
 effects, releases occupancy/reservations, and emits merge-aware landing receipts. Future revision headroom is
