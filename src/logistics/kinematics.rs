@@ -199,8 +199,12 @@ struct PlayerControlAvailability {
 }
 
 impl PlayerControlAvailability {
+    const fn accepts_active_control(self) -> bool {
+        self.alive && !self.busy
+    }
+
     const fn accepts_ground_control(self) -> bool {
-        self.alive && self.grounded && !self.busy
+        self.accepts_active_control() && self.grounded
     }
 }
 

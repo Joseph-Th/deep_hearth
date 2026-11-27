@@ -40,6 +40,38 @@ fn generated_player_at_vertical_world_limit(feet_y: i64, platform: bool) -> (Reg
 }
 
 #[test]
+fn active_airborne_steering_costs_exertion_but_neutral_momentum_does_not() {
+    let (registries, mut state, _) = generated_grounded_player_at(0, 0);
+    let _ = advance_control_tick_with_input(
+        &registries,
+        &mut state,
+        PlayerControlInput::NEUTRAL.with_jump(true),
+    )
+    .unwrap();
+    let pending = |state: &AppState| state.logistics().player().unwrap().locomotion_exertion();
+    let before = pending(&state);
+    let mut neutral = state.clone();
+    let steer = PlayerControlInput::new(HorizontalControlInput::new(1_000_000, 0).unwrap());
+    let motion = advance_control_tick_with_input(&registries, &mut state, steer)
+        .unwrap()
+        .body_motion()
+        .unwrap();
+    assert!(!motion.grounded());
+    assert!(
+        motion.after().foot_position().x_nanometers()
+            > motion.before().foot_position().x_nanometers()
+    );
+    let _ = advance_control_tick(&registries, &mut neutral).unwrap();
+    assert_eq!(pending(&neutral), before);
+    assert!(
+        pending(&state).pending().energy_cost_per_tick() > before.pending().energy_cost_per_tick()
+    );
+    let after_steering = pending(&state);
+    let _ = advance_control_tick(&registries, &mut state).unwrap();
+    assert_eq!(pending(&state), after_steering);
+}
+
+#[test]
 fn unsupported_world_depth_is_a_solid_control_boundary_with_replay() {
     let (registries, mut state) = generated_player_at_vertical_world_limit(WORLD_MIN_Y, false);
     let minimum = WORLD_MIN_Y * NANOMETERS_PER_VOXEL;

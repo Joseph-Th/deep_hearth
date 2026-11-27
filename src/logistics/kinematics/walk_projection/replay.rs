@@ -8,7 +8,7 @@ use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::survival::{SurvivalExertion, project_survival_resource_budget};
 
-use super::super::exertion::walking_exertion;
+use super::super::exertion::horizontal_motion_exertion;
 use super::super::{
     CONTROL_INPUT_PARTS_PER_MILLION, HorizontalControlInput, LocomotionExertionAccumulator,
     PlayerBodyMotionError, PlayerBodyState, PlayerControlInput, PlayerLogisticsRecord,
@@ -217,7 +217,7 @@ fn accrue_projected_walk_exertion(
     capacity: Mass,
     accumulator: &mut LocomotionExertionAccumulator,
 ) -> Result<(), PlayerWalkProjectionError> {
-    let Some(exertion) = walking_exertion(
+    let Some(exertion) = horizontal_motion_exertion(
         registries.survival().physiology().locomotion(),
         before.foot_position(),
         after.foot_position(),

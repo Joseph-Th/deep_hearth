@@ -51,30 +51,31 @@ pub(super) fn resolve_control_exertion(
             .ok_or(PlayerBodyMotionError::ExertionOverflow)?;
         return Ok((accumulator, settled));
     }
-    if input.climb() || !resolved.availability.accepts_ground_control() {
+    if input.climb() || !resolved.availability.accepts_active_control() {
         return Ok((accumulator, settled));
     }
     let after = resolved.after;
-    let walked = !input.horizontal().is_neutral()
+    let moved_horizontally = !input.horizontal().is_neutral()
         && horizontal_position_changed(before.foot_position(), after.foot_position());
-    let launched = input.jump()
+    let launched = resolved.availability.accepts_ground_control()
+        && input.jump()
         && after.foot_position().y_nanometers() > before.foot_position().y_nanometers();
-    if !walked && !launched {
+    if !moved_horizontally && !launched {
         return Ok((accumulator, settled));
     }
     // Resolve the equipped and carried load only for a physical effort. An idle actor
     // must not recalculate every carried equipment mass at 20 Hz.
     let carrying = assess_player_carrying(state)
         .unwrap_or_else(|| unreachable!("generated body motion requires admitted carrying"));
-    if walked {
-        let horizontal_exertion = walking_exertion(
+    if moved_horizontally {
+        let horizontal_exertion = horizontal_motion_exertion(
             locomotion,
             before.foot_position(),
             after.foot_position(),
             carrying.stored(),
             carrying.capacity(),
         )?
-        .unwrap_or_else(|| unreachable!("walk input moved the player's horizontal body"));
+        .unwrap_or_else(|| unreachable!("active input moved the player's horizontal body"));
         accumulator = accumulator
             .checked_accrue(horizontal_exertion)
             .ok_or(PlayerBodyMotionError::ExertionOverflow)?;
@@ -90,8 +91,8 @@ pub(super) fn resolve_control_exertion(
 }
 
 /// Both live control and future-load path projections price the same realized displacement.
-/// Neutral-input momentum is not active walking; the caller excludes it.
-pub(super) fn walking_exertion(
+/// Neutral-input momentum is not active locomotion; the caller excludes it.
+pub(super) fn horizontal_motion_exertion(
     locomotion: LocomotionDefinition,
     before: WorldPoint,
     after: WorldPoint,

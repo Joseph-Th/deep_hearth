@@ -76,6 +76,10 @@ a short valid day can omit a phase rather than assign it a nonexistent tick.
 `ControlTick`, integrates any active generated-world player body, and every 72nd call executes the same
 slow-simulation transaction used by `advance_tick`.
 
+Active horizontal input charges load- and displacement-dependent locomotion exertion on both grounded
+and airborne control frames. Neutral momentum does not charge active effort; the separate jump impulse
+is charged once on a grounded launch, not on held input during ascent.
+
 `advance_tick(registries, state)` is the atomic headless/process helper for exactly one next slow boundary only
 when no generated-world player body has active control-rate physics. It fails with
 `ControlSteppingRequired` rather than skip gravity/collision. Direct-control adapters and generated-world body
