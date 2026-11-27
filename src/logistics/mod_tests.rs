@@ -1,7 +1,6 @@
 //! Contracts for persistent player world location and carried custody.
 
-use super::pending_primary::PlayerPendingPrimaryBreakCommitError;
-use super::pending_secondary::PlayerPendingSecondaryUseCommitError;
+use super::pending_direct::PendingDirectActionCommitError;
 use super::*;
 use crate::content::{
     FORM_LOG, FORM_ROUGH_BOX_BODY, MATERIAL_WOOD, STORAGE_ROUGH_TIMBER_FIELD_BOX, build_registries,
@@ -134,22 +133,33 @@ fn empty_hand_cannot_buffer_material_only_contextual_use() {
 fn buffered_direct_action_validation_tracks_survival_revision() {
     let (registries, mut state) = off_boundary_admitted_player();
     select_buffer_timber(&registries, &mut state);
-    let validated = validate_buffer_player_secondary_use(
+    let primary = validate_buffer_player_primary_break(
+        &state,
+        StructuralElementId::new(1),
+        positive_x_view(),
+    )
+    .unwrap();
+    let secondary = validate_buffer_player_secondary_use(
         &state,
         positive_x_view(),
-        crate::logistics::BufferedSecondaryTarget::GroundedTimber {
+        BufferedSecondaryTarget::GroundedTimber {
             destination: VoxelCoord::new(1, 0, 0),
         },
     )
-    .unwrap_or_else(|error| panic!("stale buffer validation failed: {error}"));
+    .unwrap();
     let expected = state.survival().revision();
     mark_admitted_player_dead(&mut state);
     let actual = state.survival().revision();
     let before = state.clone();
 
     assert_eq!(
-        validated.commit(&mut state),
-        Err(PlayerPendingSecondaryUseCommitError::StaleSurvivalRevision { expected, actual })
+        primary.commit(&mut state),
+        Err(PendingDirectActionCommitError::SurvivalRevision { expected, actual })
+    );
+    assert_eq!(state, before);
+    assert_eq!(
+        secondary.commit(&mut state),
+        Err(PendingDirectActionCommitError::SurvivalRevision { expected, actual })
     );
     assert_eq!(state, before);
     assert!(!state.logistics().has_pending_direct_action());
@@ -184,14 +194,53 @@ fn buffered_action_admission_rejects_a_stale_control_sample() {
     let mut primary_state = state.clone();
     assert_eq!(
         primary.commit(&mut primary_state),
-        Err(PlayerPendingPrimaryBreakCommitError::StaleControlTick { expected, actual })
+        Err(PendingDirectActionCommitError::ControlTick { expected, actual })
     );
     assert_eq!(primary_state, before);
     assert_eq!(
         secondary.commit(&mut state),
-        Err(PlayerPendingSecondaryUseCommitError::StaleControlTick { expected, actual })
+        Err(PendingDirectActionCommitError::ControlTick { expected, actual })
     );
     assert_eq!(state, before);
+}
+
+#[test]
+fn buffered_action_admission_rejects_changed_logistics_without_mutation() {
+    let (registries, mut state) = off_boundary_admitted_player();
+    select_buffer_timber(&registries, &mut state);
+    let primary = validate_buffer_player_primary_break(
+        &state,
+        StructuralElementId::new(1),
+        positive_x_view(),
+    )
+    .unwrap();
+    let secondary = validate_buffer_player_secondary_use(
+        &state,
+        positive_x_view(),
+        BufferedSecondaryTarget::GroundedTimber {
+            destination: VoxelCoord::new(1, 0, 0),
+        },
+    )
+    .unwrap();
+    let expected = state.logistics().revision();
+    validate_set_active_selection(&registries, &state, None)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let actual = state.logistics().revision();
+    assert_ne!(expected, actual);
+    let before = state.clone();
+    assert_eq!(
+        primary.commit(&mut state),
+        Err(PendingDirectActionCommitError::LogisticsRevision { expected, actual })
+    );
+    assert_eq!(state, before);
+    assert_eq!(
+        secondary.commit(&mut state),
+        Err(PendingDirectActionCommitError::LogisticsRevision { expected, actual })
+    );
+    assert_eq!(state, before);
+    assert!(!state.logistics().has_pending_direct_action());
 }
 
 #[test]

@@ -200,6 +200,21 @@ impl ScoutWaterTrip {
     }
 }
 
+/// A successful partial drink can reserve another local work slot, but only
+/// while a further physical withdrawal is admissible. Empty or inaccessible
+/// vessels must not strand the scout at its current cell.
+pub(super) fn can_continue_local_drink(
+    registries: &Registries,
+    state: &AppState,
+    from: VoxelCoord,
+    at: SimulationTick,
+) -> bool {
+    state.kobold_state().colony.as_ref().is_some_and(|colony| {
+        colony.last_partial_drink_at == Some(at)
+            && usable_water_at(registries, state, from).is_some()
+    })
+}
+
 /// Resolve the same urgent route before optional work and movement. A
 /// completed drink, unsafe approach or existing return cargo does not reserve
 /// an outbound work slot. Far targets are rechecked from the real waypoint.

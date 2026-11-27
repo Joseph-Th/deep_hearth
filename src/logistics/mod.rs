@@ -18,8 +18,7 @@ mod ground;
 mod initialization;
 mod inventory_view;
 mod kinematics;
-mod pending_primary;
-mod pending_secondary;
+mod pending_direct;
 mod quick_move;
 mod respawn;
 mod selection;
@@ -98,13 +97,10 @@ pub(crate) use kinematics::{
     player_body_stands_above_temple_caste, player_body_uses_generated_world,
     player_stationary_placement_supported,
 };
-pub use pending_primary::PlayerPendingPrimaryBreakError;
-pub(crate) use pending_primary::{
-    take_player_pending_primary_break, validate_buffer_player_primary_break,
-};
-pub use pending_secondary::PlayerPendingSecondaryUseError;
-pub(crate) use pending_secondary::{
-    take_player_pending_secondary_use, validate_buffer_player_secondary_use,
+pub use pending_direct::{PlayerPendingPrimaryBreakError, PlayerPendingSecondaryUseError};
+pub(crate) use pending_direct::{
+    take_player_pending_primary_break, take_player_pending_secondary_use,
+    validate_buffer_player_primary_break, validate_buffer_player_secondary_use,
 };
 pub use quick_move::{
     PlayerQuickMoveError, PlayerQuickMoveOutcome, ValidatedPlayerQuickMove,

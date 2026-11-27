@@ -51,6 +51,23 @@ fn small_water_sources(
     (registries, state, junction, stores)
 }
 
+fn advance_to_partial_drink(registries: &Registries, state: &mut AppState) -> SimulationTick {
+    for _ in 0..1_300 {
+        let tick = advance_tick(registries, state).unwrap();
+        if state
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .last_partial_drink_at
+            == Some(tick.tick())
+        {
+            return tick.tick();
+        }
+    }
+    panic!("scout should drink a finite partial serving");
+}
+
 #[test]
 fn two_partial_pools_complete_one_real_scout_drink_across_saved_patrols() {
     let half = Volume::from_microliters(SCOUT_DRINK_VOLUME.microliters() / 2);
@@ -61,21 +78,7 @@ fn two_partial_pools_complete_one_real_scout_drink_across_saved_patrols() {
         "an accessible half serving is real drinking water"
     );
     let original = calculate_fluid_volume_accounting(&state).unwrap();
-    let mut first_drink_at = None;
-    for _ in 0..1_300 {
-        let tick = advance_tick(&registries, &mut state).unwrap();
-        if state
-            .kobold_state()
-            .consumed_fluids
-            .get(&FLUID_WATER)
-            .copied()
-            == Some(AggregateVolume::from_volume(half))
-        {
-            first_drink_at = Some(tick.tick());
-            break;
-        }
-    }
-    let first_drink_at = first_drink_at.expect("scout should drink the first finite half serving");
+    let first_drink_at = advance_to_partial_drink(&registries, &mut state);
     assert_eq!(
         state.fluid().get_store(stores[0]).unwrap().stored_volume(),
         Volume::ZERO
@@ -89,6 +92,11 @@ fn two_partial_pools_complete_one_real_scout_drink_across_saved_patrols() {
         Some(AggregateVolume::from_volume(half))
     );
     let partial = state.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(
+        partial.scout_position(),
+        water_position,
+        "a thirsty scout must not abandon another usable local serving"
+    );
     assert_eq!(partial.partial_drink, half);
     assert_eq!(partial.last_partial_drink_at, Some(first_drink_at));
     assert_eq!(partial.last_drink_at, None);
@@ -168,6 +176,10 @@ fn two_partial_pools_complete_one_real_scout_drink_across_saved_patrols() {
         }
     }
     let completed_at = completed_at.expect("scout should finish its ration from the other pool");
+    assert_eq!(
+        completed_at.value(),
+        first_drink_at.value() + SCOUT_STEP_TICKS
+    );
     assert_eq!(state, replay);
     assert_eq!(
         state
@@ -207,6 +219,63 @@ fn two_partial_pools_complete_one_real_scout_drink_across_saved_patrols() {
             .into_state(&registries)
             .is_err()
     );
+}
+
+#[test]
+fn local_drink_does_not_prevent_retreat_or_leave_scout_waiting_at_empty_water() {
+    use crate::player::validate_admit_player;
+
+    let half = Volume::from_microliters(SCOUT_DRINK_VOLUME.microliters() / 2);
+    let (registries, mut safe, junction, _) = small_water_sources(&[half]);
+    advance_to_partial_drink(&registries, &mut safe);
+    assert_ne!(
+        safe.kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        junction,
+        "an empty local source must not reserve another work slot"
+    );
+
+    let (registries, mut threatened, junction, stores) = small_water_sources(&[half, half]);
+    let first = advance_to_partial_drink(&registries, &mut threatened);
+    assert_eq!(
+        threatened
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .scout_position(),
+        junction
+    );
+    let den = threatened.kobold_state().colony.as_ref().unwrap().route[0];
+    let tip = threatened.kobold_state().colony.as_ref().unwrap().route[2];
+    validate_admit_player(&registries, &threatened, tip)
+        .unwrap()
+        .commit(&mut threatened)
+        .unwrap();
+    let conserved = calculate_fluid_volume_accounting(&threatened).unwrap();
+    for _ in 0..SCOUT_STEP_TICKS {
+        let _ = advance_tick(&registries, &mut threatened).unwrap();
+    }
+    let colony = threatened.kobold_state().colony.as_ref().unwrap();
+    assert_eq!(colony.scout_position(), den);
+    assert_eq!(colony.last_partial_drink_at, Some(first));
+    assert_eq!(colony.partial_drink, half);
+    assert_eq!(
+        threatened
+            .fluid()
+            .get_store(stores[1])
+            .unwrap()
+            .stored_volume(),
+        half
+    );
+    assert_eq!(
+        calculate_fluid_volume_accounting(&threatened).unwrap(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &threatened), Ok(()));
 }
 
 #[test]

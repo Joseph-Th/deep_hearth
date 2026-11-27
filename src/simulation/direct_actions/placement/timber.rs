@@ -337,6 +337,11 @@ pub(in crate::simulation::direct_actions) fn attempt_buffered_timber_placement(
             };
             commit_grounded_timber(registries, state, &stack, bounds, is_roller)
         }
-        _ => SecondaryActionOutcome::BufferedContextChanged,
+        BufferedSecondaryTarget::GroundedTimber { .. }
+        | BufferedSecondaryTarget::SupportedTimber { .. }
+        | BufferedSecondaryTarget::CombustionStore { .. }
+        | BufferedSecondaryTarget::CombustionAssembly { .. } => {
+            SecondaryActionOutcome::BufferedContextChanged
+        }
     }
 }

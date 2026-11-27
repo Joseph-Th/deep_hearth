@@ -67,19 +67,28 @@ pub(crate) fn apply_kobold_scout_tick(
     let pressured = pressured_by_player || pressured_by_noise || pressured_by_light || recently_hit;
     let care = settle_scout_visit_care(registries, state, from, next_tick, observer, pressured);
     let pressured = pressured || care.heard_junk_alarm;
+    // Finish a partial ration from usable water already reached before
+    // departing or doing optional work. Threats still override drinking.
+    let continue_local_drink = !pressured
+        && super::super::hydration::can_continue_local_drink(registries, state, from, next_tick);
     // Due drinking trips reserve movement before optional industrial work.
     // Decide once after care (including the watchman's movement), then reuse
     // the same choice for the real patrol edge.
-    let water_trip = super::super::hydration::plan_water_trip(
-        registries,
-        state,
-        next_tick,
-        player_position,
-        pressured,
-    );
+    let water_trip = if continue_local_drink {
+        None
+    } else {
+        super::super::hydration::plan_water_trip(
+            registries,
+            state,
+            next_tick,
+            player_position,
+            pressured,
+        )
+    };
     // Metal fitting and inventory raids also require real grounded footing.
     let optional_work_blocked = pressured
         || care.water_deprived
+        || continue_local_drink
         || water_trip.is_some()
         || !opening_resident_can_depart(registries, state, from);
     if let Some(contact) =
@@ -105,6 +114,20 @@ pub(crate) fn apply_kobold_scout_tick(
     // Copper fitting occupies two real slow-clock work slots at the junction.
     // Player pressure, alarm warnings and absent parts interrupt unfinished work.
     if apply_pry_fitting_tick(state, next_tick, optional_work_blocked) {
+        return (
+            care.observed_care.has_care().then_some(care.observed_care),
+            care.alarm_pulses,
+        );
+    }
+    if continue_local_drink {
+        state
+            .kobold_state_mut()
+            .colony
+            .as_mut()
+            .unwrap()
+            .next_step_at = next_tick
+            .checked_add_span(TickSpan::new(SCOUT_STEP_TICKS))
+            .expect("bounded scout drinking clock cannot overflow");
         return (
             care.observed_care.has_care().then_some(care.observed_care),
             care.alarm_pulses,
