@@ -196,7 +196,9 @@ pub(super) fn secondary(registries: &Registries, outcome: &SecondaryActionOutcom
         Action::CombustionFuelAdded { released, .. } => {
             format!("Added {} of fuel energy.", fire::energy_label(*released))
         }
-        Action::CombustionFuelRejected { error, .. } => error.to_string(),
+        Action::CombustionFuelRejected { error, .. } => {
+            fire::fuel_blocker(registries, error.clone())
+        }
         Action::StructuralConstructionStarted(_) => "Structural construction started.".to_owned(),
         Action::StoragePlaced { definition, .. } => format!(
             "Placed {}.",

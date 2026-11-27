@@ -470,6 +470,88 @@ fn campfire_fixture() -> (
 }
 
 #[test]
+fn hand_fed_combustion_rejects_hot_fuel_without_substituting_selected_stack() {
+    use crate::core::quantity::Temperature;
+    use crate::inventory::add_solid_stockpile_for_test;
+    use crate::logistics::validate_place_ground_stockpile;
+    use crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+
+    let (registries, mut state, _, fire) = campfire_fixture();
+    let position = state.logistics().player().unwrap().position();
+    let source =
+        add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(10_000_000)).unwrap();
+    validate_place_ground_stockpile(&state, source, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let fuel = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let maximum = MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    let hot = Temperature::from_millikelvin(maximum.millikelvin() + 1);
+    let hot_lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        fuel,
+        CAMPFIRE_FUEL_MASS,
+        hot,
+    )
+    .unwrap();
+    let before = state.clone();
+    let error = CombustionError::FuelTooHot {
+        fuel,
+        temperature: hot,
+        maximum,
+    };
+    assert_eq!(
+        validate_combust_fuel(&registries, &state, fire, source).err(),
+        Some(error.clone())
+    );
+    assert_eq!(
+        validate_combust_selected_fuel(&registries, &state, fire, source, fuel).err(),
+        Some(error.clone())
+    );
+    let hot_stack = project_material_stacks(&registries, &state, source)
+        .unwrap()
+        .remove(0);
+    assert_eq!(
+        validate_combust_stack_fuel(&registries, &state, fire, source, &hot_stack).err(),
+        Some(error.clone())
+    );
+    assert_eq!(state, before);
+
+    let safe_lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        fuel,
+        CAMPFIRE_FUEL_MASS,
+        maximum,
+    )
+    .unwrap();
+    let hot_stack = project_material_stacks(&registries, &state, source)
+        .unwrap()
+        .into_iter()
+        .find(|stack| stack.temperature() == hot)
+        .unwrap();
+    assert_eq!(
+        validate_combust_stack_fuel(&registries, &state, fire, source, &hot_stack).err(),
+        Some(error)
+    );
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    validate_combust_fuel(&registries, &state, fire, source)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(state.inventory().get_lot(safe_lot).is_none());
+    assert_eq!(
+        state.inventory().get_lot(hot_lot).unwrap().mass(),
+        CAMPFIRE_FUEL_MASS
+    );
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn selected_fuel_stack_burns_the_chosen_cohort_and_replays_exactly() {
     use crate::core::quantity::Temperature;
 

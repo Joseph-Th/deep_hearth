@@ -1,275 +1,25 @@
 //! Exact local solid-fuel combustion into finite thermal storage.
 
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-
 use crate::core::quantity::{AggregateMass, Energy, Mass};
 use crate::core::state::AppState;
 use crate::inventory::{
-    ExplicitConsumptionSelectionError, MaterialStackProjection, MaterialStackProjectionError,
-    StockpileId, StockpileStoredMassChange, StockpileStructuralLoadError, ValidatedMaterialEgress,
-    ValidatedStockpileStructuralLoad, apply_material_egress, validate_consumption_selection,
-    validate_explicit_consumption_selection, validate_material_egress_from_selection,
-    validate_stockpile_stored_mass_changes, validate_unreserved_stockpile_structural_load_headroom,
+    ConsumptionSelection, ConsumptionSelectionError, MaterialStackProjection,
+    MaterialStackProjectionError, StockpileId, StockpileStoredMassChange,
+    TemperatureLimitedSelectionError, ValidatedMaterialEgress, ValidatedStockpileStructuralLoad,
+    apply_material_egress, validate_explicit_consumption_selection,
+    validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
+    validate_temperature_limited_consumption_selection,
+    validate_unreserved_stockpile_structural_load_headroom,
 };
-use crate::logistics::{
-    PlayerEnergyStoreAccessError, PlayerStockpileAccessError, validate_player_energy_store_access,
-    validate_player_stockpile_access,
-};
-use crate::material::{CommodityKey, MaterialInputSpec};
+use crate::logistics::{validate_player_energy_store_access, validate_player_stockpile_access};
+use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE, MaterialInputSpec};
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
-use crate::structural::StructuralCommitError;
 
 use super::{EnergyStoreId, energy_store_occupancy};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CombustionError {
-    PlayerDead,
-    PlayerBusy,
-    PreparedStrikeActive,
-    StoreAccess(PlayerEnergyStoreAccessError),
-    SourceAccess(PlayerStockpileAccessError),
-    UnknownStore {
-        store: EnergyStoreId,
-    },
-    UnknownDefinition,
-    NoCombustionProfile {
-        store: EnergyStoreId,
-    },
-    UnsupportedFuel {
-        store: EnergyStoreId,
-        fuel: CommodityKey,
-    },
-    ImpureFuel {
-        fuel: CommodityKey,
-    },
-    StackSelection(MaterialStackProjectionError),
-    ExplicitSelection(ExplicitConsumptionSelectionError),
-    StoreBusy {
-        store: EnergyStoreId,
-    },
-    InsufficientFuel {
-        source: StockpileId,
-        available: Mass,
-        required: Mass,
-    },
-    FractionalChargeTooSmall {
-        available: Mass,
-    },
-    SourceMassOverflow {
-        source: StockpileId,
-    },
-    StaleInventorySelection {
-        expected: u64,
-        actual: u64,
-    },
-    InventoryRevisionExhausted,
-    EnergyRevisionExhausted,
-    CombustedMassOverflow,
-    InsufficientThermalCapacity {
-        store: EnergyStoreId,
-        stored: Energy,
-        released: Energy,
-        capacity: Energy,
-    },
-    StructuralLoad(StockpileStructuralLoadError),
-}
-
-impl Display for CombustionError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::PlayerDead => formatter.write_str("dead player cannot combust fuel"),
-            Self::PlayerBusy => formatter.write_str("player cannot tend fuel while work is active"),
-            Self::PreparedStrikeActive => {
-                formatter.write_str("player must lower the prepared weapon before tending fuel")
-            }
-            Self::StoreAccess(error) => {
-                write!(formatter, "combustion store is inaccessible: {error}")
-            }
-            Self::SourceAccess(error) => {
-                write!(formatter, "combustion fuel source is inaccessible: {error}")
-            }
-            Self::UnknownStore { store } => write!(
-                formatter,
-                "unknown combustion energy store {}",
-                store.value()
-            ),
-            Self::UnknownDefinition => {
-                formatter.write_str("combustion energy store references an unknown definition")
-            }
-            Self::NoCombustionProfile { store } => write!(
-                formatter,
-                "energy store {} does not accept solid-fuel combustion",
-                store.value()
-            ),
-            Self::UnsupportedFuel { store, fuel } => write!(
-                formatter,
-                "energy store {} cannot burn material {} form {}",
-                store.value(),
-                fuel.material().value(),
-                fuel.form().value()
-            ),
-            Self::ImpureFuel { fuel } => write!(
-                formatter,
-                "combustion fuel material {} form {} must be pure",
-                fuel.material().value(),
-                fuel.form().value()
-            ),
-            Self::StackSelection(error) => write!(formatter, "combustion fuel stack: {error}"),
-            Self::ExplicitSelection(error) => {
-                write!(formatter, "combustion fuel lot selection: {error}")
-            }
-            Self::StoreBusy { store } => {
-                write!(formatter, "energy store {} is occupied", store.value())
-            }
-            Self::InsufficientFuel {
-                source,
-                available,
-                required,
-            } => write!(
-                formatter,
-                "fuel source {} contains {} mg but combustion requires {} mg",
-                source.value(),
-                available.milligrams(),
-                required.milligrams()
-            ),
-            Self::FractionalChargeTooSmall { available } => write!(
-                formatter,
-                "fuel fragment of {} mg cannot release representable heat",
-                available.milligrams()
-            ),
-            Self::SourceMassOverflow { source } => write!(
-                formatter,
-                "fuel source {} stored mass overflowed",
-                source.value()
-            ),
-            Self::StaleInventorySelection { expected, actual } => write!(
-                formatter,
-                "combustion fuel selection inventory revision changed from {expected} to {actual}"
-            ),
-            Self::InventoryRevisionExhausted => {
-                formatter.write_str("inventory revision space is exhausted for combustion")
-            }
-            Self::EnergyRevisionExhausted => {
-                formatter.write_str("energy revision space is exhausted for combustion")
-            }
-            Self::CombustedMassOverflow => {
-                formatter.write_str("combusted terminal mass accounting overflowed")
-            }
-            Self::InsufficientThermalCapacity {
-                store,
-                stored,
-                released,
-                capacity,
-            } => write!(
-                formatter,
-                "energy store {} has {} nJ stored and {} nJ capacity, insufficient for {} nJ combustion release",
-                store.value(),
-                stored.nanojoules(),
-                capacity.nanojoules(),
-                released.nanojoules()
-            ),
-            Self::StructuralLoad(error) => write!(
-                formatter,
-                "combustion fuel removal violates structural load constraints: {error}"
-            ),
-        }
-    }
-}
-
-impl Error for CombustionError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::StoreAccess(error) => Some(error),
-            Self::SourceAccess(error) => Some(error),
-            Self::StructuralLoad(error) => Some(error),
-            Self::StackSelection(error) => Some(error),
-            Self::ExplicitSelection(error) => Some(error),
-            Self::PlayerDead
-            | Self::PlayerBusy
-            | Self::PreparedStrikeActive
-            | Self::UnknownStore { .. }
-            | Self::UnknownDefinition
-            | Self::NoCombustionProfile { .. }
-            | Self::UnsupportedFuel { .. }
-            | Self::ImpureFuel { .. }
-            | Self::StoreBusy { .. }
-            | Self::InsufficientFuel { .. }
-            | Self::FractionalChargeTooSmall { .. }
-            | Self::SourceMassOverflow { .. }
-            | Self::StaleInventorySelection { .. }
-            | Self::InventoryRevisionExhausted
-            | Self::EnergyRevisionExhausted
-            | Self::CombustedMassOverflow
-            | Self::InsufficientThermalCapacity { .. } => None,
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CombustionCommitError {
-    PlayerBecameBusy,
-    StaleCombatRevision { expected: u64, actual: u64 },
-    StaleSurvival { expected: u64, actual: u64 },
-    StaleLogistics { expected: u64, actual: u64 },
-    StaleInventory { expected: u64, actual: u64 },
-    StaleEnergy { expected: u64, actual: u64 },
-    StoreChanged { store: EnergyStoreId },
-    Structure(StructuralCommitError),
-}
-
-impl Display for CombustionCommitError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::PlayerBecameBusy => formatter.write_str("player work started before fuel commit"),
-            Self::StaleCombatRevision { expected, actual } => write!(
-                formatter,
-                "combustion combat revision changed from {expected} to {actual} before commit"
-            ),
-            Self::StaleSurvival { expected, actual } => write!(
-                formatter,
-                "combustion survival revision changed from {expected} to {actual} before commit"
-            ),
-            Self::StaleLogistics { expected, actual } => write!(
-                formatter,
-                "combustion logistics revision changed from {expected} to {actual} before commit"
-            ),
-            Self::StaleInventory { expected, actual } => write!(
-                formatter,
-                "combustion inventory revision changed from {expected} to {actual} before commit"
-            ),
-            Self::StaleEnergy { expected, actual } => write!(
-                formatter,
-                "combustion energy revision changed from {expected} to {actual} before commit"
-            ),
-            Self::StoreChanged { store } => write!(
-                formatter,
-                "combustion energy store {} changed before commit",
-                store.value()
-            ),
-            Self::Structure(error) => write!(
-                formatter,
-                "combustion structural-load commit failed: {error}"
-            ),
-        }
-    }
-}
-
-impl Error for CombustionCommitError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Structure(error) => Some(error),
-            Self::PlayerBecameBusy
-            | Self::StaleCombatRevision { .. }
-            | Self::StaleSurvival { .. }
-            | Self::StaleLogistics { .. }
-            | Self::StaleInventory { .. }
-            | Self::StaleEnergy { .. }
-            | Self::StoreChanged { .. } => None,
-        }
-    }
-}
+mod errors;
+pub use errors::{CombustionCommitError, CombustionError};
 
 #[must_use]
 pub struct ValidatedCombustion {
@@ -496,59 +246,7 @@ fn validate_combust_fuel_selected(
             capacity: definition.capacity(),
         });
     }
-    let input = [MaterialInputSpec::pure(profile.fuel(), fuel_mass)];
-    let selection = match selected_fuel {
-        FuelSelection::Stack(stack) => {
-            let slices = stack
-                .selections_for_mass(state, source, fuel_mass)
-                .map_err(|error| match error {
-                    MaterialStackProjectionError::MassExceedsStack {
-                        requested,
-                        available,
-                    } => CombustionError::InsufficientFuel {
-                        source,
-                        available,
-                        required: requested,
-                    },
-                    error @ (MaterialStackProjectionError::UnknownStockpile { .. }
-                    | MaterialStackProjectionError::StaleInventoryRevision { .. }
-                    | MaterialStackProjectionError::StaleSimulationTick { .. }
-                    | MaterialStackProjectionError::StackMembershipChanged { .. }
-                    | MaterialStackProjectionError::SourceMismatch { .. }
-                    | MaterialStackProjectionError::ZeroMass) => {
-                        CombustionError::StackSelection(error)
-                    }
-                })?;
-            if !input[0].is_satisfied_by(stack.composition()) {
-                return Err(CombustionError::ImpureFuel {
-                    fuel: profile.fuel(),
-                });
-            }
-            validate_explicit_consumption_selection(state.inventory(), source, &slices)
-                .map_err(CombustionError::ExplicitSelection)?
-        }
-        FuelSelection::Default | FuelSelection::Commodity(_) => {
-            validate_consumption_selection(state.inventory(), source, &input).map_err(|error| {
-                match error {
-                    crate::inventory::ConsumptionSelectionError::UnknownStockpile { stockpile } => {
-                        CombustionError::SourceMassOverflow { source: stockpile }
-                    }
-                    crate::inventory::ConsumptionSelectionError::InsufficientMass {
-                        available,
-                        requested,
-                        ..
-                    } => CombustionError::InsufficientFuel {
-                        source,
-                        available,
-                        required: requested,
-                    },
-                    crate::inventory::ConsumptionSelectionError::MassOverflow { .. } => {
-                        CombustionError::SourceMassOverflow { source }
-                    }
-                }
-            })?
-        }
-    };
+    let selection = select_fuel(state, source, selected_fuel, profile.fuel(), fuel_mass)?;
     let egress =
         validate_material_egress_from_selection(state.inventory(), selection).map_err(|error| {
             match error {
@@ -600,6 +298,90 @@ fn validate_combust_fuel_selected(
         egress,
         structural_load,
     })
+}
+
+/// Select only hand-safe, pure fuel. A form-based request may skip hot cohorts;
+/// an exact displayed stack must never substitute another cohort.
+fn select_fuel(
+    state: &AppState,
+    source: StockpileId,
+    selected_fuel: FuelSelection<'_>,
+    fuel: CommodityKey,
+    fuel_mass: Mass,
+) -> Result<ConsumptionSelection, CombustionError> {
+    let input = [MaterialInputSpec::pure(fuel, fuel_mass)];
+    match selected_fuel {
+        FuelSelection::Stack(stack) => {
+            let slices = stack
+                .selections_for_mass(state, source, fuel_mass)
+                .map_err(|error| match error {
+                    MaterialStackProjectionError::MassExceedsStack {
+                        requested,
+                        available,
+                    } => CombustionError::InsufficientFuel {
+                        source,
+                        available,
+                        required: requested,
+                    },
+                    error @ (MaterialStackProjectionError::UnknownStockpile { .. }
+                    | MaterialStackProjectionError::StaleInventoryRevision { .. }
+                    | MaterialStackProjectionError::StaleSimulationTick { .. }
+                    | MaterialStackProjectionError::StackMembershipChanged { .. }
+                    | MaterialStackProjectionError::SourceMismatch { .. }
+                    | MaterialStackProjectionError::ZeroMass) => {
+                        CombustionError::StackSelection(error)
+                    }
+                })?;
+            if !input[0].is_satisfied_by(stack.composition()) {
+                return Err(CombustionError::ImpureFuel { fuel });
+            }
+            if stack.temperature() > MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE {
+                return Err(CombustionError::FuelTooHot {
+                    fuel,
+                    temperature: stack.temperature(),
+                    maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+                });
+            }
+            validate_explicit_consumption_selection(state.inventory(), source, &slices)
+                .map_err(CombustionError::ExplicitSelection)
+        }
+        FuelSelection::Default | FuelSelection::Commodity(_) => {
+            validate_temperature_limited_consumption_selection(
+                state.inventory(),
+                source,
+                &input,
+                MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+            )
+            .map_err(|error| match error {
+                TemperatureLimitedSelectionError::Selection(
+                    ConsumptionSelectionError::UnknownStockpile { stockpile },
+                ) => CombustionError::SourceMassOverflow { source: stockpile },
+                TemperatureLimitedSelectionError::Selection(
+                    ConsumptionSelectionError::InsufficientMass {
+                        available,
+                        requested,
+                        ..
+                    },
+                ) => CombustionError::InsufficientFuel {
+                    source,
+                    available,
+                    required: requested,
+                },
+                TemperatureLimitedSelectionError::Selection(
+                    ConsumptionSelectionError::MassOverflow { .. },
+                ) => CombustionError::SourceMassOverflow { source },
+                TemperatureLimitedSelectionError::TooHot {
+                    commodity,
+                    temperature,
+                    maximum,
+                } => CombustionError::FuelTooHot {
+                    fuel: commodity,
+                    temperature,
+                    maximum,
+                },
+            })
+        }
+    }
 }
 
 #[cfg(test)]

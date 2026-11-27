@@ -114,6 +114,17 @@ pub(super) fn fuel_blocker(registries: &Registries, error: CombustionError) -> S
                 .commodity_name(fuel)
                 .unwrap_or("unidentified material"),
         ),
+        CombustionError::FuelTooHot {
+            fuel,
+            temperature,
+            maximum,
+        } => view::unsafe_construction_material(
+            registries,
+            fuel,
+            temperature,
+            maximum,
+            "hand fueling",
+        ),
         other => other.to_string(),
     }
 }
