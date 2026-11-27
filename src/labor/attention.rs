@@ -187,6 +187,10 @@ impl ValidatedPlayerAttention {
 }
 
 impl ValidatedPlayerAttentionHold {
+    pub(super) const fn work(&self) -> PlayerWork {
+        self.work
+    }
+
     pub(crate) fn precheck(&self, state: &AppState) -> Result<(), PlayerAttentionConflict> {
         self.snapshot.precheck(state)
     }

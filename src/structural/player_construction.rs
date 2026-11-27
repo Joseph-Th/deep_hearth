@@ -54,7 +54,7 @@ impl ValidatedPlayerStructuralConstructionStart {
                 .precheck(state)
                 .map_err(PlayerStructuralConstructionCommitError::Material)?;
         }
-        self.precheck_world_and_work(state)
+        self.precheck_world_and_work(state, u64::from(self.material.is_some()))
     }
 
     pub(crate) fn precheck_before_planned_member(
@@ -70,7 +70,7 @@ impl ValidatedPlayerStructuralConstructionStart {
         material
             .precheck_before_planned_member(state, record, projected_structure_revision)
             .map_err(PlayerStructuralConstructionCommitError::Material)?;
-        self.precheck_world_and_work(state)
+        self.precheck_world_and_work(state, 2)
     }
 
     fn precheck_player_location(
@@ -96,6 +96,7 @@ impl ValidatedPlayerStructuralConstructionStart {
     fn precheck_world_and_work(
         &self,
         state: &AppState,
+        immediate_structure_writes: u64,
     ) -> Result<(), PlayerStructuralConstructionCommitError> {
         if state.world().revision() != self.expected_world_revision {
             return Err(
@@ -106,7 +107,7 @@ impl ValidatedPlayerStructuralConstructionStart {
             );
         }
         self.work_start
-            .precheck(state)
+            .precheck_with_structure_writes(state, immediate_structure_writes)
             .map_err(PlayerStructuralConstructionCommitError::Work)?;
         Ok(())
     }

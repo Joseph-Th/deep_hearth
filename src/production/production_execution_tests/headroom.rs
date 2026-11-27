@@ -576,7 +576,7 @@ fn trusted_load_rejects_supported_output_without_structure_completion_revision_c
 fn earlier_independent_actions_cannot_spend_revisions_reserved_by_later_production() {
     use crate::content::{
         ENERGY_ELECTRICAL_BUFFER, EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_WOODEN_CLUB, FLUID_WATER,
-        PROCESS_HEAT_MATERIAL_BATCH, build_registries,
+        PROCESS_HEAT_MATERIAL_BATCH, STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER, build_registries,
     };
     use crate::core::quantity::Volume;
     use crate::equipment::{
@@ -593,8 +593,9 @@ fn earlier_independent_actions_cannot_spend_revisions_reserved_by_later_producti
     use crate::matter::calculate_matter_accounting;
     use crate::structural::{
         GroundedStructuralElementPlan, PlanPlayerStructuralElementCommitError,
-        StructuralCommitError, StructuralElementGeometry,
+        PlayerStructuralConstructionCommitError, StructuralCommitError, StructuralElementGeometry,
         validate_plan_player_grounded_structural_element,
+        validate_start_player_structural_construction,
     };
     use crate::survival::{DrinkCommitError, validate_drink};
 
@@ -639,6 +640,21 @@ fn earlier_independent_actions_cannot_spend_revisions_reserved_by_later_producti
         .unwrap()
         .commit(&mut state)
         .unwrap();
+    let member = add_structural_element(
+        &registries,
+        &mut state,
+        STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+        MATERIAL_WOOD,
+        StructuralElementGeometry::new(
+            VoxelBounds::new(VoxelCoord::new(0, 0, 1), VoxelCoord::new(1, 1, 2)).unwrap(),
+            Length::from_micrometers(2_000_000),
+            Area::from_square_millimeters(5_000),
+        )
+        .unwrap(),
+        true,
+    )
+    .unwrap();
+    materialize_structural_element_for_test(&registries, &mut state, member, FORM_LOG);
     for stockpile in [source, destination] {
         validate_place_ground_stockpile(&state, stockpile, origin)
             .unwrap()
@@ -710,6 +726,14 @@ fn earlier_independent_actions_cannot_spend_revisions_reserved_by_later_producti
     )
     .unwrap();
     let equipment_mount = validate_mount_equipment(&registries, &state, spare, support).unwrap();
+    let construction = validate_start_player_structural_construction(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        member,
+        &[],
+    )
+    .unwrap();
     let fluid_mount = validate_mount_fluid_store(&registries, &state, donor, support).unwrap();
     let pour =
         validate_transfer_fluid_between_local_stores(&registries, &state, donor, receiver, water)
@@ -746,6 +770,14 @@ fn earlier_independent_actions_cannot_spend_revisions_reserved_by_later_producti
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
 
     let mut candidate = state.clone();
+    assert_eq!(
+        construction.commit(&mut candidate),
+        Err(PlayerStructuralConstructionCommitError::Work(
+            crate::labor::PlayerWorkCommitError::StructureRevisionExhausted,
+        )),
+        "previously validated construction cannot reserve the revision already owed to production",
+    );
+    assert_eq!(candidate, state);
     assert_eq!(
         plan.commit(&mut candidate).err(),
         Some(PlanPlayerStructuralElementCommitError::RevisionExhausted),

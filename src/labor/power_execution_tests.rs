@@ -70,6 +70,128 @@ fn admit_manual_power_player(
 }
 
 #[test]
+fn retained_manual_power_cannot_overbook_casting_completion_revisions() {
+    use crate::content::{EQUIPMENT_CASTING_MOLD, FORM_MOLTEN, PROCESS_CAST_PURE_COPPER};
+    use crate::inventory::{StockpileStorageProfile, add_stockpile};
+    use crate::production::validate_start_player_process;
+    use crate::thermal::{CastingRequest, resolve_casting_process};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let crank = assemble_crank_fixture(&registries, &mut state, EQUIPMENT_STONE_HAND_CRANK, false);
+    let drive = assemble_flywheel_fixture(&registries, &mut state);
+    let mold = crate::equipment::add_equipment(
+        &registries,
+        &mut state,
+        EQUIPMENT_CASTING_MOLD,
+        crate::maintenance::Condition::PRISTINE,
+    )
+    .unwrap();
+    let sink = add_energy_store(&registries, &mut state, ENERGY_THERMAL_SINK).unwrap();
+    let support = active_support(&registries, &mut state);
+    let _ = validate_mount_equipment(&registries, &state, mold, support)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let mass = Mass::from_milligrams(20_000);
+    let source = add_stockpile(
+        &mut state,
+        mass,
+        StockpileStorageProfile::new(false, true, Temperature::from_millikelvin(1_600_000))
+            .unwrap(),
+    )
+    .unwrap();
+    let destination = add_solid_stockpile_for_test(&mut state, mass).unwrap();
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_COPPER, FORM_MOLTEN),
+        mass,
+        Temperature::from_millikelvin(1_357_770),
+    )
+    .unwrap();
+    let origin = VoxelCoord::new(0, 0, 0);
+    for stockpile in [source, destination] {
+        validate_place_ground_stockpile(&state, stockpile, origin)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    }
+    admit_manual_power_player(&registries, &mut state, &[crank, mold], &[drive, sink]);
+    for owner in ["equipment", "energy"] {
+        let mut saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+        saved["state"]["systems"][owner]["revision"] = serde_json::json!(u64::MAX - 1);
+        let mut candidate = serde_json::from_value::<LoadedSaveEnvelope>(saved)
+            .unwrap()
+            .into_state(&registries)
+            .unwrap();
+        let power = validate_start_manual_power(
+            &registries,
+            &candidate,
+            ManualPowerRequest::new(
+                MANUAL_POWER_HAND_CRANK,
+                crank,
+                drive,
+                Energy::from_nanojoules(100_000_000_000),
+            ),
+        )
+        .unwrap();
+        let resolved = resolve_casting_process(
+            &registries,
+            &candidate,
+            CastingRequest::new(
+                PROCESS_CAST_PURE_COPPER,
+                source,
+                &[MaterialLotSelection::new(lot, mass)],
+                mold,
+                sink,
+            ),
+        )
+        .unwrap();
+        validate_start_player_process(
+            &registries,
+            &candidate,
+            resolved.process_resolution(),
+            source,
+            destination,
+        )
+        .unwrap()
+        .commit(&mut candidate)
+        .unwrap();
+        assert_eq!(validate_loaded_state(&registries, &candidate), Ok(()));
+        assert_eq!(
+            candidate.equipment().revision(),
+            if owner == "equipment" {
+                u64::MAX - 1
+            } else {
+                state.equipment().revision()
+            }
+        );
+        assert_eq!(
+            candidate.energy().revision(),
+            if owner == "energy" {
+                u64::MAX - 1
+            } else {
+                state.energy().revision()
+            }
+        );
+        let before = candidate.clone();
+        let error = if owner == "equipment" {
+            PlayerWorkCommitError::EquipmentRevisionExhausted
+        } else {
+            PlayerWorkCommitError::EnergyRevisionExhausted
+        };
+        assert_eq!(
+            power.commit(&mut candidate),
+            Err(ManualPowerCommitError::Work(error)),
+            "casting reserved the final {owner} revision",
+        );
+        assert_eq!(candidate, before);
+    }
+}
+
+#[test]
 fn manual_power_rejects_known_remote_destination_store() {
     let registries = build_registries();
     let mut state = AppState::new();

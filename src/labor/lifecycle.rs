@@ -148,6 +148,9 @@ pub enum PlayerWorkCommitError {
         expected: u64,
         actual: u64,
     },
+    EquipmentRevisionExhausted,
+    EnergyRevisionExhausted,
+    StructureRevisionExhausted,
 }
 
 impl Display for PlayerWorkCommitError {
@@ -183,6 +186,15 @@ impl Display for PlayerWorkCommitError {
                 formatter,
                 "player-work admission expected structure revision {expected} but current revision is {actual}"
             ),
+            Self::EquipmentRevisionExhausted => formatter.write_str(
+                "player work cannot reserve equipment revisions required at completion",
+            ),
+            Self::EnergyRevisionExhausted => formatter.write_str(
+                "player work cannot reserve energy revisions required at completion",
+            ),
+            Self::StructureRevisionExhausted => formatter.write_str(
+                "player work cannot reserve structural revisions required for admission and completion",
+            ),
         }
     }
 }
@@ -202,6 +214,16 @@ impl ValidatedPlayerWorkStart {
     }
 
     pub(crate) fn precheck(&self, state: &AppState) -> Result<(), PlayerWorkCommitError> {
+        self.precheck_with_structure_writes(state, 0)
+    }
+
+    /// Construction can materialize or plan a member before holding attention.
+    /// Preserve both those immediate writes and the later activation.
+    pub(crate) fn precheck_with_structure_writes(
+        &self,
+        state: &AppState,
+        immediate_structure_writes: u64,
+    ) -> Result<(), PlayerWorkCommitError> {
         self.attention
             .precheck(state)
             .map_err(|conflict| match conflict {
@@ -226,7 +248,30 @@ impl ValidatedPlayerWorkStart {
                 super::PlayerAttentionConflict::StructureRevision { expected, actual } => {
                     PlayerWorkCommitError::StaleStructureRevision { expected, actual }
                 }
-            })
+            })?;
+        // Production can reserve completion writes without changing the
+        // equipment, energy or structure owner's revision. Recheck only
+        // the domains this direct work will actually mutate.
+        let work = self.attention.work();
+        let equipment = work.future_equipment_revision_demand();
+        if equipment != 0 && !state.can_spend_equipment_revisions(equipment) {
+            return Err(PlayerWorkCommitError::EquipmentRevisionExhausted);
+        }
+        let energy = work.future_energy_revision_demand();
+        if energy != 0 && !state.can_spend_energy_revisions(energy) {
+            return Err(PlayerWorkCommitError::EnergyRevisionExhausted);
+        }
+        let structures = work.future_structure_revision_demand();
+        if (structures != 0 || immediate_structure_writes != 0)
+            && !state.can_spend_structure_revisions_after_adjusting(
+                immediate_structure_writes,
+                structures,
+                0,
+            )
+        {
+            return Err(PlayerWorkCommitError::StructureRevisionExhausted);
+        }
+        Ok(())
     }
 
     pub(crate) fn apply(self, state: &mut AppState) {

@@ -115,8 +115,11 @@ unsettled control time.
 Production completion reserves equipment and energy revisions through derived per-job demand counters,
 including suspended jobs. A completing cohort releases only its own obligations; structural demand is
 recomputed against current output support. Blueprint creation and cancellation, equipment support
-changes, and unreserved fluid load changes recheck available revision capacity at commit: a later
-admission may reserve future completion steps without changing the current owner's revision.
+changes, unreserved fluid load changes, and direct player-work admission recheck available revision
+capacity at commit: a later admission may reserve future completion steps without changing the
+current owner's revision. The shared player-work commit checks its own deferred equipment, energy,
+and structural writes; atomic construction includes immediate planning and materialization writes
+in the same structural budget.
 Already-promised settlement steps remain available to their owning jobs. Mining indexes retained outputs by destination and awaiting
 settlement status, so local settlement and support changes need not search unrelated jobs. These indexes
 are reconstructed from durable records and independently validated; they add no persistent save fields.
