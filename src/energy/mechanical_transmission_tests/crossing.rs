@@ -45,6 +45,80 @@ pub(super) fn materialize_roller_at(
 }
 
 #[test]
+fn idle_shafts_resume_when_mechanical_work_becomes_available() {
+    use crate::content::ENERGY_ELECTRICAL_BUFFER;
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let roller = materialize_roller_at(&registries, &mut state, 1, 0);
+    let left = VoxelCoord::new(0, 0, 0);
+    let right = VoxelCoord::new(2, 0, 0);
+    let definition = ENERGY_MECHANICAL_SMALL_DRIVE;
+    let empty = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        definition,
+        Energy::ZERO,
+    )
+    .unwrap();
+    place_energy_store_for_fixture(&mut state, empty, left);
+    let destination = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        definition,
+        Energy::ZERO,
+    )
+    .unwrap();
+    place_energy_store_for_fixture(&mut state, destination, right);
+    let electrical = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_ELECTRICAL_BUFFER,
+        Energy::from_nanojoules(1_000_000_000),
+    )
+    .unwrap();
+    place_energy_store_for_fixture(&mut state, electrical, left);
+
+    let before_revision = state.energy().revision();
+    assert!(
+        advance_tick(&registries, &mut state)
+            .unwrap()
+            .mechanical_transmissions()
+            .is_empty()
+    );
+    assert_eq!(state.energy().revision(), before_revision);
+
+    let capacity = registries
+        .energy()
+        .get_store(definition)
+        .unwrap()
+        .capacity();
+    let source =
+        add_energy_store_with_initial_for_fixture(&registries, &mut state, definition, capacity)
+            .unwrap();
+    place_energy_store_for_fixture(&mut state, source, left);
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let receipt = advance_tick(&registries, &mut state).unwrap();
+    assert_eq!(receipt, advance_tick(&registries, &mut replay).unwrap());
+    assert_eq!(state, replay);
+    let [transfer] = receipt.mechanical_transmissions() else {
+        panic!("charged mechanical source must reactivate its shaft");
+    };
+    assert_eq!(transfer.coupling(), roller);
+    assert_eq!(transfer.source(), source);
+    assert_eq!(transfer.destination(), destination);
+    assert_eq!(
+        state.energy().get_store(destination).unwrap().stored(),
+        transfer.delivered()
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn crossing_shaft_prioritizes_useful_transfer_over_coordinate_scan_order() {
     let registries = build_registries();
     let mut state = AppState::new();

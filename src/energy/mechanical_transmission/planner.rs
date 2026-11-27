@@ -5,6 +5,8 @@
 
 use std::cmp::Ordering;
 
+use crate::energy::EnergyCarrier;
+
 use super::*;
 
 mod arbitration;
@@ -101,6 +103,32 @@ pub(crate) fn decide_mechanical_transmission(
     passive: &PassiveEnergyDissipationPlan,
     dismantled_this_tick: Option<StructuralElementId>,
 ) -> MechanicalTransmissionPlan {
+    // A shaft cannot borrow same-tick ingress. If no indexed mechanical
+    // source retains pre-tick work after passive loss, skip the structural
+    // scan entirely, including in worlds with many unrelated buildings.
+    let has_work = state
+        .energy()
+        .nonempty_store_groups()
+        .any(|(definition, stores)| {
+            registries
+                .energy()
+                .get_store(definition)
+                .is_some_and(|definition| {
+                    definition.carrier() == EnergyCarrier::Mechanical
+                        && !definition.max_output_power().is_zero()
+                })
+                && stores.iter().any(|store| {
+                    state
+                        .energy()
+                        .get_store(*store)
+                        .expect("indexed energy store exists")
+                        .stored()
+                        > passive.dissipated_for_store(*store)
+                })
+        });
+    if !has_work {
+        return MechanicalTransmissionPlan::default();
+    }
     let (runs, mut pairs) = available_shaft_pairs(
         registries,
         state,
