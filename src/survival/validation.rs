@@ -59,7 +59,8 @@ fn validate_consumed_matter(
     registry: &SurvivalRegistry,
     materials: &MaterialRegistry,
     state: &SurvivalState,
-) -> Result<(), SurvivalValidationError> {
+) -> Result<u128, SurvivalValidationError> {
+    let mut total = 0_u128;
     for (material, mass) in state.consumed_matter() {
         if materials.get_material(material).is_none() || !registry.has_food_material(material) {
             return Err(SurvivalValidationError::UnknownConsumedMaterial { material });
@@ -67,15 +68,19 @@ fn validate_consumed_matter(
         if mass == crate::core::quantity::AggregateMass::ZERO {
             return Err(SurvivalValidationError::ZeroConsumedMass { material });
         }
+        total = total
+            .checked_add(mass.milligrams())
+            .ok_or(SurvivalValidationError::ConsumptionHistoryExceedsRevisionBudget)?;
     }
-    Ok(())
+    Ok(total)
 }
 
 fn validate_consumed_fluids(
     registry: &SurvivalRegistry,
     fluids: &FluidRegistry,
     state: &SurvivalState,
-) -> Result<(), SurvivalValidationError> {
+) -> Result<u128, SurvivalValidationError> {
+    let mut total = 0_u128;
     for (fluid, volume) in state.consumed_fluids() {
         if fluids.get_fluid(fluid).is_none() || registry.get_drink(fluid).is_none() {
             return Err(SurvivalValidationError::UnknownConsumedFluid { fluid });
@@ -83,6 +88,33 @@ fn validate_consumed_fluids(
         if volume == crate::core::quantity::AggregateVolume::ZERO {
             return Err(SurvivalValidationError::ZeroConsumedFluidVolume { fluid });
         }
+        total = total
+            .checked_add(volume.microliters())
+            .ok_or(SurvivalValidationError::ConsumptionHistoryExceedsRevisionBudget)?;
+    }
+    Ok(total)
+}
+
+fn validate_intake_history(
+    registry: &SurvivalRegistry,
+    materials: &MaterialRegistry,
+    fluids: &FluidRegistry,
+    state: &SurvivalState,
+) -> Result<(), SurvivalValidationError> {
+    let food = validate_consumed_matter(registry, materials, state)?;
+    let drink = validate_consumed_fluids(registry, fluids, state)?;
+    let direct = registry.physiology().direct_consumption();
+    // Initialization and every intake admission consume distinct survival
+    // revisions. Interrupted meals still contribute their entire debited
+    // mass; use the authored maximum rather than assuming full absorption.
+    let minimum_meals = food.div_ceil(u128::from(direct.maximum_meal_mass().milligrams()));
+    let minimum_drinks = drink.div_ceil(u128::from(direct.maximum_drink_volume().microliters()));
+    let available = u128::from(state.revision().saturating_sub(1));
+    if available
+        .checked_sub(minimum_meals)
+        .is_none_or(|remaining| minimum_drinks > remaining)
+    {
+        return Err(SurvivalValidationError::ConsumptionHistoryExceedsRevisionBudget);
     }
     Ok(())
 }
@@ -102,8 +134,7 @@ pub(crate) fn validate_loaded_survival(
         return Ok(());
     };
     validate_player_reserves(registry, player)?;
-    validate_consumed_matter(registry, materials, state)?;
-    validate_consumed_fluids(registry, fluids, state)?;
+    validate_intake_history(registry, materials, fluids, state)?;
     validate_pending_consumption(registry, materials, fluids, state, current)
 }
 

@@ -2135,6 +2135,14 @@ logistics-only actor cannot become trusted runtime continuation through persiste
 5. rejects incomplete persisted player admission before runtime use;
 6. returns `AppState` only after both the generic graph and save-specific promotion contract are valid.
 
+Terminal combustion and direct intake ledgers are checked against conservative historical
+admission bounds. Every combusted material must be supported by an authored fuel profile;
+its recorded mass requires at least enough energy-owner revisions for maximum-sized charges.
+Food and drink totals share the survival-owner revision budget using their respective authored
+maximum portions. Interrupted intake retains its entire debited quantity; historical combustion
+need not reference a store that still exists. These are necessary reachability bounds, not a
+reconstruction of a complete operation history.
+
 Cross-owner validation covers, as applicable:
 
 - authored/runtime references and monotonic identity cursors;

@@ -20,6 +20,7 @@ pub enum SurvivalValidationError {
     ZeroConsumedMass { material: MaterialId },
     UnknownConsumedFluid { fluid: FluidDefinitionId },
     ZeroConsumedFluidVolume { fluid: FluidDefinitionId },
+    ConsumptionHistoryExceedsRevisionBudget,
     PendingConsumptionWithoutPlayer,
     PendingConsumptionForDeadPlayer,
     PendingConsumptionScheduleInvalid,
@@ -83,6 +84,9 @@ impl Display for SurvivalValidationError {
                 "survival consumption stores zero volume for fluid {}",
                 fluid.value()
             ),
+            Self::ConsumptionHistoryExceedsRevisionBudget => {
+                formatter.write_str("consumed food and fluid require more intake admissions than survival history permits")
+            }
             Self::PendingConsumptionWithoutPlayer => {
                 formatter.write_str("pending direct consumption exists without a player")
             }

@@ -42,6 +42,102 @@ fn finish_pending_consumption(registries: &Registries, state: &mut AppState) {
 }
 
 #[test]
+fn trusted_intake_history_requires_reachable_meal_and_drink_admissions() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let origin = crate::spatial::VoxelCoord::new(0, 0, 0);
+    let source = crate::player::validate_admit_player(&registries, &state, origin)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let direct = registries.survival().physiology().direct_consumption();
+    let mass = direct.maximum_meal_mass();
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        CommodityKey::new(MATERIAL_GRAIN, FORM_FOOD),
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let volume = direct.maximum_drink_volume();
+    let store = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        volume,
+        FLUID_WATER,
+        volume,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    crate::logistics::validate_place_fluid_store(&state, store, origin)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let _ = validate_eat(
+        &registries,
+        &state,
+        source,
+        &[MaterialLotSelection::new(lot, mass)],
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    finish_pending_consumption(&registries, &mut state);
+    let _ = validate_drink(&registries, &state, store, volume)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    finish_pending_consumption(&registries, &mut state);
+    let base = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(base.clone())
+            .unwrap()
+            .into_state(&registries),
+        Ok(state.clone())
+    );
+    let revision = state.survival().revision();
+    for (field, key, amount) in [
+        (
+            "consumed_matter",
+            MATERIAL_GRAIN.value().to_string(),
+            mass.milligrams() * revision + 1,
+        ),
+        (
+            "consumed_fluids",
+            FLUID_WATER.value().to_string(),
+            volume.microliters() * revision + 1,
+        ),
+    ] {
+        let mut forged = base.clone();
+        forged["state"]["systems"]["survival"][field][key] = serde_json::json!(amount);
+        assert_eq!(
+            serde_json::from_value::<LoadedSaveEnvelope>(forged)
+                .unwrap()
+                .into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Survival(
+                SurvivalValidationError::ConsumptionHistoryExceedsRevisionBudget
+            ))),
+            "accepted impossible {field}"
+        );
+    }
+
+    let mut combined = base;
+    // A single survival revision after initialization cannot admit both a meal and a drink.
+    combined["state"]["systems"]["survival"]["revision"] = serde_json::json!(2);
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(combined)
+            .unwrap()
+            .into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Survival(
+            SurvivalValidationError::ConsumptionHistoryExceedsRevisionBudget
+        )))
+    );
+}
+
+#[test]
 fn load_rejects_primary_player_reserves_above_their_authoritative_maxima() {
     let registries = build_registries();
     let mut state = AppState::new();

@@ -36,6 +36,68 @@ use super::{
 };
 
 #[test]
+fn trusted_combustion_ledger_requires_authored_fuel_and_reachable_charge_history() {
+    use crate::core::state::StateValidationError;
+    use crate::energy::EnergyValidationError;
+    use crate::persistence::LoadError;
+
+    let (registries, mut state, carried, fire) = campfire_fixture();
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    validate_combust_fuel(&registries, &state, fire, carried)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+    let base = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(base.clone())
+            .unwrap()
+            .into_state(&registries),
+        Ok(state.clone())
+    );
+
+    let mut stone = base.clone();
+    let ledger = &mut stone["state"]["systems"]["energy"]["combusted_matter"];
+    let wood_mass = ledger
+        .as_object_mut()
+        .unwrap()
+        .remove(&MATERIAL_WOOD.value().to_string())
+        .unwrap();
+    ledger[MATERIAL_STONE.value().to_string()] = wood_mass;
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(stone)
+            .unwrap()
+            .into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Energy(
+            EnergyValidationError::UncombustibleMaterial {
+                material: MATERIAL_STONE
+            }
+        )))
+    );
+
+    let maximum_charge = registries
+        .energy()
+        .definitions()
+        .flat_map(|definition| definition.combustion_profiles())
+        .filter(|profile| profile.fuel().material() == MATERIAL_WOOD)
+        .map(|profile| profile.fuel_mass().milligrams())
+        .max()
+        .unwrap();
+    let mut excessive = base;
+    let revision = state.energy().revision();
+    excessive["state"]["systems"]["energy"]["combusted_matter"]
+        [MATERIAL_WOOD.value().to_string()] = serde_json::json!(maximum_charge * revision + 1);
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(excessive)
+            .unwrap()
+            .into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Energy(
+            EnergyValidationError::CombustionHistoryExceedsRevisionBudget { revision }
+        )))
+    );
+}
+
+#[test]
 fn prepared_weapon_prevents_firelighting_and_stales_prior_fuel_commit() {
     use crate::combat::{validate_cancel_primitive_preparation, validate_prepare_primitive_strike};
     use crate::content::EQUIPMENT_WOODEN_CLUB;

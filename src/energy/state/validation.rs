@@ -94,6 +94,12 @@ pub enum EnergyValidationError {
     ZeroCombustedMass {
         material: MaterialId,
     },
+    UncombustibleMaterial {
+        material: MaterialId,
+    },
+    CombustionHistoryExceedsRevisionBudget {
+        revision: u64,
+    },
 }
 
 impl Display for EnergyValidationError {
@@ -233,6 +239,15 @@ impl Display for EnergyValidationError {
                 "combustion terminal stores zero mass for material {}",
                 material.value()
             ),
+            Self::UncombustibleMaterial { material } => write!(
+                formatter,
+                "combustion terminal references material {} with no authored fuel profile",
+                material.value()
+            ),
+            Self::CombustionHistoryExceedsRevisionBudget { revision } => write!(
+                formatter,
+                "combusted mass requires more fuel charges than energy revision {revision} permits"
+            ),
         }
     }
 }
@@ -251,17 +266,37 @@ pub(crate) fn validate_loaded_energy(
     for (key, record) in &state.records {
         validate_energy_store_record(registry, materials, *key, record, current)?;
     }
-    for (material, mass) in &state.combusted_matter {
-        if materials.get_material(*material).is_none() {
-            return Err(EnergyValidationError::UnknownCombustedMaterial {
-                material: *material,
-            });
+    validate_combustion_history(registry, materials, state)
+}
+
+fn validate_combustion_history(
+    registry: &EnergyRegistry,
+    materials: &MaterialRegistry,
+    state: &EnergyState,
+) -> Result<(), EnergyValidationError> {
+    // Each charge consumes one energy revision and can consume at most the
+    // largest authored charge for its material. At least one store allocation
+    // must precede combustion. Historical stores need not still exist.
+    let revision = state.revision();
+    let mut remaining_charges = u128::from(revision.saturating_sub(1));
+    for (material, mass) in state.combusted_matter() {
+        if materials.get_material(material).is_none() {
+            return Err(EnergyValidationError::UnknownCombustedMaterial { material });
         }
-        if *mass == AggregateMass::ZERO {
-            return Err(EnergyValidationError::ZeroCombustedMass {
-                material: *material,
-            });
+        if mass == AggregateMass::ZERO {
+            return Err(EnergyValidationError::ZeroCombustedMass { material });
         }
+        let maximum_charge = registry
+            .definitions()
+            .flat_map(|definition| definition.combustion_profiles())
+            .filter(|profile| profile.fuel().material() == material)
+            .map(|profile| profile.fuel_mass().milligrams())
+            .max()
+            .ok_or(EnergyValidationError::UncombustibleMaterial { material })?;
+        let minimum_charges = mass.milligrams().div_ceil(u128::from(maximum_charge));
+        remaining_charges = remaining_charges
+            .checked_sub(minimum_charges)
+            .ok_or(EnergyValidationError::CombustionHistoryExceedsRevisionBudget { revision })?;
     }
     Ok(())
 }
