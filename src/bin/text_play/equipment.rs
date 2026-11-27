@@ -62,7 +62,12 @@ pub fn catalog(
         );
         match option.availability() {
             PlayerEquipmentAssemblyAvailability::Ready => {
-                output.push_str("ready");
+                match validate_assemble_player_equipment_option(registries, state, option) {
+                    Ok(_) => output.push_str("ready"),
+                    Err(error) => {
+                        let _ = write!(output, "blocked: {error}");
+                    }
+                }
             }
             PlayerEquipmentAssemblyAvailability::MissingMaterial {
                 commodity,
@@ -135,6 +140,22 @@ pub fn catalog(
             view::grams(record.embodied_mass()),
             record.condition().parts_per_million() / 10_000,
         );
+        match validate_pickup_equipment(registries, state, *equipment) {
+            Ok(_) => {
+                let _ = writeln!(output, "     take {}: ready", index + 1);
+            }
+            Err(error) => {
+                let _ = writeln!(output, "     take {}: blocked: {error}", index + 1);
+            }
+        }
+        match validate_player_disassemble_equipment(registries, state, *equipment) {
+            Ok(_) => {
+                let _ = writeln!(output, "     recover {}: ready", index + 1);
+            }
+            Err(error) => {
+                let _ = writeln!(output, "     recover {}: blocked: {error}", index + 1);
+            }
+        }
     }
     Ok(output)
 }
@@ -155,7 +176,7 @@ pub fn assemble(
         .commit(state)
         .map_err(|error| error.to_string())?;
     Ok(format!(
-        "Assembled {name} at your current location (equipment {}). Inspect 'gear' for local use or 'take N' to carry it.\n",
+        "Assembled {name} at your current location (equipment {}). Inspect 'gear' for local use and pickup or recovery availability.\n",
         id.value()
     ))
 }

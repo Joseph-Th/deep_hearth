@@ -75,33 +75,7 @@ impl ValidatedStructuralConstruction {
         &self,
         state: &AppState,
     ) -> Result<(), StructuralConstructionCommitError> {
-        if state.world().revision() != self.expected_world_revision {
-            return Err(StructuralConstructionCommitError::StaleWorldRevision {
-                expected: self.expected_world_revision,
-                actual: state.world().revision(),
-            });
-        }
-        if state.surface().revision() != self.expected_surface_revision {
-            return Err(StructuralConstructionCommitError::StaleSurfaceRevision {
-                expected: self.expected_surface_revision,
-                actual: state.surface().revision(),
-            });
-        }
-        if state.player_work().revision() != self.expected_player_work_revision {
-            return Err(StructuralConstructionCommitError::StalePlayerWorkRevision {
-                expected: self.expected_player_work_revision,
-                actual: state.player_work().revision(),
-            });
-        }
-        if let Some(expected) = self.expected_logistics_revision {
-            let actual = state.logistics().revision();
-            if actual != expected {
-                return Err(StructuralConstructionCommitError::StaleLogisticsRevision {
-                    expected,
-                    actual,
-                });
-            }
-        }
+        self.precheck_dependencies(state)?;
         let actual_structure_revision = state.structures().revision();
         if actual_structure_revision != self.expected_structure_revision {
             return Err(StructuralConstructionCommitError::StaleStructureRevision {
@@ -109,23 +83,13 @@ impl ValidatedStructuralConstruction {
                 actual: actual_structure_revision,
             });
         }
-        let actual_inventory_revision = state.inventory().revision();
-        if actual_inventory_revision != self.egress.expected_revision() {
-            return Err(StructuralConstructionCommitError::StaleInventoryRevision {
-                expected: self.egress.expected_revision(),
-                actual: actual_inventory_revision,
-            });
-        }
+        self.precheck_inventory(state)?;
         let Some(record) = state.structures().get_element(self.element) else {
             return Err(StructuralConstructionCommitError::StateChanged {
                 element: self.element,
             });
         };
-        if record.lifecycle() != StructuralLifecycle::Planned || !record.embodied_mass().is_zero() {
-            return Err(StructuralConstructionCommitError::StateChanged {
-                element: self.element,
-            });
-        }
+        self.precheck_record(record)?;
         if let Some(stockpile_load) = &self.stockpile_load {
             let expected = stockpile_load.expected_revision();
             if expected != self.expected_structure_revision {
@@ -150,6 +114,35 @@ impl ValidatedStructuralConstruction {
         state: &AppState,
         record: &StructuralElementRecord,
         projected_structure_revision: u64,
+    ) -> Result<(), StructuralConstructionCommitError> {
+        self.precheck_dependencies(state)?;
+        let actual_projected_revision = state.structures().revision().checked_add(1).ok_or(
+            StructuralConstructionCommitError::StaleStructureRevision {
+                expected: self.expected_structure_revision,
+                actual: state.structures().revision(),
+            },
+        )?;
+        if actual_projected_revision != projected_structure_revision
+            || projected_structure_revision != self.expected_structure_revision
+        {
+            return Err(StructuralConstructionCommitError::StaleStructureRevision {
+                expected: self.expected_structure_revision,
+                actual: actual_projected_revision,
+            });
+        }
+        self.precheck_inventory(state)?;
+        self.precheck_record(record)?;
+        assert!(
+            self.stockpile_load.is_none(),
+            "atomic planned-member construction must consume player-carried, unsupported material"
+        );
+        self.egress.assert_matches_state(state.inventory());
+        Ok(())
+    }
+
+    fn precheck_dependencies(
+        &self,
+        state: &AppState,
     ) -> Result<(), StructuralConstructionCommitError> {
         if state.world().revision() != self.expected_world_revision {
             return Err(StructuralConstructionCommitError::StaleWorldRevision {
@@ -178,20 +171,13 @@ impl ValidatedStructuralConstruction {
                 });
             }
         }
-        let actual_projected_revision = state.structures().revision().checked_add(1).ok_or(
-            StructuralConstructionCommitError::StaleStructureRevision {
-                expected: self.expected_structure_revision,
-                actual: state.structures().revision(),
-            },
-        )?;
-        if actual_projected_revision != projected_structure_revision
-            || projected_structure_revision != self.expected_structure_revision
-        {
-            return Err(StructuralConstructionCommitError::StaleStructureRevision {
-                expected: self.expected_structure_revision,
-                actual: actual_projected_revision,
-            });
-        }
+        Ok(())
+    }
+
+    fn precheck_inventory(
+        &self,
+        state: &AppState,
+    ) -> Result<(), StructuralConstructionCommitError> {
         let actual_inventory_revision = state.inventory().revision();
         if actual_inventory_revision != self.egress.expected_revision() {
             return Err(StructuralConstructionCommitError::StaleInventoryRevision {
@@ -199,6 +185,13 @@ impl ValidatedStructuralConstruction {
                 actual: actual_inventory_revision,
             });
         }
+        Ok(())
+    }
+
+    fn precheck_record(
+        &self,
+        record: &StructuralElementRecord,
+    ) -> Result<(), StructuralConstructionCommitError> {
         if record.id() != self.element
             || record.lifecycle() != StructuralLifecycle::Planned
             || !record.embodied_mass().is_zero()
@@ -207,11 +200,6 @@ impl ValidatedStructuralConstruction {
                 element: self.element,
             });
         }
-        assert!(
-            self.stockpile_load.is_none(),
-            "atomic planned-member construction must consume player-carried, unsupported material"
-        );
-        self.egress.assert_matches_state(state.inventory());
         Ok(())
     }
 
@@ -256,23 +244,7 @@ pub(crate) fn validate_structural_construction_for_planned_member(
     if record.id() != element {
         return Err(StructuralConstructionError::UnknownElement { element });
     }
-    validate_structural_construction_target(registries, element, record)?;
-    validate_structural_construction_world(registries, state, record)?;
-    validate_structural_construction_material(
-        registries,
-        element,
-        record.material(),
-        resolution.selection().consumed_inputs(),
-    )?;
-    let required_mass = resolve_required_mass(registries.materials(), record)
-        .map_err(|error| StructuralConstructionError::Geometry { element, error })?;
-    if resolution.mass() != required_mass {
-        return Err(StructuralConstructionError::MaterialQuantityMismatch {
-            element,
-            required: required_mass,
-            selected: resolution.mass(),
-        });
-    }
+    let required_mass = validate_construction_batch(registries, state, record, &resolution)?;
     let selection = resolution.into_selection();
     let source = selection.source();
     let carried = state
@@ -335,6 +307,33 @@ pub(crate) fn validate_structural_construction_for_planned_member(
         egress,
         stockpile_load: None,
     })
+}
+
+fn validate_construction_batch(
+    registries: &Registries,
+    state: &AppState,
+    record: &StructuralElementRecord,
+    resolution: &StructuralConstructionResolution,
+) -> Result<Mass, StructuralConstructionError> {
+    let element = resolution.element();
+    validate_structural_construction_target(registries, element, record)?;
+    validate_structural_construction_world(registries, state, record)?;
+    validate_structural_construction_material(
+        registries,
+        element,
+        record.material(),
+        resolution.selection().consumed_inputs(),
+    )?;
+    let required_mass = resolve_required_mass(registries.materials(), record)
+        .map_err(|error| StructuralConstructionError::Geometry { element, error })?;
+    if resolution.mass() != required_mass {
+        return Err(StructuralConstructionError::MaterialQuantityMismatch {
+            element,
+            required: required_mass,
+            selected: resolution.mass(),
+        });
+    }
+    Ok(required_mass)
 }
 
 fn validate_structural_construction_world(
@@ -585,24 +584,7 @@ pub(crate) fn validate_structural_construction(
         .structures()
         .get_element(element)
         .ok_or(StructuralConstructionError::UnknownElement { element })?;
-    validate_structural_construction_target(registries, element, record)?;
-    validate_structural_construction_world(registries, state, record)?;
-    validate_structural_construction_material(
-        registries,
-        element,
-        record.material(),
-        resolution.selection().consumed_inputs(),
-    )?;
-
-    let required_mass = resolve_required_mass(registries.materials(), record)
-        .map_err(|error| StructuralConstructionError::Geometry { element, error })?;
-    if resolution.mass() != required_mass {
-        return Err(StructuralConstructionError::MaterialQuantityMismatch {
-            element,
-            required: required_mass,
-            selected: resolution.mass(),
-        });
-    }
+    let required_mass = validate_construction_batch(registries, state, record, &resolution)?;
 
     let (egress, stockpile_load) = validate_structural_construction_egress(
         registries,

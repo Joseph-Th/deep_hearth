@@ -2472,6 +2472,44 @@ fn prepared_flint_and_handle() -> Session {
 }
 
 #[test]
+fn equipment_catalog_reports_live_action_blockers_without_mutating_state() {
+    let mut session = prepared_flint_and_handle();
+    session.command("gather 1 100").unwrap();
+    let before = snapshot(&session);
+    let (gear, _) = session.command("gear").unwrap();
+    assert!(gear.contains("58. hafted flint woodworking knife | 420 g | blocked: player cannot assemble equipment while work is active"));
+    assert!(session.command("assemble 58").is_err());
+    assert_eq!(snapshot(&session), before);
+
+    session.command("wait work").unwrap();
+    assert!(
+        session
+            .command("gear")
+            .unwrap()
+            .0
+            .contains("58. hafted flint woodworking knife | 420 g | ready")
+    );
+    session.command("assemble 58").unwrap();
+    let (gear, _) = session.command("gear").unwrap();
+    assert!(gear.contains("take 1: ready"));
+    assert!(gear.contains("recover 1: ready"));
+
+    session.command("gather 1 100").unwrap();
+    let before = snapshot(&session);
+    let (gear, _) = session.command("gear").unwrap();
+    assert!(gear.contains("take 1: blocked:"));
+    assert!(gear.contains("recover 1: blocked:"));
+    assert!(session.command("take 1").is_err());
+    assert!(session.command("recover 1").is_err());
+    assert_eq!(snapshot(&session), before);
+    session.command("wait work").unwrap();
+    let (gear, _) = session.command("gear").unwrap();
+    assert!(gear.contains("take 1: ready"));
+    assert!(gear.contains("recover 1: ready"));
+    session.command("take 1").unwrap();
+}
+
+#[test]
 fn flint_knife_assembly_local_pickup_and_disassembly_conserve_player_matter() {
     let mut session = Session::new(24318).unwrap();
     let before = snapshot(&session);
