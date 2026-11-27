@@ -270,6 +270,7 @@ impl Error for EquipmentSupportError {
 /// Failure to commit a revision-bound equipment/support transaction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EquipmentSupportCommitError {
+    EquipmentRevisionExhausted,
     StaleWorldRevision {
         expected: u64,
         actual: u64,
@@ -336,6 +337,9 @@ pub enum EquipmentSupportCommitError {
 impl Display for EquipmentSupportCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::EquipmentRevisionExhausted => {
+                formatter.write_str("equipment revision space is reserved by already-admitted work")
+            }
             Self::StaleWorldRevision { expected, actual } => write!(
                 formatter,
                 "validated equipment support change expected world revision {expected} but current revision is {actual}"
@@ -442,7 +446,8 @@ impl Error for EquipmentSupportCommitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Structure(error) => Some(error),
-            Self::StaleWorldRevision { .. }
+            Self::EquipmentRevisionExhausted
+            | Self::StaleWorldRevision { .. }
             | Self::StaleSurvivalRevision { .. }
             | Self::StaleLogisticsRevision { .. }
             | Self::StalePlayerWorkRevision { .. }

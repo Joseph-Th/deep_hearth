@@ -150,6 +150,9 @@ impl ValidatedEquipmentSupportChange {
                 return Err(EquipmentSupportCommitError::StaleWorldRevision { expected, actual });
             }
         }
+        if !state.can_spend_equipment_revisions(1) {
+            return Err(EquipmentSupportCommitError::EquipmentRevisionExhausted);
+        }
         state.equipment().assert_support_change_available(
             self.equipment,
             self.before,
@@ -159,7 +162,7 @@ impl ValidatedEquipmentSupportChange {
 
         let structural = self
             .structural
-            .commit(state)
+            .commit_unreserved(state)
             .map_err(EquipmentSupportCommitError::Structure)?;
 
         state.equipment_state_mut().apply_support_change(

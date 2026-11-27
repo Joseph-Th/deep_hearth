@@ -573,6 +573,222 @@ fn trusted_load_rejects_supported_output_without_structure_completion_revision_c
 }
 
 #[test]
+fn earlier_independent_actions_cannot_spend_revisions_reserved_by_later_production() {
+    use crate::content::{
+        ENERGY_ELECTRICAL_BUFFER, EQUIPMENT_ELECTRIC_FURNACE, EQUIPMENT_WOODEN_CLUB, FLUID_WATER,
+        PROCESS_HEAT_MATERIAL_BATCH, build_registries,
+    };
+    use crate::core::quantity::Volume;
+    use crate::equipment::{
+        EquipmentSupportCommitError, validate_assemble_equipment, validate_mount_equipment,
+    };
+    use crate::fluid::{
+        FluidSupportCommitError, FluidTransferCommitError,
+        add_fluid_store_with_contents_for_fixture, validate_mount_fluid_store,
+        validate_transfer_fluid_between_local_stores,
+    };
+    use crate::logistics::{
+        place_energy_store_for_fixture, place_equipment_for_fixture, validate_place_fluid_store,
+    };
+    use crate::matter::calculate_matter_accounting;
+    use crate::structural::{
+        GroundedStructuralElementPlan, PlanPlayerStructuralElementCommitError,
+        StructuralCommitError, StructuralElementGeometry,
+        validate_plan_player_grounded_structural_element,
+    };
+    use crate::survival::{DrinkCommitError, validate_drink};
+
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let origin = VoxelCoord::new(0, 0, 0);
+    let source = add_test_stockpile(&mut state, 2_000_000);
+    let destination = add_test_stockpile(&mut state, 100_000);
+    let mass = Mass::from_milligrams(10_000);
+    let room = Temperature::from_millikelvin(293_150);
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        source,
+        wood_log(),
+        Mass::from_milligrams(1_000_000),
+        room,
+    )
+    .unwrap();
+    let spare = validate_assemble_equipment(&registries, &state, EQUIPMENT_WOODEN_CLUB, source)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let lot =
+        deposit_lot_for_test(&registries, &mut state, source, wood_log(), mass, room).unwrap();
+    let furnace = add_equipment(
+        &registries,
+        &mut state,
+        EQUIPMENT_ELECTRIC_FURNACE,
+        Condition::PRISTINE,
+    )
+    .unwrap();
+    let energy = add_energy_store_with_initial_for_fixture(
+        &registries,
+        &mut state,
+        ENERGY_ELECTRICAL_BUFFER,
+        Energy::from_nanojoules(2_000_000_000_000_000),
+    )
+    .unwrap();
+    let support = add_active_stockpile_support(&registries, &mut state, 0);
+    let _ = validate_mount_equipment(&registries, &state, furnace, support)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    for stockpile in [source, destination] {
+        validate_place_ground_stockpile(&state, stockpile, origin)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    }
+    let _ = validate_mount_stockpile(&registries, &state, destination, support)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    for equipment in [furnace, spare] {
+        place_equipment_for_fixture(&mut state, equipment, origin);
+    }
+    place_energy_store_for_fixture(&mut state, energy, origin);
+    let water = Volume::from_microliters(100_000);
+    let donor = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        water,
+        FLUID_WATER,
+        water,
+        room,
+    )
+    .unwrap();
+    let receiver = add_fluid_store_with_contents_for_fixture(
+        &registries,
+        &mut state,
+        Volume::from_microliters(200_000),
+        FLUID_WATER,
+        water,
+        room,
+    )
+    .unwrap();
+    for store in [donor, receiver] {
+        validate_place_fluid_store(&state, store, origin)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    }
+    let _ = validate_mount_fluid_store(&registries, &state, receiver, support)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_admit_player(&registries, &state, origin)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let mut saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    saved["state"]["systems"]["structures"]["revision"] = serde_json::json!(u64::MAX - 1);
+    saved["state"]["systems"]["equipment"]["revision"] = serde_json::json!(u64::MAX - 1);
+    let mut state = serde_json::from_value::<LoadedSaveEnvelope>(saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+
+    let plan = validate_plan_player_grounded_structural_element(
+        &registries,
+        &state,
+        GroundedStructuralElementPlan::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            StructuralElementGeometry::new(
+                VoxelBounds::new(VoxelCoord::new(1, 0, 0), VoxelCoord::new(2, 1, 1)).unwrap(),
+                Length::from_micrometers(2_000_000),
+                Area::from_square_millimeters(5_000),
+            )
+            .unwrap(),
+        ),
+    )
+    .unwrap();
+    let equipment_mount = validate_mount_equipment(&registries, &state, spare, support).unwrap();
+    let fluid_mount = validate_mount_fluid_store(&registries, &state, donor, support).unwrap();
+    let pour =
+        validate_transfer_fluid_between_local_stores(&registries, &state, donor, receiver, water)
+            .unwrap();
+    let drink = validate_drink(&registries, &state, receiver, water).unwrap();
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    let resolution = resolve_sensible_heating_process(
+        &registries,
+        &state,
+        SensibleHeatingRequest::new(
+            PROCESS_HEAT_MATERIAL_BATCH,
+            source,
+            &[MaterialLotSelection::new(lot, mass)],
+            furnace,
+            energy,
+            Temperature::from_millikelvin(303_150),
+        ),
+    )
+    .unwrap();
+    let job = validate_start_player_process(
+        &registries,
+        &state,
+        resolution.process_resolution(),
+        source,
+        destination,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(state.checked_future_structure_revision_demand(), Some(1));
+    assert_eq!(state.checked_future_equipment_revision_demand(), Some(1));
+    assert_eq!(state.structures().revision(), u64::MAX - 1);
+    assert_eq!(state.equipment().revision(), u64::MAX - 1);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    let mut candidate = state.clone();
+    assert_eq!(
+        plan.commit(&mut candidate).err(),
+        Some(PlanPlayerStructuralElementCommitError::RevisionExhausted),
+    );
+    assert_eq!(candidate, state);
+    assert_eq!(
+        equipment_mount.commit(&mut candidate).err(),
+        Some(EquipmentSupportCommitError::EquipmentRevisionExhausted),
+    );
+    assert_eq!(candidate, state);
+    assert_eq!(
+        fluid_mount.commit(&mut candidate).err(),
+        Some(FluidSupportCommitError::Structure(
+            StructuralCommitError::RevisionExhausted
+        )),
+    );
+    assert_eq!(candidate, state);
+    assert_eq!(
+        pour.commit(&mut candidate).err(),
+        Some(FluidTransferCommitError::Structure(
+            StructuralCommitError::RevisionExhausted
+        )),
+    );
+    assert_eq!(candidate, state);
+    assert_eq!(
+        drink.commit(&mut candidate).err(),
+        Some(DrinkCommitError::Structure(
+            StructuralCommitError::RevisionExhausted
+        )),
+    );
+    assert_eq!(candidate, state);
+    let due = state.production().get_job(job).unwrap().completes_at();
+    while state.tick() < due {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(state.equipment().revision(), u64::MAX);
+    assert_eq!(state.structures().revision(), u64::MAX);
+    assert!(state.production().get_job(job).is_none());
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn process_start_preserves_structure_revisions_owed_to_existing_supported_output_jobs() {
     let registries = make_test_registries();
     let mut state = AppState::new();

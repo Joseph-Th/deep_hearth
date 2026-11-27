@@ -403,6 +403,80 @@ fn persisted_empty_supported_blueprint_can_be_cancelled_without_matter_change() 
 }
 
 #[test]
+fn blueprint_cancellation_cannot_spend_revision_reserved_by_later_dismantling() {
+    let (registries, mut state, member, lot) = admitted_player_with_planned_member();
+    let work = validate_start_player_structural_construction(
+        &registries,
+        &state,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+        member,
+        &[MaterialLotSelection::new(
+            lot,
+            Mass::from_milligrams(MEMBER_MASS_MG),
+        )],
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    while state.tick() < work.completes_at() {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    let geometry = StructuralElementGeometry::new(
+        VoxelBounds::new(VoxelCoord::new(0, 0, 1), VoxelCoord::new(1, 1, 2)).unwrap(),
+        Length::from_micrometers(2_000_000),
+        Area::from_square_millimeters(5_000),
+    )
+    .unwrap();
+    let blueprint = validate_plan_player_grounded_structural_element(
+        &registries,
+        &state,
+        GroundedStructuralElementPlan::new(
+            STRUCTURAL_PROFILE_AXIAL_COMPRESSION,
+            MATERIAL_WOOD,
+            geometry,
+        ),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let mut saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    saved["state"]["systems"]["structures"]["revision"] = serde_json::json!(u64::MAX - 1);
+    let mut state = serde_json::from_value::<LoadedSaveEnvelope>(saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let cancel = validate_cancel_player_structural_plan(&registries, &state, blueprint).unwrap();
+    let matter = calculate_matter_accounting(&state).unwrap().total();
+    let recovery = validate_start_player_structural_dismantling(
+        &registries,
+        &state,
+        member,
+        STRUCTURAL_CONSTRUCTION_HAND_SET_MEMBER,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(state.structures().revision(), u64::MAX - 1);
+    assert!(!state.can_spend_structure_revisions(1));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        cancel.commit(&mut state),
+        Err(CancelPlayerStructuralPlanCommitError::RevisionExhausted),
+        "cancellation cannot consume the promised dismantling revision"
+    );
+    assert_eq!(state, before);
+    while state.tick() < recovery.completes_at() {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(state.structures().revision(), u64::MAX);
+    assert!(state.structures().get_element(member).is_none());
+    assert!(state.structures().get_element(blueprint).is_some());
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), matter);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn materialized_planned_member_cannot_be_cancelled_as_blueprint() {
     let (registries, mut state, element, lot) = admitted_player_with_planned_member();
     validate_start_player_structural_construction(

@@ -285,6 +285,7 @@ impl Error for PlanPlayerStructuralElementError {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlanPlayerStructuralElementCommitError {
+    RevisionExhausted,
     StaleSurvivalRevision {
         expected: u64,
         actual: u64,
@@ -322,6 +323,9 @@ pub enum PlanPlayerStructuralElementCommitError {
 impl Display for PlanPlayerStructuralElementCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::RevisionExhausted => {
+                formatter.write_str("structural planning revision space is exhausted")
+            }
             Self::StaleSurvivalRevision { expected, actual } => write!(
                 formatter,
                 "structural planning survival revision changed from {expected} to {actual} before commit"
@@ -476,6 +480,9 @@ impl ValidatedPlayerStructuralElementPlan {
                     actual: state.structures().next_element_id(),
                 },
             );
+        }
+        if !state.can_spend_structure_revisions(1) {
+            return Err(PlanPlayerStructuralElementCommitError::RevisionExhausted);
         }
         Ok(())
     }

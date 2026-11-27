@@ -240,6 +240,7 @@ impl Error for StructuralMutationError {
 /// A validated structural token can no longer commit because authoritative state changed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StructuralCommitError {
+    RevisionExhausted,
     StaleRevision {
         expected: u64,
         actual: u64,
@@ -256,6 +257,8 @@ pub enum StructuralCommitError {
 impl Display for StructuralCommitError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::RevisionExhausted => formatter
+                .write_str("structural revision space is reserved by already-admitted work"),
             Self::StaleRevision { expected, actual } => write!(
                 formatter,
                 "structural mutation expected revision {expected} but current revision is {actual}"

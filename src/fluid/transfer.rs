@@ -167,7 +167,7 @@ impl ValidatedFluidTransfer {
         }
         let structural = match self.structural {
             Some(structural) => structural
-                .commit(state)
+                .commit_unreserved(state)
                 .map_err(FluidTransferCommitError::Structure)?,
             None => None,
         };

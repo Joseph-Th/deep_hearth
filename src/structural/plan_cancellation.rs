@@ -76,6 +76,7 @@ impl Error for CancelPlayerStructuralPlanError {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CancelPlayerStructuralPlanCommitError {
+    RevisionExhausted,
     StaleWorldRevision {
         expected: u64,
         actual: u64,
@@ -161,6 +162,11 @@ impl ValidatedPlayerStructuralPlanCancellation {
                 expected: self.expected_player_position,
                 actual: actual_position,
             });
+        }
+        // Other owners can reserve a future structure revision without
+        // changing the current structural state (e.g. timed dismantling).
+        if !state.can_spend_structure_revisions(1) {
+            return Err(CancelPlayerStructuralPlanCommitError::RevisionExhausted);
         }
         let structures = state.structure_state_mut();
         structures.remove_element(self.element);

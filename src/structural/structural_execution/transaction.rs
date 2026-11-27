@@ -171,6 +171,21 @@ impl ValidatedStructuralLoadChange {
         if self.structural.is_some() { 1 } else { 0 }
     }
 
+    /// Commit a load change that owns no future structural revision. Recheck
+    /// headroom because another subsystem can reserve it without changing
+    /// the current structural revision.
+    pub(crate) fn commit_unreserved(
+        self,
+        state: &mut AppState,
+    ) -> Result<Option<StructuralMutationOutcome>, StructuralCommitError> {
+        if state.structures().revision() == self.expected_revision
+            && !state.can_spend_structure_revisions(self.revision_delta())
+        {
+            return Err(StructuralCommitError::RevisionExhausted);
+        }
+        self.commit(state)
+    }
+
     pub(crate) fn commit(
         self,
         state: &mut AppState,

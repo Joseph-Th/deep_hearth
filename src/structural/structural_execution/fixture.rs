@@ -42,10 +42,9 @@ fn build_plan(
         .checked_add(1)
         .ok_or(StructuralMutationError::RevisionExhausted)?;
     validate_operation_commit_state(structures, operation).map_err(|error| match error {
-        StructuralCommitError::StaleRevision {
-            expected: _expected,
-            actual: _actual,
-        } => StructuralMutationError::RevisionExhausted,
+        StructuralCommitError::RevisionExhausted | StructuralCommitError::StaleRevision { .. } => {
+            StructuralMutationError::RevisionExhausted
+        }
         StructuralCommitError::StateChanged { element } => {
             StructuralMutationError::UnknownElement { element }
         }

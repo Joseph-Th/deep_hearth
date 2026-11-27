@@ -123,7 +123,7 @@ impl ValidatedFluidSupportChange {
         );
         let structural = self
             .structural
-            .commit(state)
+            .commit_unreserved(state)
             .map_err(FluidSupportCommitError::Structure)?;
         state.fluid_state_mut().apply_support_change(
             self.store,
