@@ -102,11 +102,10 @@ pub fn catalog(registries: &Registries, state: &AppState, all: bool) -> Result<S
     for (index, local) in projection.local_containers().iter().enumerate() {
         let _ = writeln!(
             output,
-            "  {}. {} | {} g / {} g",
+            "  {}. {} | {}",
             index + 1,
             local_storage_name(registries, local.storage_definition()),
-            view::grams(local.stored()),
-            view::grams(local.capacity()),
+            view::stockpile_capacity_label(local),
         );
     }
     Ok(output)

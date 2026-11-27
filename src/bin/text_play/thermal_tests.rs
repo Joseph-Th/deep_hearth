@@ -341,6 +341,15 @@ fn unattended_stationary_output_is_announced_only_at_its_local_custody() {
         "{inventory}"
     );
     assert_eq!(snapshot(&session), before_inventory);
+    let storage = session.command("storage").unwrap().0;
+    assert!(
+        storage.contains(&format!(
+            "{}. open ground stockpile | 0 g / 10000 g | 1600 g reserved inbound | 8400 g available",
+            index + 1,
+        )),
+        "{storage}"
+    );
+    assert_eq!(snapshot(&session), before_inventory);
     let at = session.player_position().unwrap();
     let due = session
         .state
@@ -377,6 +386,16 @@ fn unattended_stationary_output_is_announced_only_at_its_local_custody() {
     );
     assert!(local_report.contains("(local storage)"), "{local_report}");
     assert_eq!(session.state.tick(), due);
+    let settled = snapshot(&session);
+    let storage = session.command("storage").unwrap().0;
+    assert!(
+        storage.contains(&format!(
+            "{}. open ground stockpile | 1600 g / 10000 g | 0 g reserved inbound | 8400 g available",
+            index + 1,
+        )),
+        "{storage}"
+    );
+    assert_eq!(snapshot(&session), settled);
     assert!(
         !remote_report.contains("Thermal batch completed:"),
         "{remote_report}"

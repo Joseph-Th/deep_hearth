@@ -10,7 +10,7 @@ use deep_hearth::logistics::{
 use deep_hearth::survival::assess_food_stack_freshness;
 use deep_hearth::{AppState, Registries};
 
-use super::{celsius, freshness_label, grams, name};
+use super::{celsius, freshness_label, grams, name, stockpile_capacity_label};
 
 /// Reveal a mixed-cohort distinction without pretending the player knows an exact assay.
 fn composition_hint(stack: &MaterialStackProjection) -> &'static str {
@@ -98,17 +98,6 @@ pub fn hand_label(
     selected: Option<PlayerActiveSelection>,
 ) -> String {
     hand_status(registries, state, selected).0
-}
-
-/// Reservations occupy capacity without contributing to current carried weight.
-fn stockpile_capacity_label(stockpile: &PlayerStockpileProjection) -> String {
-    format!(
-        "{} g / {} g | {} g reserved inbound | {} g available",
-        grams(stockpile.stored()),
-        grams(stockpile.capacity()),
-        grams(stockpile.reserved_inbound()),
-        grams(stockpile.available()),
-    )
 }
 
 pub fn inventory(registries: &Registries, state: &AppState) -> Result<String, String> {

@@ -19,9 +19,10 @@ use deep_hearth::kobolds::{
     available_nearby_kobold_tracks,
 };
 use deep_hearth::logistics::{
-    HorizontalControlInput, PlayerOverheadCoverAssessment, assess_player_overhead_cover,
-    player_body_is_grounded, project_player_climb_target, project_player_descent_approach,
-    project_player_jump_rise_bound, project_player_level_approach, project_player_standing_space,
+    HorizontalControlInput, PlayerOverheadCoverAssessment, PlayerStockpileProjection,
+    assess_player_overhead_cover, player_body_is_grounded, project_player_climb_target,
+    project_player_descent_approach, project_player_jump_rise_bound, project_player_level_approach,
+    project_player_standing_space,
 };
 use deep_hearth::spatial::ViewDirection;
 use deep_hearth::spatial::{VerticalVelocity, VoxelCoord};
@@ -113,6 +114,17 @@ pub fn grams(mass: Mass) -> String {
             .trim_end_matches('0')
             .to_owned()
     }
+}
+
+/// Reservations occupy capacity without contributing to current carried weight.
+pub(super) fn stockpile_capacity_label(stockpile: &PlayerStockpileProjection) -> String {
+    format!(
+        "{} g / {} g | {} g reserved inbound | {} g available",
+        grams(stockpile.stored()),
+        grams(stockpile.capacity()),
+        grams(stockpile.reserved_inbound()),
+        grams(stockpile.available()),
+    )
 }
 
 pub fn milliliters(volume: Volume) -> String {
