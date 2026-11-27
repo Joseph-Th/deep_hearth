@@ -612,16 +612,35 @@ fn ceramic_workshop_fires_and_cools_the_gathered_player_stack() {
     );
     assert!(catalog.contains("stone ceramic cooling bed"), "{catalog}");
     assert!(
+        catalog.contains("Fuel: up to 1000 g timber log per charge"),
+        "{catalog}"
+    );
+    assert!(
+        catalog.contains(
+            "fueled stone pit-kiln hearth | 0.000 MJ stored / 24.000 MJ capacity | extinguished"
+        ),
+        "{catalog}"
+    );
+    assert!(
+        catalog.contains(
+            "stone ceramic cooling bed | 0.000 MJ stored / 6.000 MJ capacity | heat sink"
+        ),
+        "{catalog}"
+    );
+    assert!(catalog.contains("826.85 C target"), "{catalog}");
+    assert!(
         catalog.contains("unfired") || catalog.contains("Stack"),
         "{catalog}"
     );
     let green = CommodityKey::new(MATERIAL_CLAY, FORM_GREENWARE_CROCK);
     let fired = CommodityKey::new(MATERIAL_CLAY, FORM_FIRED_CROCK);
     let firing = format!("heat 102 {} 1 1", stack_index(&session, green));
+    let error = session.command(&firing).unwrap_err();
     assert!(
-        session.command(&firing).is_err(),
-        "an empty hearth cannot fire"
+        error.contains("0.000 MJ available; batch requires 1.161864 MJ"),
+        "{error}"
     );
+    assert!(catalog.contains(&error), "{catalog}");
     assert_eq!(snapshot(&session), before);
     let fuel = format!(
         "feed-heat 1 {}",
@@ -631,6 +650,7 @@ fn ceramic_workshop_fires_and_cools_the_gathered_player_stack() {
     let firing = format!("heat 102 {} 1 1", stack_index(&session, green));
     let (catalog, _) = session.command("thermal").unwrap();
     assert!(catalog.contains(&format!("{firing} | ready")), "{catalog}");
+    assert!(catalog.contains("passive burn remaining"), "{catalog}");
 
     // A real jump on the slow boundary leaves the feet in the workshop's
     // voxel for a few control samples. Locality alone must not authorize
@@ -730,6 +750,18 @@ fn ceramic_workshop_fires_and_cools_the_gathered_player_stack() {
     assert_eq!(hot.temperature(), Temperature::from_millikelvin(1_100_000));
     session.command("wait boundary").unwrap();
     let cooling = format!("heat 104 {} 1 2", stack_index(&session, fired));
+    let before_cooling = snapshot(&session);
+    let (catalog, _) = session.command("thermal").unwrap();
+    assert!(
+        catalog.contains(&format!(
+            "Stack {}: 1600 g | 826.85 C",
+            stack_index(&session, fired)
+        )),
+        "{catalog}"
+    );
+    assert!(catalog.contains("20 C target"), "{catalog}");
+    assert!(catalog.contains(&format!("{cooling} | ready")), "{catalog}");
+    assert_eq!(snapshot(&session), before_cooling);
     session.command(&cooling).unwrap();
     let saved = snapshot(&session);
     let mut restored = Session {

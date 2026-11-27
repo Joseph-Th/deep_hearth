@@ -76,34 +76,26 @@ pub(super) fn catalog(registries: &Registries, state: &AppState) -> Result<Strin
             .expect("authored store");
         let _ = writeln!(
             out,
-            "  {}. {} | {} / {}",
+            "  {}. {} | {} stored / {} capacity | {}",
             i + 1,
             definition.name(),
             fire::energy_label(store.stored()),
-            fire::energy_label(definition.capacity())
+            fire::energy_label(definition.capacity()),
+            if definition.combustion_profile().is_some() {
+                fire::burn_runway_label(registries, store.definition(), store.stored())
+            } else {
+                "heat sink".to_owned()
+            },
         );
-        for (j, stack) in inventory.carried().stacks().iter().enumerate() {
-            if definition
-                .combustion_profile_for(stack.commodity())
-                .is_some()
-            {
-                let result = validate_combust_stack_fuel(registries, state, *id, source, stack);
-                let _ = writeln!(
-                    out,
-                    "     feed-heat {} {} | {}",
-                    i + 1,
-                    j + 1,
-                    result.map_or_else(
-                        |e| fire::fuel_blocker(registries, e),
-                        |charge| format!(
-                            "{} g, {}",
-                            view::grams(charge.consumed_mass()),
-                            fire::energy_label(charge.released_energy())
-                        )
-                    )
-                );
-            }
-        }
+        fire::append_fuel_choices(
+            registries,
+            state,
+            *id,
+            definition,
+            inventory.carried(),
+            &format!("feed-heat {}", i + 1),
+            &mut out,
+        );
     }
     if local_stores.is_empty() {
         out.push_str("  (none)\n");
@@ -140,9 +132,9 @@ pub(super) fn catalog(registries: &Registries, state: &AppState) -> Result<Strin
             .name();
         let _ = writeln!(
             out,
-            "  {}. {name} | {} mK target",
+            "  {}. {name} | {} C target",
             process.value(),
-            target.millikelvin()
+            view::celsius(target)
         );
         for (j, stack) in inventory
             .carried()
@@ -153,7 +145,13 @@ pub(super) fn catalog(registries: &Registries, state: &AppState) -> Result<Strin
                 stack.commodity() == input && (heating || stack.temperature() > target)
             })
         {
-            let _ = writeln!(out, "     Stack {}: {} g", j + 1, view::grams(stack.mass()));
+            let _ = writeln!(
+                out,
+                "     Stack {}: {} g | {} C",
+                j + 1,
+                view::grams(stack.mass()),
+                view::celsius(stack.temperature())
+            );
             describe_batch_choices(
                 registries,
                 state,

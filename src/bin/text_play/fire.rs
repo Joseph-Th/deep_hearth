@@ -5,10 +5,10 @@ use std::fmt::Write as _;
 use super::view;
 use deep_hearth::content::ENERGY_STONE_RING_CAMPFIRE;
 use deep_hearth::energy::{
-    CombustionError, EnergyStoreAssemblyError, EnergyStoreId, validate_assemble_energy_store,
-    validate_combust_stack_fuel,
+    CombustionError, EnergyStoreAssemblyError, EnergyStoreDefinition, EnergyStoreId,
+    validate_assemble_energy_store, validate_combust_stack_fuel,
 };
-use deep_hearth::logistics::project_player_inventory;
+use deep_hearth::logistics::{PlayerStockpileProjection, project_player_inventory};
 use deep_hearth::{AppState, Registries};
 
 pub fn energy_label(stored: deep_hearth::core::quantity::Energy) -> String {
@@ -123,6 +123,64 @@ pub(super) fn fuel_blocker(registries: &Registries, error: CombustionError) -> S
     }
 }
 
+/// Both fire and workshop discovery use the same exact-stack combustion admission.
+pub(super) fn append_fuel_choices(
+    registries: &Registries,
+    state: &AppState,
+    id: EnergyStoreId,
+    definition: &EnergyStoreDefinition,
+    carried: &PlayerStockpileProjection,
+    command_prefix: &str,
+    output: &mut String,
+) {
+    for profile in definition.combustion_profiles() {
+        let material = registries
+            .materials()
+            .commodity_name(profile.fuel())
+            .unwrap_or("unidentified material");
+        let _ = writeln!(
+            output,
+            "     Fuel: up to {} g {material} per charge",
+            view::grams(profile.fuel_mass()),
+        );
+        let mut matching = false;
+        for (index, stack) in carried
+            .stacks()
+            .iter()
+            .enumerate()
+            .filter(|(_, stack)| stack.commodity() == profile.fuel())
+        {
+            matching = true;
+            let stack_index = index + 1;
+            let choice = match validate_combust_stack_fuel(
+                registries,
+                state,
+                id,
+                carried.stockpile(),
+                stack,
+            ) {
+                Ok(charge) => format!(
+                    "{command_prefix} {stack_index} ({} g, {})",
+                    view::grams(charge.consumed_mass()),
+                    energy_label(charge.released_energy()),
+                ),
+                Err(error) => format!(
+                    "stack {stack_index} blocked: {}",
+                    fuel_blocker(registries, error),
+                ),
+            };
+            let _ = writeln!(
+                output,
+                "       {choice} | {} C",
+                view::celsius(stack.temperature())
+            );
+        }
+        if !matching {
+            output.push_str("       no matching carried stack\n");
+        }
+    }
+}
+
 pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, String> {
     let source = carried(state)?;
     let inventory =
@@ -177,46 +235,15 @@ pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, Stri
             energy_label(definition.capacity()),
             burn_runway_label(registries, record.definition(), record.stored()),
         );
-        for profile in definition.combustion_profiles() {
-            let material = registries
-                .materials()
-                .commodity_name(profile.fuel())
-                .unwrap_or("unidentified material");
-            // Ask the combustion owner about actual admission rather than duplicating
-            // purity, mass, attention, occupancy, and thermal-capacity rules.
-            let _ = writeln!(
-                output,
-                "     Fuel: up to {} g {material} per charge",
-                view::grams(profile.fuel_mass()),
-            );
-            let mut matching = false;
-            for (index, stack) in inventory
-                .carried()
-                .stacks()
-                .iter()
-                .enumerate()
-                .filter(|(_, stack)| stack.commodity() == profile.fuel())
-            {
-                matching = true;
-                let stack_index = index + 1;
-                let choice = match validate_combust_stack_fuel(registries, state, id, source, stack)
-                {
-                    Ok(charge) => format!(
-                        "feed-fire {count} {stack_index} ({} g, {})",
-                        view::grams(charge.consumed_mass()),
-                        energy_label(charge.released_energy()),
-                    ),
-                    Err(error) => format!(
-                        "stack {stack_index} blocked: {}",
-                        fuel_blocker(registries, error),
-                    ),
-                };
-                let _ = writeln!(output, "       {choice}");
-            }
-            if !matching {
-                output.push_str("       no matching carried stack\n");
-            }
-        }
+        append_fuel_choices(
+            registries,
+            state,
+            id,
+            definition,
+            inventory.carried(),
+            &format!("feed-fire {count}"),
+            &mut output,
+        );
     }
     if count == 0 {
         output.push_str("  (none at your current location)\n");

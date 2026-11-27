@@ -3,6 +3,7 @@
 use std::error::Error;
 
 use deep_hearth::core::time::SimulationBoundaryError;
+use deep_hearth::energy::{EnergySinkError, EnergySupplyError};
 use deep_hearth::labor::PlayerWorkStartError;
 
 use super::{fire, view};
@@ -51,6 +52,32 @@ pub(super) fn work_start_error(error: impl Error + 'static) -> String {
     while let Some(current) = cause {
         if let Some(work) = current.downcast_ref::<PlayerWorkStartError>() {
             return work_blocker(work);
+        }
+        if let Some(EnergySupplyError::InsufficientEnergy {
+            available,
+            requested,
+            ..
+        }) = current.downcast_ref::<EnergySupplyError>()
+        {
+            return format!(
+                "Energy store has {} available; batch requires {}.",
+                fire::energy_label(*available),
+                fire::energy_label(*requested),
+            );
+        }
+        if let Some(EnergySinkError::InsufficientCapacity {
+            stored,
+            requested,
+            capacity,
+            ..
+        }) = current.downcast_ref::<EnergySinkError>()
+        {
+            return format!(
+                "Heat sink would contain {} before completion; batch releases {}, exceeding capacity {}.",
+                fire::energy_label(*stored),
+                fire::energy_label(*requested),
+                fire::energy_label(*capacity),
+            );
         }
         if current.is::<SimulationBoundaryError>() {
             return "This task must start on a simulation boundary. Run 'wait boundary', then retry."
