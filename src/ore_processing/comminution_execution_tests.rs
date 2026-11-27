@@ -1646,6 +1646,13 @@ fn manual_comminution_fixture(mass: Mass) -> ManualComminutionFixture {
 }
 
 fn unadmitted_manual_comminution_fixture(mass: Mass) -> ManualComminutionFixture {
+    manual_comminution_fixture_at_temperature(mass, INPUT_TEMPERATURE)
+}
+
+fn manual_comminution_fixture_at_temperature(
+    mass: Mass,
+    temperature: Temperature,
+) -> ManualComminutionFixture {
     let registries = build_registries();
     let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, mass)
@@ -1658,7 +1665,7 @@ fn unadmitted_manual_comminution_fixture(mass: Mass) -> ManualComminutionFixture
         source,
         CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
         mass,
-        INPUT_TEMPERATURE,
+        temperature,
         mixed_ore_composition(),
     )
     .unwrap_or_else(|error| panic!("manual comminution ore fixture failed: {error}"));
@@ -1711,6 +1718,86 @@ fn resolve_manual_comminution(
         ),
     )
     .unwrap_or_else(|error| panic!("manual comminution resolution failed: {error}"))
+}
+
+#[test]
+fn manual_comminution_enforces_hand_temperature_boundary() {
+    let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    let hot = Temperature::from_millikelvin(maximum.millikelvin() + 1);
+    let mass = Mass::from_milligrams(100_000);
+    for temperature in [maximum, hot] {
+        let mut fixture = manual_comminution_fixture_at_temperature(mass, temperature);
+        let hammer = assemble_stone_cobbing_hammer(&mut fixture);
+        admit_manual_comminution_fixture(&mut fixture, &[hammer]);
+        let before = fixture.state.clone();
+        let selection = [MaterialLotSelection::new(fixture.lot, mass)];
+        let request =
+            ManualComminutionRequest::new(PROCESS_HAND_BREAK_ORE, fixture.source, &selection);
+        for request in [request, request.with_equipment(hammer)] {
+            let result =
+                resolve_manual_comminution_process(&fixture.registries, &fixture.state, request);
+            if temperature == maximum {
+                assert!(result.is_ok(), "{result:?}");
+            } else {
+                assert_eq!(
+                    result.err(),
+                    Some(ManualComminutionResolutionError::Physics(
+                        ManualOrePhysicsError::InputTooHot {
+                            commodity: CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+                            temperature,
+                            maximum,
+                        },
+                    ))
+                );
+            }
+        }
+        assert_eq!(fixture.state, before);
+        if temperature == maximum {
+            let resolved = resolve_manual_comminution(&fixture, mass);
+            let job = validate_start_manual_comminution(
+                &fixture.registries,
+                &fixture.state,
+                &resolved,
+                fixture.source,
+                fixture.destination,
+            )
+            .unwrap()
+            .commit(&mut fixture.state)
+            .unwrap();
+            assert_eq!(
+                validate_loaded_state(&fixture.registries, &fixture.state),
+                Ok(())
+            );
+            let mut saved =
+                serde_json::to_value(SaveEnvelope::new(&fixture.registries, &fixture.state))
+                    .unwrap();
+            let record =
+                &mut saved["state"]["systems"]["production"]["jobs"][job.value().to_string()];
+            record["resources"]["consumed_inputs"][0]["profile"]["temperature"] =
+                serde_json::json!(hot.millikelvin());
+            for stream in record["output_streams"].as_array_mut().unwrap() {
+                for output in stream["outputs"].as_array_mut().unwrap() {
+                    output["temperature"] = serde_json::json!(hot.millikelvin());
+                }
+            }
+            let loaded: LoadedSaveEnvelope = serde_json::from_value(saved).unwrap();
+            assert_eq!(
+                loaded.into_state(&fixture.registries),
+                Err(LoadError::InvalidState(
+                    StateValidationError::ComminutionJob(ComminutionJobValidationError::Manual {
+                        job,
+                        error: ManualOreJobValidationError::Physics(
+                            ManualOrePhysicsError::InputTooHot {
+                                commodity: CommodityKey::new(MATERIAL_COPPER, FORM_ORE),
+                                temperature: hot,
+                                maximum,
+                            }
+                        ),
+                    }),
+                ))
+            );
+        }
+    }
 }
 
 #[test]

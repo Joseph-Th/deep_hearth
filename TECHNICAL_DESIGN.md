@@ -1832,7 +1832,9 @@ feed, replacement material, stored energy, labor/survival, support, output capac
 
 `project_manual_ore_duration` is the equipment-free direct-labor counterpart. Optional tool/workstation support
 uses the normal equipment boundary and changes attention/wear only; transformation/recovery physics remain with
-the manual ore definition.
+the manual ore definition. Manual comminution and sorting, including tool-assisted work, reject exact selected
+input cohorts above the shared hand-safe temperature limit. Admission and trusted-load replay use the same
+inventory trace predicate as manual crafting; powered ore processing retains its separate machine-owned physics.
 
 Implemented transformation families:
 

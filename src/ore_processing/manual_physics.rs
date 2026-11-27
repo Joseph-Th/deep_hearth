@@ -3,9 +3,11 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::core::quantity::Mass;
+use crate::core::quantity::{Mass, Temperature};
 use crate::core::throughput::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
 use crate::core::time::{PhysicalTickDuration, TickSpan};
+use crate::inventory::{ConsumedMaterialTrace, first_unsafe_hand_input};
+use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE};
 
 use super::ManualOreProcessProfile;
 
@@ -23,7 +25,15 @@ pub(super) use job_validation::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ManualOrePhysicsError {
     ZeroBatchMass,
-    BatchMassExceeded { selected: Mass, maximum: Mass },
+    BatchMassExceeded {
+        selected: Mass,
+        maximum: Mass,
+    },
+    InputTooHot {
+        commodity: CommodityKey,
+        temperature: Temperature,
+        maximum: Temperature,
+    },
     ThroughputDuration(MassFlowDurationError),
 }
 
@@ -42,6 +52,16 @@ impl Display for ManualOrePhysicsError {
             Self::ThroughputDuration(error) => {
                 write!(formatter, "manual ore-processing duration failed: {error}")
             }
+            Self::InputTooHot {
+                commodity,
+                temperature,
+                maximum,
+            } => write!(
+                formatter,
+                "manual ore-processing input {commodity:?} is too hot for hand contact ({} mK; maximum {} mK)",
+                temperature.millikelvin(),
+                maximum.millikelvin(),
+            ),
         }
     }
 }
@@ -50,9 +70,23 @@ impl Error for ManualOrePhysicsError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::ThroughputDuration(error) => Some(error),
-            Self::ZeroBatchMass | Self::BatchMassExceeded { .. } => None,
+            Self::ZeroBatchMass | Self::BatchMassExceeded { .. } | Self::InputTooHot { .. } => None,
         }
     }
+}
+
+/// Manual tools improve throughput but do not provide authored thermal protection.
+pub(super) fn validate_manual_ore_handling(
+    traces: &[ConsumedMaterialTrace],
+) -> Result<(), ManualOrePhysicsError> {
+    if let Some(trace) = first_unsafe_hand_input(traces) {
+        return Err(ManualOrePhysicsError::InputTooHot {
+            commodity: trace.profile().commodity(),
+            temperature: trace.profile().temperature(),
+            maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+        });
+    }
+    Ok(())
 }
 
 /// Rejects a selected mass outside the authored manual processing envelope.

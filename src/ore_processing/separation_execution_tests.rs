@@ -936,6 +936,15 @@ fn unadmitted_manual_fixture_with_host(
     mass: Mass,
     composition: MaterialComposition,
 ) -> ManualFixture {
+    manual_separation_fixture_at_temperature(host, mass, composition, TEMPERATURE)
+}
+
+fn manual_separation_fixture_at_temperature(
+    host: crate::material::MaterialId,
+    mass: Mass,
+    composition: MaterialComposition,
+    temperature: Temperature,
+) -> ManualFixture {
     let registries = build_registries();
     let mut state = AppState::new();
     let source = add_solid_stockpile_for_test(&mut state, mass)
@@ -947,7 +956,7 @@ fn unadmitted_manual_fixture_with_host(
     let input = MaterialLotSpec::with_composition_and_particle_size(
         CommodityKey::new(host, FORM_CRUSHED),
         mass,
-        TEMPERATURE,
+        temperature,
         composition,
         hand_sortable_particle_size(),
     )
@@ -983,6 +992,100 @@ fn admit_manual_separation_fixture(fixture: &mut ManualFixture, equipment: &[Equ
         .unwrap_or_else(|error| {
             panic!("manual separation player admission commit failed: {error}")
         });
+}
+
+#[test]
+fn manual_separation_enforces_hand_temperature_boundary() {
+    let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    let hot = Temperature::from_millikelvin(maximum.millikelvin() + 1);
+    let mass = Mass::from_milligrams(100_000);
+    for temperature in [maximum, hot] {
+        let mut fixture = manual_separation_fixture_at_temperature(
+            MATERIAL_COPPER,
+            mass,
+            copper_stone_composition(400_000),
+            temperature,
+        );
+        let bench = assemble_timber_dressing_bench(&mut fixture);
+        admit_manual_separation_fixture(&mut fixture, &[bench]);
+        let before = fixture.state.clone();
+        let selection = [MaterialLotSelection::new(fixture.lot, mass)];
+        let request = ManualConstituentSeparationRequest::new(
+            PROCESS_HAND_SORT_NATIVE_COPPER,
+            fixture.source,
+            &selection,
+        );
+        for request in [request, request.with_equipment(bench)] {
+            let result = resolve_manual_constituent_separation_process(
+                &fixture.registries,
+                &fixture.state,
+                request,
+            );
+            if temperature == maximum {
+                assert!(result.is_ok(), "{result:?}");
+            } else {
+                assert_eq!(
+                    result.err(),
+                    Some(ManualConstituentSeparationResolutionError::Physics(
+                        ManualOrePhysicsError::InputTooHot {
+                            commodity: CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+                            temperature,
+                            maximum,
+                        },
+                    ))
+                );
+            }
+        }
+        assert_eq!(fixture.state, before);
+        if temperature == maximum {
+            let resolved = resolve_manual(&fixture, mass);
+            let job = validate_start_manual_constituent_separation(
+                &fixture.registries,
+                &fixture.state,
+                &resolved,
+                fixture.source,
+                fixture.target,
+                fixture.residue,
+            )
+            .unwrap()
+            .commit(&mut fixture.state)
+            .unwrap();
+            assert_eq!(
+                validate_loaded_state(&fixture.registries, &fixture.state),
+                Ok(())
+            );
+            let mut saved =
+                serde_json::to_value(SaveEnvelope::new(&fixture.registries, &fixture.state))
+                    .unwrap();
+            let record =
+                &mut saved["state"]["systems"]["production"]["jobs"][job.value().to_string()];
+            record["resources"]["consumed_inputs"][0]["profile"]["temperature"] =
+                serde_json::json!(hot.millikelvin());
+            for stream in record["output_streams"].as_array_mut().unwrap() {
+                for output in stream["outputs"].as_array_mut().unwrap() {
+                    output["temperature"] = serde_json::json!(hot.millikelvin());
+                }
+            }
+            let loaded: LoadedSaveEnvelope = serde_json::from_value(saved).unwrap();
+            assert_eq!(
+                loaded.into_state(&fixture.registries),
+                Err(LoadError::InvalidState(
+                    StateValidationError::ConstituentSeparationJob(
+                        ConstituentSeparationJobValidationError::Manual {
+                            job,
+                            error: crate::ore_processing::ManualOreJobValidationError::Physics(
+                                ManualOrePhysicsError::InputTooHot {
+                                    commodity: CommodityKey::new(MATERIAL_COPPER, FORM_CRUSHED),
+                                    temperature: hot,
+                                    maximum,
+                                }
+                            ),
+                        }
+                    ),
+                ))
+            );
+        }
+    }
 }
 
 #[test]

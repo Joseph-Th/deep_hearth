@@ -15,7 +15,10 @@ use crate::ore_processing::definitions::ManualOreProcessProfile;
 use crate::production::ProductionJobRecord;
 use crate::registry::Registries;
 
-use super::{ManualOrePhysicsError, resolve_manual_ore_duration, validate_manual_ore_batch};
+use super::{
+    ManualOrePhysicsError, resolve_manual_ore_duration, validate_manual_ore_batch,
+    validate_manual_ore_handling,
+};
 
 /// Persistent-state failure in the common direct-labor ore-processing envelope.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -116,7 +119,7 @@ impl Error for ManualOreJobValidationError {
     }
 }
 
-/// Validates common resources and batch size before process-specific output replay.
+/// Validates common resources, contact safety and batch size before process-specific output replay.
 pub(in crate::ore_processing) fn validate_manual_ore_job_admission(
     registries: &Registries,
     job: &ProductionJobRecord,
@@ -125,6 +128,8 @@ pub(in crate::ore_processing) fn validate_manual_ore_job_admission(
     if job.consumed_energy().is_some() || job.released_energy().is_some() {
         return Err(ManualOreJobValidationError::UnexpectedEnergy);
     }
+    validate_manual_ore_handling(job.consumed_inputs())
+        .map_err(ManualOreJobValidationError::Physics)?;
     validate_manual_ore_batch(profile, job.consumed_mass())
         .map_err(ManualOreJobValidationError::Physics)?;
     let Some(provider) = job.equipment_provider() else {

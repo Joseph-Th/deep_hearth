@@ -30,6 +30,7 @@ use super::ComminutionBatchError;
 use super::outputs::resolve_manual_comminution_outputs;
 use crate::ore_processing::manual_physics::{
     project_manual_ore_duration, resolve_manual_ore_equipment, validate_manual_ore_batch,
+    validate_manual_ore_handling,
 };
 use crate::ore_processing::{ManualOreEquipmentError, ManualOrePhysicsError};
 
@@ -172,6 +173,8 @@ pub fn resolve_manual_comminution_process(
         .ok_or(ManualComminutionResolutionError::UnknownProcess { process })?;
     let inputs = validate_process_inputs(state, process, source, selections)
         .map_err(ManualComminutionResolutionError::Input)?;
+    validate_manual_ore_handling(inputs.consumed_inputs())
+        .map_err(ManualComminutionResolutionError::Physics)?;
     let selected_mass = inputs.input_mass();
     let outputs = resolve_manual_comminution_outputs(definition, inputs.consumed_inputs())
         .map_err(ManualComminutionResolutionError::Batch)?;

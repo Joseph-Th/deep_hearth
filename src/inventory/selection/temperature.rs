@@ -1,9 +1,9 @@
 //! Temperature-limited exact selection over the canonical inventory lot allocator.
 
 use crate::core::quantity::Temperature;
-use crate::material::{CommodityKey, MaterialInputSpec};
+use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE, MaterialInputSpec};
 
-use super::super::state::{InventoryState, StockpileId};
+use super::super::state::{ConsumedMaterialTrace, InventoryState, StockpileId};
 use super::ConsumptionSelection;
 use super::implicit::{
     ConsumptionSelectionError, validate_consumption_selection,
@@ -18,6 +18,16 @@ pub(crate) enum TemperatureLimitedSelectionError {
         temperature: Temperature,
         maximum: Temperature,
     },
+}
+
+/// Contact safety for exact selected matter, including persisted consumption traces.
+/// Powered processes may handle hotter feedstock without direct player contact.
+pub(crate) fn first_unsafe_hand_input(
+    traces: &[ConsumedMaterialTrace],
+) -> Option<&ConsumedMaterialTrace> {
+    traces
+        .iter()
+        .find(|trace| trace.profile().temperature() > MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE)
 }
 
 /// Keep normal identity-ordered selection if safe; otherwise search the same

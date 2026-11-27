@@ -25,7 +25,8 @@ pub(crate) use reservation::{
     validate_consumption_reservation_from_selection,
 };
 pub(crate) use temperature::{
-    TemperatureLimitedSelectionError, validate_temperature_limited_consumption_selection,
+    TemperatureLimitedSelectionError, first_unsafe_hand_input,
+    validate_temperature_limited_consumption_selection,
 };
 
 /// Explicit runtime selection of conserved matter from one homogeneous lot.

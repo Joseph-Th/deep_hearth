@@ -68,8 +68,9 @@ pub(crate) use reserved_ingress::{
 pub(crate) use selection::{
     ConsumptionReservation, ConsumptionSelection, ConsumptionSelectionError, ReservationError,
     TemperatureLimitedSelectionError, apply_prechecked_consumption_reservation,
-    validate_consumption_reservation_from_selection, validate_consumption_selection,
-    validate_explicit_consumption_selection, validate_temperature_limited_consumption_selection,
+    first_unsafe_hand_input, validate_consumption_reservation_from_selection,
+    validate_consumption_selection, validate_explicit_consumption_selection,
+    validate_temperature_limited_consumption_selection,
 };
 pub use selection::{ExplicitConsumptionSelectionError, MaterialLotSelection};
 pub use stack_projection::{

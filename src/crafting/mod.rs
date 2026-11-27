@@ -2,7 +2,7 @@
 
 use crate::core::state::AppState;
 use crate::equipment::{EquipmentId, resolve_equipment_provider};
-use crate::inventory::{MaterialLotSelection, StockpileId};
+use crate::inventory::{MaterialLotSelection, StockpileId, first_unsafe_hand_input};
 use crate::labor::{PlayerWork, ValidatedPlayerWorkStart, validate_player_work_start};
 use crate::logistics::{validate_player_equipment_access, validate_player_stockpile_access};
 use crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
@@ -215,7 +215,7 @@ pub fn resolve_manual_craft(
     .map_err(|error| ManualCraftError::from_batch_error(error, definition))?;
     // Manual crafting handles its input directly even when the shaping work uses equipment.
     // Powered enclosed processes have a separate admission path for hot feedstock.
-    if let Some(trace) = batch::first_unsafe_hand_input(inputs.consumed_inputs()) {
+    if let Some(trace) = first_unsafe_hand_input(inputs.consumed_inputs()) {
         return Err(ManualCraftError::InputTooHot {
             commodity: trace.profile().commodity(),
             temperature: trace.profile().temperature(),

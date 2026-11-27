@@ -30,6 +30,7 @@ use super::{ConstituentSeparationBatchError, resolve_separation_outputs};
 use crate::ore_processing::ManualConstituentSeparationProcessDefinition;
 use crate::ore_processing::manual_physics::{
     resolve_manual_ore_duration, resolve_manual_ore_equipment, validate_manual_ore_batch,
+    validate_manual_ore_handling,
 };
 use crate::ore_processing::{ManualOreEquipmentError, ManualOrePhysicsError};
 
@@ -185,6 +186,8 @@ pub fn resolve_manual_constituent_separation_process(
         .ok_or(ManualConstituentSeparationResolutionError::UnknownProcess { process })?;
     let inputs = validate_process_inputs(state, process, source, selections)
         .map_err(ManualConstituentSeparationResolutionError::Input)?;
+    validate_manual_ore_handling(inputs.consumed_inputs())
+        .map_err(ManualConstituentSeparationResolutionError::Physics)?;
     let selected_mass = inputs.input_mass();
     validate_manual_ore_batch(definition.operating_profile(), selected_mass)
         .map_err(ManualConstituentSeparationResolutionError::Physics)?;
