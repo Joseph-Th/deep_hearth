@@ -220,6 +220,54 @@ fn active_manual_craft_save_requires_enough_metabolic_energy_to_finish() {
 }
 
 #[test]
+fn trusted_load_requires_balanced_player_work_lifecycle_revisions() {
+    let (registries, mut state, source, lot, destination) = make_fixture();
+    let idle = state.clone();
+    let job = validate_start_manual_craft(
+        &registries,
+        &state,
+        ManualCraftStartRequest::single(
+            PROCESS_KNAP_STONE_TOOL,
+            source,
+            MaterialLotSelection::new(lot, Mass::from_milligrams(1_000_000)),
+            destination,
+        ),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let active = state.clone();
+    let due = state.production().get_job(job).unwrap().completes_at();
+    while state.tick() < due {
+        let _ = advance_tick(&registries, &mut state).unwrap();
+    }
+    assert_eq!(idle.player_work().revision(), 0);
+    assert_eq!(active.player_work().revision(), 1);
+    assert_eq!(state.player_work().revision(), 2);
+    for (snapshot, forged_revision) in [(&idle, 1), (&active, 0), (&active, 2), (&state, 3)] {
+        let mut saved = serde_json::to_value(SaveEnvelope::new(&registries, snapshot)).unwrap();
+        assert_eq!(
+            serde_json::from_value::<LoadedSaveEnvelope>(saved.clone())
+                .unwrap()
+                .into_state(&registries)
+                .unwrap(),
+            *snapshot
+        );
+        saved["state"]["systems"]["player_work"]["revision"] = serde_json::json!(forged_revision);
+        assert_eq!(
+            serde_json::from_value::<LoadedSaveEnvelope>(saved)
+                .unwrap()
+                .into_state(&registries)
+                .err(),
+            Some(LoadError::InvalidState(StateValidationError::PlayerWork(
+                PlayerWorkValidationError::LifecycleRevisionMismatch
+            ))),
+            "impossible work revision {forged_revision}"
+        );
+    }
+}
+
+#[test]
 fn active_manual_craft_save_requires_player_work_revision_for_later_release() {
     let (registries, mut state, source, lot, destination) = make_fixture();
     validate_start_manual_craft(

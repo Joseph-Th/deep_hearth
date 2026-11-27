@@ -530,6 +530,54 @@ fn chopping_requires_a_selected_tool_and_prechecked_admission_cannot_outlive_too
 }
 
 #[test]
+fn trusted_load_rejects_active_chopping_with_stationary_adze() {
+    use crate::core::state::StateValidationError;
+    use crate::labor::PlayerWorkValidationError;
+    use crate::logistics::validate_drop_equipment;
+    use crate::persistence::LoadError;
+
+    let (registries, mut state, root) = equipped_young_tree();
+    let mut stationary = state.clone();
+    let work = validate_start_player_tree_felling(&registries, &state, root)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_drop_equipment(&registries, &stationary, work.equipment())
+        .unwrap()
+        .commit(&mut stationary)
+        .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &stationary), Ok(()));
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(
+        stationary.logistics().equipment_position(work.equipment()),
+        stationary
+            .logistics()
+            .player()
+            .map(|player| player.position())
+    );
+    assert!(
+        !stationary
+            .logistics()
+            .is_equipment_carried(work.equipment())
+    );
+    // The other custody snapshot is independently valid. Only its combination
+    // with the already-admitted chopping interval is impossible.
+    let stationary = serde_json::to_value(SaveEnvelope::new(&registries, &stationary)).unwrap();
+    let mut saved = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    for owner in ["logistics", "inventory"] {
+        saved["state"]["systems"][owner] = stationary["state"]["systems"][owner].clone();
+    }
+    let decoded = serde_json::from_value::<LoadedSaveEnvelope>(saved).unwrap();
+    assert_eq!(
+        decoded.into_state(&registries).err(),
+        Some(LoadError::InvalidState(StateValidationError::PlayerWork(
+            PlayerWorkValidationError::TreeFellingEquipmentInvalid
+        ))),
+        "a local but stationary adze cannot be in held chopping work"
+    );
+}
+
+#[test]
 fn trusted_load_rejects_forged_chopping_schedule_and_equipment() {
     use crate::core::state::StateValidationError;
     use crate::labor::PlayerWorkValidationError;

@@ -32,6 +32,7 @@ impl Error for PlayerWorkValidationError {
             | Self::TreeFellingDurationMismatch
             | Self::PlayerAirborne
             | Self::PlayerMoving
+            | Self::LifecycleRevisionMismatch
             | Self::RevisionExhausted
             | Self::SurvivalRevisionExhausted
             | Self::SurfaceGatheringMethodMissing

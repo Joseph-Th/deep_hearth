@@ -22,6 +22,9 @@ impl Display for PlayerWorkValidationError {
             Self::PlayerMoving => formatter.write_str(
                 "active player work requires the generated-world body to remain motionless",
             ),
+            Self::LifecycleRevisionMismatch => formatter.write_str(
+                "player-work revision disagrees with the presence of an active attention hold",
+            ),
             Self::RevisionExhausted => formatter.write_str(
                 "active player work cannot reserve the revision required to release attention",
             ),

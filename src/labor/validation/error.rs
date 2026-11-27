@@ -26,6 +26,7 @@ pub enum PlayerWorkValidationError {
     WorkWithoutPlayer,
     PlayerAirborne,
     PlayerMoving,
+    LifecycleRevisionMismatch,
     RevisionExhausted,
     SurvivalRevisionExhausted,
     SurfaceGatheringMethodMissing,

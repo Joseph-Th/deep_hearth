@@ -8,7 +8,7 @@ use crate::labor::{
     PlayerWork, PlayerWorkStartError, TreeFellingWork, ValidatedPlayerWorkStart,
     validate_player_work_start_control_rate,
 };
-use crate::logistics::{PlayerActiveSelection, validate_player_equipment_access};
+use crate::logistics::PlayerActiveSelection;
 use crate::material::{CommodityKey, MaterialComposition};
 use crate::player::{PlayerActionGuard, PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
@@ -366,9 +366,9 @@ pub fn validate_start_player_tree_felling(
         Some(PlayerActiveSelection::Equipment(equipment)) => equipment,
         _ => return Err(TreeFellingStartError::NoActiveChoppingTool),
     };
-    validate_player_equipment_access(state, equipment)
-        .map_err(|_| TreeFellingStartError::ChoppingToolUnavailable)?;
-    if crate::equipment::equipment_occupancy(state, equipment).is_some() {
+    if !state.logistics().is_equipment_carried(equipment)
+        || crate::equipment::equipment_occupancy(state, equipment).is_some()
+    {
         return Err(TreeFellingStartError::ChoppingToolUnavailable);
     }
     let record = state
@@ -463,9 +463,10 @@ fn validate_fell_tree_at(
     if state.player_work().active() != expected_work.map(|work| PlayerWork::TreeFelling { work }) {
         return Err(TreeFellingError::PlayerBusy);
     }
-    if let Some(work) = expected_work {
-        validate_player_equipment_access(state, work.equipment())
-            .map_err(|_| TreeFellingError::PlayerBusy)?;
+    if let Some(work) = expected_work
+        && !state.logistics().is_equipment_carried(work.equipment())
+    {
+        return Err(TreeFellingError::PlayerBusy);
     }
     let position = player.position();
     if !position.is_face_adjacent_to(root) || position.y() != root.y() {

@@ -95,6 +95,11 @@ pub(crate) fn validate_loaded_player_work(
     state: &AppState,
     work_state: &PlayerWorkState,
 ) -> Result<(), PlayerWorkValidationError> {
+    // Each durable attention interval starts and releases exactly once.
+    // An idle revision is even; an active hold is necessarily odd.
+    if (work_state.revision() % 2 == 1) != work_state.active().is_some() {
+        return Err(PlayerWorkValidationError::LifecycleRevisionMismatch);
+    }
     let active_jobs = collect_active_player_jobs(registries, state);
     if active_jobs.has_multiple() {
         return Err(PlayerWorkValidationError::MultiplePlayerJobs);
