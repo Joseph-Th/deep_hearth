@@ -9,6 +9,7 @@ use crate::survival::{FoodCategory, NUTRITION_PARTS_PER_MILLION};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SurvivalValidationError {
+    InitializationRevisionMismatch,
     EnergyExceedsMaximum,
     HydrationExceedsMaximum,
     VitalityExceedsMaximum,
@@ -41,6 +42,9 @@ pub enum SurvivalValidationError {
 impl Display for SurvivalValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::InitializationRevisionMismatch => {
+                formatter.write_str("survival revision contradicts player initialization")
+            }
             Self::EnergyExceedsMaximum => {
                 formatter.write_str("player metabolic energy exceeds authored maximum")
             }

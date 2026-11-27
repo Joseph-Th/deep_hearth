@@ -138,6 +138,54 @@ fn trusted_intake_history_requires_reachable_meal_and_drink_admissions() {
 }
 
 #[test]
+fn load_requires_survival_revision_to_record_player_initialization() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let empty = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut forged_empty = empty.clone();
+    forged_empty["state"]["systems"]["survival"]["revision"] = serde_json::json!(1);
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(forged_empty)
+            .unwrap()
+            .into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Survival(
+            SurvivalValidationError::InitializationRevisionMismatch
+        )))
+    );
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(empty)
+            .unwrap()
+            .into_state(&registries),
+        Ok(state.clone())
+    );
+
+    crate::player::validate_admit_player(
+        &registries,
+        &state,
+        crate::spatial::VoxelCoord::new(0, 0, 0),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let mut initialized = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(initialized.clone())
+            .unwrap()
+            .into_state(&registries),
+        Ok(state)
+    );
+    initialized["state"]["systems"]["survival"]["revision"] = serde_json::json!(0);
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(initialized)
+            .unwrap()
+            .into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Survival(
+            SurvivalValidationError::InitializationRevisionMismatch
+        )))
+    );
+}
+
+#[test]
 fn load_rejects_primary_player_reserves_above_their_authoritative_maxima() {
     let registries = build_registries();
     let mut state = AppState::new();

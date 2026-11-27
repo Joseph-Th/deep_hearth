@@ -128,6 +128,9 @@ pub(crate) fn validate_loaded_survival(
     state: &SurvivalState,
     current: SimulationTick,
 ) -> Result<(), SurvivalValidationError> {
+    if (state.revision() == 0) != state.player().is_none() {
+        return Err(SurvivalValidationError::InitializationRevisionMismatch);
+    }
     let Some(player) = state.player() else {
         if state.consumed_matter().next().is_some() || state.consumed_fluids().next().is_some() {
             return Err(SurvivalValidationError::ConsumedMatterWithoutPlayer);
