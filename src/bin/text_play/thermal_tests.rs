@@ -365,21 +365,43 @@ fn unattended_stationary_output_is_announced_only_at_its_local_custody() {
             .unwrap(),
         seed: None,
     };
+    let local_status = session.command("status").unwrap().0;
+    assert!(
+        local_status.contains("Local production: fire dry clay greenware in a fueled kiln"),
+        "{local_status}"
+    );
+    assert!(
+        local_status.contains("scheduled completion in"),
+        "{local_status}"
+    );
+    assert_eq!(remote.command("status").unwrap().0, local_status);
+    assert_eq!(snapshot(&session), before_inventory);
     remote.command("trek w 1 steady").unwrap();
     assert_ne!(remote.player_position().unwrap(), at);
     assert!(remote.state.tick() < due);
-    let wait_for_output = |session: &mut Session| {
+    let remote_before = snapshot(&remote);
+    assert!(
+        !remote
+            .command("status")
+            .unwrap()
+            .0
+            .contains("Local production:")
+    );
+    assert!(remote.command("wait finish").is_err());
+    assert!(remote.command("wait work").is_err());
+    assert_eq!(snapshot(&remote), remote_before);
+    let wait_for_output = |session: &mut Session, command: &str| {
         let mut output = String::new();
         for _ in 0..200 {
             if session.state.production().get_job(job).is_none() {
                 return output;
             }
-            output.push_str(&session.command("wait 7200").unwrap().0);
+            output.push_str(&session.command(command).unwrap().0);
         }
         panic!("unattended job did not finish");
     };
-    let local_report = wait_for_output(&mut session);
-    let remote_report = wait_for_output(&mut remote);
+    let local_report = wait_for_output(&mut session, "wait work");
+    let remote_report = wait_for_output(&mut remote, "wait 7200");
     assert!(
         local_report.contains("Thermal batch completed:"),
         "{local_report}"
@@ -710,6 +732,14 @@ fn ceramic_workshop_fires_and_cools_the_gathered_player_stack() {
         "{inventory}"
     );
     assert_eq!(snapshot(&session), before_inventory);
+    assert!(
+        session
+            .command("status")
+            .unwrap()
+            .0
+            .contains("Local production: fire dry clay greenware in a fueled kiln")
+    );
+    assert_eq!(snapshot(&session), before_inventory);
     let finish = |session: &mut Session| {
         let due = session
             .state
@@ -720,7 +750,7 @@ fn ceramic_workshop_fires_and_cools_the_gathered_player_stack() {
             .completes_at();
         let mut transcript = String::new();
         for _ in 0..200 {
-            let (report, _) = session.command("wait 7200").unwrap();
+            let (report, _) = session.command("wait finish").unwrap();
             transcript.push_str(&report);
             if session.state.production().jobs().next().is_none() {
                 assert_eq!(session.state.tick(), due, "{report}");

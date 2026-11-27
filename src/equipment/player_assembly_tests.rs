@@ -129,7 +129,7 @@ fn player_equipment_assembly_catalog_exposes_actual_selected_material_cooling_bl
         .unwrap();
     assert_eq!(
         option.availability(),
-        PlayerEquipmentAssemblyAvailability::MaterialTooHot {
+        &PlayerEquipmentAssemblyAvailability::MaterialTooHot {
             commodity: hot_stone,
             temperature: hot_temperature,
             maximum: Temperature::from_millikelvin(353_150),

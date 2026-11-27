@@ -224,6 +224,7 @@ pub fn status(registries: &Registries, state: &AppState) -> String {
     } else if state.logistics().has_pending_direct_action() {
         output.push_str("Queued interaction: 'wait finish' admits this action at the next simulation boundary and continues through scheduled work unless interrupted; 'wait work' stops at admission.\n");
     }
+    output.push_str(&activity::local_production_report(registries, state));
     output
 }
 

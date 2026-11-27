@@ -4,8 +4,8 @@ use std::fmt::Write as _;
 
 use super::view;
 use deep_hearth::equipment::{
-    PlayerEquipmentAssemblyAvailability, player_equipment_assembly_options,
-    validate_assemble_player_equipment_option, validate_player_disassemble_equipment,
+    EquipmentDefinitionId, PlayerEquipmentAssemblyAvailability, player_equipment_assembly_options,
+    validate_assemble_equipment, validate_player_disassemble_equipment,
 };
 use deep_hearth::logistics::{
     PlayerActiveSelection, project_player_inventory, validate_pickup_equipment,
@@ -49,7 +49,7 @@ pub fn catalog(
     let mut output = String::from("Assembly (assemble DEFINITION_ID):\n");
     let mut count = 0;
     for option in &options {
-        if !option.is_ready() && !show_all {
+        if !option.has_usable_materials() && !show_all {
             continue;
         }
         count += 1;
@@ -61,13 +61,9 @@ pub fn catalog(
             view::grams(option.embodied_mass())
         );
         match option.availability() {
-            PlayerEquipmentAssemblyAvailability::Ready => {
-                match validate_assemble_player_equipment_option(registries, state, option) {
-                    Ok(_) => output.push_str("ready"),
-                    Err(error) => {
-                        let _ = write!(output, "blocked: {error}");
-                    }
-                }
+            PlayerEquipmentAssemblyAvailability::Ready => output.push_str("ready"),
+            PlayerEquipmentAssemblyAvailability::Blocked(error) => {
+                let _ = write!(output, "blocked: {error}");
             }
             PlayerEquipmentAssemblyAvailability::MissingMaterial {
                 commodity,
@@ -76,14 +72,14 @@ pub fn catalog(
             } => {
                 let name = registries
                     .materials()
-                    .commodity_name(commodity)
+                    .commodity_name(*commodity)
                     .unwrap_or("unidentified material");
                 let _ = write!(
                     output,
                     "needs {} g {} (have {} g)",
-                    view::grams(required),
+                    view::grams(*required),
                     name,
-                    view::grams(available)
+                    view::grams(*available)
                 );
             }
             PlayerEquipmentAssemblyAvailability::MaterialTooHot {
@@ -93,14 +89,14 @@ pub fn catalog(
             } => {
                 let name = registries
                     .materials()
-                    .commodity_name(commodity)
+                    .commodity_name(*commodity)
                     .unwrap_or("unidentified material");
                 let _ = write!(
                     output,
                     "{} too hot: {} C, maximum {} C",
                     name,
-                    view::celsius(temperature),
-                    view::celsius(maximum)
+                    view::celsius(*temperature),
+                    view::celsius(*maximum)
                 );
             }
         }
@@ -165,13 +161,13 @@ pub fn assemble(
     state: &mut AppState,
     index: usize,
 ) -> Result<String, String> {
-    let candidate = player_equipment_assembly_options(registries, state, carried(state)?)
-        .map_err(|error| error.to_string())?
-        .into_iter()
-        .find(|option| option.definition().value() as usize == index)
-        .ok_or("equipment definition is not in the assembly catalog".to_owned())?;
-    let name = candidate.name().to_owned();
-    let id = validate_assemble_player_equipment_option(registries, state, &candidate)
+    let definition = u32::try_from(index)
+        .ok()
+        .filter(|id| *id != 0)
+        .map(EquipmentDefinitionId::new)
+        .ok_or("equipment definition is not in the assembly catalog")?;
+    let name = tool_name(registries, definition);
+    let id = validate_assemble_equipment(registries, state, definition, carried(state)?)
         .map_err(|error| error.to_string())?
         .commit(state)
         .map_err(|error| error.to_string())?;

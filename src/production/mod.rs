@@ -1,6 +1,7 @@
 //! Owns timed material-processing definitions, resolution, durable jobs, and canonical execution.
 
 mod definitions;
+mod player_view;
 mod production_execution;
 mod resolution;
 mod resource_contract;
@@ -10,6 +11,7 @@ mod state;
 mod test_support;
 
 pub use definitions::{ProcessDefinition, ProcessId, ProductionRegistry};
+pub use player_view::{PlayerProductionJobProjection, project_player_local_production_jobs};
 pub use production_execution::{
     ProcessCompletion, ProcessOutputLanding, ProcessOutputRoute, ProcessParcelLanding,
     ProductionAvailabilityChange, StartPlayerProcessError, StartProcessCommitError,

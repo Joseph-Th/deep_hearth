@@ -1348,6 +1348,13 @@ fn suspended_craft_after_respawn(
 #[test]
 fn resumed_manual_craft_interrupts_wait_on_the_resume_boundary() {
     let (mut session, job) = suspended_craft_after_respawn(3);
+    let suspended = snapshot(&session);
+    let status = session.command("status").unwrap().0;
+    assert!(status.contains("Local production:"), "{status}");
+    assert!(status.contains("suspended awaiting recovery"), "{status}");
+    assert!(!status.contains("scheduled completion in"), "{status}");
+    assert!(session.command("wait finish").is_err());
+    assert_eq!(snapshot(&session), suspended);
     let before = session.state.tick();
     let (report, _) = session.command("wait 7200").unwrap();
     assert!(report.contains("Work resumed:"), "{report}");
@@ -1356,6 +1363,9 @@ fn resumed_manual_craft_interrupts_wait_on_the_resume_boundary() {
         session.state.player_work().active(),
         Some(PlayerWork::ManualProduction { job })
     );
+    let status = session.command("status").unwrap().0;
+    assert!(status.contains("Work:"), "{status}");
+    assert!(!status.contains("Local production:"), "{status}");
     let (done, _) = session.command("wait finish").unwrap();
     assert!(done.contains("Craft completed:"), "{done}");
 }

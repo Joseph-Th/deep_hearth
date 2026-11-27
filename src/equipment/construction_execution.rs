@@ -23,8 +23,8 @@ use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
 
-use super::EquipmentDefinitionId;
 use super::state::{EquipmentId, EquipmentRecord};
+use super::{EquipmentDefinition, EquipmentDefinitionId};
 
 fn map_assembly_selection_error(error: ConsumptionSelectionError) -> EquipmentAssemblyError {
     match error {
@@ -405,6 +405,46 @@ pub fn validate_assemble_equipment(
     definition: EquipmentDefinitionId,
     source: StockpileId,
 ) -> Result<ValidatedEquipmentAssembly, EquipmentAssemblyError> {
+    let player_action = validate_assembly_context(registries, state)?;
+    let definition_record = registries
+        .equipment()
+        .get_equipment(definition)
+        .ok_or(EquipmentAssemblyError::UnknownDefinition { definition })?;
+    let assembly = definition_record
+        .assembly_profile()
+        .ok_or(EquipmentAssemblyError::NoAssemblyProfile { definition })?;
+    validate_player_stockpile_access(state, source).map_err(EquipmentAssemblyError::Access)?;
+    let selection =
+        validate_assembly_material_selection(state.inventory(), source, assembly.inputs())?;
+    validate_assembly_transaction(
+        registries,
+        state,
+        definition_record,
+        selection,
+        player_action,
+    )
+}
+
+/// The catalog resolves material availability first so blocked choices retain useful
+/// material diagnostics. Reuse the exact selection and the same admission/transaction
+/// checks as the direct start, without returning an authorization token.
+pub(super) fn assess_material_backed_assembly(
+    registries: &Registries,
+    state: &AppState,
+    definition: &EquipmentDefinition,
+    selection: ConsumptionSelection,
+) -> Result<(), EquipmentAssemblyError> {
+    let player_action = validate_assembly_context(registries, state)?;
+    validate_player_stockpile_access(state, selection.source())
+        .map_err(EquipmentAssemblyError::Access)?;
+    validate_assembly_transaction(registries, state, definition, selection, player_action)
+        .map(|_| ())
+}
+
+fn validate_assembly_context(
+    registries: &Registries,
+    state: &AppState,
+) -> Result<PlayerActionGuard, EquipmentAssemblyError> {
     let player_action =
         validate_optional_player_action(state).map_err(|_| EquipmentAssemblyError::PlayerDead)?;
     if state.logistics().player().is_some() && state.player_work().active().is_some() {
@@ -420,16 +460,17 @@ pub fn validate_assemble_equipment(
     {
         return Err(EquipmentAssemblyError::PlayerAirborne);
     }
-    let definition_record = registries
-        .equipment()
-        .get_equipment(definition)
-        .ok_or(EquipmentAssemblyError::UnknownDefinition { definition })?;
-    let assembly = definition_record
-        .assembly_profile()
-        .ok_or(EquipmentAssemblyError::NoAssemblyProfile { definition })?;
-    validate_player_stockpile_access(state, source).map_err(EquipmentAssemblyError::Access)?;
-    let selection =
-        validate_assembly_material_selection(state.inventory(), source, assembly.inputs())?;
+    Ok(player_action)
+}
+
+fn validate_assembly_transaction(
+    registries: &Registries,
+    state: &AppState,
+    definition_record: &EquipmentDefinition,
+    selection: ConsumptionSelection,
+    player_action: PlayerActionGuard,
+) -> Result<ValidatedEquipmentAssembly, EquipmentAssemblyError> {
+    let source = selection.source();
     let embodied_material = selection.consumed_inputs().to_vec();
     let egress =
         validate_material_egress_from_selection(state.inventory(), selection).map_err(|error| {
@@ -490,7 +531,7 @@ pub fn validate_assemble_equipment(
         player_action,
         record: EquipmentRecord {
             id,
-            definition,
+            definition: definition_record.id(),
             condition: Condition::PRISTINE,
             embodied_mass: definition_record.mass(),
             embodied_material,

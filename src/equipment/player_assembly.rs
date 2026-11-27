@@ -10,17 +10,20 @@ use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_acc
 use crate::material::{CommodityKey, MaterialInputSpec};
 use crate::registry::Registries;
 
-use super::construction_execution::validate_assembly_material_selection;
+use super::construction_execution::{
+    assess_material_backed_assembly, validate_assembly_material_selection,
+};
 use super::{
     EquipmentAssemblyError, EquipmentDefinitionId, ValidatedEquipmentAssembly,
     validate_assemble_equipment,
 };
 
-/// Current material readiness for one player-visible equipment assembly row.
+/// Current material and admission readiness for one player-visible assembly row.
 #[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerEquipmentAssemblyAvailability {
     Ready,
+    Blocked(EquipmentAssemblyError),
     MissingMaterial {
         commodity: CommodityKey,
         available: Mass,
@@ -74,14 +77,24 @@ impl PlayerEquipmentAssemblyOption {
         &self.inputs
     }
 
-    pub const fn availability(&self) -> PlayerEquipmentAssemblyAvailability {
-        self.availability
+    pub const fn availability(&self) -> &PlayerEquipmentAssemblyAvailability {
+        &self.availability
+    }
+
+    /// All required material is available and safe to handle, even if admission is blocked.
+    #[must_use]
+    pub const fn has_usable_materials(&self) -> bool {
+        matches!(
+            &self.availability,
+            PlayerEquipmentAssemblyAvailability::Ready
+                | PlayerEquipmentAssemblyAvailability::Blocked(_)
+        )
     }
 
     #[must_use]
     pub const fn is_ready(&self) -> bool {
         matches!(
-            self.availability,
+            &self.availability,
             PlayerEquipmentAssemblyAvailability::Ready
         )
     }
@@ -165,7 +178,13 @@ pub fn player_equipment_assembly_options(
                 source,
                 assembly.inputs(),
             ) {
-                Ok(_) => PlayerEquipmentAssemblyAvailability::Ready,
+                Ok(selection) => {
+                    match assess_material_backed_assembly(registries, state, definition, selection)
+                    {
+                        Ok(()) => PlayerEquipmentAssemblyAvailability::Ready,
+                        Err(error) => PlayerEquipmentAssemblyAvailability::Blocked(error),
+                    }
+                }
                 Err(EquipmentAssemblyError::AssemblyMaterialTooHot {
                     commodity,
                     temperature,

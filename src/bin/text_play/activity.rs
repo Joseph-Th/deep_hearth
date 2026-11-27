@@ -1,8 +1,11 @@
 //! Text-only activity labels and completion estimates from persisted work schedules.
 
+use std::fmt::Write as _;
+
 use super::view;
 use deep_hearth::core::time::{CONTROL_TICK_DURATION, CONTROL_TICKS_PER_SIMULATION_TICK};
 use deep_hearth::labor::PlayerWork;
+use deep_hearth::production::{ProductionOccupancyRelease, project_player_local_production_jobs};
 use deep_hearth::surface::active_player_surface_gathering_commodity;
 use deep_hearth::{AppState, Registries};
 
@@ -108,12 +111,69 @@ pub fn remaining_duration(registries: &Registries, state: &AppState, work: Playe
     }
 }
 
+fn remaining_control_ticks(state: &AppState, due: u128) -> u128 {
+    due.saturating_sub(u128::from(state.control_tick().value()))
+}
+
+fn scheduled_production_due(release: ProductionOccupancyRelease) -> Option<u128> {
+    match release {
+        ProductionOccupancyRelease::Scheduled(tick) => {
+            Some(u128::from(tick.value()) * u128::from(CONTROL_TICKS_PER_SIMULATION_TICK))
+        }
+        ProductionOccupancyRelease::AwaitingResume => None,
+    }
+}
+
+/// Do not repeat the active manual job already named by the personal work readout.
+pub(super) fn local_production_report(registries: &Registries, state: &AppState) -> String {
+    let mut output = String::new();
+    for job in project_player_local_production_jobs(state) {
+        if state.player_work().active() == Some(PlayerWork::ManualProduction { job: job.job }) {
+            continue;
+        }
+        let name = registries
+            .production()
+            .get_process(job.process)
+            .expect("validated job has an authored process")
+            .name();
+        let schedule = match scheduled_production_due(job.release) {
+            Some(due) => format!(
+                "scheduled completion in {}",
+                time_label(remaining_control_ticks(state, due))
+            ),
+            None => "suspended awaiting recovery".to_owned(),
+        };
+        let _ = writeln!(
+            output,
+            "Local production: {name} (job {}); {schedule}",
+            job.job.value()
+        );
+    }
+    output
+}
+
 /// Bounded clients still step every control frame and interrupt on visible events.
 pub fn remaining_work_control_ticks(state: &AppState) -> Option<u64> {
     let work = state.player_work().active()?;
     let due = due_at_control_ticks(state, work)?;
-    let remaining = due.saturating_sub(u128::from(state.control_tick().value()));
-    Some(u64::try_from(remaining).unwrap_or(u64::MAX).max(1))
+    Some(
+        u64::try_from(remaining_control_ticks(state, due))
+            .unwrap_or(u64::MAX)
+            .max(1),
+    )
+}
+
+/// Only running jobs with currently observable output custody provide a wait horizon.
+pub(super) fn remaining_local_production_control_ticks(state: &AppState) -> Option<u64> {
+    let due = project_player_local_production_jobs(state)
+        .into_iter()
+        .filter_map(|job| scheduled_production_due(job.release))
+        .min()?;
+    Some(
+        u64::try_from(remaining_control_ticks(state, due))
+            .unwrap_or(u64::MAX)
+            .max(1),
+    )
 }
 
 pub fn gathering_duration(slow_ticks: u64) -> String {

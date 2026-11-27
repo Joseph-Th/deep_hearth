@@ -113,28 +113,8 @@ impl Session {
                 self.advance_until_phase(target)?
             }
             "center" if args.is_empty() => self.center_in_cell()?,
-            "wait"
-                if (args == ["work"] || args == ["finish"])
-                    && self.state.player_work().active().is_none()
-                    && self.state.logistics().has_pending_direct_action() =>
-            {
-                self.wait_queued_action(args == ["finish"])?
-            }
             "wait" if args == ["work"] || args == ["finish"] => {
-                let count = activity::remaining_work_control_ticks(&self.state)
-                    .ok_or("no active work with a scheduled completion; use wait [ticks]")?
-                    .min(if args == ["finish"] {
-                        activity::COMPLETION_WAIT_LIMIT
-                    } else {
-                        activity::SHORT_WAIT_LIMIT
-                    });
-                self.advance_many_with_report(
-                    PlayerDirectControlInput::NEUTRAL,
-                    count,
-                    false,
-                    TimedWaitMode::Work,
-                )?
-                .output
+                self.wait_scheduled_work(args == ["finish"])?
             }
             "wait" if args.len() <= 1 => {
                 let count = parse_count(args.first().copied(), 72, activity::SHORT_WAIT_LIMIT)?;
@@ -181,6 +161,39 @@ impl Session {
             _ => return Ok(None),
         };
         Ok(Some(output))
+    }
+
+    /// Personal work and buffered admission take priority. Otherwise use the next
+    /// observed production deadline with ordinary, rather than hands-on, wait attention.
+    fn wait_scheduled_work(&mut self, finish: bool) -> Result<String, String> {
+        if self.state.player_work().active().is_none()
+            && self.state.logistics().has_pending_direct_action()
+        {
+            return self.wait_queued_action(finish);
+        }
+        let (remaining, mode) = if self.state.player_work().active().is_some() {
+            (
+                activity::remaining_work_control_ticks(&self.state),
+                TimedWaitMode::Work,
+            )
+        } else {
+            (
+                activity::remaining_local_production_control_ticks(&self.state),
+                TimedWaitMode::Ordinary,
+            )
+        };
+        let count = remaining
+            .ok_or(
+                "no active or local production work with a scheduled completion; use wait [ticks]",
+            )?
+            .min(if finish {
+                activity::COMPLETION_WAIT_LIMIT
+            } else {
+                activity::SHORT_WAIT_LIMIT
+            });
+        Ok(self
+            .advance_many_with_report(PlayerDirectControlInput::NEUTRAL, count, false, mode)?
+            .output)
     }
 
     /// Resolve buffered physical input at its real admission boundary. A work

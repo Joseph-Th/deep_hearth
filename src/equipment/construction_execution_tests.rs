@@ -122,6 +122,23 @@ fn equipment_assembly_cannot_complete_during_exclusive_manual_work() {
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("busy equipment woodworking commit failed: {error}"));
     let before = state.clone();
+    let busy_option =
+        crate::equipment::player_equipment_assembly_options(&registries, &state, source)
+            .unwrap()
+            .into_iter()
+            .find(|option| option.definition() == EQUIPMENT_STONE_PICK)
+            .unwrap();
+    assert!(
+        !busy_option.is_ready(),
+        "active labor forbids assembly even with enough material"
+    );
+    assert!(busy_option.has_usable_materials());
+    assert_eq!(
+        busy_option.availability(),
+        &crate::equipment::PlayerEquipmentAssemblyAvailability::Blocked(
+            EquipmentAssemblyError::PlayerBusy
+        )
+    );
     assert_eq!(
         validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, source).err(),
         Some(EquipmentAssemblyError::PlayerBusy)
@@ -152,6 +169,13 @@ fn equipment_assembly_cannot_complete_during_exclusive_manual_work() {
     }
     assert_eq!(state, replay);
     assert!(state.player_work().active().is_none());
+    let idle_option =
+        crate::equipment::player_equipment_assembly_options(&registries, &state, source)
+            .unwrap()
+            .into_iter()
+            .find(|option| option.definition() == EQUIPMENT_STONE_PICK)
+            .unwrap();
+    assert!(idle_option.is_ready());
     let total = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("busy equipment matter baseline failed: {error}"))
         .total();
