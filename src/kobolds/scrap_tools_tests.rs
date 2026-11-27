@@ -1863,6 +1863,115 @@ fn scout_stages_physical_pry_parts_and_player_interception_reverses_its_effect()
 }
 
 #[test]
+fn fitting_upgrade_keeps_the_actual_handle_across_consecutive_slots() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    for (from, to) in [(DEN, JUNCTION), (JUNCTION, TIP)] {
+        add_traversable_edge_for_test(&mut state, from, to);
+    }
+    state
+        .kobold_state_mut()
+        .apply_opening_colony([DEN, JUNCTION, TIP]);
+    let side = VoxelCoord::new(0, 0, 1);
+    let spare = drop_at(
+        &registries,
+        &mut state,
+        side,
+        MATERIAL_WOOD,
+        FORM_HANDLE,
+        Mass::from_milligrams(50_000),
+    );
+    let handle = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_WOOD,
+        FORM_HANDLE,
+        Mass::from_milligrams(50_000),
+    );
+    let copper = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_COPPER,
+        FORM_INGOT,
+        Mass::from_milligrams(50_000),
+    );
+    advance_to(&registries, &mut state, 190);
+    assert_eq!(
+        current_junction_scrap_lever(&state, state.kobold_state().colony.as_ref().unwrap())
+            .unwrap()
+            .head(),
+        copper
+    );
+    assert!(crate::surface::relocate_scavenged_drop_step(
+        &registries,
+        &mut state,
+        spare,
+        side,
+        JUNCTION
+    ));
+    let iron = drop_at(
+        &registries,
+        &mut state,
+        JUNCTION,
+        MATERIAL_IRON,
+        FORM_INGOT,
+        Mass::from_milligrams(50_000),
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    advance_to(&registries, &mut state, 195);
+    let work = state
+        .kobold_state()
+        .colony
+        .as_ref()
+        .unwrap()
+        .pry_fitting
+        .unwrap();
+    assert_eq!(
+        (work.handle, work.head, work.completed_at),
+        (handle, iron, None)
+    );
+    let mut observer = state.clone();
+    validate_admit_player(&registries, &observer, VoxelCoord::new(-2, 0, 0))
+        .unwrap()
+        .commit(&mut observer)
+        .unwrap();
+    let observed = available_nearby_kobold_pry_work(&registries, &observer)
+        .expect("the real upgrade must remain observable despite an older spare handle");
+    assert_eq!((observed.handle(), observed.head()), (handle, iron));
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(
+        &serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap(),
+    )
+    .unwrap()
+    .into_state(&registries)
+    .unwrap();
+    advance_to(&registries, &mut state, 200);
+    advance_to(&registries, &mut replay, 200);
+    assert_eq!(state, replay);
+    let colony = state.kobold_state().colony.as_ref().unwrap();
+    let work = colony.pry_fitting.unwrap();
+    assert_eq!(
+        (work.handle, work.head, work.started_at, work.completed_at),
+        (
+            handle,
+            iron,
+            SimulationTick::new(195),
+            Some(SimulationTick::new(200))
+        )
+    );
+    assert_eq!(
+        current_junction_scrap_lever(&state, colony).unwrap().kind(),
+        KoboldPryHeadKind::IronShoe
+    );
+    assert_eq!(
+        calculate_matter_accounting(&state).unwrap().total(),
+        conserved
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn loose_older_parts_do_not_displace_a_completed_fitted_scrap_lever() {
     let registries = build_registries();
     let mut state = AppState::new();

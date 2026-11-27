@@ -241,17 +241,14 @@ pub(super) fn junction_awaits_better_head(state: &AppState, colony: &KoboldColon
         )
 }
 
-/// Resolve the exact completed pair, not the first separately selected
-/// handle and head. Unfitted spares cannot displace an assembled worksite tool.
+/// Resolve the exact recorded pair, whether fitting is active or complete.
 /// A moved, depleted, hot or otherwise unusable part invalidates only its own
 /// pair; no other parcel inherits that fitting work.
-fn fitted_junction_scrap_lever(
+fn local_metal_fitting_pair(
     state: &AppState,
     colony: &KoboldColony,
+    fitting: KoboldPryFitting,
 ) -> Option<KoboldScrapLever> {
-    let fitting = colony
-        .pry_fitting
-        .filter(|work| work.completed_at.is_some())?;
     if !pry_handle_is_free(state, colony) {
         return None;
     }
@@ -265,15 +262,7 @@ fn fitted_junction_scrap_lever(
     {
         return None;
     }
-    let kind = if is_iron_shoe(head) {
-        KoboldPryHeadKind::IronShoe
-    } else if is_iron_scrap_tooth(head) {
-        KoboldPryHeadKind::IronScrapTooth
-    } else if is_copper_fulcrum(head) {
-        KoboldPryHeadKind::CopperFulcrum
-    } else {
-        return None;
-    };
+    let kind = head_kind(head).filter(|kind| *kind != KoboldPryHeadKind::StoneWedge)?;
     Some(KoboldScrapLever {
         position: colony.route[1],
         handle: fitting.handle,
@@ -287,7 +276,11 @@ pub(super) fn current_junction_scrap_lever(
     colony: &KoboldColony,
 ) -> Option<KoboldScrapLever> {
     // A proposed upgrade remains unfitted until its scheduled work completes.
-    if let Some(fitted) = fitted_junction_scrap_lever(state, colony) {
+    if let Some(fitted) = colony
+        .pry_fitting
+        .filter(|work| work.completed_at.is_some())
+        .and_then(|work| local_metal_fitting_pair(state, colony, work))
+    {
         return Some(fitted);
     }
     let handle = selected_handle(state, colony)?;
@@ -300,55 +293,64 @@ pub(super) fn current_junction_scrap_lever(
     })
 }
 
+/// Finish valid work on its original pair before selecting another one.
+/// A completed kit is replaced only for a strictly better head.
+fn plan_pry_fitting(
+    state: &AppState,
+    colony: &KoboldColony,
+    at: SimulationTick,
+    can_work: bool,
+) -> Option<KoboldPryFitting> {
+    let current = colony
+        .pry_fitting
+        .and_then(|work| local_metal_fitting_pair(state, colony, work).map(|tool| (work, tool)));
+    if !can_work {
+        return current
+            .map(|(work, _)| work)
+            .filter(|work| work.completed_at.is_some());
+    }
+    let (handle, head) = if let Some((work, tool)) = current {
+        if work.completed_at.is_none() {
+            return Some(KoboldPryFitting {
+                completed_at: Some(at),
+                ..work
+            });
+        }
+        match selected_metal_head(state, colony) {
+            Some((head, kind)) if kind.upgrade_rank() > tool.kind().upgrade_rank() => {
+                (tool.handle(), head)
+            }
+            _ => return Some(work),
+        }
+    } else {
+        (
+            selected_handle(state, colony)?,
+            selected_metal_head(state, colony)?.0,
+        )
+    };
+    Some(KoboldPryFitting {
+        handle,
+        head,
+        started_at: at,
+        completed_at: None,
+    })
+}
+
 /// Two consecutive slow-clock work slots must be spent at the actual junction
 /// to fit a solid metal head. Any interruption before completion forfeits the work.
 /// Finished work is only valid for the exact original handle and head identities.
 pub(super) fn apply_pry_fitting_tick(
     state: &mut AppState,
     at: SimulationTick,
-    pressured: bool,
+    blocked: bool,
 ) -> bool {
     let Some(colony) = state.kobold_state().colony.as_ref() else {
         return false;
     };
-    let fitted = fitted_junction_scrap_lever(state, colony);
-    // A different part of the same capability is not an upgrade. Keep the
-    // completed physical pair and its fitting schedule unless a stronger head
-    // can actually justify a new two-slot fitting operation.
-    let parts = match (fitted, selected_metal_head(state, colony)) {
-        (Some(tool), Some((head, kind))) if kind != tool.kind() => Some((tool.handle(), head)),
-        (Some(tool), _) => Some((tool.handle(), tool.head())),
-        (None, Some((head, _))) => selected_handle(state, colony).map(|handle| (handle, head)),
-        (None, None) => None,
-    };
     let can_work =
-        colony.scout_step == 1 && colony.scavenged_drop.is_none() && !colony.hungry && !pressured;
+        colony.scout_step == 1 && colony.scavenged_drop.is_none() && !colony.hungry && !blocked;
     let previous = colony.pry_fitting;
-    let retained = previous.filter(|work| {
-        let still_assembled = fitted.is_some_and(|tool| work.matches(tool.handle(), tool.head()));
-        (!can_work && still_assembled)
-            || (parts.is_some_and(|(handle, head)| work.matches(handle, head))
-                && (work.completed_at.is_some() || can_work))
-    });
-    let next = if !can_work {
-        retained
-    } else if let Some((handle, head)) = parts {
-        match retained {
-            Some(work) if work.completed_at.is_some() => Some(work),
-            Some(work) => Some(KoboldPryFitting {
-                completed_at: Some(at),
-                ..work
-            }),
-            None => Some(KoboldPryFitting {
-                handle,
-                head,
-                started_at: at,
-                completed_at: None,
-            }),
-        }
-    } else {
-        None
-    };
+    let next = plan_pry_fitting(state, colony, at, can_work);
     let occupied_work_slot = can_work && next.is_some() && next != previous;
     let colony = state
         .kobold_state_mut()
@@ -452,8 +454,7 @@ pub fn available_nearby_kobold_pry_work(
         .pry_fitting
         .filter(|work| work.completed_at.is_none())?;
     if colony.scout_position() != colony.route[1]
-        || selected_handle(state, colony) != Some(work.handle)
-        || selected_metal_head(state, colony).map(|(head, _)| head) != Some(work.head)
+        || local_metal_fitting_pair(state, colony, work).is_none()
     {
         return None;
     }
@@ -468,8 +469,8 @@ pub fn available_nearby_kobold_pry_work(
     )
 }
 
-/// The scout leaves both pieces of its completed fitted pair, its next
-/// selected upgrade, and one stone fallback at the actual worksite. Other
+/// The scout leaves both pieces of its recorded active or completed pair,
+/// its next selected upgrade, and one stone fallback at the actual worksite. Other
 /// pieces remain ordinary salvage; staged parts can still be taken by the player.
 pub(super) fn is_staged_scrap_tool_part(
     state: &AppState,
@@ -487,7 +488,9 @@ pub(super) fn is_staged_scrap_tool_part(
     let selected = selected_head(state, colony);
     resource.id() == handle
         || selected.is_some_and(|(head, _)| head == resource.id())
-        || current_junction_scrap_lever(state, colony)
+        || colony
+            .pry_fitting
+            .and_then(|work| local_metal_fitting_pair(state, colony, work))
             .is_some_and(|tool| tool.handle() == resource.id() || tool.head() == resource.id())
         || (selected.is_some_and(|(_, kind)| kind != KoboldPryHeadKind::StoneWedge)
             && selected_stone_fallback(state, colony) == Some(resource.id()))

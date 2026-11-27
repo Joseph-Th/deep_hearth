@@ -212,8 +212,12 @@ fn split_scavenged_bulk_with_available_tool(
         bare_batch,
         den_space,
     } = request;
+    let bare_mass = bare_batch.min(den_space);
+    let assisted_mass = LEVER_SPLIT_BATCH.min(den_space);
+    // Do not spend a real tool head or create wear debris when den capacity
+    // or the scout's unaided batch already permits the same recovery.
     let tool = state.kobold_state().colony.as_ref().and_then(|colony| {
-        (from == colony.route[1])
+        (from == colony.route[1] && assisted_mass > bare_mass)
             .then(|| current_junction_scrap_lever(state, colony))
             .flatten()
     });
@@ -221,13 +225,7 @@ fn split_scavenged_bulk_with_available_tool(
         && let Some(split) = split_bulk_scavenged_drop_with_head_wear(
             registries,
             state,
-            ScavengedPortionRequest::new(
-                source,
-                from,
-                to,
-                at,
-                bare_batch.max(LEVER_SPLIT_BATCH).min(den_space),
-            ),
+            ScavengedPortionRequest::new(source, from, to, at, assisted_mass),
             tool.head(),
             tool.kind().abrasion_per_split(),
             tool.kind().abrasion_form(),
@@ -238,15 +236,7 @@ fn split_scavenged_bulk_with_available_tool(
     // Tool assistance may fail when its second output (recoverable abrasion)
     // cannot be admitted. That failed atomic attempt leaves the source intact,
     // so ordinary hand splitting remains a legitimate smaller transaction.
-    split_bulk_scavenged_drop_step(
-        registries,
-        state,
-        source,
-        from,
-        to,
-        at,
-        bare_batch.min(den_space),
-    )
+    split_bulk_scavenged_drop_step(registries, state, source, from, to, at, bare_mass)
 }
 
 fn relocated_part_stays_at_junction(

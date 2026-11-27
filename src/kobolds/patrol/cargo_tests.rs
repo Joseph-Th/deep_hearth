@@ -274,6 +274,78 @@ fn tool_split_falls_back_to_conserved_hand_split_when_wear_cannot_be_reserved() 
 }
 
 #[test]
+fn den_capacity_limits_tool_use_to_splits_that_actually_gain_cargo() {
+    use crate::kobolds::{DEN_LOOSE_CACHE_LIMIT, SCOUT_BULK_SPLIT_BATCH};
+
+    for space in [
+        Mass::from_milligrams(100_000),
+        SCOUT_BULK_SPLIT_BATCH,
+        Mass::from_milligrams(350_000),
+    ] {
+        let (registries, mut state, bulk, head) = staged_bulk_with_usable_wedge();
+        let fill = SurfaceResourceSpec::new(
+            SurfaceResourceKind::Drop,
+            DEN,
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            DEN_LOOSE_CACHE_LIMIT.checked_sub(space).unwrap(),
+            TEMPERATURE,
+            MaterialComposition::pure(MATERIAL_STONE),
+        )
+        .unwrap();
+        validate_create_surface_resources(&registries, &state, [fill])
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+        while state.tick().value() < 184 {
+            let _ = advance_tick(&registries, &mut state).unwrap();
+        }
+        assert_eq!(den_cache_space(&state, DEN), space);
+        let head_before = state.surface().get(head).unwrap().remaining_mass();
+        let bulk_before = state.surface().get(bulk).unwrap().remaining_mass();
+        let conserved = calculate_matter_accounting(&state).unwrap().total();
+        let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(
+            &serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap(),
+        )
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+        assert_eq!(
+            advance_tick(&registries, &mut state).unwrap(),
+            advance_tick(&registries, &mut replay).unwrap()
+        );
+        assert_eq!(state, replay);
+        assert_eq!(
+            state
+                .kobold_state()
+                .colony
+                .as_ref()
+                .unwrap()
+                .scout_position(),
+            DEN
+        );
+        assert_eq!(den_cache_space(&state, DEN), Mass::ZERO);
+        assert_eq!(
+            state.surface().get(bulk).unwrap().remaining_mass(),
+            bulk_before.checked_sub(space).unwrap()
+        );
+        let wear = if space > SCOUT_BULK_SPLIT_BATCH {
+            crate::kobolds::scrap_tools::WEDGE_ABRASION_PER_SPLIT
+        } else {
+            Mass::ZERO
+        };
+        assert_eq!(
+            state.surface().get(head).unwrap().remaining_mass(),
+            head_before.checked_sub(wear).unwrap()
+        );
+        assert_eq!(
+            calculate_matter_accounting(&state).unwrap().total(),
+            conserved
+        );
+        assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    }
+}
+
+#[test]
 fn neither_split_path_can_mutate_when_both_revision_budgets_are_exhausted() {
     let (registries, original, bulk, _) = staged_bulk_with_usable_wedge();
     let mut state = with_surface_revision(&registries, &original, u64::MAX - 1);

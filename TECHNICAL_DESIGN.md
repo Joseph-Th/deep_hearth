@@ -732,7 +732,10 @@ real completed patrol steps and retains a handle while awaiting a head. Food
 and viable alarm construction still have priority over tool upgrades.
 
 A working pry kit can increase non-mobilized bulk splits from 250 g to 500 g
-at its actual junction, bounded by finite den space. The selected parts remain
+at its actual junction, bounded by finite den space. The scout uses the kit only
+when it increases the recoverable cargo beyond the unaided batch; a mobilized
+scout already capable of that batch, or one limited by remaining den space,
+does not spend tool wear for the same yield. The selected parts remain
 surface-owned and player-recoverable, with local observation through
 `available_nearby_kobold_scrap_lever`. A stone wedge loses 10 g per assisted
 split as recoverable chips; a copper ingot loses 5 g as recoverable copper
@@ -755,7 +758,9 @@ scavenging, movement or free material conversion during those slots. Work
 requires the selected wooden handle, a real copper or iron ingot or an
 iron scrap tooth-sized fragment, an empty-handed, fed scout and no active
 player, light or alarm pressure. Interruption cancels unfinished progress; taking or replacing a component immediately
-invalidates any old activation. Persisted `pry_fitting` records exact parcel
+invalidates any old activation. Unrelated spare parts do not interrupt a still-valid
+active fitting or change its recorded handle and head; the exact pair completes its
+second slot and remains the pair shown to a local observer. Persisted `pry_fitting` records exact parcel
 identities, a started tick and optional consecutive completion tick. Trusted
 load checks actual source identities, authored forms, source chronology, work
 alignment, completion spacing and the in-progress resident's junction position.
