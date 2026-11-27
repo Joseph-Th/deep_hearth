@@ -611,7 +611,13 @@ dependable exit requires fixed footing under the destination voxel.
 
 Resident water eligibility uses the same authored drink temperature range as player
 drinking, while finite withdrawal and its structural load remain owned by the
-fluid system.
+fluid system. Trusted load admits only authored edible materials in the resident
+food ledger. Its total modulo one ration must equal the scout's unfinished meal;
+completed servings must fit the elapsed scout meal opportunities and the watchman's
+recorded food-funded departure and recovery cadence. The water ledger likewise
+cannot claim more completed servings than the earliest drink and shortest authored
+hydration interval allow by the recorded last completion. These are reachability
+bounds on existing custody, not reconstructed histories or extra save fields.
 
 The survival owner's thermal comfort is a finite reserve. Generated air and overhead
 cover determine cooling demand on each slow tick. Bounded resting thermoregulation

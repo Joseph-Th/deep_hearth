@@ -284,7 +284,14 @@ fn den_feeding_skips_food_reserved_for_player_gathering() {
             Mass::from_milligrams(30_000)
         );
         assert_eq!(calculate_matter_accounting(game).unwrap().total(), before);
-        assert_eq!(validate_loaded_state(&registries, game), Ok(()));
+        // This isolates the consumption transaction while the player reserves food.
+        // Calling it directly at tick zero is not a scheduled resident meal or watch.
+        assert_eq!(
+            validate_loaded_state(&registries, game),
+            Err(StateValidationError::Kobolds(
+                "kobold consumed food exceeds or lacks scheduled ration history"
+            ))
+        );
     }
     assert_eq!(state, replay);
 }
@@ -352,7 +359,14 @@ fn watch_ration_uses_only_unreserved_fragments() {
             Mass::ZERO,
         );
         assert_eq!(calculate_matter_accounting(game).unwrap().total(), before);
-        assert_eq!(validate_loaded_state(&registries, game), Ok(()));
+        // This isolates the consumption transaction while the player reserves food.
+        // Calling it directly at tick zero is not a scheduled resident meal or watch.
+        assert_eq!(
+            validate_loaded_state(&registries, game),
+            Err(StateValidationError::Kobolds(
+                "kobold consumed food exceeds or lacks scheduled ration history"
+            ))
+        );
     }
     assert_eq!(state, replay);
 }

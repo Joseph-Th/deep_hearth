@@ -10,7 +10,8 @@ use super::{
     FIRST_SCOUT_TICK, FULL_BALANCE_PPM, KoboldColony, KoboldState, SCOUT_DRINK_INTERVAL_TICKS,
     SCOUT_DRINK_VOLUME, SCOUT_FORAGE_INTERVAL_TICKS, SCOUT_MEAL_INTERVAL_TICKS, SCOUT_MEAL_MASS,
     SCOUT_SAFE_SCAVENGE_TEMPERATURE, SCOUT_STEP_TICKS, SCOUT_WARY_INTERVAL_TICKS,
-    scavenging::is_portable_drop, scrap_tools, temple_archivist, temple_guard,
+    WATCH_RECOVERY_TICKS, scavenging::is_portable_drop, scrap_tools, temple_archivist,
+    temple_guard,
 };
 
 /// An opening resident's body cannot coexist with full-cell constructed
@@ -128,16 +129,70 @@ fn validate_meal_schedule(colony: &KoboldColony, current: u64) -> Result<(), &'s
 fn validate_consumed_matter(
     registries: &Registries,
     state: &KoboldState,
+) -> Result<u128, &'static str> {
+    state
+        .consumed_matter
+        .iter()
+        .try_fold(0_u128, |total, (material, mass)| {
+            if mass.is_zero() || !registries.survival().has_food_material(*material) {
+                return Err("kobold consumption ledger has invalid materials or zero mass");
+            }
+            total
+                .checked_add(mass.milligrams())
+                .ok_or("kobold consumed food mass overflows")
+        })
+}
+
+/// Each watch sortie consumes an entire ration; only the scout may hold
+/// partial credit. Bound completed servings by elapsed opportunities, not by
+/// arbitrary ledger mass. A missed scout meal is never backlogged.
+fn validate_meal_accounting(
+    colony: &KoboldColony,
+    current: u64,
+    consumed: u128,
 ) -> Result<(), &'static str> {
-    if state.consumed_matter.values().any(|mass| mass.is_zero())
-        || state
-            .consumed_matter
-            .keys()
-            .any(|material| registries.materials().get_material(*material).is_none())
+    let serving = u128::from(SCOUT_MEAL_MASS.milligrams());
+    if consumed % serving != u128::from(colony.partial_meal.milligrams()) {
+        return Err("kobold credited meal does not match finite consumed food");
+    }
+    let scout_slots = current.saturating_sub(FIRST_SCOUT_TICK) / SCOUT_MEAL_INTERVAL_TICKS;
+    // After its first deadline, a fed scout must have finished at least
+    // one real meal. Earlier missed deadlines need not have been paid.
+    let min_scout = u64::from(scout_slots != 0 && !colony.hungry);
+    let max_scout = scout_slots - u64::from(colony.hungry);
+    let (min_watch, max_watch) = watch_ration_bounds(colony, current)?;
+    let complete = consumed / serving;
+    if complete < u128::from(min_scout) + u128::from(min_watch)
+        || complete > u128::from(max_scout) + u128::from(max_watch)
     {
-        return Err("kobold consumption ledger has invalid materials or zero mass");
+        return Err("kobold consumed food exceeds or lacks scheduled ration history");
     }
     Ok(())
+}
+
+/// The cooldown retains the last paid departure even after the guard returns.
+/// Earlier sorties must be separated by at least one full recovery interval.
+fn watch_ration_bounds(colony: &KoboldColony, current: u64) -> Result<(u64, u64), &'static str> {
+    if colony.watch_ready_at.value() == FIRST_SCOUT_TICK {
+        return Ok((0, 0));
+    }
+    let invalid = "kobold watchman lacks a possible provisioned deployment";
+    let latest = colony
+        .watch_ready_at
+        .value()
+        .checked_sub(WATCH_RECOVERY_TICKS)
+        .ok_or(invalid)?;
+    let earliest = colony
+        .mobilized_at
+        .ok_or(invalid)?
+        .value()
+        .checked_add(SCOUT_STEP_TICKS)
+        .ok_or(invalid)?;
+    if latest > current {
+        return Err(invalid);
+    }
+    let elapsed = latest.checked_sub(earliest).ok_or(invalid)?;
+    Ok((1, 1 + elapsed / WATCH_RECOVERY_TICKS))
 }
 
 fn validate_consumed_fluids(
@@ -210,6 +265,14 @@ fn validate_water_schedule(colony: &KoboldColony, state: &AppState) -> Result<()
     {
         return Err("kobold water need is not aligned with real scout visits");
     }
+    // Even the hottest authored climate requires half a baseline interval
+    // between complete drinks. Partial visits cannot accelerate that clock.
+    let max_servings = colony.last_drink_at.map_or(0, |last| {
+        1 + (last.value() - first_drink) / (SCOUT_DRINK_INTERVAL_TICKS / 2)
+    });
+    if consumed / serving > u128::from(max_servings) {
+        return Err("kobold consumed water exceeds possible completed drink history");
+    }
     Ok(())
 }
 
@@ -261,7 +324,7 @@ pub(crate) fn validate_loaded_kobolds(
     registries: &Registries,
     state: &AppState,
 ) -> Result<(), &'static str> {
-    validate_consumed_matter(registries, state.kobold_state())?;
+    let consumed_food = validate_consumed_matter(registries, state.kobold_state())?;
     validate_consumed_fluids(registries, state.kobold_state())?;
     temple_guard::validate_temple_wardens(registries, state)?;
     temple_archivist::validate_archivists(registries, state)?;
@@ -329,6 +392,7 @@ pub(crate) fn validate_loaded_kobolds(
     colony.validate_mobilization(state.tick())?;
     scrap_tools::validate_pry_fitting(state, colony, state.tick())?;
     colony.validate_watchman(state.tick())?;
+    validate_meal_accounting(colony, current, consumed_food)?;
     validate_resident_separation(colony)?;
     colony.validate_tracks(state)?;
     colony.validate_watch_tracks(state)?;

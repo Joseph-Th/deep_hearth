@@ -764,6 +764,21 @@ fn den_uses_small_sufficient_fragment_before_older_large_provisions() {
         conserved
     );
     assert_eq!(validate_loaded_state(&registries, &world), Ok(()));
+
+    // The first meal deadline has passed and the scout is no longer hungry.
+    // Removing the ledger cannot leave a valid completed ration history.
+    let mut unpaid = serde_json::to_value(SaveEnvelope::new(&registries, &world)).unwrap();
+    unpaid["state"]["systems"]["kobolds"]["consumed_matter"] = serde_json::json!({});
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(unpaid)
+            .unwrap()
+            .into_state(&registries),
+        Err(crate::persistence::LoadError::InvalidState(
+            crate::core::state::StateValidationError::Kobolds(
+                "kobold consumed food exceeds or lacks scheduled ration history"
+            )
+        ))
+    );
 }
 
 #[test]
@@ -786,13 +801,40 @@ fn invalid_or_missing_partial_ration_credit_is_rejected_on_load() {
     let mut json = serde_json::to_value(SaveEnvelope::new(&registries, &world)).unwrap();
     let partial = &mut json["state"]["systems"]["kobolds"]["colony"]["partial_meal"];
     assert_eq!(*partial, serde_json::json!(5_000));
-    for invalid in [20_000, 500_000] {
+    for invalid in [0, 1, 4_999, 5_001, 20_000, 500_000] {
         let mut tampered = json.clone();
         tampered["state"]["systems"]["kobolds"]["colony"]["partial_meal"] =
             serde_json::json!(invalid);
         let loaded = serde_json::from_value::<LoadedSaveEnvelope>(tampered).unwrap();
         assert!(loaded.into_state(&registries).is_err());
     }
+    // Whole extra rations preserve the fractional credit but cannot have
+    // been eaten on the scout's first scheduled meal opportunity.
+    let mut extra_ration = json.clone();
+    let ledger = extra_ration["state"]["systems"]["kobolds"]["consumed_matter"]
+        .as_object_mut()
+        .unwrap();
+    assert_eq!(ledger.len(), 1);
+    *ledger.values_mut().next().unwrap() = serde_json::json!(25_000);
+    assert!(
+        serde_json::from_value::<LoadedSaveEnvelope>(extra_ration)
+            .unwrap()
+            .into_state(&registries)
+            .is_err()
+    );
+
+    // Even an equal mass of a registered but inedible material is not food.
+    let mut inedible = json.clone();
+    inedible["state"]["systems"]["kobolds"]["consumed_matter"] = serde_json::json!({
+        MATERIAL_STONE.value().to_string(): 5_000,
+    });
+    assert!(
+        serde_json::from_value::<LoadedSaveEnvelope>(inedible)
+            .unwrap()
+            .into_state(&registries)
+            .is_err()
+    );
+
     let mut not_hungry = json.clone();
     not_hungry["state"]["systems"]["kobolds"]["colony"]["hungry"] = serde_json::json!(false);
     let loaded = serde_json::from_value::<LoadedSaveEnvelope>(not_hungry).unwrap();

@@ -187,6 +187,26 @@ fn two_partial_pools_complete_one_real_scout_drink_across_saved_patrols() {
     );
     assert_eq!(calculate_fluid_volume_accounting(&state).unwrap(), original);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+
+    // Two complete servings would have required another minimum hydration
+    // interval before this recorded completion, not just more ledger volume.
+    assert!(
+        completed_at.value()
+            < crate::kobolds::FIRST_SCOUT_TICK
+                + SCOUT_DRINK_INTERVAL_TICKS
+                + SCOUT_DRINK_INTERVAL_TICKS / 2
+    );
+    let mut forged = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let ledger = forged["state"]["systems"]["kobolds"]["consumed_fluids"]
+        .as_object_mut()
+        .unwrap();
+    *ledger.values_mut().next().unwrap() = serde_json::json!(2 * SCOUT_DRINK_VOLUME.microliters());
+    assert!(
+        serde_json::from_value::<LoadedSaveEnvelope>(forged)
+            .unwrap()
+            .into_state(&registries)
+            .is_err()
+    );
 }
 
 #[test]

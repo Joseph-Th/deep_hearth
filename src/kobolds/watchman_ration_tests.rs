@@ -40,6 +40,27 @@ fn add_fragments(
     ids
 }
 
+fn assert_paid_watch_history(registries: &crate::Registries, state: &crate::AppState) {
+    let valid = serde_json::to_value(SaveEnvelope::new(registries, state)).unwrap();
+    for ledger in [
+        serde_json::json!({}),
+        serde_json::json!({(MATERIAL_WILD_NUTS.value().to_string()): 40_000}),
+    ] {
+        let mut forged = valid.clone();
+        forged["state"]["systems"]["kobolds"]["consumed_matter"] = ledger;
+        assert_eq!(
+            serde_json::from_value::<LoadedSaveEnvelope>(forged)
+                .unwrap()
+                .into_state(registries),
+            Err(crate::persistence::LoadError::InvalidState(
+                crate::core::state::StateValidationError::Kobolds(
+                    "kobold consumed food exceeds or lacks scheduled ration history"
+                )
+            ))
+        );
+    }
+}
+
 #[test]
 fn fresh_mixed_fragments_fund_exact_watch_ration_but_insufficient_fragments_do_not() {
     let (registries, mut sufficient, route) =
@@ -112,6 +133,7 @@ fn fresh_mixed_fragments_fund_exact_watch_ration_but_insufficient_fragments_do_n
         conserved
     );
     assert_eq!(validate_loaded_state(&registries, &sufficient), Ok(()));
+    assert_paid_watch_history(&registries, &sufficient);
 
     let home = insufficient.kobold_state().colony.as_ref().unwrap();
     assert_eq!(home.watch_position(), route[0]);
@@ -137,6 +159,16 @@ fn fresh_mixed_fragments_fund_exact_watch_ration_but_insufficient_fragments_do_n
     advance_to(&registries, &mut sufficient, 220);
     advance_to(&registries, &mut replay, 220);
     assert_eq!(sufficient, replay);
+    assert!(
+        sufficient
+            .kobold_state()
+            .colony
+            .as_ref()
+            .unwrap()
+            .watch_deployed_at
+            .is_none()
+    );
+    assert_paid_watch_history(&registries, &sufficient);
     assert_eq!(
         calculate_matter_accounting(&sufficient).unwrap().total(),
         conserved
