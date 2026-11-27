@@ -4,8 +4,8 @@ use std::fmt::Write as _;
 
 use deep_hearth::inventory::MaterialStackProjection;
 use deep_hearth::logistics::{
-    PlayerActiveSelection, PlayerStockpileProjection, assess_player_carrying,
-    project_player_inventory, project_player_jump_rise_bound,
+    PlayerActiveSelection, PlayerStockpileProjection, project_player_inventory,
+    project_player_jump_rise_bound,
 };
 use deep_hearth::survival::assess_food_stack_freshness;
 use deep_hearth::{AppState, Registries};
@@ -100,6 +100,17 @@ pub fn hand_label(
     hand_status(registries, state, selected).0
 }
 
+/// Reservations occupy capacity without contributing to current carried weight.
+fn stockpile_capacity_label(stockpile: &PlayerStockpileProjection) -> String {
+    format!(
+        "{} g / {} g | {} g reserved inbound | {} g available",
+        grams(stockpile.stored()),
+        grams(stockpile.capacity()),
+        grams(stockpile.reserved_inbound()),
+        grams(stockpile.available()),
+    )
+}
+
 pub fn inventory(registries: &Registries, state: &AppState) -> Result<String, String> {
     let projection =
         project_player_inventory(registries, state).map_err(|error| error.to_string())?;
@@ -107,19 +118,17 @@ pub fn inventory(registries: &Registries, state: &AppState) -> Result<String, St
     let carried = projection.carried();
     let _ = writeln!(
         output,
-        "Carried matter: {} g / {} g",
-        grams(carried.stored()),
-        grams(carried.capacity()),
+        "Carried matter: {}",
+        stockpile_capacity_label(carried),
     );
-    if let Some(load) = assess_player_carrying(state) {
-        let _ = writeln!(
-            output,
-            "Total carried load: {} g / {} g (equipment {} g)",
-            grams(load.stored()),
-            grams(load.capacity()),
-            grams(load.equipment())
-        );
-    }
+    let load = projection.carrying();
+    let _ = writeln!(
+        output,
+        "Total carried load: {} g / {} g (equipment {} g)",
+        grams(load.stored()),
+        grams(load.capacity()),
+        grams(load.equipment())
+    );
     if let Some(height) = project_player_jump_rise_bound(registries, state) {
         let _ = writeln!(
             output,
@@ -175,11 +184,10 @@ pub fn inventory(registries: &Registries, state: &AppState) -> Result<String, St
             .map_or("open ground stockpile", |definition| definition.name());
         let _ = writeln!(
             output,
-            "Local storage {}: {} | {} g / {} g",
+            "Local storage {}: {} | {}",
             index + 1,
             storage_name,
-            grams(local.stored()),
-            grams(local.capacity()),
+            stockpile_capacity_label(local),
         );
         for (stack_index, stack) in local.stacks().iter().enumerate() {
             let _ = writeln!(

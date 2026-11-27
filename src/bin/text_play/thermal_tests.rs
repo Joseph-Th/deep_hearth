@@ -322,6 +322,25 @@ fn unattended_stationary_output_is_announced_only_at_its_local_custody() {
     .unwrap()
     .commit(&mut session.state)
     .unwrap();
+    let before_inventory = snapshot(&session);
+    let projected = project_player_inventory(&session.registries, &session.state).unwrap();
+    let (index, local) = projected
+        .local_containers()
+        .iter()
+        .enumerate()
+        .find(|(_, stockpile)| stockpile.stockpile() == destination)
+        .unwrap();
+    assert_eq!(local.stored(), Mass::ZERO);
+    assert_eq!(local.reserved_inbound(), Mass::from_milligrams(1_600_000));
+    let inventory = session.command("inventory").unwrap().0;
+    assert!(
+        inventory.contains(&format!(
+            "Local storage {}: open ground stockpile | 0 g / 10000 g | 1600 g reserved inbound | 8400 g available",
+            index + 1,
+        )),
+        "{inventory}"
+    );
+    assert_eq!(snapshot(&session), before_inventory);
     let at = session.player_position().unwrap();
     let due = session
         .state
@@ -637,6 +656,21 @@ fn ceramic_workshop_fires_and_cools_the_gathered_player_stack() {
     assert_eq!(snapshot(&airborne), before);
 
     session.command(&firing).unwrap();
+    let before_inventory = snapshot(&session);
+    let pending = project_player_inventory(&session.registries, &session.state).unwrap();
+    let carried = pending.carried();
+    assert_eq!(carried.reserved_inbound(), Mass::from_milligrams(1_600_000));
+    let inventory = session.command("inventory").unwrap().0;
+    assert!(
+        inventory.contains(&format!(
+            "Carried matter: {} g / {} g | 1600 g reserved inbound | {} g available",
+            view::grams(carried.stored()),
+            view::grams(carried.capacity()),
+            view::grams(carried.available()),
+        )),
+        "{inventory}"
+    );
+    assert_eq!(snapshot(&session), before_inventory);
     let finish = |session: &mut Session| {
         let due = session
             .state
@@ -659,6 +693,18 @@ fn ceramic_workshop_fires_and_cools_the_gathered_player_stack() {
         panic!("thermal batch did not complete");
     };
     finish(&mut session);
+    let settled_inventory = session.command("inventory").unwrap().0;
+    let settled = project_player_inventory(&session.registries, &session.state).unwrap();
+    assert_eq!(settled.carried().reserved_inbound(), Mass::ZERO);
+    assert!(
+        settled_inventory.contains(&format!(
+            "Carried matter: {} g / {} g | 0 g reserved inbound | {} g available",
+            view::grams(settled.carried().stored()),
+            view::grams(settled.carried().capacity()),
+            view::grams(settled.carried().available()),
+        )),
+        "{settled_inventory}"
+    );
     let hot = project_player_inventory(&session.registries, &session.state).unwrap();
     let hot = &hot.carried().stacks()[stack_index(&session, fired) - 1];
     assert_eq!(hot.mass(), Mass::from_milligrams(1_600_000));
