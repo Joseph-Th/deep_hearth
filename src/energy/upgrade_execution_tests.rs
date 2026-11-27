@@ -413,7 +413,7 @@ fn energy_store_upgrade_and_catalog_reject_hot_reinforcement_but_accept_cool_sto
         Some(EnergyStoreUpgradeError::UpgradeMaterialTooHot {
             commodity: reinforcement,
             temperature: hot,
-            maximum: crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+            maximum: crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
         }),
     );
     assert_eq!(

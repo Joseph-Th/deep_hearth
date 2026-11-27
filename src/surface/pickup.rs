@@ -9,7 +9,7 @@ use crate::inventory::{
     ValidatedMaterialIngress, apply_material_ingress, validate_material_ingress,
 };
 use crate::labor::PlayerWork;
-use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE};
+use crate::material::{CommodityKey, MAX_HAND_SAFE_MATERIAL_TEMPERATURE};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 use crate::survival::Vitality;
@@ -122,7 +122,7 @@ fn pickup_eligible_at(state: &AppState, resource: &SurfaceResourceRecord, at: Co
     // completes. Both exclusions govern slow stepping and actual pickup.
     !requires_deliberate_pickup(resource)
         && !resource_reserved_for_player_gathering(state, resource.id())
-        && resource.temperature() <= MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE
+        && resource.temperature() <= MAX_HAND_SAFE_MATERIAL_TEMPERATURE
         && resource
             .automatic_pickup_delay_started_at()
             .is_none_or(|started| {
@@ -256,7 +256,7 @@ pub(crate) fn automatic_surface_pickup_requires_control_stepping(
         && resource.kind() == SurfaceResourceKind::Drop
         && !requires_deliberate_pickup(resource)
         && resource.remaining_mass() > work.gathered_mass()
-        && resource.temperature() <= MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE
+        && resource.temperature() <= MAX_HAND_SAFE_MATERIAL_TEMPERATURE
         && work.completes_at() == next
     {
         return true;

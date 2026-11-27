@@ -474,7 +474,7 @@ fn hand_fed_combustion_rejects_hot_fuel_without_substituting_selected_stack() {
     use crate::core::quantity::Temperature;
     use crate::inventory::add_solid_stockpile_for_test;
     use crate::logistics::validate_place_ground_stockpile;
-    use crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    use crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE;
 
     let (registries, mut state, _, fire) = campfire_fixture();
     let position = state.logistics().player().unwrap().position();
@@ -485,7 +485,7 @@ fn hand_fed_combustion_rejects_hot_fuel_without_substituting_selected_stack() {
         .commit(&mut state)
         .unwrap();
     let fuel = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
-    let maximum = MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    let maximum = MAX_HAND_SAFE_MATERIAL_TEMPERATURE;
     let hot = Temperature::from_millikelvin(maximum.millikelvin() + 1);
     let hot_lot = deposit_lot_for_test(
         &registries,

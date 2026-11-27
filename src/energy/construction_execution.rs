@@ -16,7 +16,7 @@ use crate::logistics::{
     PlayerStockpileAccessError, player_stationary_placement_supported,
     validate_player_stockpile_access,
 };
-use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE};
+use crate::material::{CommodityKey, MAX_HAND_SAFE_MATERIAL_TEMPERATURE};
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::structural::StructuralCommitError;
@@ -378,7 +378,7 @@ pub fn validate_assemble_energy_store(
         state.inventory(),
         source,
         assembly.inputs(),
-        MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+        MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
     )
     .map_err(|error| match error {
         TemperatureLimitedSelectionError::Selection(

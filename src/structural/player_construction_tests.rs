@@ -609,7 +609,7 @@ fn admitted_player_with_full_footprint_plan() -> (
 fn existing_blueprint_rejects_hot_selected_timber_but_allows_cool_timber() {
     let (registries, mut state, element, cool_lot) = admitted_player_with_planned_member();
     let carried = state.logistics().player().unwrap().carried_stockpile();
-    let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    let maximum = crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE;
     let temperature = Temperature::from_millikelvin(maximum.millikelvin() + 1);
     let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
     let hot_lot = deposit_lot_for_test(

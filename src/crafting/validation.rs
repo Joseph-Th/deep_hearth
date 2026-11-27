@@ -3,7 +3,7 @@
 use crate::core::time::TickSpan;
 use crate::energy::calculate_mass_specific_energy;
 use crate::inventory::{AMBIENT_PRESERVATION_MULTIPLIER_PPM, first_unsafe_hand_input};
-use crate::material::{MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE, MaterialLotSpec};
+use crate::material::{MAX_HAND_SAFE_MATERIAL_TEMPERATURE, MaterialLotSpec};
 use crate::production::{ProcessOutputStreamId, ProductionJobRecord};
 use crate::registry::Registries;
 use crate::survival::{FoodFreshness, freshness_from_history};
@@ -331,7 +331,7 @@ pub(crate) fn validate_loaded_crafting_job(
             job: job.id(),
             commodity: trace.profile().commodity(),
             temperature: trace.profile().temperature(),
-            maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+            maximum: MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
         });
     }
     // Manual preservation requires every selected raw-food lot to be fresh

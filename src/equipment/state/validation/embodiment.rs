@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use crate::core::quantity::Mass;
 use crate::core::time::SimulationTick;
-use crate::inventory::{ConsumedMaterialTrace, PureMaterialTraceValidationError};
+use crate::inventory::{ConsumedMaterialTrace, HandAssemblyTraceValidationError};
 use crate::material::{CommodityKey, MaterialAssemblyProfile, MaterialRegistry};
 
 use super::super::super::definitions::{
@@ -205,38 +205,38 @@ fn validate_embodied_trace(
     current_tick: SimulationTick,
 ) -> Result<CommodityKey, EquipmentValidationError> {
     trace
-        .validate_pure_material_state(materials, current_tick)
+        .validate_hand_assembly_state(materials, current_tick)
         .map_err(|error| match error {
-            PureMaterialTraceValidationError::ZeroMass => {
+            HandAssemblyTraceValidationError::ZeroMass => {
                 EquipmentValidationError::ZeroEmbodiedTrace {
                     equipment: record.id,
                 }
             }
-            PureMaterialTraceValidationError::UnknownCommodity { commodity } => {
+            HandAssemblyTraceValidationError::UnknownCommodity { commodity } => {
                 EquipmentValidationError::UnknownEmbodiedCommodity {
                     equipment: record.id,
                     commodity,
                 }
             }
-            PureMaterialTraceValidationError::ImpureMaterial { commodity } => {
+            HandAssemblyTraceValidationError::ImpureMaterial { commodity } => {
                 EquipmentValidationError::ImpureEmbodiedMaterial {
                     equipment: record.id,
                     commodity,
                 }
             }
-            PureMaterialTraceValidationError::InvalidPhaseState(error) => {
+            HandAssemblyTraceValidationError::InvalidPhaseState(error) => {
                 EquipmentValidationError::InvalidEmbodiedPhaseState {
                     equipment: record.id,
                     error,
                 }
             }
-            PureMaterialTraceValidationError::InvalidParticleSizeState(error) => {
+            HandAssemblyTraceValidationError::InvalidParticleSizeState(error) => {
                 EquipmentValidationError::InvalidEmbodiedParticleSizeState {
                     equipment: record.id,
                     error,
                 }
             }
-            PureMaterialTraceValidationError::TemperatureTooHigh {
+            HandAssemblyTraceValidationError::TemperatureTooHigh {
                 temperature,
                 maximum,
             } => EquipmentValidationError::EmbodiedMaterialTooHot {
@@ -244,7 +244,7 @@ fn validate_embodied_trace(
                 temperature,
                 maximum,
             },
-            PureMaterialTraceValidationError::ProvenanceInFuture {
+            HandAssemblyTraceValidationError::ProvenanceInFuture {
                 latest_created_at,
                 current,
             } => EquipmentValidationError::EmbodiedProvenanceInFuture {

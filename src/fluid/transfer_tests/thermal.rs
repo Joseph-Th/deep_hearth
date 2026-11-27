@@ -7,7 +7,7 @@ const WARM_TEMPERATURE: Temperature = Temperature::from_millikelvin(303_150);
 
 #[test]
 fn local_pour_rejects_hot_receiving_vessel_but_allows_exact_boundary_temperature() {
-    let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    let maximum = crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE;
     let too_hot = Temperature::from_millikelvin(maximum.millikelvin() + 1);
     let blocked = fixture(Some((Volume::from_microliters(100_000), too_hot)));
     let before = blocked.state.clone();

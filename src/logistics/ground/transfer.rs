@@ -11,7 +11,7 @@ use crate::inventory::{
     ValidatedMaterialRelocation, validate_explicit_consumption_selection,
     validate_material_relocation_from_selection,
 };
-use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE};
+use crate::material::{CommodityKey, MAX_HAND_SAFE_MATERIAL_TEMPERATURE};
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
@@ -301,12 +301,12 @@ fn validate_pickup_selection(
     if let Some(trace) = selection
         .consumed_inputs()
         .iter()
-        .find(|trace| trace.profile().temperature() > MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE)
+        .find(|trace| trace.profile().temperature() > MAX_HAND_SAFE_MATERIAL_TEMPERATURE)
     {
         return Err(GroundMaterialTransferError::MaterialTooHot {
             commodity: trace.profile().commodity(),
             temperature: trace.profile().temperature(),
-            maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+            maximum: MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
         });
     }
     let relocation = validate_material_relocation_from_selection(

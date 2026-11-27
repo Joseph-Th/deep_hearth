@@ -235,7 +235,7 @@ fn hot_ground_lot_cannot_be_hand_picked_by_exact_stack_or_quick_move() {
     use crate::core::state::validate_loaded_state;
     use crate::inventory::MaterialLotSelection;
     use crate::logistics::{validate_pickup_from_ground, validate_pickup_stack_from_ground};
-    use crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    use crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE;
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 
     let registries = build_registries();
@@ -286,7 +286,7 @@ fn hot_ground_lot_cannot_be_hand_picked_by_exact_stack_or_quick_move() {
     let expected = GroundMaterialTransferError::MaterialTooHot {
         commodity,
         temperature: hot_temperature,
-        maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+        maximum: MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
     };
     assert_eq!(
         validate_pickup_from_ground(
@@ -360,7 +360,7 @@ fn hand_transfer_temperature_limit_is_inclusive_and_hot_carried_matter_can_be_se
     use crate::core::state::validate_loaded_state;
     use crate::inventory::MaterialLotSelection;
     use crate::logistics::{validate_drop_to_ground, validate_pickup_from_ground};
-    use crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    use crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE;
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
 
     let registries = build_registries();
@@ -379,7 +379,7 @@ fn hand_transfer_temperature_limit_is_inclusive_and_hot_carried_matter_can_be_se
     let commodity = CommodityKey::new(MATERIAL_STONE, FORM_CHIP);
     let mass = Mass::from_milligrams(10_000);
     let unsafe_temperature =
-        Temperature::from_millikelvin(MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE.millikelvin() + 1);
+        Temperature::from_millikelvin(MAX_HAND_SAFE_MATERIAL_TEMPERATURE.millikelvin() + 1);
     let hot_carried = deposit_lot_for_test(
         &registries,
         &mut state,
@@ -395,7 +395,7 @@ fn hand_transfer_temperature_limit_is_inclusive_and_hot_carried_matter_can_be_se
         ground,
         commodity,
         mass,
-        MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+        MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
     )
     .unwrap();
     let hot_ground = deposit_lot_for_test(
@@ -419,7 +419,7 @@ fn hand_transfer_temperature_limit_is_inclusive_and_hot_carried_matter_can_be_se
         Some(GroundMaterialTransferError::MaterialTooHot {
             commodity,
             temperature: unsafe_temperature,
-            maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+            maximum: MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
         }),
     );
     // The same threshold is inclusive, not a rounded-degree approximation.

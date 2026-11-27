@@ -283,7 +283,7 @@ fn temperature_limited_reassignment_keeps_hot_lots_out_of_a_feasible_recipe() {
         state.inventory(),
         source,
         &inputs,
-        crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+        crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
     )
     .expect("cool alternative can satisfy every overlapping constraint");
     assert_eq!(
@@ -307,7 +307,7 @@ fn temperature_limited_reassignment_keeps_hot_lots_out_of_a_feasible_recipe() {
         safe.consumed_inputs()
             .iter()
             .all(|trace| trace.profile().temperature()
-                <= crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE)
+                <= crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE)
     );
     assert_eq!(state, before);
 }
@@ -453,12 +453,12 @@ fn temperature_limited_selection_identifies_actual_cooling_blocker_in_multi_inpu
             state.inventory(),
             source,
             &inputs,
-            crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+            crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
         ),
         Err(TemperatureLimitedSelectionError::TooHot {
             commodity: stone,
             temperature: hot_stone,
-            maximum: crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+            maximum: crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
         })
     );
     assert_eq!(state, before);

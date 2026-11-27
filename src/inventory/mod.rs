@@ -78,8 +78,8 @@ pub use stack_projection::{
     project_material_stacks, resolve_material_stack_choice,
 };
 pub(crate) use state::{
-    AMBIENT_PRESERVATION_MULTIPLIER_PPM, MaterialLotProfile, MaterialLotProvenance,
-    MaterialStorageHistory, PureMaterialTraceValidationError, STORAGE_AGE_PARTS_PER_TICK,
+    AMBIENT_PRESERVATION_MULTIPLIER_PPM, HandAssemblyTraceValidationError, MaterialLotProfile,
+    MaterialLotProvenance, MaterialStorageHistory, STORAGE_AGE_PARTS_PER_TICK,
     checked_consumed_material_mass, validate_loaded_inventory,
 };
 pub use state::{

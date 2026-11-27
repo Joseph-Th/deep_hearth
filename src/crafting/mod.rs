@@ -5,7 +5,7 @@ use crate::equipment::{EquipmentId, resolve_equipment_provider};
 use crate::inventory::{MaterialLotSelection, StockpileId, first_unsafe_hand_input};
 use crate::labor::{PlayerWork, ValidatedPlayerWorkStart, validate_player_work_start};
 use crate::logistics::{validate_player_equipment_access, validate_player_stockpile_access};
-use crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+use crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE;
 use crate::production::{
     ProcessId, ProcessOutputRoute, ProcessOutputStreamId, ProcessResolution, ProductionJobId,
     ValidatedStartProcess, validate_process_inputs, validate_start_manual_process,
@@ -219,7 +219,7 @@ pub fn resolve_manual_craft(
         return Err(ManualCraftError::InputTooHot {
             commodity: trace.profile().commodity(),
             temperature: trace.profile().temperature(),
-            maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+            maximum: MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
         });
     }
     // Preserving food can extend shelf life, but it cannot revive already spoiled raw stock.

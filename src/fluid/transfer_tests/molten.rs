@@ -76,7 +76,7 @@ fn molten_metal_equilibrium_is_exact_but_hand_decant_is_rejected() {
         Some(FluidTransferError::UnsafeHandTemperature {
             store: source,
             temperature: source_contents.temperature(),
-            maximum: crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+            maximum: crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
         })
     );
     assert_eq!(state, unchanged);

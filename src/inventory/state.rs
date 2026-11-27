@@ -18,7 +18,7 @@ pub(super) use lot_mutation::{
     get_stockpile_mut_or_panic,
 };
 pub(crate) use records::{
-    AMBIENT_PRESERVATION_MULTIPLIER_PPM, PureMaterialTraceValidationError,
+    AMBIENT_PRESERVATION_MULTIPLIER_PPM, HandAssemblyTraceValidationError,
     checked_consumed_material_mass,
 };
 pub use records::{

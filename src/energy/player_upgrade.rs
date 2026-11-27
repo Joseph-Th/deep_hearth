@@ -10,7 +10,7 @@ use crate::inventory::{
     validate_temperature_limited_consumption_selection,
 };
 use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_access};
-use crate::material::{MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE, MaterialInputSpec};
+use crate::material::{MAX_HAND_SAFE_MATERIAL_TEMPERATURE, MaterialInputSpec};
 use crate::registry::Registries;
 
 use super::{
@@ -151,7 +151,7 @@ pub fn player_energy_store_upgrade_options(
                 state.inventory(),
                 source,
                 upgrade.additions().inputs(),
-                MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+                MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
             ) {
                 Ok(_) => true,
                 Err(TemperatureLimitedSelectionError::TooHot { .. })

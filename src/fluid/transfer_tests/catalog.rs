@@ -30,7 +30,7 @@ fn catalog_reports_unprotected_hot_pours_as_blocked_without_changing_custody() {
         Some(&FluidTransferError::UnsafeHandTemperature {
             store: fixture.destination,
             temperature: hot,
-            maximum: crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+            maximum: crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
         })
     );
     assert_eq!(

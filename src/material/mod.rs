@@ -39,8 +39,9 @@ pub const COMPOSITION_PARTS_PER_MILLION: u32 =
     crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION;
 
 /// Maximum temperature of material that the player can physically handle without
-/// protective equipment, including solid assembly and direct fluid pouring.
-pub(crate) const MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE: crate::core::quantity::Temperature =
+/// protective equipment, including assembly, transfer, gathering, fueling,
+/// and manual material processing.
+pub(crate) const MAX_HAND_SAFE_MATERIAL_TEMPERATURE: crate::core::quantity::Temperature =
     crate::core::quantity::Temperature::from_millikelvin(353_150);
 
 #[cfg(test)]

@@ -19,7 +19,7 @@ pub use material_lot::{
     ConsumedMaterialTrace, MaterialLotId, MaterialLotProfile, MaterialLotProvenance,
     MaterialLotRecord,
 };
-pub(crate) use material_lot::{PureMaterialTraceValidationError, checked_consumed_material_mass};
+pub(crate) use material_lot::{HandAssemblyTraceValidationError, checked_consumed_material_mass};
 
 /// Persistent identifier for a runtime stockpile record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

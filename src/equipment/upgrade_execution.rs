@@ -11,7 +11,7 @@ use crate::inventory::{
     validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::logistics::{validate_player_equipment_access, validate_player_stockpile_access};
-use crate::material::{MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE, MaterialInputSpec};
+use crate::material::{MAX_HAND_SAFE_MATERIAL_TEMPERATURE, MaterialInputSpec};
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 
@@ -53,7 +53,7 @@ pub(super) fn validate_upgrade_material_selection(
         inventory,
         source,
         inputs,
-        MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+        MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
     )
     .map_err(|error| match error {
         TemperatureLimitedSelectionError::Selection(error) => map_upgrade_selection_error(error),

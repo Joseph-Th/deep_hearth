@@ -1,7 +1,7 @@
 //! Construction-material selection, preservation transition, and exact egress.
 
 use crate::core::state::AppState;
-use crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+use crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE;
 use crate::registry::Registries;
 
 use super::super::storage_validation::{
@@ -34,7 +34,7 @@ pub(super) fn select_enclosure_material(
         state.inventory(),
         source,
         inputs,
-        MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+        MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
     ) {
         Ok(selected) => Ok(selected),
         Err(TemperatureLimitedSelectionError::TooHot {

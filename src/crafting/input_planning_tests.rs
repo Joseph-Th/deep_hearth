@@ -524,7 +524,7 @@ fn manual_crafting_excludes_hot_feedstock_and_rejects_explicit_unsafe_selection(
         .commit(&mut state)
         .unwrap();
     let commodity = CommodityKey::new(MATERIAL_STONE, FORM_LUMP);
-    let threshold = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    let threshold = crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE;
     let hot_temperature = Temperature::from_millikelvin(threshold.millikelvin() + 1);
     // An older, unsafe lot comes first by inventory ID. Automatic planning must skip it
     // rather than silently select it ahead of material that can actually be worked by hand.

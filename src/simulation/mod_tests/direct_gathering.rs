@@ -106,7 +106,7 @@ fn full_carrying_capacity_rejects_explicit_and_empty_hand_gathering_before_queue
 #[test]
 fn hot_natural_gathering_is_reported_on_the_input_frame_without_buffering() {
     use crate::content::{FORM_CHIP, MATERIAL_STONE};
-    use crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    use crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE;
     use crate::surface::player_surface_gathering_options;
 
     let registries = build_registries();
@@ -149,7 +149,7 @@ fn hot_natural_gathering_is_reported_on_the_input_frame_without_buffering() {
         SecondaryActionOutcome::SurfaceGatheringRejected(SurfaceGatheringError::ResourceTooHot {
             resource,
             temperature,
-            maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+            maximum: MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
         });
     assert_eq!(result.secondary_action(), Some(&expected));
     assert!(explicit.logistics().pending_secondary_use().is_none());

@@ -25,9 +25,9 @@ pub struct ConsumedMaterialTrace {
     pub(in crate::inventory) provenance: MaterialLotProvenance,
 }
 
-/// Invalid physical state for a consumed trace expected to represent pure authored matter.
+/// Invalid persisted trace from assembly with pure, hand-safe material.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PureMaterialTraceValidationError {
+pub(crate) enum HandAssemblyTraceValidationError {
     ZeroMass,
     UnknownCommodity {
         commodity: CommodityKey,
@@ -63,25 +63,26 @@ impl ConsumedMaterialTrace {
         self.provenance
     }
 
-    /// Validates common persisted-state invariants for exact pure-material embodiment traces.
+    /// Validates common persisted-state invariants for pure, hand-assembled embodiment traces.
     ///
     /// Equipment, energy stores, and storage enclosures all embody authored pure-material assembly
     /// inputs. Construction-history rules remain with those owners, while this value owns the
-    /// repeated physical validity checks for the trace itself.
-    pub(crate) fn validate_pure_material_state(
+    /// repeated physical validity checks for the trace itself, including its original
+    /// hand-contact temperature.
+    pub(crate) fn validate_hand_assembly_state(
         &self,
         materials: &MaterialRegistry,
         current: SimulationTick,
-    ) -> Result<CommodityKey, PureMaterialTraceValidationError> {
+    ) -> Result<CommodityKey, HandAssemblyTraceValidationError> {
         if self.mass.is_zero() {
-            return Err(PureMaterialTraceValidationError::ZeroMass);
+            return Err(HandAssemblyTraceValidationError::ZeroMass);
         }
         let commodity = self.profile.commodity();
         if !materials.has_commodity(commodity) {
-            return Err(PureMaterialTraceValidationError::UnknownCommodity { commodity });
+            return Err(HandAssemblyTraceValidationError::UnknownCommodity { commodity });
         }
         if self.profile.composition().pure_material() != Some(commodity.material()) {
-            return Err(PureMaterialTraceValidationError::ImpureMaterial { commodity });
+            return Err(HandAssemblyTraceValidationError::ImpureMaterial { commodity });
         }
         validate_material_phase_state(
             materials,
@@ -89,24 +90,24 @@ impl ConsumedMaterialTrace {
             self.profile.composition(),
             self.profile.temperature(),
         )
-        .map_err(PureMaterialTraceValidationError::InvalidPhaseState)?;
+        .map_err(HandAssemblyTraceValidationError::InvalidPhaseState)?;
         validate_material_particle_size_state(
             materials,
             commodity,
             self.profile.particle_size_distribution(),
         )
-        .map_err(PureMaterialTraceValidationError::InvalidParticleSizeState)?;
-        let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+        .map_err(HandAssemblyTraceValidationError::InvalidParticleSizeState)?;
+        let maximum = crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE;
         let temperature = self.profile.temperature();
         if temperature > maximum {
-            return Err(PureMaterialTraceValidationError::TemperatureTooHigh {
+            return Err(HandAssemblyTraceValidationError::TemperatureTooHigh {
                 temperature,
                 maximum,
             });
         }
         let latest_created_at = self.provenance.latest_created_at();
         if latest_created_at > current {
-            return Err(PureMaterialTraceValidationError::ProvenanceInFuture {
+            return Err(HandAssemblyTraceValidationError::ProvenanceInFuture {
                 latest_created_at,
                 current,
             });

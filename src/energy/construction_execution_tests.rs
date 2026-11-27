@@ -222,7 +222,7 @@ fn energy_store_assembly_rejects_hot_body_without_changing_custody_or_state() {
         Some(EnergyStoreAssemblyError::AssemblyMaterialTooHot {
             commodity: flywheel,
             temperature: hot,
-            maximum: crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+            maximum: crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
         }),
     );
     assert_eq!(state, before);
@@ -360,7 +360,7 @@ fn buildable_energy_store_requires_material_and_preserves_world_matter() {
 fn trusted_load_rejects_hot_embodiment_in_energy_store() {
     let (registries, state, store) = assembled_store_fixture();
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
-    let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE.millikelvin();
+    let maximum = crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE.millikelvin();
     encoded["state"]["systems"]["energy"]["records"][store.value().to_string()]["embodied_material"]
         [0]["profile"]["temperature"] = serde_json::json!(maximum);
     assert!(

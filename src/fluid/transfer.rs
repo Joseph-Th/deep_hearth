@@ -10,7 +10,7 @@
 use crate::core::quantity::{Temperature, Volume};
 use crate::core::state::AppState;
 use crate::logistics::{PlayerFluidStoreAccessError, validate_player_fluid_store_access};
-use crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+use crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE;
 use crate::player::{PlayerActionGuard, validate_player_action};
 use crate::registry::Registries;
 use crate::structural::{StructuralAnalysis, StructuralMutationOutcome};
@@ -390,12 +390,12 @@ fn validate_transfer_fluid(
         ),
     ] {
         if let Some(contents) = contents
-            && contents.temperature() > MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE
+            && contents.temperature() > MAX_HAND_SAFE_MATERIAL_TEMPERATURE
         {
             return Err(FluidTransferError::UnsafeHandTemperature {
                 store,
                 temperature: contents.temperature(),
-                maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+                maximum: MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
             });
         }
     }

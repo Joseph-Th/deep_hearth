@@ -7,7 +7,7 @@ use crate::core::quantity::{Mass, Temperature};
 use crate::core::throughput::{MassFlowDurationError, calculate_mass_flow_duration_ceiling};
 use crate::core::time::{PhysicalTickDuration, TickSpan};
 use crate::inventory::{ConsumedMaterialTrace, first_unsafe_hand_input};
-use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE};
+use crate::material::{CommodityKey, MAX_HAND_SAFE_MATERIAL_TEMPERATURE};
 
 use super::ManualOreProcessProfile;
 
@@ -83,7 +83,7 @@ pub(super) fn validate_manual_ore_handling(
         return Err(ManualOrePhysicsError::InputTooHot {
             commodity: trace.profile().commodity(),
             temperature: trace.profile().temperature(),
-            maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+            maximum: MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
         });
     }
     Ok(())

@@ -7,7 +7,7 @@ use crate::core::quantity::{Mass, Temperature};
 use crate::inventory::{StockpileId, StockpileStorageError};
 use crate::labor::{PlayerWorkStartError, SurfaceGatheringMethodId};
 use crate::logistics::PlayerStockpileAccessError;
-use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE};
+use crate::material::{CommodityKey, MAX_HAND_SAFE_MATERIAL_TEMPERATURE};
 use crate::spatial::VoxelCoord;
 
 use super::super::SurfaceResourceId;
@@ -82,11 +82,11 @@ pub(super) fn hand_gathering_temperature_blocker(
     resource: SurfaceResourceId,
     temperature: Temperature,
 ) -> Option<SurfaceGatheringError> {
-    (temperature > MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE).then_some(
+    (temperature > MAX_HAND_SAFE_MATERIAL_TEMPERATURE).then_some(
         SurfaceGatheringError::ResourceTooHot {
             resource,
             temperature,
-            maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+            maximum: MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
         },
     )
 }

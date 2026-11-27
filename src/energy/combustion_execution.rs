@@ -12,7 +12,7 @@ use crate::inventory::{
     validate_unreserved_stockpile_structural_load_headroom,
 };
 use crate::logistics::{validate_player_energy_store_access, validate_player_stockpile_access};
-use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE, MaterialInputSpec};
+use crate::material::{CommodityKey, MAX_HAND_SAFE_MATERIAL_TEMPERATURE, MaterialInputSpec};
 use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 
@@ -335,11 +335,11 @@ fn select_fuel(
             if !input[0].is_satisfied_by(stack.composition()) {
                 return Err(CombustionError::ImpureFuel { fuel });
             }
-            if stack.temperature() > MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE {
+            if stack.temperature() > MAX_HAND_SAFE_MATERIAL_TEMPERATURE {
                 return Err(CombustionError::FuelTooHot {
                     fuel,
                     temperature: stack.temperature(),
-                    maximum: MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+                    maximum: MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
                 });
             }
             validate_explicit_consumption_selection(state.inventory(), source, &slices)
@@ -350,7 +350,7 @@ fn select_fuel(
                 state.inventory(),
                 source,
                 &input,
-                MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+                MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
             )
             .map_err(|error| match error {
                 TemperatureLimitedSelectionError::Selection(

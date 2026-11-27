@@ -15,7 +15,7 @@ use crate::inventory::{
     validate_temperature_limited_consumption_selection,
 };
 use crate::maintenance::Condition;
-use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE, MaterialInputSpec};
+use crate::material::{CommodityKey, MAX_HAND_SAFE_MATERIAL_TEMPERATURE, MaterialInputSpec};
 use crate::registry::Registries;
 use crate::survival::SurvivalExertion;
 
@@ -225,7 +225,7 @@ pub fn resolve_equipment_maintenance(
             profile.replacement(),
             required_replacement_mass,
         )],
-        MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+        MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
     )
     .map_err(|error| match error {
         TemperatureLimitedSelectionError::Selection(

@@ -61,7 +61,7 @@ fn trusted_load_rejects_hot_embodiment_in_equipment() {
         .commit(&mut state)
         .unwrap();
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
-    let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE.millikelvin();
+    let maximum = crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE.millikelvin();
     let profile = &mut encoded["state"]["systems"]["equipment"]["records"]
         [equipment.value().to_string()]["embodied_material"][0]["profile"];
     profile["temperature"] = serde_json::json!(maximum);

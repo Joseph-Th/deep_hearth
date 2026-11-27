@@ -1663,7 +1663,7 @@ fn deliberate_hand_gathering_cannot_bypass_hot_surface_drop_pickup() {
         Some(SurfaceGatheringError::ResourceTooHot {
             resource: drops[0],
             temperature: Temperature::from_millikelvin(423_150),
-            maximum: crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+            maximum: crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
         }),
         "manual hand gathering must reject the same unsafe hot drop"
     );

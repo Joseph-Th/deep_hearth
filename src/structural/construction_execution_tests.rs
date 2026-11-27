@@ -301,7 +301,7 @@ fn hand_construction_rejects_unsafe_hot_stock_without_consuming_it() {
     let element = member(&registries, &mut state, required);
     let source = add_solid_stockpile_for_test(&mut state, required).unwrap();
     let commodity = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
-    let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    let maximum = crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE;
     let temperature =
         crate::core::quantity::Temperature::from_millikelvin(maximum.millikelvin() + 1);
     let lot = deposit_lot_for_test(
@@ -346,7 +346,7 @@ fn hand_construction_accepts_exact_handling_boundary_and_conserves_energy() {
     let required = Mass::from_milligrams(10);
     let element = member(&registries, &mut state, required);
     let source = add_solid_stockpile_for_test(&mut state, required).unwrap();
-    let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    let maximum = crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE;
     let lot = deposit_lot_for_test(
         &registries,
         &mut state,

@@ -3,7 +3,7 @@
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::inventory::{MaterialLotRecord, StockpileId};
-use crate::material::{CommodityKey, MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE, MaterialComposition};
+use crate::material::{CommodityKey, MAX_HAND_SAFE_MATERIAL_TEMPERATURE, MaterialComposition};
 use crate::production::ProcessId;
 use crate::registry::ProcessEquipmentRole;
 
@@ -37,7 +37,7 @@ pub(super) fn is_eligible_manual_input(
     expected_composition: &MaterialComposition,
 ) -> bool {
     lot.composition() == expected_composition
-        && lot.temperature() <= MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE
+        && lot.temperature() <= MAX_HAND_SAFE_MATERIAL_TEMPERATURE
 }
 
 pub(super) fn scan_compatible_input(

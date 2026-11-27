@@ -8,7 +8,7 @@ use crate::material::CommodityKey;
 use crate::registry::Registries;
 
 use super::{
-    ConsumedMaterialTrace, PureMaterialTraceValidationError, StockpileEnclosureRecord, StockpileId,
+    ConsumedMaterialTrace, HandAssemblyTraceValidationError, StockpileEnclosureRecord, StockpileId,
     StockpileRecord, StorageDefinition,
 };
 
@@ -59,33 +59,33 @@ fn validate_enclosure_trace(
     trace: &ConsumedMaterialTrace,
 ) -> Result<CommodityKey, StorageEnclosureValidationError> {
     let commodity = trace
-        .validate_pure_material_state(registries.materials(), state.tick())
+        .validate_hand_assembly_state(registries.materials(), state.tick())
         .map_err(|error| match error {
-            PureMaterialTraceValidationError::ZeroMass => {
+            HandAssemblyTraceValidationError::ZeroMass => {
                 StorageEnclosureValidationError::ZeroEmbodiedTrace { stockpile }
             }
-            PureMaterialTraceValidationError::UnknownCommodity { commodity } => {
+            HandAssemblyTraceValidationError::UnknownCommodity { commodity } => {
                 StorageEnclosureValidationError::UnknownEmbodiedCommodity {
                     stockpile,
                     commodity,
                 }
             }
-            PureMaterialTraceValidationError::ImpureMaterial { commodity } => {
+            HandAssemblyTraceValidationError::ImpureMaterial { commodity } => {
                 StorageEnclosureValidationError::ImpureEmbodiedMaterial {
                     stockpile,
                     commodity,
                 }
             }
-            PureMaterialTraceValidationError::InvalidPhaseState(error) => {
+            HandAssemblyTraceValidationError::InvalidPhaseState(error) => {
                 StorageEnclosureValidationError::InvalidEmbodiedPhaseState { stockpile, error }
             }
-            PureMaterialTraceValidationError::InvalidParticleSizeState(error) => {
+            HandAssemblyTraceValidationError::InvalidParticleSizeState(error) => {
                 StorageEnclosureValidationError::InvalidEmbodiedParticleSizeState {
                     stockpile,
                     error,
                 }
             }
-            PureMaterialTraceValidationError::TemperatureTooHigh {
+            HandAssemblyTraceValidationError::TemperatureTooHigh {
                 temperature,
                 maximum,
             } => StorageEnclosureValidationError::EmbodiedMaterialTooHot {
@@ -93,7 +93,7 @@ fn validate_enclosure_trace(
                 temperature,
                 maximum,
             },
-            PureMaterialTraceValidationError::ProvenanceInFuture {
+            HandAssemblyTraceValidationError::ProvenanceInFuture {
                 latest_created_at,
                 current,
             } => StorageEnclosureValidationError::EmbodiedProvenanceInFuture {

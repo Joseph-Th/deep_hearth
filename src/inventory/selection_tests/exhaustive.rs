@@ -176,7 +176,7 @@ fn overlapping_composition_allocation_matches_independent_exact_unit_oracle() {
                     state.inventory(),
                     source,
                     &inputs,
-                    crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE,
+                    crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE,
                 )
                 .map_err(|_| ())
             } else {

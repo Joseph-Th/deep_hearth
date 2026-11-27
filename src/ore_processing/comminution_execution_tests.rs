@@ -1722,7 +1722,7 @@ fn resolve_manual_comminution(
 
 #[test]
 fn manual_comminution_enforces_hand_temperature_boundary() {
-    let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    let maximum = crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE;
     let hot = Temperature::from_millikelvin(maximum.millikelvin() + 1);
     let mass = Mass::from_milligrams(100_000);
     for temperature in [maximum, hot] {

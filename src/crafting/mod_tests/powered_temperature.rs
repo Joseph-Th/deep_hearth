@@ -74,7 +74,7 @@ fn powered_shaping_preserves_mixed_temperature_cohorts_through_replay_validation
     );
     // Machine shaping is not an unprotected hand-work operation. A hot but still
     // solid timber cohort remains eligible and retains its exact heat in the outputs.
-    let warm_temperature = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE.millikelvin() + 1;
+    let warm_temperature = crate::material::MAX_HAND_SAFE_MATERIAL_TEMPERATURE.millikelvin() + 1;
     let warm = deposit(
         &registries,
         &mut state,
