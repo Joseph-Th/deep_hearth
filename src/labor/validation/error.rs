@@ -50,6 +50,8 @@ pub enum PlayerWorkValidationError {
     BlockExcavationMethodMissing,
     BlockExcavationTargetMissing,
     BlockExcavationTargetStateMismatch,
+    BlockExcavationAimInvalid,
+    BlockExcavationTargetRayMismatch,
     BlockExcavationDefinitionMissing,
     BlockExcavationSourceMassMismatch,
     BlockExcavationMassInvalid,

@@ -59,6 +59,7 @@ pub(super) fn validate_block_excavation_work(
     if work.excavated_mass().is_zero() || work.excavated_mass() > source_mass {
         return Err(PlayerWorkValidationError::BlockExcavationMassInvalid);
     }
+    validate_excavation_target_ray(registries, state, work)?;
 
     let trace = work.equipment_trace();
     let record = state
@@ -170,6 +171,27 @@ pub(super) fn validate_block_excavation_work(
         .can_advance_revision_by(survival_revision_demand)
     {
         return Err(PlayerWorkValidationError::SurvivalRevisionExhausted);
+    }
+    Ok(())
+}
+
+/// Exclusive work retains the actor's physical stance and origin. The exact
+/// admitted ray must still hit this cell first, including at tied boundaries.
+fn validate_excavation_target_ray(
+    registries: &Registries,
+    state: &AppState,
+    work: BlockExcavationWork,
+) -> Result<(), PlayerWorkValidationError> {
+    let direction = work
+        .direction()
+        .map_err(|_| PlayerWorkValidationError::BlockExcavationAimInvalid)?;
+    let target = crate::world::raycast_player_block(registries, state, direction)
+        .ok()
+        .flatten();
+    if !target
+        .is_some_and(|target| target.voxel() == work.target() && target.state() == work.state())
+    {
+        return Err(PlayerWorkValidationError::BlockExcavationTargetRayMismatch);
     }
     Ok(())
 }

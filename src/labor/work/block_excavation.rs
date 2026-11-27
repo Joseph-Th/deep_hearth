@@ -8,8 +8,8 @@ use crate::equipment::{EquipmentId, EquipmentOperationTrace};
 use crate::inventory::StockpileId;
 use crate::maintenance::Condition;
 use crate::mining::MiningMethodId;
-use crate::spatial::VoxelCoord;
-use crate::world::BlockStateId;
+use crate::spatial::{ViewDirection, ViewDirectionError, VoxelCoord};
+use crate::world::{BlockStateId, PlayerBlockTarget};
 
 /// Durable custody destination for one excavation batch's fragmented output.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,6 +43,7 @@ impl BlockExcavationOutputCustody {
 pub struct BlockExcavationWork {
     target: VoxelCoord,
     state: BlockStateId,
+    aim: [i32; 3],
     source_mass_before: Mass,
     excavated_mass: Mass,
     method: MiningMethodId,
@@ -59,8 +60,8 @@ impl BlockExcavationWork {
         reason = "one validated excavation binds ten independent durable fields; grouping duplicates the persisted record"
     )]
     pub(crate) const fn new(
-        target: VoxelCoord,
-        state: BlockStateId,
+        target: PlayerBlockTarget,
+        direction: ViewDirection,
         source_mass_before: Mass,
         excavated_mass: Mass,
         method: MiningMethodId,
@@ -71,8 +72,13 @@ impl BlockExcavationWork {
         completes_at: ControlTick,
     ) -> Self {
         Self {
-            target,
-            state,
+            target: target.voxel(),
+            state: target.state(),
+            aim: [
+                direction.x_parts_per_million(),
+                direction.y_parts_per_million(),
+                direction.z_parts_per_million(),
+            ],
             source_mass_before,
             excavated_mass,
             method,
@@ -92,6 +98,11 @@ impl BlockExcavationWork {
     #[must_use]
     pub const fn state(self) -> BlockStateId {
         self.state
+    }
+
+    /// Replay the exact admitted fixed-point aim rather than a ray to the cell centre.
+    pub(crate) fn direction(self) -> Result<ViewDirection, ViewDirectionError> {
+        ViewDirection::new(self.aim[0], self.aim[1], self.aim[2])
     }
 
     #[must_use]

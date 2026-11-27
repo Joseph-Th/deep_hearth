@@ -46,6 +46,8 @@ mod excavation_overflow_footing;
 mod excavation_reserves;
 #[path = "world_tests/excavation_selection.rs"]
 mod excavation_selection;
+#[path = "world_tests/excavation_target_validation.rs"]
+mod excavation_target_validation;
 #[path = "world_tests/foundation_excavation.rs"]
 mod foundation_excavation;
 #[path = "world_tests/graded_ore.rs"]

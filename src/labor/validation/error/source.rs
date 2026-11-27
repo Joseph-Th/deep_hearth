@@ -51,6 +51,8 @@ impl Error for PlayerWorkValidationError {
             | Self::BlockExcavationMethodMissing
             | Self::BlockExcavationTargetMissing
             | Self::BlockExcavationTargetStateMismatch
+            | Self::BlockExcavationAimInvalid
+            | Self::BlockExcavationTargetRayMismatch
             | Self::BlockExcavationDefinitionMissing
             | Self::BlockExcavationSourceMassMismatch
             | Self::BlockExcavationMassInvalid

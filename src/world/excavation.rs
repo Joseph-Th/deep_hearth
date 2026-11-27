@@ -374,8 +374,8 @@ fn validate_start_player_block_excavation_targeted(
         )
     };
     let work = BlockExcavationWork::new(
-        target.voxel(),
-        target.state(),
+        target,
+        request.direction,
         source_mass,
         request.mass,
         request.method,

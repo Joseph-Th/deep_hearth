@@ -79,6 +79,10 @@ impl Display for PlayerWorkValidationError {
                 .write_str("block excavation work references unavailable world authority"),
             Self::BlockExcavationTargetStateMismatch => formatter
                 .write_str("block excavation target state changed from its persisted start trace"),
+            Self::BlockExcavationAimInvalid => formatter
+                .write_str("block excavation has an invalid persisted view direction"),
+            Self::BlockExcavationTargetRayMismatch => formatter
+                .write_str("block excavation target is not the first reachable hit of its persisted aim"),
             Self::BlockExcavationDefinitionMissing => formatter
                 .write_str("block excavation target no longer has an authored excavation profile"),
             Self::BlockExcavationSourceMassMismatch => formatter.write_str(
