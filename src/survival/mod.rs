@@ -75,4 +75,4 @@ pub(crate) use resource_cost::{
 pub(crate) use state::PendingDirectConsumption;
 #[cfg(test)]
 pub(crate) use state::{player_record, player_record_with_thermal_comfort};
-pub(crate) use validation::validate_loaded_survival;
+pub(crate) use validation::{validate_loaded_survival, validate_player_reserves};

@@ -12,6 +12,7 @@ pub enum SurvivalValidationError {
     EnergyExceedsMaximum,
     HydrationExceedsMaximum,
     VitalityExceedsMaximum,
+    ThermalComfortExceedsMaximum,
     VitalityRecoveryRemainderOutOfRange { value: u32 },
     VitalityRecoveryRemainderAtMaximum { value: u32 },
     NutritionExceedsMaximum { category: FoodCategory, value: u32 },
@@ -48,6 +49,9 @@ impl Display for SurvivalValidationError {
             }
             Self::VitalityExceedsMaximum => {
                 formatter.write_str("player vitality exceeds normalized maximum")
+            }
+            Self::ThermalComfortExceedsMaximum => {
+                formatter.write_str("player thermal comfort exceeds normalized maximum")
             }
             Self::VitalityRecoveryRemainderOutOfRange { value } => write!(
                 formatter,

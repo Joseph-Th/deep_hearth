@@ -8,8 +8,6 @@ use crate::core::quantity::{AggregateMass, AggregateVolume};
 use crate::fluid::FluidDefinitionId;
 use crate::material::MaterialId;
 
-use super::PhysiologyDefinition;
-
 mod direct_consumption;
 mod player;
 
@@ -66,20 +64,6 @@ impl SurvivalState {
     #[must_use]
     pub(crate) const fn pending_direct_consumption(&self) -> Option<&PendingDirectConsumption> {
         self.direct_consumption.pending()
-    }
-
-    pub(crate) fn has_valid_player_bounds(&self, physiology: PhysiologyDefinition) -> bool {
-        self.player.is_none_or(|player| {
-            player.metabolic_energy() <= physiology.maximum_metabolic_energy()
-                && player.hydration() <= physiology.maximum_hydration()
-                && player.vitality().parts_per_million() <= Vitality::MAXIMUM.parts_per_million()
-                && player.nutrition().has_valid_bounds()
-                && player.thermal_comfort_ppm()
-                    <= crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION
-                && player.vitality_recovery_remainder() < NUTRITION_PARTS_PER_MILLION
-                && (player.vitality() != Vitality::MAXIMUM
-                    || player.vitality_recovery_remainder() == 0)
-        })
     }
 
     /// Iterates food matter transferred out of inventory into the terminal survival-consumption

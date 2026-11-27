@@ -86,12 +86,6 @@ impl NutritionReserves {
         }
     }
 
-    pub(crate) const fn has_valid_bounds(self) -> bool {
-        self.grain <= NUTRITION_PARTS_PER_MILLION
-            && self.fruit <= NUTRITION_PARTS_PER_MILLION
-            && self.protein <= NUTRITION_PARTS_PER_MILLION
-    }
-
     #[cfg(test)]
     pub(in crate::survival) const fn from_parts_per_million(
         grain: u32,

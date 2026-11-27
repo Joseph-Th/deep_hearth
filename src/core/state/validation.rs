@@ -13,7 +13,7 @@ use crate::production::{validate_loaded_production, validate_loaded_production_s
 use crate::registry::Registries;
 use crate::structural::validate_loaded_structure;
 use crate::surface::validate_loaded_surface_resources;
-use crate::survival::validate_loaded_survival;
+use crate::survival::{validate_loaded_survival, validate_player_reserves};
 use crate::world::validate_loaded_world;
 
 use super::AppState;
@@ -445,10 +445,9 @@ pub(crate) fn debug_assert_runtime_invariants(
         "Runtime Invariant 6 (Lifecycle Validity): active control-rate player work must have a current unfinished schedule"
     );
     debug_assert!(
-        state
-            .systems
-            .survival
-            .has_valid_player_bounds(registries.survival().physiology()),
+        state.survival().player().is_none_or(|player| {
+            validate_player_reserves(registries.survival().physiology(), player).is_ok()
+        }),
         "Runtime Invariant 6 (Lifecycle Validity): player survival quantities must remain within authored bounds"
     );
 }

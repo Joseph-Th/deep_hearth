@@ -171,6 +171,18 @@ fn load_rejects_primary_player_reserves_above_their_authoritative_maxima() {
         )))
     );
 
+    let mut excessive_warmth = base.clone();
+    excessive_warmth["state"]["systems"]["survival"]["player"]["thermal_comfort_ppm"] =
+        serde_json::json!(crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION + 1);
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(excessive_warmth)
+            .unwrap()
+            .into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Survival(
+            SurvivalValidationError::ThermalComfortExceedsMaximum
+        )))
+    );
+
     let mut excessive_vitality = base;
     excessive_vitality["state"]["systems"]["survival"]["player"]["vitality"] =
         serde_json::json!(NUTRITION_PARTS_PER_MILLION + 1);

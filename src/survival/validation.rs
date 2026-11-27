@@ -13,11 +13,10 @@ mod error;
 use direct_consumption::validate_pending_consumption;
 pub use error::SurvivalValidationError;
 
-fn validate_player_reserves(
-    registry: &SurvivalRegistry,
+pub(crate) fn validate_player_reserves(
+    physiology: super::PhysiologyDefinition,
     player: &PlayerSurvivalRecord,
 ) -> Result<(), SurvivalValidationError> {
-    let physiology = registry.physiology();
     if player.metabolic_energy() > physiology.maximum_metabolic_energy() {
         return Err(SurvivalValidationError::EnergyExceedsMaximum);
     }
@@ -26,6 +25,9 @@ fn validate_player_reserves(
     }
     if player.vitality().parts_per_million() > Vitality::MAXIMUM.parts_per_million() {
         return Err(SurvivalValidationError::VitalityExceedsMaximum);
+    }
+    if player.thermal_comfort_ppm() > crate::core::arithmetic::NORMALIZED_PARTS_PER_MILLION {
+        return Err(SurvivalValidationError::ThermalComfortExceedsMaximum);
     }
     let recovery_remainder = player.vitality_recovery_remainder();
     if recovery_remainder >= NUTRITION_PARTS_PER_MILLION {
@@ -133,7 +135,7 @@ pub(crate) fn validate_loaded_survival(
         validate_pending_consumption(registry, materials, fluids, state, current)?;
         return Ok(());
     };
-    validate_player_reserves(registry, player)?;
+    validate_player_reserves(registry.physiology(), player)?;
     validate_intake_history(registry, materials, fluids, state)?;
     validate_pending_consumption(registry, materials, fluids, state, current)
 }
