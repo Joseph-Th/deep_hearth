@@ -2,13 +2,15 @@
 
 use std::fmt::Write as _;
 
-use super::{Session, activity, quantity, stepping, view};
+use super::{Session, activity, equipment, quantity, stepping, view};
 use deep_hearth::geology::{
-    FieldProspectingRequest, GeologicalEvidenceConsistency, build_geological_knowledge_map,
-    player_prospecting_options, validate_start_field_prospecting,
+    FieldProspectingRequest, GeologicalEvidenceConsistency, PlayerProspectingInstrumentOption,
+    build_geological_knowledge_map, player_prospecting_options, validate_start_field_prospecting,
 };
 use deep_hearth::labor::ProspectingMethodId;
-use deep_hearth::logistics::project_player_inventory;
+use deep_hearth::logistics::{
+    PlayerInventoryProjection, project_player_inventory, validate_pickup_equipment,
+};
 use deep_hearth::material::MaterialId;
 use deep_hearth::mining::{
     MiningMethodId, MiningTargetRequest, resolve_mining_target, validate_start_mining,
@@ -90,6 +92,7 @@ pub fn catalog(registries: &Registries, state: &AppState, width: usize) -> Resul
     // Equipment is read from one inventory projection for the entire catalogue.
     // Multiple survey methods must not rebuild identical carried-stack views.
     let mut carried = None;
+    let mut stationary = None;
     for option in methods {
         let _ = write!(
             output,
@@ -125,19 +128,14 @@ pub fn catalog(registries: &Registries, state: &AppState, width: usize) -> Resul
                     .as_ref()
                     .expect("carried inventory was just projected");
                 for instrument in option.instruments() {
-                    if let Some(index) = inventory
-                        .equipment()
-                        .iter()
-                        .position(|item| item.equipment() == instrument.equipment())
-                    {
-                        let _ = write!(
-                            output,
-                            " | with {} (condition {}% -> {}%)",
-                            index + 1,
-                            instrument.condition().parts_per_million() / 10_000,
-                            instrument.condition_after().parts_per_million() / 10_000,
-                        );
-                    }
+                    append_survey_instrument(
+                        &mut output,
+                        registries,
+                        state,
+                        inventory,
+                        &mut stationary,
+                        *instrument,
+                    );
                 }
             }
         } else {
@@ -146,6 +144,50 @@ pub fn catalog(registries: &Registries, state: &AppState, width: usize) -> Resul
         output.push('\n');
     }
     Ok(output)
+}
+
+fn append_survey_instrument(
+    output: &mut String,
+    registries: &Registries,
+    state: &AppState,
+    inventory: &PlayerInventoryProjection,
+    stationary: &mut Option<Vec<deep_hearth::equipment::EquipmentId>>,
+    instrument: PlayerProspectingInstrumentOption,
+) {
+    let condition = instrument.condition().parts_per_million() / 10_000;
+    let after = instrument.condition_after().parts_per_million() / 10_000;
+    if let Some(index) = inventory
+        .equipment()
+        .iter()
+        .position(|item| item.equipment() == instrument.equipment())
+    {
+        let _ = write!(
+            output,
+            " | with {} (condition {condition}% -> {after}%)",
+            index + 1
+        );
+    } else if let Some(index) = stationary
+        .get_or_insert_with(|| equipment::local_stationary(state))
+        .iter()
+        .position(|id| *id == instrument.equipment())
+    {
+        match validate_pickup_equipment(registries, state, instrument.equipment()) {
+            Ok(_) => {
+                let _ = write!(
+                    output,
+                    " | take {} (then use carried tool index; condition {condition}% -> {after}%)",
+                    index + 1
+                );
+            }
+            Err(error) => {
+                let _ = write!(
+                    output,
+                    " | local gear {} (pickup blocked: {error})",
+                    index + 1
+                );
+            }
+        }
+    }
 }
 
 pub fn start(

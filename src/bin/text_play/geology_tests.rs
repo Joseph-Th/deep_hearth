@@ -537,6 +537,44 @@ fn equipped_for_copper_survey_and_mining() -> Session {
 }
 
 #[test]
+fn survey_catalog_identifies_local_stationary_instrument_before_pickup() {
+    let mut session = equipped_for_copper_survey_and_mining();
+    run(&mut session, "equip 1");
+    run(&mut session, "drop");
+    run(&mut session, "wait boundary");
+    let gear = run(&mut session, "gear");
+    assert!(
+        gear.contains("1. stone geological sampling hammer"),
+        "{gear}"
+    );
+    let before = snapshot(&session);
+    let catalog = run(&mut session, "surveys");
+    let sampling = catalog
+        .lines()
+        .find(|line| line.contains("2. ExcavationSample"))
+        .unwrap();
+    assert!(sampling.contains("take 1"), "{sampling}");
+    assert!(
+        !sampling.contains("with 1"),
+        "the carried pick is not a hammer: {sampling}"
+    );
+    assert_eq!(snapshot(&session), before);
+    run(&mut session, "take 1");
+    let catalog = run(&mut session, "surveys");
+    assert!(
+        catalog.contains("with 1 (condition 100% -> 99%)"),
+        "{catalog}"
+    );
+    run(&mut session, "prospect copper 2 with 1");
+    assert!(finish_work(&mut session).contains("Prospecting finished"));
+    assert!(run(&mut session, "knowledge").contains("hardness"));
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
+        Ok(())
+    );
+}
+
+#[test]
 fn field_prospecting_uses_acquired_evidence_and_cannot_invent_locality() {
     let mut session = Session::new(24318).unwrap();
     let before = snapshot(&session);
