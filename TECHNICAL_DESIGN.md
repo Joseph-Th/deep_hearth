@@ -1515,7 +1515,10 @@ reject a prepared melee stance for an admitted player, and their commit tokens i
 after authorization. Dismantling the specifically prepared weapon retains its targeted occupancy rejection.
 While preparation is active, the player cannot pick up or drop equipment, or drop carried loose
 material; both custody operations bind the combat revision across validation and commit. Quick-slot
-selection does not cancel preparation; release still checks carried custody and selection again. Headless material-to-equipment and material-to-energy execution remains permitted.
+selection does not cancel preparation; release still checks carried custody and selection again. Trusted
+load requires the prepared weapon to exist at windup, remain carried and unbroken, and have no
+other task occupant; the selected slot need not still point to it. Headless material-to-equipment
+and material-to-energy execution remains permitted.
 Both material-backed storage creation at a chosen voxel and in-place enclosure construction refuse a prepared
 melee stance for an admitted player; their authorization tokens bind combat revisions as well as the existing
 control-time and custody checks. Headless in-place enclosure construction retains its owner-level capability.

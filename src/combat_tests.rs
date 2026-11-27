@@ -1709,6 +1709,92 @@ fn trusted_load_rejects_prepared_strike_with_real_non_melee_equipment() {
 }
 
 #[test]
+fn trusted_preparation_requires_the_original_usable_carried_weapon() {
+    use crate::content::EQUIPMENT_WOODEN_CLUB;
+    use crate::core::state::StateValidationError;
+    use crate::equipment::degrade_equipment_condition_for_test;
+    use crate::logistics::{validate_drop_equipment, validate_set_active_selection};
+    use crate::persistence::LoadError;
+
+    let (registries, mut state, _, _, tip) = opening_contact_world();
+    validate_admit_player(&registries, &state, tip)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let club = arm_player(&registries, &mut state, EQUIPMENT_WOODEN_CLUB);
+    let _ = validate_prepare_primitive_strike(&registries, &state, east())
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_set_active_selection(&registries, &state, None)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let prepared = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(prepared.clone())
+            .unwrap()
+            .into_state(&registries),
+        Ok(state.clone()),
+        "switching quick slots is legal while retaining a carried weapon"
+    );
+    let combat = prepared["state"]["systems"]["combat"].clone();
+    let _ = validate_cancel_primitive_preparation(&state)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+
+    // Each forged stance references genuine, otherwise valid equipment custody.
+    let mut dropped = state.clone();
+    validate_drop_equipment(&registries, &dropped, club)
+        .unwrap()
+        .commit(&mut dropped)
+        .unwrap();
+    let mut broken = state.clone();
+    degrade_equipment_condition_for_test(&mut broken, club, 1_000_000);
+    assert_eq!(
+        broken.equipment().get_equipment(club).unwrap().condition(),
+        Condition::FAILED
+    );
+    for (candidate, reason) in [
+        (dropped, "prepared melee weapon is not carried"),
+        (broken, "prepared melee weapon is broken"),
+    ] {
+        assert_eq!(validate_loaded_state(&registries, &candidate), Ok(()));
+        let mut forged = serde_json::to_value(SaveEnvelope::new(&registries, &candidate)).unwrap();
+        forged["state"]["systems"]["combat"] = combat.clone();
+        let loaded = serde_json::from_value::<LoadedSaveEnvelope>(forged).unwrap();
+        assert_eq!(
+            loaded.into_state(&registries),
+            Err(LoadError::InvalidState(StateValidationError::Combat(
+                reason
+            )))
+        );
+    }
+
+    // The weapon cannot have been raised before its actual creation tick.
+    let mut forged = prepared;
+    forged["state"]["systems"]["combat"]["prepared"]["started_at"] = serde_json::json!(0);
+    assert!(
+        state
+            .equipment()
+            .get_equipment(club)
+            .unwrap()
+            .created_at()
+            .value()
+            > 0
+    );
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(forged)
+            .unwrap()
+            .into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Combat(
+            "prepared melee weapon did not exist at windup"
+        )))
+    );
+}
+
+#[test]
 fn trusted_load_rejects_combat_history_without_player_admission() {
     let registries = build_registries();
     let state = AppState::new();

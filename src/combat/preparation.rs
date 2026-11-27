@@ -207,10 +207,9 @@ pub fn validate_cancel_primitive_preparation(
     })
 }
 
-/// Cross-owner save admission: combat history requires an admitted actor, and
-/// a prepared strike must reference a real melee-capable weapon. Losing carrying
-/// custody or changing quick slots during preparation is legal; release then
-/// rejects until the player restores or cancels the stance.
+/// Cross-owner save admission: a prepared strike retains the carried, usable
+/// weapon that existed at windup. Changing quick slots is legal; losing custody,
+/// breaking the weapon, or assigning it to another task is not.
 pub(crate) fn validate_loaded_combat_references(
     equipment_registry: &crate::equipment::EquipmentRegistry,
     state: &AppState,
@@ -240,6 +239,18 @@ pub(crate) fn validate_loaded_combat_references(
         .is_some_and(|definition| definition.melee_profile().is_some())
     {
         return Err("prepared strike references equipment without a melee profile");
+    }
+    if !state.logistics().is_equipment_carried(prepared.weapon) {
+        return Err("prepared melee weapon is not carried");
+    }
+    if weapon.condition() == Condition::FAILED {
+        return Err("prepared melee weapon is broken");
+    }
+    if weapon.created_at() > prepared.started_at.simulation_tick() {
+        return Err("prepared melee weapon did not exist at windup");
+    }
+    if equipment_occupancy(state, prepared.weapon).is_some() {
+        return Err("prepared melee weapon is occupied by another task");
     }
     Ok(())
 }
