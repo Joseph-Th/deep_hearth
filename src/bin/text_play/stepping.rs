@@ -690,7 +690,9 @@ impl Session {
         // These receipts belong to exclusive player work. An unrelated
         // mining settlement or scout event must not suppress a release.
         let work_reported = interrupt || simulation.block_excavation().is_some();
-        if let Some(mining) = simulation.mining_output() {
+        if let Some(mining) = simulation.mining_output()
+            && local_output_destination(&self.state, observer, mining.destination()).is_some()
+        {
             let material = self
                 .registries
                 .materials()
@@ -798,6 +800,23 @@ fn note_secondary(
         }
         Some(other) => note_text(output, "Use", Some(feedback::secondary(registries, other))),
         None => false,
+    }
+}
+
+/// Output receipts reveal only carried or exact-local custody at the
+/// observation frame. Use the same rule for every material settlement.
+fn local_output_destination(
+    state: &deep_hearth::AppState,
+    observer: VoxelCoord,
+    destination: deep_hearth::inventory::StockpileId,
+) -> Option<&'static str> {
+    let player = state.logistics().player()?;
+    if destination == player.carried_stockpile() {
+        Some("carried")
+    } else if state.logistics().stationary_stockpile_position(destination) == Some(observer) {
+        Some("local storage")
+    } else {
+        None
     }
 }
 

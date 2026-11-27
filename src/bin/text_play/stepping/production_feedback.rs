@@ -24,7 +24,6 @@ pub(super) fn completion(
     observer: VoxelCoord,
     receipt: &ProcessCompletion,
 ) -> Option<ProductionFeedback> {
-    let player = state.logistics().player()?;
     let topology = registries.process_topology(receipt.process())?;
     let (label, manual) = match topology.execution_family() {
         ProcessExecutionFamily::ManualCraft => ("Craft completed", true),
@@ -43,15 +42,9 @@ pub(super) fn completion(
     };
     let mut parcels = String::new();
     for landing in receipt.landings() {
-        let destination = if landing.destination() == player.carried_stockpile() {
-            "carried"
-        } else if state
-            .logistics()
-            .stationary_stockpile_position(landing.destination())
-            == Some(observer)
-        {
-            "local storage"
-        } else {
+        let Some(destination) =
+            super::local_output_destination(state, observer, landing.destination())
+        else {
             continue;
         };
         for parcel in landing.parcels() {

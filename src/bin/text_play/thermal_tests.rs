@@ -8,6 +8,10 @@ use deep_hearth::core::quantity::{Mass, Temperature};
 use deep_hearth::material::CommodityKey;
 
 fn workshop() -> Session {
+    workshop_with_tools(false)
+}
+
+fn workshop_with_tools(mining: bool) -> Session {
     let mut session = Session::new(24318).unwrap();
     // The same visible stone, timber and clay deposits used in ordinary opening play.
     for command in [
@@ -21,12 +25,29 @@ fn workshop() -> Session {
         "wait work",
         "gather 1 3000",
         "wait work",
+    ]
+    .into_iter()
+    .chain(
+        mining
+            .then_some(["gather 1 2000", "wait work"])
+            .into_iter()
+            .flatten(),
+    )
+    .chain([
         "w 20",
         "wait 10",
         "s 20",
         "wait 10",
         "gather 1 3000",
         "wait work",
+    ])
+    .chain(
+        mining
+            .then_some(["gather 1 2000", "wait work"])
+            .into_iter()
+            .flatten(),
+    )
+    .chain([
         "w 20",
         "wait 10",
         "s 20",
@@ -39,10 +60,24 @@ fn workshop() -> Session {
         "wait work",
         "craft 14",
         "wait work",
-        "assemble 61",
-        "build-heat 16",
-        "build-heat 17",
-    ] {
+    ])
+    .chain(
+        mining
+            .then_some([
+                "craft 7 2",
+                "wait work",
+                "craft 8 2",
+                "wait work",
+                "assemble 21",
+                "take 1",
+                "assemble 6",
+                "take 1",
+            ])
+            .into_iter()
+            .flatten(),
+    )
+    .chain(["assemble 61", "build-heat 16", "build-heat 17"])
+    {
         session
             .command(command)
             .unwrap_or_else(|error| panic!("{command}: {error}"));
@@ -259,6 +294,186 @@ fn unattended_stationary_output_is_announced_only_at_its_local_custody() {
             Ok(())
         );
     }
+}
+
+#[test]
+fn delayed_mining_output_is_announced_only_at_its_local_custody() {
+    use deep_hearth::content::{FORM_ORE, MATERIAL_COPPER, MINING_METHOD_HAND_PICK};
+    use deep_hearth::core::time::{ControlTick, SimulationTick};
+    use deep_hearth::logistics::validate_allocate_player_ground_stockpile;
+    use deep_hearth::mining::{MiningTargetRequest, resolve_mining_target, validate_start_mining};
+    use deep_hearth::simulation::advance_neutral_control_span;
+    use deep_hearth::spatial::{VoxelBounds, VoxelCoord};
+    use std::num::NonZeroU64;
+
+    let mut session = workshop_with_tools(true);
+    session.command("prospect copper 2 with 1").unwrap();
+    session.command("wait work").unwrap();
+    session.command("wait boundary").unwrap();
+    let origin = session.player_position().unwrap();
+    let destination = validate_allocate_player_ground_stockpile(
+        &session.registries,
+        &session.state,
+        Mass::from_milligrams(10_000_000),
+    )
+    .unwrap()
+    .commit(&mut session.state)
+    .unwrap();
+    let target = resolve_mining_target(
+        &session.state,
+        MiningTargetRequest::new(
+            VoxelBounds::new(
+                origin,
+                VoxelCoord::new(origin.x() + 1, origin.y() + 1, origin.z() + 1),
+            )
+            .unwrap(),
+            MATERIAL_COPPER,
+        ),
+    )
+    .unwrap();
+    let tool = project_player_inventory(&session.registries, &session.state)
+        .unwrap()
+        .equipment()[1]
+        .equipment();
+    let mass = Mass::from_milligrams(200_000);
+    let mut trial = serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot(&session))
+        .unwrap()
+        .into_state(&session.registries)
+        .unwrap();
+    let trial_job = validate_start_mining(
+        &session.registries,
+        &trial,
+        MINING_METHOD_HAND_PICK,
+        target,
+        destination,
+        tool,
+        mass,
+    )
+    .unwrap()
+    .commit(&mut trial)
+    .unwrap();
+    let duration = trial
+        .mining()
+        .get_job(trial_job)
+        .unwrap()
+        .completes_at()
+        .value()
+        - trial.tick().value();
+
+    let fuel = format!(
+        "feed-heat 1 {}",
+        stack_index(&session, CommodityKey::new(MATERIAL_WOOD, FORM_LOG))
+    );
+    session.command(&fuel).unwrap();
+    let firing = format!(
+        "heat 102 {} 1 1",
+        stack_index(
+            &session,
+            CommodityKey::new(MATERIAL_CLAY, FORM_GREENWARE_CROCK)
+        )
+    );
+    session.command(&firing).unwrap();
+    let due = session
+        .state
+        .production()
+        .jobs()
+        .next()
+        .unwrap()
+        .completes_at();
+    let mining_at =
+        ControlTick::from_simulation_tick(SimulationTick::new(due.value() - duration)).unwrap();
+    assert!(
+        mining_at >= session.state.control_tick(),
+        "firing must outlast mining"
+    );
+    while session.state.control_tick() < mining_at {
+        let budget =
+            NonZeroU64::new(mining_at.value() - session.state.control_tick().value()).unwrap();
+        let _ =
+            advance_neutral_control_span(&session.registries, &mut session.state, budget).unwrap();
+    }
+    let job = validate_start_mining(
+        &session.registries,
+        &session.state,
+        MINING_METHOD_HAND_PICK,
+        target,
+        destination,
+        tool,
+        mass,
+    )
+    .unwrap()
+    .commit(&mut session.state)
+    .unwrap();
+    assert_eq!(
+        session.state.mining().get_job(job).unwrap().completes_at(),
+        due
+    );
+    let mut report = String::new();
+    while session.state.player_work().active().is_some() {
+        report.push_str(&session.command("wait work").unwrap().0);
+    }
+    assert!(report.contains("Thermal batch completed:"), "{report}");
+    assert!(!report.contains("Mining produced:"), "{report}");
+    assert!(
+        session
+            .state
+            .mining()
+            .get_job(job)
+            .unwrap()
+            .is_awaiting_settlement()
+    );
+    assert_eq!(session.state.tick(), due);
+
+    let mut remote = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&snapshot(&session))
+            .unwrap()
+            .into_state(&session.registries)
+            .unwrap(),
+        seed: None,
+    };
+    let mut remote_report = remote.command("trek w 1 steady").unwrap().0;
+    assert_ne!(remote.player_position().unwrap(), origin, "{remote_report}");
+    let wait_for_output = |session: &mut Session| {
+        let mut output = String::new();
+        for _ in 0..10 {
+            if session.state.mining().get_job(job).is_none() {
+                return output;
+            }
+            output.push_str(&session.command("wait 720").unwrap().0);
+        }
+        panic!("deferred mining did not settle");
+    };
+    let local_report = wait_for_output(&mut session);
+    remote_report.push_str(&wait_for_output(&mut remote));
+    let ore = CommodityKey::new(MATERIAL_COPPER, FORM_ORE);
+    for state in [&session.state, &remote.state] {
+        assert_eq!(
+            state
+                .inventory()
+                .get_stockpile(destination)
+                .unwrap()
+                .get_mass(ore),
+            mass
+        );
+        assert_eq!(
+            deep_hearth::core::state::validate_loaded_state(&session.registries, state),
+            Ok(())
+        );
+    }
+    assert!(
+        local_report.contains("Mining produced: 200 g copper ore"),
+        "{local_report}"
+    );
+    assert_eq!(session.state.tick().value(), due.value() + 1);
+    assert!(
+        !remote_report.contains("Mining produced:"),
+        "{remote_report}"
+    );
+    assert!(
+        remote.state.tick().value() > due.value() + 1,
+        "unseen settlement must not interrupt a wait: {remote_report}"
+    );
 }
 
 #[test]
