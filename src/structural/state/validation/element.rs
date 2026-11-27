@@ -117,6 +117,15 @@ fn validate_element_embodied_trace(
     }
     validate_embodied_trace_material_state(materials, record.id, trace)?;
     validate_embodied_trace_identity(record, trace)?;
+    let temperature = trace.profile().temperature();
+    let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+    if temperature > maximum {
+        return Err(StructureValidationError::EmbodiedMaterialTooHot {
+            element: record.id,
+            temperature,
+            maximum,
+        });
+    }
     validate_embodied_trace_provenance(record.id, trace, current_tick)
 }
 

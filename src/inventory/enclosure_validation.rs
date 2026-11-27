@@ -85,6 +85,14 @@ fn validate_enclosure_trace(
                     error,
                 }
             }
+            PureMaterialTraceValidationError::TemperatureTooHigh {
+                temperature,
+                maximum,
+            } => StorageEnclosureValidationError::EmbodiedMaterialTooHot {
+                stockpile,
+                temperature,
+                maximum,
+            },
             PureMaterialTraceValidationError::ProvenanceInFuture {
                 latest_created_at,
                 current,

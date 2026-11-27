@@ -153,6 +153,17 @@ impl Display for EquipmentValidationError {
                 "equipment {} contains embodied matter with invalid particle-size state: {error}",
                 equipment.value()
             ),
+            Self::EmbodiedMaterialTooHot {
+                equipment,
+                temperature,
+                maximum,
+            } => write!(
+                formatter,
+                "equipment {} embodies material at {} mK above the hand-assembly limit of {} mK",
+                equipment.value(),
+                temperature.millikelvin(),
+                maximum.millikelvin()
+            ),
             Self::EmbodiedProvenanceInFuture {
                 equipment,
                 latest_created_at,

@@ -2282,6 +2282,48 @@ fn mounting_enclosed_stockpile_loads_contents_and_enclosure_body() {
 }
 
 #[test]
+fn trusted_load_rejects_hot_embodiment_in_storage_enclosure() {
+    let (registries, mut state, target, source, _) =
+        construction_fixture(Mass::from_milligrams(5_000_000));
+    validate_build_storage_enclosure(
+        &registries,
+        &state,
+        STORAGE_TIMBER_PROVISIONS_CHEST,
+        target,
+        source,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE.millikelvin();
+    encoded["state"]["systems"]["inventory"]["stockpiles"][target.value().to_string()]["enclosure"]
+        ["embodied_material"][0]["profile"]["temperature"] = serde_json::json!(maximum);
+    assert!(
+        serde_json::from_value::<LoadedSaveEnvelope>(encoded.clone())
+            .unwrap()
+            .into_state(&registries)
+            .is_ok()
+    );
+    encoded["state"]["systems"]["inventory"]["stockpiles"][target.value().to_string()]["enclosure"]
+        ["embodied_material"][0]["profile"]["temperature"] = serde_json::json!(maximum + 1);
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(encoded)
+            .unwrap()
+            .into_state(&registries),
+        Err(LoadError::InvalidState(
+            StateValidationError::StorageEnclosure(
+                StorageEnclosureValidationError::EmbodiedMaterialTooHot {
+                    stockpile: target,
+                    temperature: crate::core::quantity::Temperature::from_millikelvin(maximum + 1),
+                    maximum: crate::core::quantity::Temperature::from_millikelvin(maximum),
+                }
+            )
+        ))
+    );
+}
+
+#[test]
 fn load_replays_storage_definition_profile_and_embodied_matter() {
     let (registries, mut state, target, source, _) =
         construction_fixture(Mass::from_milligrams(5_000_000));

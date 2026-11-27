@@ -236,6 +236,14 @@ fn validate_embodied_trace(
                     error,
                 }
             }
+            PureMaterialTraceValidationError::TemperatureTooHigh {
+                temperature,
+                maximum,
+            } => EquipmentValidationError::EmbodiedMaterialTooHot {
+                equipment: record.id,
+                temperature,
+                maximum,
+            },
             PureMaterialTraceValidationError::ProvenanceInFuture {
                 latest_created_at,
                 current,

@@ -357,6 +357,35 @@ fn buildable_energy_store_requires_material_and_preserves_world_matter() {
 }
 
 #[test]
+fn trusted_load_rejects_hot_embodiment_in_energy_store() {
+    let (registries, state, store) = assembled_store_fixture();
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE.millikelvin();
+    encoded["state"]["systems"]["energy"]["records"][store.value().to_string()]["embodied_material"]
+        [0]["profile"]["temperature"] = serde_json::json!(maximum);
+    assert!(
+        serde_json::from_value::<LoadedSaveEnvelope>(encoded.clone())
+            .unwrap()
+            .into_state(&registries)
+            .is_ok()
+    );
+    encoded["state"]["systems"]["energy"]["records"][store.value().to_string()]["embodied_material"]
+        [0]["profile"]["temperature"] = serde_json::json!(maximum + 1);
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(encoded)
+            .unwrap()
+            .into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Energy(
+            EnergyValidationError::EmbodiedMaterialTooHot {
+                store,
+                temperature: crate::core::quantity::Temperature::from_millikelvin(maximum + 1),
+                maximum: crate::core::quantity::Temperature::from_millikelvin(maximum),
+            }
+        )))
+    );
+}
+
+#[test]
 fn obsolete_energy_store_embodied_mass_field_is_rejected_during_decode() {
     let (registries, state, store) = assembled_store_fixture();
     let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state))

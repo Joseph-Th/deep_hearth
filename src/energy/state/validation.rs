@@ -67,6 +67,11 @@ pub enum EnergyValidationError {
         store: EnergyStoreId,
         error: ParticleSizeStateError,
     },
+    EmbodiedMaterialTooHot {
+        store: EnergyStoreId,
+        temperature: crate::core::quantity::Temperature,
+        maximum: crate::core::quantity::Temperature,
+    },
     EmbodiedProvenanceInFuture {
         store: EnergyStoreId,
         latest_created_at: SimulationTick,
@@ -182,6 +187,17 @@ impl Display for EnergyValidationError {
                 formatter,
                 "energy store {} contains embodied matter with invalid particle-size state: {error}",
                 store.value()
+            ),
+            Self::EmbodiedMaterialTooHot {
+                store,
+                temperature,
+                maximum,
+            } => write!(
+                formatter,
+                "energy store {} embodies material at {} mK above the hand-assembly limit of {} mK",
+                store.value(),
+                temperature.millikelvin(),
+                maximum.millikelvin()
             ),
             Self::EmbodiedProvenanceInFuture {
                 store,

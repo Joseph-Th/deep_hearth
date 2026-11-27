@@ -230,7 +230,9 @@ pub(super) fn resolve_ledge_climb(
         (
             WorldPoint::new(foot.x_nanometers(), y, foot.z_nanometers()),
             HorizontalVelocity::ZERO,
-            VerticalVelocity::new(speed),
+            // The hand-controlled lift stops at the lip before horizontal
+            // transfer. Releasing there must not inherit a launch impulse.
+            VerticalVelocity::new(if y == ledge.top { 0 } else { speed }),
         )
     } else {
         let current = match ledge.axis {

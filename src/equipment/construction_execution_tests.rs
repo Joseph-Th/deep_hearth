@@ -54,6 +54,40 @@ fn unassembled_pick_fixture() -> (Registries, AppState, crate::inventory::Stockp
 }
 
 #[test]
+fn trusted_load_rejects_hot_embodiment_in_equipment() {
+    let (registries, mut state, source) = unassembled_pick_fixture();
+    let equipment = validate_assemble_equipment(&registries, &state, EQUIPMENT_STONE_PICK, source)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE.millikelvin();
+    let profile = &mut encoded["state"]["systems"]["equipment"]["records"]
+        [equipment.value().to_string()]["embodied_material"][0]["profile"];
+    profile["temperature"] = serde_json::json!(maximum);
+    assert!(
+        serde_json::from_value::<LoadedSaveEnvelope>(encoded.clone())
+            .unwrap()
+            .into_state(&registries)
+            .is_ok()
+    );
+    encoded["state"]["systems"]["equipment"]["records"][equipment.value().to_string()]["embodied_material"]
+        [0]["profile"]["temperature"] = serde_json::json!(maximum + 1);
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(encoded)
+            .unwrap()
+            .into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Equipment(
+            EquipmentValidationError::EmbodiedMaterialTooHot {
+                equipment,
+                temperature: crate::core::quantity::Temperature::from_millikelvin(maximum + 1),
+                maximum: crate::core::quantity::Temperature::from_millikelvin(maximum),
+            }
+        )))
+    );
+}
+
+#[test]
 fn equipment_assembly_cannot_complete_during_exclusive_manual_work() {
     let (registries, mut state, source) = unassembled_pick_fixture();
     let position = VoxelCoord::new(0, 0, 0);

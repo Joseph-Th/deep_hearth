@@ -70,6 +70,38 @@ fn structural_graph_damage_and_load_round_trip_exactly() {
 }
 
 #[test]
+fn trusted_load_rejects_hot_embodiment_in_structural_member() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let member = make_test_structural_element(&registries, &mut state, 0, 0, true);
+    activate_test_structural_element(&registries, &mut state, member);
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE.millikelvin();
+    encoded["state"]["systems"]["structures"]["elements"][member.value().to_string()]["embodied_material"]
+        [0]["profile"]["temperature"] = serde_json::json!(maximum);
+    assert!(
+        serde_json::from_value::<LoadedSaveEnvelope>(encoded.clone())
+            .unwrap()
+            .into_state(&registries)
+            .is_ok()
+    );
+    encoded["state"]["systems"]["structures"]["elements"][member.value().to_string()]["embodied_material"]
+        [0]["profile"]["temperature"] = serde_json::json!(maximum + 1);
+    assert_eq!(
+        serde_json::from_value::<LoadedSaveEnvelope>(encoded)
+            .unwrap()
+            .into_state(&registries),
+        Err(LoadError::InvalidState(StateValidationError::Structure(
+            StructureValidationError::EmbodiedMaterialTooHot {
+                element: member,
+                temperature: crate::core::quantity::Temperature::from_millikelvin(maximum + 1),
+                maximum: crate::core::quantity::Temperature::from_millikelvin(maximum),
+            }
+        )))
+    );
+}
+
+#[test]
 fn obsolete_structural_embodied_mass_field_is_rejected_during_decode() {
     let registries = build_registries();
     let mut state = AppState::new();

@@ -98,6 +98,11 @@ pub enum EquipmentValidationError {
         equipment: EquipmentId,
         error: ParticleSizeStateError,
     },
+    EmbodiedMaterialTooHot {
+        equipment: EquipmentId,
+        temperature: crate::core::quantity::Temperature,
+        maximum: crate::core::quantity::Temperature,
+    },
     EmbodiedProvenanceInFuture {
         equipment: EquipmentId,
         latest_created_at: SimulationTick,

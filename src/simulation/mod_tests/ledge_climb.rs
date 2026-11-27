@@ -118,6 +118,42 @@ fn ledge_climb_rejects_tall_wall_and_obstructed_lift() {
 }
 
 #[test]
+fn reaching_the_lip_finishes_the_lift_before_releasing_the_grip() {
+    let (registries, mut state, target) = ledge_world(2);
+    let climb = PlayerControlInput::new(east()).with_climb(true);
+    let start = state.logistics().player().unwrap().body().foot_position();
+    let lip = target.y() * NANOMETERS_PER_VOXEL;
+    for _ in 0..240 {
+        let _ = advance_control_tick_with_input(&registries, &mut state, climb).unwrap();
+        if state
+            .logistics()
+            .player()
+            .unwrap()
+            .body()
+            .foot_position()
+            .y_nanometers()
+            == lip
+        {
+            break;
+        }
+    }
+    let at_lip = state.logistics().player().unwrap().body();
+    assert_eq!(at_lip.foot_position().y_nanometers(), lip);
+    assert_eq!(at_lip.foot_position().x_nanometers(), start.x_nanometers());
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    assert_eq!(
+        at_lip.vertical_velocity().nanometers_per_second(),
+        0,
+        "the controlled lift ends at the lip, rather than storing an upward impulse"
+    );
+    let _ = advance_control_tick(&registries, &mut state).unwrap();
+    let released = state.logistics().player().unwrap().body();
+    assert!(released.foot_position().y_nanometers() < lip);
+    assert!(released.vertical_velocity().nanometers_per_second() < 0);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+}
+
+#[test]
 fn releasing_climb_resumes_gravity() {
     let (registries, mut state, _) = ledge_world(2);
     let start = state.logistics().player().unwrap().body().foot_position();

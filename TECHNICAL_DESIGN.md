@@ -561,7 +561,7 @@ or whether the caller is crossing an ownership boundary it does not control.
 - Known due simulation ticks may bound batched caller stepping, but do not authorize skipping intervening canonical control-tick semantics.
 - `advance_control_tick` is the high-frequency mutation surface. It advances the control clock and, when the admitted player's current footprint has generated chunk truth, applies the authoritative vertical body step; every 72nd call also executes one complete slow-simulation transaction. `advance_tick` invokes that slow transaction atomically only when no generated-world body requires intervening control steps.
 - `advance_neutral_control_span` respects a caller's nonzero control-frame budget: if the next slow boundary fits and the canonical slow-step guard allows it, advance to that boundary with its real outcome; otherwise execute one ordinary control frame. The same guard protects moving bodies, off-boundary work completion, pending direct actions, and other consequential control behavior. Callers observe each boundary before continuing.
-- Deliberate cardinal short-ledge climbing is a transient control input. Logistics projects a generated, fixed, reachable face with a clear vertical body sweep and supported horizontal landing at most two metres higher. Continuous climbing samples move at a load-scaled speed and charge load-scaled exertion through the same slow survival settlement as motion. Each sample revalidates contact, clear space and occupancy; release returns to ordinary gravity. No saved climb mode or extra movement clock exists. The jump-rise bound sums the authored discrete gravity and launch-speed trajectory at the exact carried load, without promising clearance or horizontal reach.
+- Deliberate cardinal short-ledge climbing is a transient control input. Logistics projects a generated, fixed, reachable face with a clear vertical body sweep and supported horizontal landing at most two metres higher. Continuous climbing samples move at a load-scaled speed and charge load-scaled exertion through the same slow survival settlement as motion. Each sample revalidates contact, clear space and occupancy. The controlled lift stops vertical motion at the ledge height before horizontal transfer; release returns to ordinary gravity without an extra upward impulse at that endpoint. No saved climb mode or extra movement clock exists. The jump-rise bound sums the authored discrete gravity and launch-speed trajectory at the exact carried load, without promising clearance or horizontal reach.
 - The slow transaction decides all fallible phase work against one pre-tick snapshot. Its application stage
   prechecks shared-owner revisions before mutation; after the completion transaction succeeds, remaining
   phase applies are infallible and assertion-backed before the clock advances.
@@ -2157,6 +2157,11 @@ Food and drink totals share the survival-owner revision budget using their respe
 maximum portions. Interrupted intake retains its entire debited quantity; historical combustion
 need not reference a store that still exists. These are necessary reachability bounds, not a
 reconstruction of a complete operation history.
+
+Persisted equipment, energy stores, storage enclosures, and structural members retain the
+temperature of their original assembly material traces. Trusted loading rejects traces above
+the same hand-contact temperature limit used by live assembly, upgrades, and maintenance;
+the exact limit is admissible. This check does not alter the save shape or cool existing matter.
 
 Cross-owner validation covers, as applicable:
 

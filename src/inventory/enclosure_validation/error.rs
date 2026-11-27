@@ -58,6 +58,11 @@ pub enum StorageEnclosureValidationError {
         stockpile: StockpileId,
         error: ParticleSizeStateError,
     },
+    EmbodiedMaterialTooHot {
+        stockpile: StockpileId,
+        temperature: crate::core::quantity::Temperature,
+        maximum: crate::core::quantity::Temperature,
+    },
     EmbodiedProvenanceInFuture {
         stockpile: StockpileId,
         latest_created_at: SimulationTick,
@@ -173,6 +178,17 @@ impl Display for StorageEnclosureValidationError {
                 "stockpile {} enclosure has invalid construction particle state: {error}",
                 stockpile.value()
             ),
+            Self::EmbodiedMaterialTooHot {
+                stockpile,
+                temperature,
+                maximum,
+            } => write!(
+                formatter,
+                "stockpile {} enclosure embodies material at {} mK above the hand-assembly limit of {} mK",
+                stockpile.value(),
+                temperature.millikelvin(),
+                maximum.millikelvin()
+            ),
             Self::EmbodiedProvenanceInFuture {
                 stockpile,
                 latest_created_at,
@@ -242,6 +258,7 @@ impl Error for StorageEnclosureValidationError {
             | Self::ZeroEmbodiedTrace { .. }
             | Self::UnknownEmbodiedCommodity { .. }
             | Self::ImpureEmbodiedMaterial { .. }
+            | Self::EmbodiedMaterialTooHot { .. }
             | Self::EmbodiedProvenanceInFuture { .. }
             | Self::EmbodiedProvenanceAfterConstruction { .. }
             | Self::EmbodiedTraceMassOverflow { .. }

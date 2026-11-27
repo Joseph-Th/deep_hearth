@@ -132,6 +132,17 @@ impl Display for StructureValidationError {
                 "structural element {} has invalid embodied particle-size state: {error}",
                 element.value()
             ),
+            Self::EmbodiedMaterialTooHot {
+                element,
+                temperature,
+                maximum,
+            } => write!(
+                formatter,
+                "structural element {} embodies material at {} mK above the hand-assembly limit of {} mK",
+                element.value(),
+                temperature.millikelvin(),
+                maximum.millikelvin()
+            ),
             Self::EmbodiedProvenanceInFuture {
                 element,
                 latest_created_at,

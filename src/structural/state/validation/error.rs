@@ -91,6 +91,11 @@ pub enum StructureValidationError {
         element: StructuralElementId,
         error: ParticleSizeStateError,
     },
+    EmbodiedMaterialTooHot {
+        element: StructuralElementId,
+        temperature: crate::core::quantity::Temperature,
+        maximum: crate::core::quantity::Temperature,
+    },
     EmbodiedProvenanceInFuture {
         element: StructuralElementId,
         latest_created_at: SimulationTick,

@@ -37,6 +37,10 @@ pub(crate) enum PureMaterialTraceValidationError {
     },
     InvalidPhaseState(MaterialPhaseStateError),
     InvalidParticleSizeState(ParticleSizeStateError),
+    TemperatureTooHigh {
+        temperature: Temperature,
+        maximum: Temperature,
+    },
     ProvenanceInFuture {
         latest_created_at: SimulationTick,
         current: SimulationTick,
@@ -92,6 +96,14 @@ impl ConsumedMaterialTrace {
             self.profile.particle_size_distribution(),
         )
         .map_err(PureMaterialTraceValidationError::InvalidParticleSizeState)?;
+        let maximum = crate::material::MAX_HAND_SAFE_ASSEMBLY_TEMPERATURE;
+        let temperature = self.profile.temperature();
+        if temperature > maximum {
+            return Err(PureMaterialTraceValidationError::TemperatureTooHigh {
+                temperature,
+                maximum,
+            });
+        }
         let latest_created_at = self.provenance.latest_created_at();
         if latest_created_at > current {
             return Err(PureMaterialTraceValidationError::ProvenanceInFuture {

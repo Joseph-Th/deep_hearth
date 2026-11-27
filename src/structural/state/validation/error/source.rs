@@ -26,6 +26,7 @@ impl Error for StructureValidationError {
             | Self::UnsupportedEmbodiedComposition { .. }
             | Self::UnknownEmbodiedCommodity { .. }
             | Self::UnconsolidatedEmbodiedForm { .. }
+            | Self::EmbodiedMaterialTooHot { .. }
             | Self::EmbodiedProvenanceInFuture { .. }
             | Self::SelfWeightOverflow { .. }
             | Self::SelfWeightMismatch { .. }
