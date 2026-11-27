@@ -90,6 +90,39 @@ fn death_cache_landing(
     None
 }
 
+fn resolve_respawn_body(
+    registries: &Registries,
+    state: &AppState,
+    player: PlayerLogisticsRecord,
+    death_cache_position: Option<VoxelCoord>,
+) -> Option<(PlayerBodyState, bool)> {
+    if let Some(body) = grounded_respawn_body_at(registries, state, player.respawn_position()) {
+        return Some((body, true));
+    }
+
+    // Preserve a clear, supported corpse's exact stance and position.
+    let body = player.body();
+    let corpse = body.with_motion(
+        body.foot_position(),
+        HorizontalVelocity::ZERO,
+        VerticalVelocity::ZERO,
+        body.stance(),
+    );
+    let corpse_is_safe = respawn_body_is_clear(registries, state, corpse)
+        && (!state.world().has_generated_terrain_at(player.position())
+            || body_has_fixed_placement_floor(registries, state, corpse));
+    corpse_is_safe
+        .then_some(corpse)
+        .or_else(|| nearby_supported_respawn_body(registries, state, player.respawn_position()))
+        .or_else(|| nearby_supported_respawn_body(registries, state, player.position()))
+        .or_else(|| {
+            let landing = death_cache_position.filter(|&at| at != player.position())?;
+            grounded_respawn_body_at(registries, state, landing)
+                .or_else(|| nearby_supported_respawn_body(registries, state, landing))
+        })
+        .map(|body| (body, false))
+}
+
 fn nearby_supported_respawn_body(
     registries: &Registries,
     state: &AppState,
@@ -369,31 +402,10 @@ pub(crate) fn validate_player_logistics_respawn(
         .checked_add(1)
         .filter(|_| state.can_spend_logistics_revisions(1))
         .ok_or(PlayerLogisticsRespawnError::LogisticsRevisionExhausted)?;
-    let (respawn_body, used_spawn_anchor) = if let Some(body) =
-        grounded_respawn_body_at(registries, state, player.respawn_position())
-    {
-        (body, true)
-    } else {
-        // Keep the exact corpse position if it remains clear and, where
-        // generated terrain owns the floor, supported by fixed geometry
-        // under the exact voxel that may also receive the death cache.
-        let body = player.body();
-        let corpse = body.with_motion(
-            body.foot_position(),
-            HorizontalVelocity::ZERO,
-            VerticalVelocity::ZERO,
-            body.stance(),
-        );
-        let corpse_is_safe = respawn_body_is_clear(registries, state, corpse)
-            && (!state.world().has_generated_terrain_at(player.position())
-                || body_has_fixed_placement_floor(registries, state, corpse));
-        let body = corpse_is_safe
-            .then_some(corpse)
-            .or_else(|| nearby_supported_respawn_body(registries, state, player.respawn_position()))
-            .or_else(|| nearby_supported_respawn_body(registries, state, player.position()))
+    let landing = death_cache_landing(registries, state, player.position());
+    let (respawn_body, used_spawn_anchor) =
+        resolve_respawn_body(registries, state, player, landing)
             .ok_or(PlayerLogisticsRespawnError::NoSafeRespawnLocation)?;
-        (body, false)
-    };
     Ok(ValidatedPlayerLogisticsRespawn {
         expected_tick: state.tick(),
         expected_logistics_revision,
@@ -406,8 +418,7 @@ pub(crate) fn validate_player_logistics_respawn(
         death_position: player.position(),
         // If no unoccupied supported landing can be found, keep the cargo
         // recoverable at the safe respawn point.
-        death_cache_position: death_cache_landing(registries, state, player.position())
-            .unwrap_or_else(|| respawn_body.voxel_position()),
+        death_cache_position: landing.unwrap_or_else(|| respawn_body.voxel_position()),
         death_cache: player.carried_stockpile(),
         dropped_equipment: state.logistics().carried_equipment().collect(),
         carried,

@@ -235,9 +235,10 @@ fn map_logistics_error(error: InitializePlayerLogisticsError) -> PlayerAdmission
 /// An obstructed or unsupported generated anchor falls back to the death-body location when
 /// that location is grounded. For an airborne generated-world death, a supported standing cell
 /// directly above the anchor takes priority over neighboring collision-free, grounded positions
-/// around the original anchor and then the death cache; the lower anchor column is an additional
-/// fallback before rejecting the respawn if no safe location exists. Ungenerated authored
-/// opening positions have no terrain floor authority; a clear death body remains a valid fallback.
+/// around the original anchor, followed by the corpse's neighborhood. When these fail, the
+/// physical death-cache landing and its neighborhood are considered before rejecting recovery.
+/// Ungenerated authored opening positions have no terrain floor authority; a clear death body
+/// remains a valid fallback.
 pub fn validate_respawn_player(
     registries: &Registries,
     state: &AppState,

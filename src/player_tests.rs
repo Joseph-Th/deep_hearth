@@ -580,7 +580,7 @@ fn void_death_recovers_carried_matter_at_supported_respawn_instead_of_in_open_ai
 }
 
 #[test]
-fn generated_world_respawn_rejects_when_every_nearby_standing_site_lacks_support() {
+fn generated_world_respawn_uses_the_death_cache_landing_or_rejects_without_a_floor() {
     use crate::core::state::validate_loaded_state;
 
     let registries = build_registries();
@@ -622,16 +622,66 @@ fn generated_world_respawn_rejects_when_every_nearby_standing_site_lacks_support
             }
         }
     }
+    let landing = VoxelCoord::new(death.x(), floor_y - 3, death.z());
+    set_generated_block_for_test(registries.world(), &mut state, landing, BlockStateId::AIR);
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(landing.x(), landing.y() - 1, landing.z()),
+        BLOCK_STATE_STONE,
+    );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
-    let before = state.clone();
+    assert!(crate::logistics::project_player_standing_space(
+        &registries,
+        &state,
+        landing,
+    ));
+
+    let mut void = state.clone();
+    for y in WORLD_MIN_Y..=landing.y() {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut void,
+            VoxelCoord::new(death.x(), y, death.z()),
+            BlockStateId::AIR,
+        );
+    }
+    assert_eq!(validate_loaded_state(&registries, &void), Ok(()));
+    let before = void.clone();
     assert_eq!(
-        validate_respawn_player(&registries, &state),
+        validate_respawn_player(&registries, &void),
         Err(PlayerRespawnError::NoSafeRespawnLocation)
     );
+    assert_eq!(void, before, "rejected respawn cannot allocate new custody");
+
+    let before = calculate_matter_accounting(&state).unwrap().total();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let recovery = validate_respawn_player(&registries, &state)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert!(!recovery.used_spawn_anchor());
+    assert_eq!(recovery.position(), landing);
+    assert_eq!(recovery.death_position(), death);
+    assert_eq!(recovery.death_cache_position(), landing);
+    assert!(crate::logistics::player_body_has_fixed_floor(
+        &registries,
+        &state
+    ));
+    assert_eq!(calculate_matter_accounting(&state).unwrap().total(), before);
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
     assert_eq!(
-        state, before,
-        "rejected respawn cannot allocate new custody"
+        validate_respawn_player(&registries, &replay)
+            .unwrap()
+            .commit(&mut replay)
+            .unwrap(),
+        recovery,
     );
+    assert_eq!(state, replay);
 }
 
 #[test]
