@@ -357,8 +357,17 @@ fn full_metabolic_reserves_do_not_block_a_needed_dietary_serving() {
         .unwrap()
         .commit(&mut state)
         .unwrap();
-    let full_reserve_mass = physiology.nutrition().full_reserve_food_mass().milligrams();
-    let expected_refill = Mass::from_milligrams(full_reserve_mass.div_ceil(2));
+    let nutrition = physiology.nutrition();
+    let decay = nutrition.decay_ppm_per_tick();
+    let full_reserve_mass = nutrition.full_reserve_food_mass().milligrams();
+    let duration = physiology
+        .direct_consumption()
+        .meal_duration(stack_meal.total_mass())
+        .unwrap()
+        .value();
+    let target_gain = 500_000 + u64::from(decay) * (duration - 1);
+    let expected_refill =
+        Mass::from_milligrams((target_gain * full_reserve_mass).div_ceil(1_000_000));
     assert_eq!(stack_meal.total_mass(), expected_refill);
     assert_eq!(
         state.inventory().get_lot(berries).map(|lot| lot.mass()),
@@ -368,22 +377,33 @@ fn full_metabolic_reserves_do_not_block_a_needed_dietary_serving() {
                 .unwrap()
         )
     );
-    assert_eq!(
-        stack_meal.nutrition_offered().get(FoodCategory::Fruit),
-        500_000
-    );
+    assert!(u64::from(stack_meal.nutrition_offered().get(FoodCategory::Fruit)) >= target_gain);
     while state.tick() < stack_meal.completes_at() {
         let _ = advance_tick(&registries, &mut state).unwrap();
     }
-    assert!(
-        state
-            .survival()
-            .player()
-            .unwrap()
-            .nutrition()
-            .get(FoodCategory::Fruit)
-            > 500_000
+    let player = state.survival().player().unwrap();
+    assert_eq!(
+        player.metabolic_energy(),
+        physiology.maximum_metabolic_energy()
     );
+    // Intake caps before the same tick's dietary decay, so this is the
+    // highest reserve a completed meal can leave in ordinary play.
+    assert_eq!(
+        player.nutrition().get(FoodCategory::Fruit),
+        1_000_000 - decay
+    );
+    let remaining = project_material_stacks(&registries, &state, source).unwrap();
+    let berries = remaining
+        .iter()
+        .find(|stack| stack.commodity().material() == MATERIAL_BERRIES)
+        .unwrap();
+    let before = state.clone();
+    assert!(
+        validate_eat_stack_to_full(&registries, &state, berries)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(state, before);
 }
 
 /// Generated physical-custody setup shared by the locomotion/consumption boundary tests.
@@ -903,7 +923,7 @@ fn default_meal_replenishes_diet_when_calories_are_only_slightly_low() {
     let stack = project_material_stacks(&registries, &initial, source)
         .unwrap_or_else(|error| panic!("combined-reserve projection failed: {error}"))
         .remove(0);
-    let expected = Mass::from_milligrams(250_000);
+    let initial_refill = Mass::from_milligrams(250_000);
 
     let mut calorie_state = initial.clone();
     let calorie_outcome = validate_eat_stack_to_metabolic_target(
@@ -916,7 +936,7 @@ fn default_meal_replenishes_diet_when_calories_are_only_slightly_low() {
     .unwrap_or_else(|| panic!("calorie deficit needs a meal"))
     .commit(&mut calorie_state)
     .unwrap_or_else(|error| panic!("calorie meal commit failed: {error}"));
-    assert!(calorie_outcome.total_mass() < expected);
+    assert!(calorie_outcome.total_mass() < initial_refill);
 
     let mut stack_state = initial;
     let stack_outcome = validate_eat_stack_to_full(&registries, &stack_state, &stack)
@@ -924,23 +944,19 @@ fn default_meal_replenishes_diet_when_calories_are_only_slightly_low() {
         .unwrap_or_else(|| panic!("combined reserves need a meal"))
         .commit(&mut stack_state)
         .unwrap_or_else(|error| panic!("stack default meal commit failed: {error}"));
-    assert_eq!(stack_outcome.total_mass(), expected);
-    assert_eq!(
-        stack_outcome.nutrition_offered().get(FoodCategory::Fruit),
-        500_000
-    );
+    assert!(stack_outcome.total_mass() > initial_refill);
     while stack_state.tick() < stack_outcome.completes_at() {
         let _ = advance_tick(&registries, &mut stack_state)
             .unwrap_or_else(|error| panic!("stack meal completion failed: {error}"));
     }
-    assert!(
-        stack_state
-            .survival()
-            .player()
-            .unwrap_or_else(|| panic!("completed food-use player disappeared"))
-            .nutrition()
-            .get(FoodCategory::Fruit)
-            > 500_000
+    let player = stack_state.survival().player().unwrap();
+    assert_eq!(
+        player.metabolic_energy(),
+        physiology.maximum_metabolic_energy()
+    );
+    assert_eq!(
+        player.nutrition().get(FoodCategory::Fruit),
+        1_000_000 - physiology.nutrition().decay_ppm_per_tick()
     );
 }
 

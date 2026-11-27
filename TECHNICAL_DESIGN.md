@@ -1895,7 +1895,10 @@ of grain nutrition, while energy and hydration still depend on the actual food. 
 dietary reserves lose 600,000 ppm per authored day in built-in physiology.
 Ordinary selected-food use requests the larger of the meal required for full metabolic reserve
 and the serving needed to refill the selected dietary category, bounded by the legal serving and
-current physical stock. An explicitly requested metabolic target remains strictly energy-oriented.
+current physical stock. The dietary portion replaces decay during the meal and targets the highest
+post-tick reserve (full minus one tick of decay), so repeating use immediately after a successful
+refill does not consume an unnecessary serving. An explicitly requested metabolic target remains
+strictly energy-oriented.
 Meals composed from visible stack portions coalesce repeated physical lot slices before exact eating
 admission, so repeated selections
 consume their combined mass or reject overdraw without losing custody.

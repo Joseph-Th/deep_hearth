@@ -81,34 +81,55 @@ impl Error for EatStackToTargetError {
     }
 }
 
-/// Minimum represented portion for the selected food's outstanding dietary reserve.
+/// Portion toward the highest dietary reserve attainable after tick-end decay.
 fn selected_food_dietary_refill_mass(
     registries: &Registries,
     state: &AppState,
-    commodity: CommodityKey,
+    stack: &MaterialStackProjection,
 ) -> Option<Mass> {
-    let food = registries.survival().get_food(commodity)?;
+    let food = registries.survival().get_food(stack.commodity())?;
     let player = state.survival().player()?;
-    let missing_ppm = crate::survival::NUTRITION_PARTS_PER_MILLION
-        .checked_sub(player.nutrition().get(food.category()))?;
-    if missing_ppm == 0 {
+    let physiology = registries.survival().physiology();
+    let nutrition = physiology.nutrition();
+    let direct = physiology.direct_consumption();
+    let full = crate::survival::NUTRITION_PARTS_PER_MILLION;
+    let decay = nutrition.decay_ppm_per_tick();
+    let current = player.nutrition().get(food.category());
+    // Intake is capped before decay. Immediately after a successful meal,
+    // this unavoidable one-tick deficit must not trigger another serving.
+    if current >= full - decay {
         return None;
     }
-    let physiology = registries.survival().physiology();
-    let numerator = u128::from(physiology.nutrition().full_reserve_food_mass().milligrams())
-        * u128::from(missing_ppm);
-    let required = numerator
-        .div_ceil(u128::from(crate::survival::NUTRITION_PARTS_PER_MILLION))
-        .max(u128::from(
-            physiology
-                .direct_consumption()
-                .minimum_meal_mass()
-                .milligrams(),
-        ));
-    Some(Mass::from_milligrams(
-        u64::try_from(required)
-            .unwrap_or_else(|_| unreachable!("dietary refill cannot exceed full-reserve mass")),
-    ))
+    let missing = u128::from(full - current);
+    let full_mass = u128::from(nutrition.full_reserve_food_mass().milligrams());
+    let maximum = stack.mass().min(direct.maximum_meal_mass());
+    let minimum = direct.minimum_meal_mass().min(maximum);
+    // Nutrition offers above one full reserve are capped by the intake owner.
+    let limit = maximum.min(nutrition.full_reserve_food_mass().max(minimum));
+    let mass_for_gain = |gain: u128| {
+        Mass::from_milligrams(
+            u64::try_from((gain.min(u128::from(full)) * full_mass).div_ceil(u128::from(full)))
+                .expect("bounded dietary offer fits authored full-reserve mass"),
+        )
+        .max(minimum)
+        .min(limit)
+    };
+    let mut portion = mass_for_gain(missing);
+    loop {
+        if portion == limit {
+            return Some(portion);
+        }
+        let duration = direct.meal_duration(portion)?;
+        // The final decay determines the attainable ceiling; all earlier
+        // decays must be replaced by the offered nutrition.
+        let gain = missing + u128::from(decay) * u128::from(duration.value() - 1);
+        let next = mass_for_gain(gain);
+        if next == portion {
+            return Some(portion);
+        }
+        debug_assert!(next > portion);
+        portion = next;
+    }
 }
 
 /// Familiar stack-level food action from exactly the selected physical cohort.
@@ -154,8 +175,8 @@ fn validate_eat_stack_to_full_with_mode(
         Err(EatStackToTargetError::InsufficientStackMass { available, .. }) => available,
         Err(error) => return Err(error),
     };
-    let dietary_mass = selected_food_dietary_refill_mass(registries, state, stack.commodity())
-        .unwrap_or(Mass::ZERO);
+    let dietary_mass =
+        selected_food_dietary_refill_mass(registries, state, stack).unwrap_or(Mass::ZERO);
     let portion = metabolic_mass
         .max(dietary_mass)
         .min(stack.mass())
