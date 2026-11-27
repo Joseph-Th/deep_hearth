@@ -275,7 +275,7 @@ pub(super) fn secondary(registries: &Registries, outcome: &SecondaryActionOutcom
             format!("{count} storage choices match. Use 'storage' and 'place-store'.")
         }
         Action::AmbiguousLocalCombustionStores { count } => {
-            format!("{count} local fires match. Use 'fire' and 'feed-fire'.")
+            format!("{count} local fuel-burning stores match. Use 'fire' and 'feed-fire' for campfires, or 'thermal' and 'feed-heat' for workshop hearths.")
         }
         Action::AmbiguousCombustionDefinitions { count } => {
             format!("{count} fire construction choices match. Use 'fire'.")

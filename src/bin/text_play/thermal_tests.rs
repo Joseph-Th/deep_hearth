@@ -108,6 +108,93 @@ fn fueled_workshop() -> Session {
 }
 
 #[test]
+fn ambiguous_campfire_and_kiln_use_lists_both_real_fueling_commands() {
+    use deep_hearth::content::{ENERGY_STONE_PIT_KILN_HEARTH, ENERGY_STONE_RING_CAMPFIRE};
+    use deep_hearth::core::quantity::Energy;
+
+    let mut session = Session::new(24318).unwrap();
+    for command in [
+        "e 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "e 20",
+        "wait 10",
+        "gather 1 3000",
+        "wait work",
+        "w 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "gather 1 3000",
+        "wait work",
+        "w 20",
+        "wait 10",
+        "s 20",
+        "wait 10",
+        "gather 1 1000",
+        "wait work",
+        "craft 61",
+        "wait work",
+        "build-fire",
+        "build-heat 16",
+    ] {
+        session
+            .command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    let fuel = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    let fire = session
+        .state
+        .available_local_energy_stores()
+        .find(|store| store.definition() == ENERGY_STONE_RING_CAMPFIRE)
+        .unwrap()
+        .id();
+    let hearth = session
+        .state
+        .available_local_energy_stores()
+        .find(|store| store.definition() == ENERGY_STONE_PIT_KILN_HEARTH)
+        .unwrap()
+        .id();
+    let stack = stack_index(&session, fuel);
+    session.command(&format!("select {stack}")).unwrap();
+    let report = session.command("use up").unwrap().0;
+    assert!(report.contains("2 local"), "{report}");
+    assert!(
+        report.contains("feed-fire") && report.contains("feed-heat"),
+        "{report}"
+    );
+    assert_eq!(
+        session.state.energy().get_store(fire).unwrap().stored(),
+        Energy::ZERO
+    );
+    assert_eq!(
+        session.state.energy().get_store(hearth).unwrap().stored(),
+        Energy::ZERO
+    );
+    assert!(session.command("fire").unwrap().0.contains("feed-fire 1"));
+    assert!(
+        session
+            .command("thermal")
+            .unwrap()
+            .0
+            .contains("feed-heat 1")
+    );
+    session
+        .command(&format!("feed-fire 1 {}", stack_index(&session, fuel)))
+        .unwrap();
+    session
+        .command(&format!("feed-heat 1 {}", stack_index(&session, fuel)))
+        .unwrap();
+    assert!(session.state.energy().get_store(fire).unwrap().stored() > Energy::ZERO);
+    assert!(session.state.energy().get_store(hearth).unwrap().stored() > Energy::ZERO);
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
+        Ok(())
+    );
+}
+
+#[test]
 fn unattended_completion_does_not_hide_a_simultaneous_gathering_receipt() {
     use deep_hearth::core::time::{ControlTick, SimulationTick};
     use deep_hearth::simulation::advance_neutral_control_span;
