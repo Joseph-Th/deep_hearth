@@ -1125,9 +1125,11 @@ fn dropped_material_is_visibly_distinct_from_natural_supply_and_conserves_matter
     let (look, _) = session.command("look").unwrap();
     assert!(look.contains("  berries here at (9,2,8)"), "{look}");
     assert!(
-        look.contains("  berries (loose drop) here at (9,2,8)"),
+        look.contains("  berries (loose drop) here at (9,2,8) | 0.125 g | "),
         "{look}"
     );
+    assert!(look.contains("self-pickup delay active"), "{look}");
+    assert_eq!(look.matches("berries (loose drop)").count(), 1, "{look}");
 
     // This is the genuine delayed control-rate pickup, not a synthesized
     // transcript. It must stop the wait at the first eligible frame and say
@@ -1151,6 +1153,8 @@ fn dropped_material_is_visibly_distinct_from_natural_supply_and_conserves_matter
     );
     let (inventory, _) = session.command("inventory").unwrap();
     assert!(inventory.contains("berries | 0.125 g"), "{inventory}");
+    let (look, _) = session.command("look").unwrap();
+    assert!(!look.contains("berries (loose drop)"), "{look}");
     assert_eq!(
         deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
         Ok(())

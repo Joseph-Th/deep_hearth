@@ -1,4 +1,4 @@
-//! Exact-local player-created world-drop presentation over conserved surface custody.
+//! Exact-local loose-drop presentation over conserved surface custody.
 
 use crate::core::quantity::{Mass, Temperature};
 use crate::core::state::AppState;
@@ -7,11 +7,13 @@ use crate::material::{CommodityKey, MaterialComposition, ParticleSizeRange};
 use crate::registry::Registries;
 use crate::spatial::VoxelCoord;
 
-use super::material_drop::PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS;
-use super::pickup::automatic_surface_drop_pickup_preflight_ready;
+use super::pickup::{
+    automatic_pickup_available_at, automatic_surface_drop_pickup_preflight_ready,
+    requires_deliberate_pickup,
+};
 use super::{SurfaceResourceId, SurfaceResourceKind};
 
-/// Familiar read model for one player-created loose material parcel at the player's exact voxel.
+/// Read model for one loose material parcel at the player's exact voxel.
 ///
 /// Surface custody remains authoritative. Natural opportunities are deliberately absent from this
 /// projection so an adapter cannot accidentally render forage or in-place resources as dropped
@@ -30,6 +32,7 @@ pub struct PlayerWorldDropProjection {
     automatic_pickup_available_at: Option<ControlTick>,
     automatic_pickup_ready: bool,
     automatic_pickup_preflight_ready: bool,
+    requires_deliberate_pickup: bool,
 }
 
 impl PlayerWorldDropProjection {
@@ -73,7 +76,7 @@ impl PlayerWorldDropProjection {
         self.ambient_storage_age_parts
     }
 
-    /// Control tick when a deliberate player drop becomes eligible for automatic recovery.
+    /// Control tick when the self-pickup delay ends, not a guarantee of recovery.
     ///
     /// `None` means this drop has no self-pickup delay, as with excavation output.
     #[must_use]
@@ -98,9 +101,15 @@ impl PlayerWorldDropProjection {
     pub const fn automatic_pickup_preflight_ready(&self) -> bool {
         self.automatic_pickup_preflight_ready
     }
+
+    /// Whether this parcel is loaded through deliberate gathering rather than automatic pickup.
+    #[must_use]
+    pub const fn requires_deliberate_pickup(&self) -> bool {
+        self.requires_deliberate_pickup
+    }
 }
 
-/// Projects only available player-created drops at the admitted player's exact voxel.
+/// Projects only available loose drops at the admitted player's exact voxel.
 ///
 /// This is a presentation surface, not pickup authorization. Automatic transfer remains owned by
 /// the control-tick pickup path and deliberate natural-resource gathering remains a separate verb.
@@ -114,14 +123,7 @@ pub fn available_player_world_drops<'a>(
         .available_surface_resources()
         .filter(|resource| resource.kind() == SurfaceResourceKind::Drop)
         .map(move |resource| {
-            let automatic_pickup_available_at =
-                resource.automatic_pickup_delay_started_at().map(|started| {
-                    started
-                        .checked_add_steps(PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS)
-                        .unwrap_or_else(|| {
-                            panic!("validated surface drop pickup delay exceeds control clock")
-                        })
-                });
+            let automatic_pickup_available_at = automatic_pickup_available_at(resource);
             PlayerWorldDropProjection {
                 resource: resource.id(),
                 position: resource.position(),
@@ -140,6 +142,7 @@ pub fn available_player_world_drops<'a>(
                 automatic_pickup_preflight_ready: automatic_surface_drop_pickup_preflight_ready(
                     registries, state, resource,
                 ),
+                requires_deliberate_pickup: requires_deliberate_pickup(resource),
                 automatic_pickup_available_at,
             }
         })

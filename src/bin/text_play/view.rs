@@ -282,10 +282,18 @@ fn adjacent_footing_report(registries: &Registries, state: &AppState) -> String 
 
 fn surface_sight_report(registries: &Registries, state: &AppState, output: &mut String) {
     let from = state.logistics().player().map(|player| player.position());
-    let nearby =
-        AdjacentSurfaceResource::visible_in_generated_world(registries, state).collect::<Vec<_>>();
+    let has_local_drops = provisions::loose_drop_report(registries, state, output);
+    let nearby = AdjacentSurfaceResource::visible_in_generated_world(registries, state)
+        .filter(|source| {
+            source.kind() != SurfaceResourceKind::Drop || Some(source.position()) != from
+        })
+        .collect::<Vec<_>>();
     if nearby.is_empty() {
-        output.push_str("No surface resources in immediate sight.\n");
+        output.push_str(if has_local_drops {
+            "No other surface resources in immediate sight.\n"
+        } else {
+            "No surface resources in immediate sight.\n"
+        });
     } else {
         output.push_str("Visible surface resources (exact quantities require standing at them):\n");
         for source in nearby {

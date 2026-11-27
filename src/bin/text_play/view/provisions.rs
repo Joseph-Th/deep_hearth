@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use deep_hearth::core::quantity::Volume;
 use deep_hearth::surface::{
     PlayerSurfaceGatheringOption, SurfaceGatheringError,
-    assess_player_surface_gathering_option_admission,
+    assess_player_surface_gathering_option_admission, available_player_world_drops,
 };
 use deep_hearth::survival::{LocalDrinkSource, available_local_drink_sources};
 use deep_hearth::world::assess_player_local_natural_spring;
@@ -70,6 +70,39 @@ fn spring_supply_label(surface: Volume, resting_hydration_loss_per_tick: Volume)
         milliliters(surface),
         runway_label(Some(surface.microliters() / rate)),
     )
+}
+
+/// Exact-local custody remains inspectable even when darkness conceals the sightline.
+pub(super) fn loose_drop_report(
+    registries: &Registries,
+    state: &AppState,
+    output: &mut String,
+) -> bool {
+    let mut found = false;
+    for drop in available_player_world_drops(registries, state) {
+        if !found {
+            output.push_str("Loose drops at your position:\n");
+            found = true;
+        }
+        let pickup = if drop.requires_deliberate_pickup() {
+            "load with gather"
+        } else if drop.automatic_pickup_preflight_ready() {
+            "automatic pickup currently eligible"
+        } else if !drop.automatic_pickup_ready() {
+            "self-pickup delay active"
+        } else {
+            "automatic pickup currently blocked"
+        };
+        let _ = writeln!(
+            output,
+            "  {} (loose drop) here at {} | {} g | {} C | {pickup}",
+            name(registries, drop.commodity()),
+            super::pos(drop.position()),
+            grams(drop.mass()),
+            celsius(drop.temperature()),
+        );
+    }
+    found
 }
 
 pub fn gather_options(

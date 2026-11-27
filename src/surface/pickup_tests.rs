@@ -47,6 +47,13 @@ fn timber_pile_requires_deliberate_loading_and_preserves_remainder() {
         .unwrap()
         .carried_stockpile();
     let before = calculate_matter_accounting(&state).unwrap().total();
+    let projection = super::available_player_world_drops(&registries, &state)
+        .next()
+        .unwrap();
+    assert_eq!(projection.resource(), source);
+    assert_eq!(projection.mass(), mass);
+    assert!(projection.requires_deliberate_pickup());
+    assert!(!projection.automatic_pickup_preflight_ready());
     assert!(
         advance_control_tick(&registries, &mut state)
             .unwrap()

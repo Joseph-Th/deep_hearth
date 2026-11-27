@@ -115,6 +115,17 @@ pub(super) fn requires_deliberate_pickup(resource: &SurfaceResourceRecord) -> bo
         && resource.commodity() == CommodityKey::new(MATERIAL_WOOD, FORM_LOG)
 }
 
+/// The self-pickup schedule is shared by control admission and local observation.
+pub(super) fn automatic_pickup_available_at(
+    resource: &SurfaceResourceRecord,
+) -> Option<ControlTick> {
+    resource.automatic_pickup_delay_started_at().map(|started| {
+        started
+            .checked_add_steps(PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS)
+            .expect("trusted surface pickup delay fits the control clock")
+    })
+}
+
 fn pickup_eligible_at(state: &AppState, resource: &SurfaceResourceRecord, at: ControlTick) -> bool {
     // Automatic pickup is bare-handed. A hot parcel must remain on the ground
     // rather than entering a pack just because the actor walks through it.
@@ -123,18 +134,7 @@ fn pickup_eligible_at(state: &AppState, resource: &SurfaceResourceRecord, at: Co
     !requires_deliberate_pickup(resource)
         && !resource_reserved_for_player_gathering(state, resource.id())
         && resource.temperature() <= MAX_HAND_SAFE_MATERIAL_TEMPERATURE
-        && resource
-            .automatic_pickup_delay_started_at()
-            .is_none_or(|started| {
-                started
-                    .checked_add_steps(PLAYER_MATERIAL_DROP_PICKUP_DELAY_CONTROL_TICKS)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "runtime invariant broken: surface pickup delay exceeds control clock"
-                        )
-                    })
-                    <= at
-            })
+        && automatic_pickup_available_at(resource).is_none_or(|eligible| at >= eligible)
 }
 
 /// Read-only pickup preflight using the same inventory admission as control-time pickup.
