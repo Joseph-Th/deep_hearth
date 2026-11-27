@@ -65,7 +65,7 @@ pub fn missing_construction_material(
     )
 }
 
-pub fn unsafe_construction_material(
+pub fn unsafe_handling_material(
     registries: &Registries,
     commodity: deep_hearth::material::CommodityKey,
     temperature: deep_hearth::core::quantity::Temperature,

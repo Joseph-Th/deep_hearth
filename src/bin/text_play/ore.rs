@@ -1,5 +1,6 @@
 //! Canonical hand ore-breaking and sorting over selected carried physical cohorts.
 
+use std::error::Error;
 use std::fmt::Write as _;
 
 use super::{Session, activity, quantity, stepping, view};
@@ -7,9 +8,11 @@ use super::{Session, activity, quantity, stepping, view};
 use deep_hearth::core::quantity::Mass;
 use deep_hearth::inventory::MaterialStackProjection;
 use deep_hearth::logistics::project_player_inventory;
+use deep_hearth::material::FormId;
 use deep_hearth::ore_processing::{
-    resolve_manual_comminution_from_stack, resolve_manual_constituent_separation_from_stack,
-    validate_start_manual_comminution, validate_start_manual_constituent_separation,
+    ManualOrePhysicsError, resolve_manual_comminution_from_stack,
+    resolve_manual_constituent_separation_from_stack, validate_start_manual_comminution,
+    validate_start_manual_constituent_separation,
 };
 use deep_hearth::production::{ProcessId, ProductionJobId};
 use deep_hearth::{AppState, Registries};
@@ -19,6 +22,51 @@ fn process_name(registries: &Registries, process: ProcessId) -> &str {
         .production()
         .get_process(process)
         .map_or("unidentified process", |definition| definition.name())
+}
+
+fn append_candidate_stacks(
+    output: &mut String,
+    registries: &Registries,
+    stacks: &[MaterialStackProjection],
+    input_form: FormId,
+) {
+    for (index, stack) in stacks.iter().enumerate() {
+        if stack.commodity().form() == input_form {
+            let _ = writeln!(
+                output,
+                "     Candidate stack {}: {} | {} g | {} C",
+                index + 1,
+                registries
+                    .materials()
+                    .commodity_name(stack.commodity())
+                    .unwrap_or("unidentified material"),
+                view::grams(stack.mass()),
+                view::celsius(stack.temperature()),
+            );
+        }
+    }
+}
+
+fn resolution_blocker(registries: &Registries, error: impl Error + 'static) -> String {
+    let mut cause: Option<&(dyn Error + 'static)> = Some(&error);
+    while let Some(current) = cause {
+        if let Some(ManualOrePhysicsError::InputTooHot {
+            commodity,
+            temperature,
+            maximum,
+        }) = current.downcast_ref::<ManualOrePhysicsError>()
+        {
+            return view::unsafe_handling_material(
+                registries,
+                *commodity,
+                *temperature,
+                *maximum,
+                "hand ore processing",
+            );
+        }
+        cause = current.source();
+    }
+    error.to_string()
 }
 
 pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, String> {
@@ -39,20 +87,7 @@ pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, Stri
                 .map_or("unidentified form", |form| form.name()),
             view::grams(definition.max_batch_mass()),
         );
-        for (index, stack) in stacks.iter().enumerate() {
-            if stack.commodity().form() == definition.input_form() {
-                let _ = writeln!(
-                    output,
-                    "     Candidate stack {}: {} | {} g",
-                    index + 1,
-                    registries
-                        .materials()
-                        .commodity_name(stack.commodity())
-                        .unwrap_or("unidentified material"),
-                    view::grams(stack.mass()),
-                );
-            }
-        }
+        append_candidate_stacks(&mut output, registries, stacks, definition.input_form());
     }
     for definition in registries
         .ore_processing()
@@ -70,22 +105,9 @@ pub fn catalog(registries: &Registries, state: &AppState) -> Result<String, Stri
             view::grams(definition.operating_profile().max_batch_mass()),
             definition.target_recovery_ppm() / 10_000,
         );
-        for (index, stack) in stacks.iter().enumerate() {
-            if stack.commodity().form() == definition.input_form() {
-                let _ = writeln!(
-                    output,
-                    "     Candidate stack {}: {} | {} g",
-                    index + 1,
-                    registries
-                        .materials()
-                        .commodity_name(stack.commodity())
-                        .unwrap_or("unidentified material"),
-                    view::grams(stack.mass()),
-                );
-            }
-        }
+        append_candidate_stacks(&mut output, registries, stacks, definition.input_form());
     }
-    output.push_str("Candidate stacks may still fail current composition, particle-size, capacity, or work admission. Outputs enter carried inventory.\n");
+    output.push_str("Candidate stacks may still fail current composition, particle-size, temperature, capacity, or work admission. Outputs enter carried inventory.\n");
     Ok(output)
 }
 
@@ -149,7 +171,7 @@ fn start_batch(
     {
         let resolved =
             resolve_manual_comminution_from_stack(registries, state, process, stack, mass)
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| resolution_blocker(registries, error))?;
         let duration = resolved.duration().value();
         let validated =
             validate_start_manual_comminution(registries, state, &resolved, source, source)
@@ -164,7 +186,7 @@ fn start_batch(
         let resolved = resolve_manual_constituent_separation_from_stack(
             registries, state, process, stack, mass,
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| resolution_blocker(registries, error))?;
         let duration = resolved.duration().value();
         let validated = validate_start_manual_constituent_separation(
             registries, state, &resolved, source, source, source,
@@ -235,3 +257,7 @@ impl Session {
         Ok(output)
     }
 }
+
+#[cfg(test)]
+#[path = "ore_tests.rs"]
+mod tests;

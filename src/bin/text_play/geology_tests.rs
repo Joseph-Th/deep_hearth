@@ -218,10 +218,20 @@ fn mined_copper_ore_can_be_broken_and_sorted_into_finite_native_metal() {
         "mined mixed ore should be distinguishable without exposing its exact assay: {inventory}"
     );
     let first = carried_stack(&session, "copper ore");
+    let before_catalog = snapshot(&session);
     let catalog = run(&mut session, "ore");
     assert!(catalog.contains("15. "));
     assert!(catalog.contains("13. "));
-    assert!(catalog.contains(&format!("Candidate stack {first}: copper ore")));
+    let projected = project_player_inventory(&session.registries, &session.state).unwrap();
+    let temperature = super::view::celsius(projected.carried().stacks()[first - 1].temperature());
+    assert!(
+        catalog.contains(&format!(
+            "Candidate stack {first}: copper ore | 200 g | {temperature} C"
+        )),
+        "{catalog}"
+    );
+    assert!(catalog.contains("temperature"));
+    assert_eq!(snapshot(&session), before_catalog);
     let prior = snapshot(&session);
     for bad in [
         "dress 0 1 100",

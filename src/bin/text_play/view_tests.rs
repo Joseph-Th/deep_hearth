@@ -273,7 +273,7 @@ fn celsius_safety_labels_retain_sign_and_millidegrees_at_the_limit() {
     }
 
     let session = super::super::Session::new(24318).unwrap();
-    let unsafe_message = super::unsafe_construction_material(
+    let unsafe_message = super::unsafe_handling_material(
         &session.registries,
         CommodityKey::new(MATERIAL_WOOD, FORM_LOG),
         Temperature::from_millikelvin(333_151),

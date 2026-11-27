@@ -74,7 +74,7 @@ pub(super) fn assembly_blocker(registries: &Registries, error: EnergyStoreAssemb
             commodity,
             temperature,
             maximum,
-        } => view::unsafe_construction_material(
+        } => view::unsafe_handling_material(
             registries,
             commodity,
             temperature,
@@ -118,13 +118,7 @@ pub(super) fn fuel_blocker(registries: &Registries, error: CombustionError) -> S
             fuel,
             temperature,
             maximum,
-        } => view::unsafe_construction_material(
-            registries,
-            fuel,
-            temperature,
-            maximum,
-            "hand fueling",
-        ),
+        } => view::unsafe_handling_material(registries, fuel, temperature, maximum, "hand fueling"),
         other => other.to_string(),
     }
 }

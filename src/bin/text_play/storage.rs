@@ -42,7 +42,7 @@ pub(super) fn placement_blocker(
                 temperature,
                 maximum,
             },
-        ) => view::unsafe_construction_material(
+        ) => view::unsafe_handling_material(
             registries,
             commodity,
             temperature,
