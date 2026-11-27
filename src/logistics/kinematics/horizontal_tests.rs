@@ -37,6 +37,16 @@ fn checked_horizontal_sweep_stops_at_the_first_wall_on_every_cardinal_axis() {
                 "body must stop flush with the contacted face"
             );
             assert_eq!(
+                sweep_horizontal_axis(body, locomotion, expected, axis, &wall).unwrap(),
+                (expected, true),
+                "an exact-face arrival must report contact immediately"
+            );
+            assert_eq!(
+                sweep_horizontal_axis(body, locomotion, expected - sign, axis, &wall).unwrap(),
+                (expected - sign, false),
+                "a body still one nanometer clear must not collide"
+            );
+            assert_eq!(
                 sweep_horizontal_axis(body, locomotion, proposed, axis, &|_| false).unwrap(),
                 (proposed, false),
                 "open space must not clip motion"

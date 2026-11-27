@@ -269,8 +269,7 @@ fn crossed_floor_y(
         .checked_sub(1)
         .ok_or(PlayerBodyMotionError::CoordinateOverflow)?
         .div_euclid(NANOMETERS_PER_VOXEL);
-    let mut floor = None;
-    for y in min_y..=max_y {
+    for y in (min_y..=max_y).rev() {
         let top = y
             .checked_add(1)
             .and_then(|value| value.checked_mul(NANOMETERS_PER_VOXEL))
@@ -281,12 +280,12 @@ fn crossed_floor_y(
         for z in min_z..=max_z {
             for x in min_x..=max_x {
                 if blocked(VoxelCoord::new(x, y, z)) {
-                    floor = Some(floor.map_or(top, |existing: i64| existing.max(top)));
+                    return Ok(Some(top));
                 }
             }
         }
     }
-    Ok(floor)
+    Ok(None)
 }
 
 pub(super) fn crossed_ceiling_y(
@@ -296,27 +295,26 @@ pub(super) fn crossed_ceiling_y(
     proposed_top: i64,
 ) -> Result<Option<i64>, PlayerBodyMotionError> {
     let min_y = current_top.div_euclid(NANOMETERS_PER_VOXEL);
-    let max_y = proposed_top
-        .checked_sub(1)
-        .ok_or(PlayerBodyMotionError::CoordinateOverflow)?
-        .div_euclid(NANOMETERS_PER_VOXEL);
-    let mut ceiling = None;
+    // Include exact upper-face contact so ascent loses its momentum on the
+    // contact frame, not on a later sample. Clearance-only callers can still
+    // accept a destination flush with the face.
+    let max_y = proposed_top.div_euclid(NANOMETERS_PER_VOXEL);
     for y in min_y..=max_y {
         let bottom = y
             .checked_mul(NANOMETERS_PER_VOXEL)
             .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
-        if bottom < current_top || bottom >= proposed_top {
+        if bottom < current_top || bottom > proposed_top {
             continue;
         }
         for z in min_z..=max_z {
             for x in min_x..=max_x {
                 if blocked(VoxelCoord::new(x, y, z)) {
-                    ceiling = Some(ceiling.map_or(bottom, |existing: i64| existing.min(bottom)));
+                    return Ok(Some(bottom));
                 }
             }
         }
     }
-    Ok(ceiling)
+    Ok(None)
 }
 
 /// Long player-owned attention cannot use a moving temple resident as its

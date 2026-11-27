@@ -1,4 +1,4 @@
-//! Landing at an exact voxel face must have the same support as standing there.
+//! Exact voxel-face contacts and vertical traversal contracts.
 
 use super::*;
 use crate::content::{BLOCK_STATE_STONE, build_registries};
@@ -203,4 +203,79 @@ fn exact_face_landing_settles_vertical_velocity_on_the_live_control_tick() {
         0
     );
     assert!(player_body_is_grounded(&registries, &state));
+}
+
+#[test]
+fn exact_ceiling_contact_settles_upward_velocity_on_the_live_control_tick() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let spawn = VoxelCoord::new(5, 30, 5);
+    validate_generate_chunk(
+        &registries,
+        &state,
+        WorldGenerationSeed::new(41),
+        ChunkCoord::containing(spawn),
+        BLOCK_STATE_STONE,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    for (y, block) in [
+        (29, BLOCK_STATE_STONE),
+        (30, BlockStateId::AIR),
+        (31, BlockStateId::AIR),
+        (32, BLOCK_STATE_STONE),
+    ] {
+        set_generated_block_for_test(
+            registries.world(),
+            &mut state,
+            VoxelCoord::new(5, y, 5),
+            block,
+        );
+    }
+    validate_admit_player(&registries, &state, spawn)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let player = state.logistics().player().copied().unwrap();
+    let before = player.body();
+    let locomotion = registries.survival().physiology().locomotion();
+    let height = length_nanometers(body_height(locomotion, before.stance())).unwrap();
+    let maximum_feet = 32 * NANOMETERS_PER_VOXEL - height;
+    let gravity = gravity_velocity_delta(&registries).unwrap();
+    let displacement = integrate_velocity(gravity).unwrap();
+    let raised = before.with_motion(
+        WorldPoint::new(
+            before.foot_position().x_nanometers(),
+            maximum_feet - displacement,
+            before.foot_position().z_nanometers(),
+        ),
+        before.horizontal_velocity(),
+        VerticalVelocity::new(2 * gravity),
+        before.stance(),
+    );
+    let revision = state.logistics().revision();
+    state.logistics_state_mut().apply_player_body_motion(
+        revision,
+        revision + 1,
+        before,
+        raised,
+        player.locomotion_exertion(),
+        player.pending_fall_vitality_loss_ppm(),
+    );
+    assert_eq!(
+        crate::core::state::validate_loaded_state(&registries, &state),
+        Ok(())
+    );
+
+    let motion = advance_control_tick(&registries, &mut state)
+        .unwrap()
+        .body_motion()
+        .unwrap();
+    assert_eq!(motion.after().foot_position().y_nanometers(), maximum_feet);
+    assert!(!motion.grounded());
+    assert_eq!(
+        motion.after().vertical_velocity().nanometers_per_second(),
+        0
+    );
 }

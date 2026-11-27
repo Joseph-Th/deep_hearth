@@ -48,7 +48,7 @@ pub fn project_player_level_approach(
     }
     if !matches!(
         sweep_horizontal_axis(body, locomotion, proposed, axis, &blocked),
-        Ok((_, false))
+        Ok((resolved, _)) if resolved == proposed
     ) {
         return false;
     }
@@ -113,6 +113,7 @@ pub(super) enum HorizontalAxis {
 
 /// Both horizontal axes use the same checked leading-face sweep. The perpendicular body
 /// footprint is examined at each crossed cell, so a faster input cannot tunnel through a wall.
+/// The contact flag includes exact-face arrival even when no displacement is clipped.
 pub(super) fn sweep_horizontal_axis(
     body: PlayerBodyState,
     locomotion: LocomotionDefinition,
@@ -144,10 +145,7 @@ pub(super) fn sweep_horizontal_axis(
             .checked_add(upper)
             .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
         let first = current_leading.div_euclid(NANOMETERS_PER_VOXEL);
-        let last = proposed_leading
-            .checked_sub(1)
-            .ok_or(PlayerBodyMotionError::CoordinateOverflow)?
-            .div_euclid(NANOMETERS_PER_VOXEL);
+        let last = proposed_leading.div_euclid(NANOMETERS_PER_VOXEL);
         for cell in first..=last {
             if column_blocks(axis, cell, min_y, max_y, min_other, max_other, blocked) {
                 let wall = cell
@@ -167,7 +165,8 @@ pub(super) fn sweep_horizontal_axis(
         let proposed_leading = proposed
             .checked_sub(lower)
             .ok_or(PlayerBodyMotionError::CoordinateOverflow)?;
-        let first = proposed_leading.div_euclid(NANOMETERS_PER_VOXEL);
+        let first = proposed_leading.div_euclid(NANOMETERS_PER_VOXEL)
+            - i64::from(proposed_leading.rem_euclid(NANOMETERS_PER_VOXEL) == 0);
         let last = current_leading
             .checked_sub(1)
             .ok_or(PlayerBodyMotionError::CoordinateOverflow)?

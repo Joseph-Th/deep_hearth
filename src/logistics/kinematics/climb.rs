@@ -156,11 +156,10 @@ fn clear_approach(
     else {
         return false;
     };
-    if !matches!(
-        crossed_ceiling_y(&blocked, bounds, current_top, proposed_top),
-        Ok(None)
-    ) {
-        return false;
+    match crossed_ceiling_y(&blocked, bounds, current_top, proposed_top) {
+        Ok(None) => {}
+        Ok(Some(face)) if face == proposed_top => {}
+        _ => return false,
     }
     let raised = body.with_motion(
         WorldPoint::new(foot.x_nanometers(), ledge.top, foot.z_nanometers()),
@@ -171,7 +170,7 @@ fn clear_approach(
     if first_player_body_collision_where(raised, locomotion, blocked).is_some()
         || !matches!(
             sweep_horizontal_axis(raised, locomotion, ledge.axis_end, ledge.axis, &blocked),
-            Ok((_, false))
+            Ok((resolved, _)) if resolved == ledge.axis_end
         )
     {
         return false;

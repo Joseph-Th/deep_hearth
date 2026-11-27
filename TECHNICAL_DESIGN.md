@@ -79,6 +79,9 @@ slow-simulation transaction used by `advance_tick`.
 Active horizontal input charges load- and displacement-dependent locomotion exertion on both grounded
 and airborne control frames. Neutral momentum does not charge active effort; the separate jump impulse
 is charged once on a grounded launch, not on held input during ascent.
+Exact voxel-face arrivals settle the corresponding momentum on the contact frame, including when
+the full proposed displacement fits exactly. Read-only traversal clearance still accepts a flush
+destination if no displacement is clipped.
 
 `advance_tick(registries, state)` is the atomic headless/process helper for exactly one next slow boundary only
 when no generated-world player body has active control-rate physics. It fails with
