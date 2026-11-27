@@ -5,7 +5,8 @@ use crate::core::quantity::{Energy, Volume};
 use crate::core::state::AppState;
 use crate::core::time::ControlTick;
 use crate::equipment::{
-    EquipmentId, EquipmentOperationConditionOutcome, MeleeWeaponProfile, equipment_occupancy,
+    EquipmentId, EquipmentOperationConditionOutcome, EquipmentRegistry, MeleeWeaponProfile,
+    equipment_occupancy,
 };
 use crate::kobolds::{
     KoboldRole, STAGGERED_BELOW_PPM, close_contact_at, opening_balance, record_close_contact,
@@ -116,7 +117,34 @@ impl CombatState {
     pub(crate) fn admits_contact_at(&self, at: ControlTick) -> bool {
         self.last_attack_at.is_some_and(|last| last >= at)
     }
-    pub(crate) fn validate(&self, now: ControlTick) -> Result<(), &'static str> {
+    /// Recovery persists after equipment is changed or dismantled, so match
+    /// authored attack families rather than the currently selected weapon.
+    fn admits_attack_history(&self, equipment: &EquipmentRegistry, at: ControlTick) -> bool {
+        let revisions = self
+            .revision
+            .saturating_sub(u64::from(self.prepared.is_some()));
+        if revisions == 0 {
+            return false;
+        }
+        let recovery = self.recovery_control_ticks;
+        recovery == SHOVE_RECOVERY_TICKS
+            || equipment
+                .definitions()
+                .filter_map(|definition| definition.melee_profile())
+                .any(|profile| {
+                    let ordinary = profile.recovery_control_ticks();
+                    recovery == ordinary
+                        || (revisions >= 2
+                            && at.value() >= preparation::PREPARATION_TICKS
+                            && recovery == ordinary + preparation::PREPARED_RECOVERY_BONUS_TICKS)
+                })
+    }
+
+    pub(crate) fn validate(
+        &self,
+        equipment: &EquipmentRegistry,
+        now: ControlTick,
+    ) -> Result<(), &'static str> {
         // An active windup always owes one more combat revision, whether the
         // player deliberately cancels, releases the strike, or dies. A forged
         // saved revision at u64::MAX would panic during fatal cleanup.
@@ -129,9 +157,9 @@ impl CombatState {
             // Before the first attack, preparation/cancellation is the only revision path.
             || (self.last_attack_at.is_none()
                 && (self.revision % 2 == 1) != self.prepared.is_some())
-            || (self.last_attack_at.is_some()
-                && !(8..=60 + preparation::PREPARED_RECOVERY_BONUS_TICKS)
-                    .contains(&self.recovery_control_ticks))
+            || self
+                .last_attack_at
+                .is_some_and(|at| !self.admits_attack_history(equipment, at))
         {
             return Err("combat recovery record conflicts with control history");
         }

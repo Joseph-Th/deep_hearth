@@ -1607,33 +1607,65 @@ fn prepared_melee_stance_excludes_meals_and_drinks_and_stales_both_intakes() {
 }
 
 #[test]
-fn trusted_combat_recovery_accepts_the_authored_prepared_maximum_only() {
-    let registries = build_registries();
-    let mut state = AppState::new();
-    validate_admit_player(&registries, &state, VoxelCoord::new(0, 0, 0))
+fn trusted_combat_recovery_requires_reachable_authored_attack_history() {
+    use crate::content::EQUIPMENT_WOODEN_CLUB;
+    use crate::simulation::advance_control_tick;
+
+    let (registries, mut state, _, _, tip) = opening_contact_world_after(0);
+    validate_admit_player(&registries, &state, tip)
         .unwrap()
         .commit(&mut state)
         .unwrap();
-    state.combat_state_mut().apply_attack(
-        0,
-        ControlTick::ZERO,
-        60 + preparation::PREPARED_RECOVERY_BONUS_TICKS,
+    let club = arm_player(&registries, &mut state, EQUIPMENT_WOODEN_CLUB);
+    let _ = validate_prepare_primitive_strike(&registries, &state, east())
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    for _ in 0..preparation::PREPARATION_TICKS {
+        let _ = advance_control_tick(&registries, &mut state).unwrap();
+    }
+    let _ = validate_release_prepared_strike(&registries, &state, east())
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let profile = registries
+        .equipment()
+        .get_equipment(state.equipment().get_equipment(club).unwrap().definition())
+        .unwrap()
+        .melee_profile()
+        .unwrap();
+    assert_eq!(
+        state.combat().recovery_control_ticks,
+        profile.recovery_control_ticks() + preparation::PREPARED_RECOVERY_BONUS_TICKS
     );
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
-    let encoded = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
-    let loaded = serde_json::from_slice::<LoadedSaveEnvelope>(&encoded)
+    let base = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    let restored = serde_json::from_value::<LoadedSaveEnvelope>(base.clone())
         .unwrap()
         .into_state(&registries)
         .unwrap();
-    assert_eq!(loaded, state);
+    assert_eq!(restored, state);
 
-    state.combat_state_mut().recovery_control_ticks += 1;
-    assert_eq!(
-        validate_loaded_state(&registries, &state),
-        Err(crate::core::state::StateValidationError::Combat(
-            "combat recovery record conflicts with control history"
-        ))
-    );
+    // A duration inside the broad profile bounds is not necessarily authored.
+    // A prepared strike also cannot precede its windup or omit its revision.
+    for (key, value) in [
+        ("recovery_control_ticks", serde_json::json!(9)),
+        ("last_attack_at", serde_json::json!(0)),
+        ("revision", serde_json::json!(1)),
+    ] {
+        let mut forged = base.clone();
+        forged["state"]["systems"]["combat"][key] = value;
+        let loaded = serde_json::from_value::<LoadedSaveEnvelope>(forged).unwrap();
+        assert_eq!(
+            loaded.into_state(&registries),
+            Err(crate::persistence::LoadError::InvalidState(
+                crate::core::state::StateValidationError::Combat(
+                    "combat recovery record conflicts with control history"
+                )
+            )),
+            "accepted forged {key}"
+        );
+    }
 }
 
 #[test]

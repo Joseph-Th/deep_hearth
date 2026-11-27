@@ -84,7 +84,7 @@ pub fn validate_loaded_state(
     validate_loaded_kobolds(registries, state).map_err(StateValidationError::Kobolds)?;
     state
         .combat()
-        .validate(state.control_tick())
+        .validate(registries.equipment(), state.control_tick())
         .map_err(StateValidationError::Combat)?;
     validate_loaded_inventory(
         registries.materials(),
