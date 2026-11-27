@@ -1,4 +1,4 @@
-//! Pointed inspection using the same terrain and structure decisions as action admission.
+//! Pointed inspection using the same tree, terrain and structure decisions as action admission.
 
 use std::fmt::Write as _;
 
@@ -8,7 +8,8 @@ use deep_hearth::logistics::{PlayerActiveSelection, project_player_standing_spac
 use deep_hearth::material::CommodityKey;
 use deep_hearth::simulation::{
     SecondaryActionOutcome, project_pointed_structural_break_target,
-    project_pointed_timber_cover_target, validate_pointed_terrain_excavation,
+    project_pointed_timber_cover_target, project_pointed_tree_break_target,
+    validate_pointed_terrain_excavation,
 };
 use deep_hearth::spatial::{ViewDirection, VoxelCoord};
 use deep_hearth::world::raycast_player_block;
@@ -17,6 +18,31 @@ use deep_hearth::{AppState, Registries};
 use super::{grams, pos, runway_label};
 
 pub(super) fn pointed_report(
+    registries: &Registries,
+    state: &AppState,
+    aim: ViewDirection,
+    output: &mut String,
+) {
+    if let Some(root) = project_pointed_tree_break_target(registries, state, aim) {
+        let _ = writeln!(
+            output,
+            "Break target: standing tree at {}. Felling requires a selected carried chopping tool and a same-level adjacent position.",
+            pos(root),
+        );
+    } else {
+        terrain_and_structure_preview(registries, state, aim, output);
+    }
+    if state.logistics().active_selection()
+        == Some(PlayerActiveSelection::material(CommodityKey::new(
+            MATERIAL_WOOD,
+            FORM_BOARD,
+        )))
+    {
+        output.push_str(&timber_cover_preview(registries, state, aim));
+    }
+}
+
+fn terrain_and_structure_preview(
     registries: &Registries,
     state: &AppState,
     aim: ViewDirection,
@@ -51,14 +77,6 @@ pub(super) fn pointed_report(
         }
     }
     output.push_str(&structural_break_preview(registries, state, aim));
-    if state.logistics().active_selection()
-        == Some(PlayerActiveSelection::material(CommodityKey::new(
-            MATERIAL_WOOD,
-            FORM_BOARD,
-        )))
-    {
-        output.push_str(&timber_cover_preview(registries, state, aim));
-    }
 }
 
 fn excavation_preview(registries: &Registries, state: &AppState, aim: ViewDirection) -> String {

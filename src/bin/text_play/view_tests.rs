@@ -125,6 +125,72 @@ fn condition_report_matches_survival_owner_reserve_percentages() {
 }
 
 #[test]
+fn pointed_inspection_identifies_tree_selected_by_primary_break() {
+    use deep_hearth::content::BLOCK_STATE_STONE;
+    use deep_hearth::logistics::project_player_standing_space;
+    use deep_hearth::player::validate_admit_player;
+    use deep_hearth::simulation::{
+        PlayerDirectControlInput, PrimaryActionOutcome, PrimaryControlIntent,
+        advance_control_tick_with_direct_input,
+    };
+    use deep_hearth::spatial::{ViewDirection, VoxelCoord};
+    use deep_hearth::world::{
+        ChunkCoord, TreeFellingStartError, WorldGenerationSeed, validate_generate_chunk,
+    };
+    use deep_hearth::{AppState, build_registries};
+
+    let registries = build_registries();
+    let (mut state, root, position) = (1..500)
+        .find_map(|seed| {
+            let mut state = AppState::new();
+            validate_generate_chunk(
+                &registries,
+                &state,
+                WorldGenerationSeed::new(seed),
+                ChunkCoord::new(0, 0),
+                BLOCK_STATE_STONE,
+            )
+            .ok()?
+            .commit(&mut state)
+            .ok()?;
+            let root = state.world().trees().next()?.root();
+            let position = VoxelCoord::new(root.x() - 1, root.y(), root.z());
+            project_player_standing_space(&registries, &state, position)
+                .then_some((state, root, position))
+        })
+        .expect("seeded tree with clear adjacent standing space");
+    validate_admit_player(&registries, &state, position)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let aim = ViewDirection::new(1_000_000, 0, 0).unwrap();
+    let readout = super::look(&registries, &state, Some(aim));
+    assert!(
+        readout.contains(&format!(
+            "Break target: standing tree at {}",
+            super::pos(root)
+        )),
+        "{readout}"
+    );
+    assert!(
+        !readout.contains("No targetable block within reach"),
+        "{readout}"
+    );
+    let outcome = advance_control_tick_with_direct_input(
+        &registries,
+        &mut state,
+        PlayerDirectControlInput::NEUTRAL.with_primary(PrimaryControlIntent::break_target(aim)),
+    )
+    .unwrap();
+    assert_eq!(
+        outcome.primary_action(),
+        Some(&PrimaryActionOutcome::TreeFellingRejected(
+            TreeFellingStartError::NoActiveChoppingTool
+        ))
+    );
+}
+
+#[test]
 fn shelter_preview_uses_the_same_standing_clearance_and_grounding_as_player_motion() {
     use deep_hearth::logistics::project_player_standing_space;
     use deep_hearth::world::BlockStateId;

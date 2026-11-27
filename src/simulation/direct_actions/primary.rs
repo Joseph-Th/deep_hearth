@@ -101,7 +101,7 @@ pub(super) fn attempt_pending_primary_break(
         panic!("runtime invariant broken: trusted buffered structural break has invalid direction")
     });
     // Standing-tree priority is the same at initial selection and settlement.
-    if super::pointed_tree_root(registries, state, direction).is_some() {
+    if super::project_pointed_tree_break_target(registries, state, direction).is_some() {
         return Some(PrimaryActionOutcome::BufferedContextChanged);
     }
     match resolve_direct_structural_target(registries, state, direction) {
@@ -131,7 +131,7 @@ fn attempt_primary_break(
         // A new direction, hand selection or actor location replaces the stale request.
         let _ = take_player_pending_primary_break(state);
     }
-    if let Some(root) = super::pointed_tree_root(registries, state, direction) {
+    if let Some(root) = super::project_pointed_tree_break_target(registries, state, direction) {
         return match crate::world::validate_start_player_tree_felling(registries, state, root) {
             Ok(validated) => {
                 PrimaryActionOutcome::TreeFellingStarted(validated.commit(state).unwrap_or_else(

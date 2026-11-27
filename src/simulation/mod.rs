@@ -10,6 +10,7 @@ mod player_death;
 mod slow_tick;
 
 pub use control::{PlayerDirectControlInput, PrimaryControlIntent, SecondaryControlIntent};
+pub use direct_actions::project_pointed_tree_break_target;
 pub use error::TickError;
 pub use outcome::{
     ActiveSelectionDropOutcome, ControlTickOutcome, PrimaryActionOutcome,

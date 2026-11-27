@@ -9,7 +9,9 @@ mod structural_target;
 
 pub(super) use placement::{project_pointed_timber_cover_target, validate_supported_timber_at};
 
-fn pointed_tree_root(
+/// Read-only standing-tree selection used by primary break admission.
+/// A selected trunk does not imply that the player can currently fell it.
+pub fn project_pointed_tree_break_target(
     registries: &Registries,
     state: &AppState,
     direction: crate::spatial::ViewDirection,
@@ -32,7 +34,7 @@ pub(super) fn validate_pointed_terrain_excavation(
     Option<crate::world::ValidatedPlayerBlockExcavationStart>,
     crate::world::BlockExcavationError,
 > {
-    if pointed_tree_root(registries, state, direction).is_some() {
+    if project_pointed_tree_break_target(registries, state, direction).is_some() {
         return Ok(None);
     }
     match structural_target::resolve_direct_structural_target(registries, state, direction) {
@@ -54,7 +56,7 @@ pub(super) fn project_pointed_structural_break_target(
     state: &crate::core::state::AppState,
     direction: crate::spatial::ViewDirection,
 ) -> Result<Option<crate::structural::StructuralElementId>, usize> {
-    if pointed_tree_root(registries, state, direction).is_some() {
+    if project_pointed_tree_break_target(registries, state, direction).is_some() {
         return Ok(None);
     }
     match structural_target::resolve_direct_structural_target(registries, state, direction) {
