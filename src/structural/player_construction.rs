@@ -1,16 +1,21 @@
-//! Ordinary player planning, material commitment, labor, and activation for grounded members.
+//! Ordinary player admission and material commitment for structural construction.
 
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+mod errors;
+mod settlement;
+
+pub use errors::{PlayerStructuralConstructionCommitError, PlayerStructuralConstructionError};
+pub(crate) use settlement::{
+    StructuralConstructionTickPlan, apply_structural_construction_tick,
+    decide_structural_construction_tick,
+};
 
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::core::time::SimulationTick;
 use crate::inventory::MaterialLotSelection;
 use crate::labor::{
-    PlayerWork, PlayerWorkCommitError, PlayerWorkStartError, StructuralConstructionDefinition,
-    StructuralConstructionMethodId, StructuralConstructionWork, ValidatedPlayerWorkStart,
-    validate_player_work_start,
+    PlayerWork, StructuralConstructionDefinition, StructuralConstructionMethodId,
+    StructuralConstructionWork, ValidatedPlayerWorkStart, validate_player_work_start,
 };
 use crate::player::{PlayerActionValidationError, validate_player_action};
 use crate::registry::Registries;
@@ -18,170 +23,10 @@ use crate::spatial::VoxelCoord;
 
 use super::construction_execution::ValidatedStructuralConstruction;
 use super::{
-    StructuralConstructionBindingError, StructuralConstructionCommitError,
-    StructuralConstructionError, StructuralElementId, StructuralElementRecord, StructuralLifecycle,
-    StructuralMutationError, ValidatedStructuralMutation, bind_structural_construction_selection,
-    bounds_are_within_player_reach, resolve_required_mass, validate_activate_structural_element_in,
+    StructuralElementId, StructuralElementRecord, StructuralLifecycle,
+    bind_structural_construction_selection, bounds_are_within_player_reach, resolve_required_mass,
     validate_structural_construction, validate_structural_construction_for_planned_member,
 };
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PlayerStructuralConstructionError {
-    PlayerNotAdmitted,
-    PlayerDead,
-    UnknownMethod {
-        method: StructuralConstructionMethodId,
-    },
-    UnknownElement {
-        element: StructuralElementId,
-    },
-    ElementNotPlanned {
-        element: StructuralElementId,
-    },
-    ElementUnsupported {
-        element: StructuralElementId,
-    },
-    ElementOutOfReach {
-        element: StructuralElementId,
-    },
-    MemberTooHeavy {
-        required: Mass,
-        maximum: Mass,
-    },
-    CompletionTickOverflow,
-    UnexpectedMaterialSelection,
-    MaterialStateChanged {
-        element: StructuralElementId,
-    },
-    StructureRevisionExhausted,
-    Binding(StructuralConstructionBindingError),
-    Material(StructuralConstructionError),
-    Work(PlayerWorkStartError),
-}
-
-impl Display for PlayerStructuralConstructionError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::PlayerNotAdmitted => formatter.write_str("structural construction requires an admitted player"),
-            Self::PlayerDead => formatter.write_str("dead player cannot construct structure"),
-            Self::UnknownMethod { method } => write!(formatter, "unknown structural construction method {}", method.value()),
-            Self::UnknownElement { element } => write!(formatter, "unknown structural element {}", element.value()),
-            Self::ElementNotPlanned { element } => write!(formatter, "structural element {} is not awaiting construction", element.value()),
-            Self::ElementUnsupported { element } => write!(formatter, "structural element {} is neither grounded nor attached to an active support", element.value()),
-            Self::ElementOutOfReach { element } => write!(formatter, "structural element {} is outside player interaction reach", element.value()),
-            Self::MemberTooHeavy { required, maximum } => write!(
-                formatter,
-                "structural member requires {} mg but the construction method permits at most {} mg",
-                required.milligrams(), maximum.milligrams()
-            ),
-            Self::CompletionTickOverflow => formatter.write_str("structural construction completion tick overflowed"),
-            Self::UnexpectedMaterialSelection => formatter.write_str("already-materialized structural construction cannot accept another material selection"),
-            Self::MaterialStateChanged { element } => write!(formatter, "structural element {} material state is inconsistent with its geometry", element.value()),
-            Self::StructureRevisionExhausted => formatter.write_str("structural revision space is exhausted for construction"),
-            Self::Binding(error) => write!(formatter, "structural construction material selection is invalid: {error}"),
-            Self::Material(error) => write!(formatter, "structural construction materialization failed: {error}"),
-            Self::Work(error) => write!(formatter, "structural construction cannot reserve player work: {error}"),
-        }
-    }
-}
-
-impl Error for PlayerStructuralConstructionError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Binding(error) => Some(error),
-            Self::Material(error) => Some(error),
-            Self::Work(error) => Some(error),
-            Self::PlayerNotAdmitted
-            | Self::PlayerDead
-            | Self::UnknownMethod { .. }
-            | Self::UnknownElement { .. }
-            | Self::ElementNotPlanned { .. }
-            | Self::ElementUnsupported { .. }
-            | Self::ElementOutOfReach { .. }
-            | Self::MemberTooHeavy { .. }
-            | Self::CompletionTickOverflow
-            | Self::UnexpectedMaterialSelection
-            | Self::MaterialStateChanged { .. }
-            | Self::StructureRevisionExhausted => None,
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PlayerStructuralConstructionCommitError {
-    StaleWorldRevision {
-        expected: u64,
-        actual: u64,
-    },
-    StaleLogistics {
-        expected: u64,
-        actual: u64,
-    },
-    PlayerMoved {
-        expected: VoxelCoord,
-        actual: Option<VoxelCoord>,
-    },
-    Material(StructuralConstructionCommitError),
-    Work(PlayerWorkCommitError),
-}
-
-impl Display for PlayerStructuralConstructionCommitError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::StaleWorldRevision { expected, actual } => write!(
-                formatter,
-                "world revision changed from {expected} to {actual} before structural construction commit"
-            ),
-            Self::StaleLogistics { expected, actual } => write!(
-                formatter,
-                "structural construction logistics revision changed from {expected} to {actual} before commit"
-            ),
-            Self::PlayerMoved {
-                expected,
-                actual: Some(actual),
-            } => write!(
-                formatter,
-                "player moved from expected construction position ({},{},{}) to ({},{},{}) before commit",
-                expected.x(),
-                expected.y(),
-                expected.z(),
-                actual.x(),
-                actual.y(),
-                actual.z()
-            ),
-            Self::PlayerMoved {
-                expected,
-                actual: None,
-            } => write!(
-                formatter,
-                "player disappeared from expected construction position ({},{},{}) before commit",
-                expected.x(),
-                expected.y(),
-                expected.z()
-            ),
-            Self::Material(error) => write!(
-                formatter,
-                "structural construction material commit failed: {error}"
-            ),
-            Self::Work(error) => write!(
-                formatter,
-                "structural construction player-work commit failed: {error}"
-            ),
-        }
-    }
-}
-
-impl Error for PlayerStructuralConstructionCommitError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Material(error) => Some(error),
-            Self::Work(error) => Some(error),
-            Self::StaleWorldRevision { .. }
-            | Self::StaleLogistics { .. }
-            | Self::PlayerMoved { .. } => None,
-        }
-    }
-}
 
 #[must_use]
 pub struct ValidatedPlayerStructuralConstructionStart {
@@ -203,36 +48,13 @@ impl ValidatedPlayerStructuralConstructionStart {
         &self,
         state: &AppState,
     ) -> Result<(), PlayerStructuralConstructionCommitError> {
-        if state.logistics().revision() != self.expected_logistics_revision {
-            return Err(PlayerStructuralConstructionCommitError::StaleLogistics {
-                expected: self.expected_logistics_revision,
-                actual: state.logistics().revision(),
-            });
-        }
-        let actual_position = state.logistics().player().map(|player| player.position());
-        if actual_position != Some(self.expected_player_position) {
-            return Err(PlayerStructuralConstructionCommitError::PlayerMoved {
-                expected: self.expected_player_position,
-                actual: actual_position,
-            });
-        }
+        self.precheck_player_location(state)?;
         if let Some(material) = &self.material {
             material
                 .precheck(state)
                 .map_err(PlayerStructuralConstructionCommitError::Material)?;
         }
-        if state.world().revision() != self.expected_world_revision {
-            return Err(
-                PlayerStructuralConstructionCommitError::StaleWorldRevision {
-                    expected: self.expected_world_revision,
-                    actual: state.world().revision(),
-                },
-            );
-        }
-        self.work_start
-            .precheck(state)
-            .map_err(PlayerStructuralConstructionCommitError::Work)?;
-        Ok(())
+        self.precheck_world_and_work(state)
     }
 
     pub(crate) fn precheck_before_planned_member(
@@ -240,6 +62,20 @@ impl ValidatedPlayerStructuralConstructionStart {
         state: &AppState,
         record: &StructuralElementRecord,
         projected_structure_revision: u64,
+    ) -> Result<(), PlayerStructuralConstructionCommitError> {
+        self.precheck_player_location(state)?;
+        let material = self.material.as_ref().unwrap_or_else(|| {
+            panic!("atomic planned-member construction must include materialization")
+        });
+        material
+            .precheck_before_planned_member(state, record, projected_structure_revision)
+            .map_err(PlayerStructuralConstructionCommitError::Material)?;
+        self.precheck_world_and_work(state)
+    }
+
+    fn precheck_player_location(
+        &self,
+        state: &AppState,
     ) -> Result<(), PlayerStructuralConstructionCommitError> {
         if state.logistics().revision() != self.expected_logistics_revision {
             return Err(PlayerStructuralConstructionCommitError::StaleLogistics {
@@ -254,12 +90,13 @@ impl ValidatedPlayerStructuralConstructionStart {
                 actual: actual_position,
             });
         }
-        let material = self.material.as_ref().unwrap_or_else(|| {
-            panic!("atomic planned-member construction must include materialization")
-        });
-        material
-            .precheck_before_planned_member(state, record, projected_structure_revision)
-            .map_err(PlayerStructuralConstructionCommitError::Material)?;
+        Ok(())
+    }
+
+    fn precheck_world_and_work(
+        &self,
+        state: &AppState,
+    ) -> Result<(), PlayerStructuralConstructionCommitError> {
         if state.world().revision() != self.expected_world_revision {
             return Err(
                 PlayerStructuralConstructionCommitError::StaleWorldRevision {
@@ -562,79 +399,6 @@ fn validate_start_player_structural_construction_for_planned_member_with_support
         work_start,
         work,
     })
-}
-
-#[must_use]
-pub(crate) struct StructuralConstructionTickPlan {
-    element: StructuralElementId,
-    // A due work item can lose its support before activation. Retain its
-    // completion as an observable interruption without a structural write.
-    activation: Option<ValidatedStructuralMutation>,
-}
-
-impl StructuralConstructionTickPlan {
-    /// Exact post-activation state, including damage to existing supports.
-    #[must_use]
-    pub(crate) fn project_structures(
-        &self,
-        structures: &crate::structural::StructureState,
-    ) -> Option<crate::structural::StructureState> {
-        self.activation
-            .as_ref()
-            .map(|activation| activation.project(structures))
-    }
-
-    #[must_use]
-    pub(crate) const fn mutates_structures(&self) -> bool {
-        self.activation.is_some()
-    }
-}
-
-pub(crate) fn decide_structural_construction_tick(
-    registries: &Registries,
-    state: &AppState,
-    projected_structures: &crate::structural::StructureState,
-    next_tick: SimulationTick,
-) -> Option<StructuralConstructionTickPlan> {
-    let work = state
-        .player_work()
-        .structural_construction_due_at(next_tick)?;
-    let activation = match validate_activate_structural_element_in(
-        registries,
-        projected_structures,
-        work.element(),
-    ) {
-        Ok(activation) => Some(activation),
-        // A retained support may physically fail after construction admission. The already-
-        // embodied planned member stays conserved and recoverable, while this completion becomes
-        // an interrupted attempt rather than activating unsupported structure.
-        Err(StructuralMutationError::ActivationUnsupported { element })
-            if element == work.element() =>
-        {
-            None
-        }
-        Err(error) => panic!("admitted structural construction became invalid: {error}"),
-    };
-    Some(StructuralConstructionTickPlan {
-        element: work.element(),
-        activation,
-    })
-}
-
-pub(crate) fn apply_structural_construction_tick(
-    state: &mut AppState,
-    plan: Option<StructuralConstructionTickPlan>,
-) -> (Option<StructuralElementId>, Option<StructuralElementId>) {
-    let Some(plan) = plan else {
-        return (None, None);
-    };
-    let Some(activation) = plan.activation else {
-        return (None, Some(plan.element));
-    };
-    let _ = activation
-        .commit(state)
-        .unwrap_or_else(|error| panic!("prechecked structural activation failed: {error}"));
-    (Some(plan.element), None)
 }
 
 #[cfg(test)]
