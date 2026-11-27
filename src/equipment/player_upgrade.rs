@@ -10,7 +10,9 @@ use crate::logistics::{PlayerStockpileAccessError, validate_player_stockpile_acc
 use crate::material::MaterialInputSpec;
 use crate::registry::Registries;
 
-use super::upgrade_execution::validate_upgrade_material_selection;
+use super::upgrade_execution::{
+    assess_material_backed_upgrade, validate_upgrade_material_selection,
+};
 use super::{
     EquipmentDefinitionId, EquipmentId, EquipmentUpgradeError, ValidatedEquipmentUpgrade,
     equipment_occupancy, validate_upgrade_equipment,
@@ -18,8 +20,9 @@ use super::{
 
 /// One additive upgrade currently visible for exact-local idle equipment.
 ///
-/// `material_ready` is a read-side projection only. Upgrade start revalidates equipment state,
-/// locality, occupancy, source matter, structural consequences, survival, and owner revisions.
+/// Material readiness and complete admission are read-side observations only. Upgrade start
+/// revalidates equipment state, locality, occupancy, source matter, structural consequences,
+/// survival, and owner revisions.
 #[must_use]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlayerEquipmentUpgradeOption {
@@ -30,7 +33,7 @@ pub struct PlayerEquipmentUpgradeOption {
     source: StockpileId,
     target_mass: Mass,
     additions: Vec<MaterialInputSpec>,
-    material_ready: bool,
+    admission: Result<(), EquipmentUpgradeError>,
 }
 
 impl PlayerEquipmentUpgradeOption {
@@ -71,7 +74,16 @@ impl PlayerEquipmentUpgradeOption {
 
     #[must_use]
     pub const fn material_ready(&self) -> bool {
-        self.material_ready
+        !matches!(
+            self.admission,
+            Err(EquipmentUpgradeError::InsufficientMaterial { .. }
+                | EquipmentUpgradeError::UpgradeMaterialTooHot { .. })
+        )
+    }
+
+    /// Complete current admission result, without granting authorization.
+    pub const fn admission(&self) -> &Result<(), EquipmentUpgradeError> {
+        &self.admission
     }
 }
 
@@ -151,16 +163,22 @@ pub fn player_equipment_upgrade_options(
             else {
                 continue;
             };
-            let material_ready = match validate_upgrade_material_selection(
+            let admission = match validate_upgrade_material_selection(
                 state.inventory(),
                 source,
                 upgrade.additions().inputs(),
             ) {
-                Ok(_) => true,
+                Ok(selection) => assess_material_backed_upgrade(
+                    registries,
+                    state,
+                    record.id(),
+                    target.id(),
+                    selection,
+                ),
                 Err(
-                    EquipmentUpgradeError::InsufficientMaterial { .. }
-                    | EquipmentUpgradeError::UpgradeMaterialTooHot { .. },
-                ) => false,
+                    error @ (EquipmentUpgradeError::InsufficientMaterial { .. }
+                    | EquipmentUpgradeError::UpgradeMaterialTooHot { .. }),
+                ) => Err(error),
                 Err(EquipmentUpgradeError::UnknownSource { stockpile }) => {
                     return Err(PlayerEquipmentUpgradeCatalogError::UnknownSource { stockpile });
                 }
@@ -179,7 +197,7 @@ pub fn player_equipment_upgrade_options(
                 source,
                 target_mass: target.mass(),
                 additions: upgrade.additions().inputs().to_vec(),
-                material_ready,
+                admission,
             });
         }
     }

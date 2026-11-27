@@ -1,5 +1,9 @@
 //! Actor-local assembly, pickup, recovery, and held-tool selection using canonical owners.
 
+mod lifecycle;
+
+pub(super) use lifecycle::{service, upgrade};
+
 use std::fmt::Write as _;
 
 use super::view;
@@ -153,6 +157,7 @@ pub fn catalog(
             }
         }
     }
+    lifecycle::catalog(registries, state, &local, &mut output)?;
     Ok(output)
 }
 

@@ -19,7 +19,7 @@ use super::{
 
 /// One exact-local equipment service need the player can inspect without naming inventory lots.
 #[must_use]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlayerEquipmentMaintenanceOption {
     equipment: EquipmentId,
     definition: EquipmentDefinitionId,
@@ -29,53 +29,61 @@ pub struct PlayerEquipmentMaintenanceOption {
     required_replacement_mass: Mass,
     spent: CommodityKey,
     duration: TickSpan,
-    replacement_ready: bool,
+    admission: Result<(), PlayerEquipmentMaintenanceStartError>,
 }
 
 impl PlayerEquipmentMaintenanceOption {
     #[must_use]
-    pub const fn equipment(self) -> EquipmentId {
+    pub const fn equipment(&self) -> EquipmentId {
         self.equipment
     }
 
     #[must_use]
-    pub const fn definition(self) -> EquipmentDefinitionId {
+    pub const fn definition(&self) -> EquipmentDefinitionId {
         self.definition
     }
 
     #[must_use]
-    pub const fn condition_before(self) -> Condition {
+    pub const fn condition_before(&self) -> Condition {
         self.condition_before
     }
 
     #[must_use]
-    pub const fn target_condition(self) -> Condition {
+    pub const fn target_condition(&self) -> Condition {
         self.target_condition
     }
 
     #[must_use]
-    pub const fn replacement(self) -> CommodityKey {
+    pub const fn replacement(&self) -> CommodityKey {
         self.replacement
     }
 
     #[must_use]
-    pub const fn required_replacement_mass(self) -> Mass {
+    pub const fn required_replacement_mass(&self) -> Mass {
         self.required_replacement_mass
     }
 
     #[must_use]
-    pub const fn spent(self) -> CommodityKey {
+    pub const fn spent(&self) -> CommodityKey {
         self.spent
     }
 
     #[must_use]
-    pub const fn duration(self) -> TickSpan {
+    pub const fn duration(&self) -> TickSpan {
         self.duration
     }
 
     #[must_use]
-    pub const fn replacement_ready(self) -> bool {
-        self.replacement_ready
+    pub const fn replacement_ready(&self) -> bool {
+        matches!(
+            self.admission,
+            Ok(()) | Err(PlayerEquipmentMaintenanceStartError::Validation(_))
+        )
+    }
+
+    /// Current complete admission result, not a reservation or authorization token.
+    pub const fn admission(&self) -> &Result<(), PlayerEquipmentMaintenanceStartError> {
+        &self.admission
     }
 }
 
@@ -98,22 +106,18 @@ impl Error for PlayerEquipmentMaintenanceCatalogError {}
 
 /// Lists exact-local idle equipment below its authored service target.
 ///
-/// `replacement_ready` means the canonical resolver can satisfy the service exchange from current
-/// carried stock. It does not reserve matter or authorize work; start validation rechecks every
-/// owner and condition.
+/// `replacement_ready` describes material resolution; `admission` also reflects the current
+/// complete work and exchange validation. Both are observations, not authorization tokens.
 pub fn player_equipment_maintenance_options(
     registries: &Registries,
     state: &AppState,
 ) -> Result<Vec<PlayerEquipmentMaintenanceOption>, PlayerEquipmentMaintenanceCatalogError> {
-    let player = state
-        .logistics()
-        .player()
-        .copied()
-        .ok_or(PlayerEquipmentMaintenanceCatalogError::PlayerNotAdmitted)?;
+    if state.logistics().player().is_none() {
+        return Err(PlayerEquipmentMaintenanceCatalogError::PlayerNotAdmitted);
+    }
     if state.player_observation_position().is_none() {
         return Err(PlayerEquipmentMaintenanceCatalogError::PlayerDead);
     }
-    let carried = player.carried_stockpile();
     let mut options = Vec::new();
     for record in state.available_local_equipment() {
         if equipment_occupancy(state, record.id()).is_some() {
@@ -131,18 +135,8 @@ pub fn player_equipment_maintenance_options(
         if record.condition() >= profile.restored_condition() {
             continue;
         }
-        let request = EquipmentMaintenanceRequest::new(record.id(), carried, carried);
-        let replacement_ready = match resolve_equipment_maintenance(registries, state, request) {
-            Ok(_) => true,
-            Err(
-                EquipmentMaintenanceResolutionError::InsufficientReplacementMaterial { .. }
-                | EquipmentMaintenanceResolutionError::ReplacementMaterialTooHot { .. },
-            ) => false,
-            Err(EquipmentMaintenanceResolutionError::MaterialSelectionMassOverflow { .. }) => false,
-            Err(error) => panic!(
-                "runtime invariant broken: local maintainable equipment could not resolve player service option: {error}"
-            ),
-        };
+        let admission =
+            validate_start_player_equipment_maintenance(registries, state, record.id()).map(|_| ());
         options.push(PlayerEquipmentMaintenanceOption {
             equipment: record.id(),
             definition: record.definition(),
@@ -152,13 +146,13 @@ pub fn player_equipment_maintenance_options(
             required_replacement_mass: profile.required_replacement_mass(record.condition()),
             spent: profile.spent(),
             duration: profile.required_service_duration(record.condition()),
-            replacement_ready,
+            admission,
         });
     }
     Ok(options)
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerEquipmentMaintenanceStartError {
     PlayerNotAdmitted,
     PlayerDead,

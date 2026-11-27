@@ -157,7 +157,6 @@ fn player_can_service_one_worn_tool_and_recover_another_through_visible_inventor
     assert!(needs.iter().all(|option| !option.replacement_ready()));
     let service_need = needs
         .iter()
-        .copied()
         .find(|option| option.equipment() == service_pick)
         .unwrap_or_else(|| panic!("equipment-lifecycle service pick disappeared from catalog"));
     assert_eq!(service_need.replacement(), replacement_commodity);

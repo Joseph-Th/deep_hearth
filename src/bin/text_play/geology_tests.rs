@@ -344,9 +344,186 @@ fn mined_copper_ore_can_be_broken_and_sorted_into_finite_native_metal() {
     let after = run(&mut session, "inventory");
     assert!(after.contains("copper reinforcement | 20 g"));
     assert!(after.contains("native copper | 6 g"));
+
+    // Worn tools are physical instances, not disposable recipes. The player
+    // must be able to discover and fund the existing service and upgrade paths.
+    let pick = project_player_inventory(&session.registries, &session.state)
+        .unwrap()
+        .equipment()[1]
+        .equipment();
+    let worn = session
+        .state
+        .equipment()
+        .get_equipment(pick)
+        .unwrap()
+        .condition();
+    assert!(worn < deep_hearth::maintenance::Condition::PRISTINE);
+    let before = snapshot(&session);
+    let catalog = run(&mut session, "gear");
+    assert!(catalog.contains("service carried 2"), "{catalog}");
+    assert!(catalog.contains("800 g knapped stone tool"), "{catalog}");
+    assert!(session.command("service carried 2").is_err());
+    assert_eq!(snapshot(&session), before);
+
+    // Return to the visible stone supply and fabricate a replacement head.
+    move_along(
+        &mut session,
+        &[
+            "n 20", "wait 10", "e 20", "wait 10", "n 20", "wait 10", "e 20", "wait 10",
+        ],
+    );
+    run(&mut session, "gather 1 1000");
+    finish_work(&mut session);
+    run(&mut session, "craft 7");
+    finish_work(&mut session);
+    let catalog = run(&mut session, "gear");
+    assert!(
+        catalog
+            .lines()
+            .any(|line| line.contains("service carried 2") && line.contains("ready")),
+        "{catalog}"
+    );
+    let ready_checkpoint = snapshot(&session);
+    for rejected in [
+        "service remote 2",
+        "service carried 0",
+        "service local 1",
+        "upgrade 1 0",
+    ] {
+        assert!(session.command(rejected).is_err(), "{rejected}");
+        assert_eq!(snapshot(&session), ready_checkpoint);
+    }
+    let mut stationary = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&ready_checkpoint)
+            .unwrap()
+            .into_state(&session.registries)
+            .unwrap(),
+        seed: None,
+    };
+    run(&mut stationary, "equip 2");
+    run(&mut stationary, "drop");
+    run(&mut stationary, "wait boundary");
+    assert!(
+        run(&mut stationary, "gear")
+            .lines()
+            .any(|line| line.contains("service local 1") && line.contains("ready"))
+    );
+    run(&mut stationary, "service local 1");
+    assert!(finish_work(&mut stationary).contains("Maintenance finished:"));
+    assert_eq!(
+        stationary
+            .state
+            .equipment()
+            .get_equipment(pick)
+            .unwrap()
+            .condition(),
+        deep_hearth::maintenance::Condition::PRISTINE
+    );
+    assert_eq!(
+        calculate_matter_accounting(&stationary.state)
+            .unwrap()
+            .total(),
+        conserved
+    );
+
+    let service = run(&mut session, "service carried 2");
+    assert!(service.contains("Started maintenance"), "{service}");
+    assert_eq!(
+        session
+            .state
+            .equipment()
+            .get_equipment(pick)
+            .unwrap()
+            .condition(),
+        worn
+    );
+    let checkpoint = snapshot(&session);
+    let mut replay = Session {
+        registries: build_registries(),
+        state: serde_json::from_slice::<LoadedSaveEnvelope>(&checkpoint)
+            .unwrap()
+            .into_state(&session.registries)
+            .unwrap(),
+        seed: None,
+    };
+    let completed = finish_work(&mut session);
+    assert!(completed.contains("Maintenance finished:"), "{completed}");
+    assert_eq!(completed, finish_work(&mut replay));
+    assert_eq!(snapshot(&session), snapshot(&replay));
+    assert_eq!(
+        session
+            .state
+            .equipment()
+            .get_equipment(pick)
+            .unwrap()
+            .condition(),
+        deep_hearth::maintenance::Condition::PRISTINE
+    );
+    assert!(run(&mut session, "inventory").contains("stone scrap | 800 g"));
+    assert!(
+        !run(&mut session, "gear")
+            .lines()
+            .any(|line| line.starts_with("  service carried 2:"))
+    );
+
+    // The additive path must retain the serviced pick's identity and matter.
+    run(&mut session, "equip 2");
+    run(&mut session, "drop");
+    run(&mut session, "wait boundary");
+    let upgrade = deep_hearth::content::EQUIPMENT_COPPER_REINFORCED_PICK;
+    let command = format!("upgrade 1 {}", upgrade.value());
+    let before = snapshot(&session);
+    let catalog = run(&mut session, "gear");
+    assert!(
+        catalog
+            .lines()
+            .any(|line| line.contains(&command) && line.contains("ready")),
+        "{catalog}"
+    );
+    assert_eq!(snapshot(&session), before);
+    run(&mut session, "gather 1 100");
+    let busy_snapshot = snapshot(&session);
+    let blocked = session.command(&command).unwrap_err();
+    assert!(blocked.contains("work is active"), "{blocked}");
+    assert!(
+        run(&mut session, "gear")
+            .lines()
+            .any(|line| line.contains(&command) && line.contains(&blocked))
+    );
+    assert_eq!(snapshot(&session), busy_snapshot);
+    finish_work(&mut session);
+    let report = run(&mut session, &command);
+    assert!(
+        report.contains("Upgraded knapped stone pick to copper-reinforced stone pick"),
+        "{report}"
+    );
+    assert_eq!(
+        session
+            .state
+            .equipment()
+            .get_equipment(pick)
+            .unwrap()
+            .definition(),
+        upgrade
+    );
+    assert_eq!(
+        session
+            .state
+            .equipment()
+            .get_equipment(pick)
+            .unwrap()
+            .embodied_mass()
+            .milligrams(),
+        1_020_000
+    );
     assert_eq!(
         calculate_matter_accounting(&session.state).unwrap().total(),
         conserved
+    );
+    assert_eq!(
+        deep_hearth::core::state::validate_loaded_state(&session.registries, &session.state),
+        Ok(())
     );
 }
 

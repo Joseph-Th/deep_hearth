@@ -35,6 +35,7 @@ fn usage() -> &'static str {
      surveys [width], prospect MATERIAL METHOD [width] [with TOOL], knowledge [width],\n\
      mine MATERIAL GRAMS with TOOL [using METHOD] [repeat COUNT], ore, dress PROCESS STACK GRAMS [repeat COUNT],\n\
      gear [all], assemble ID, take N, equip N, recover N,\n\
+     service carried|local N, upgrade LOCAL_N DEFINITION_ID,\n\
      storage [all], place-store ID, stash CONTAINER STACK [grams], withdraw CONTAINER STACK [grams],\n\
      plan-at STACK X Y Z, build-at STACK X Y Z (supported framing or panel),\n\
      fire, build-fire, feed-fire FIRE STACK,\n\

@@ -106,6 +106,17 @@ fn equipment_upgrade_cannot_bypass_exclusive_manual_work() {
     .commit(&mut state)
     .unwrap_or_else(|error| panic!("busy upgrade woodworking commit failed: {error}"));
     let before = state.clone();
+    let busy =
+        crate::equipment::player_equipment_upgrade_options(&registries, &state, reinforcement)
+            .unwrap()
+            .into_iter()
+            .find(|option| {
+                option.equipment() == pick
+                    && option.target_definition() == EQUIPMENT_COPPER_REINFORCED_PICK
+            })
+            .unwrap();
+    assert!(busy.material_ready());
+    assert_eq!(busy.admission(), &Err(EquipmentUpgradeError::PlayerBusy));
     assert_eq!(
         validate_upgrade_equipment(
             &registries,
@@ -143,6 +154,16 @@ fn equipment_upgrade_cannot_bypass_exclusive_manual_work() {
         assert_eq!(next, replayed);
     }
     assert_eq!(state, replay);
+    let ready =
+        crate::equipment::player_equipment_upgrade_options(&registries, &state, reinforcement)
+            .unwrap()
+            .into_iter()
+            .find(|option| {
+                option.equipment() == pick
+                    && option.target_definition() == EQUIPMENT_COPPER_REINFORCED_PICK
+            })
+            .unwrap();
+    assert_eq!(ready.admission(), &Ok(()));
     let total = calculate_matter_accounting(&state)
         .unwrap_or_else(|error| panic!("busy upgrade matter baseline failed: {error}"))
         .total();

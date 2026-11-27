@@ -212,6 +212,19 @@ impl Session {
                 }?;
                 report + &view::status(&self.registries, &self.state)
             }
+            "service" if args.len() == 2 => {
+                let index = parse_index(args[1], usize::MAX)?;
+                let report = equipment::service(&self.registries, &mut self.state, args[0], index)?;
+                report + &view::status(&self.registries, &self.state)
+            }
+            "upgrade" if args.len() == 2 => {
+                let index = parse_index(args[0], usize::MAX)?;
+                let target = args[1]
+                    .parse::<u32>()
+                    .map_err(|_| "equipment definition ID must be a positive integer")?;
+                let report = equipment::upgrade(&self.registries, &mut self.state, index, target)?;
+                report + &view::status(&self.registries, &self.state)
+            }
             "plan-at" | "build-at" if args.len() == 4 => {
                 let stack = parse_index(args[0], usize::MAX)?;
                 let target = parse_voxel(args[1], args[2], args[3])?;

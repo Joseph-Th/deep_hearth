@@ -3,9 +3,9 @@
 use crate::core::quantity::Mass;
 use crate::core::state::AppState;
 use crate::inventory::{
-    ConsumedMaterialTrace, ConsumptionSelectionError, InventoryState, StockpileId,
-    StockpileStoredMassChange, TemperatureLimitedSelectionError, ValidatedMaterialEgress,
-    ValidatedStockpileStructuralLoad, apply_material_egress,
+    ConsumedMaterialTrace, ConsumptionSelection, ConsumptionSelectionError, InventoryState,
+    StockpileId, StockpileStoredMassChange, TemperatureLimitedSelectionError,
+    ValidatedMaterialEgress, ValidatedStockpileStructuralLoad, apply_material_egress,
     validate_material_egress_from_selection, validate_stockpile_stored_mass_changes,
     validate_temperature_limited_consumption_selection,
     validate_unreserved_stockpile_structural_load_headroom,
@@ -16,7 +16,10 @@ use crate::player::{PlayerActionGuard, validate_optional_player_action};
 use crate::registry::Registries;
 
 use super::state::EquipmentUpgradeMutation;
-use super::{EquipmentDefinitionId, EquipmentId, EquipmentOccupancy, equipment_occupancy};
+use super::{
+    EquipmentDefinition, EquipmentDefinitionId, EquipmentId, EquipmentOccupancy, EquipmentRecord,
+    equipment_occupancy,
+};
 
 mod errors;
 
@@ -48,7 +51,7 @@ pub(super) fn validate_upgrade_material_selection(
     inventory: &InventoryState,
     source: StockpileId,
     inputs: &[MaterialInputSpec],
-) -> Result<crate::inventory::ConsumptionSelection, EquipmentUpgradeError> {
+) -> Result<ConsumptionSelection, EquipmentUpgradeError> {
     validate_temperature_limited_consumption_selection(
         inventory,
         source,
@@ -266,6 +269,46 @@ pub fn validate_upgrade_equipment(
     target: EquipmentDefinitionId,
     source: StockpileId,
 ) -> Result<ValidatedEquipmentUpgrade, EquipmentUpgradeError> {
+    let context = validate_upgrade_context(registries, state, equipment, target, source)?;
+    let upgrade = context
+        .target
+        .upgrade_profile()
+        .expect("validated upgrade context has an authored profile");
+    let selection = validate_upgrade_material_selection(
+        state.inventory(),
+        source,
+        upgrade.additions().inputs(),
+    )?;
+    validate_upgrade_transaction(registries, state, context, selection)
+}
+
+/// Reuse the catalog's exact material selection, then apply the same context
+/// and transaction validation as direct execution.
+pub(super) fn assess_material_backed_upgrade(
+    registries: &Registries,
+    state: &AppState,
+    equipment: EquipmentId,
+    target: EquipmentDefinitionId,
+    selection: ConsumptionSelection,
+) -> Result<(), EquipmentUpgradeError> {
+    let context =
+        validate_upgrade_context(registries, state, equipment, target, selection.source())?;
+    validate_upgrade_transaction(registries, state, context, selection).map(|_| ())
+}
+
+struct UpgradeContext<'a> {
+    player_action: PlayerActionGuard,
+    record: &'a EquipmentRecord,
+    target: &'a EquipmentDefinition,
+}
+
+fn validate_upgrade_context<'a>(
+    registries: &'a Registries,
+    state: &'a AppState,
+    equipment: EquipmentId,
+    target: EquipmentDefinitionId,
+    source: StockpileId,
+) -> Result<UpgradeContext<'a>, EquipmentUpgradeError> {
     let player_action =
         validate_optional_player_action(state).map_err(|_| EquipmentUpgradeError::PlayerDead)?;
     if state.logistics().player().is_some() && state.player_work().active().is_some() {
@@ -305,11 +348,27 @@ pub fn validate_upgrade_equipment(
         return Err(error);
     }
 
-    let selection = validate_upgrade_material_selection(
-        state.inventory(),
-        source,
-        upgrade.additions().inputs(),
-    )?;
+    Ok(UpgradeContext {
+        player_action,
+        record,
+        target: target_definition,
+    })
+}
+
+fn validate_upgrade_transaction(
+    registries: &Registries,
+    state: &AppState,
+    context: UpgradeContext<'_>,
+    selection: ConsumptionSelection,
+) -> Result<ValidatedEquipmentUpgrade, EquipmentUpgradeError> {
+    let UpgradeContext {
+        player_action,
+        record,
+        target: target_definition,
+    } = context;
+    let equipment = record.id();
+    let target = target_definition.id();
+    let source = selection.source();
     let additions = selection.consumed_inputs().to_vec();
     let egress =
         validate_material_egress_from_selection(state.inventory(), selection).map_err(|error| {

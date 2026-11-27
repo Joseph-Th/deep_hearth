@@ -68,6 +68,12 @@ fn player_maintenance_catalog_exposes_material_need_before_and_after_carried_sto
         .unwrap_or_else(|| panic!("worn local pick disappeared from player maintenance catalog"));
     assert_eq!(option.definition(), EQUIPMENT_STONE_PICK);
     assert!(!option.replacement_ready());
+    assert!(matches!(
+        option.admission(),
+        Err(PlayerEquipmentMaintenanceStartError::Resolution(
+            EquipmentMaintenanceResolutionError::InsufficientReplacementMaterial { .. }
+        ))
+    ));
     assert!(option.required_replacement_mass() > Mass::ZERO);
     assert!(option.target_condition() > option.condition_before());
     assert!(option.duration().value() > 0);
@@ -93,6 +99,46 @@ fn player_maintenance_catalog_exposes_material_need_before_and_after_carried_sto
         .find(|candidate| candidate.equipment() == pick)
         .unwrap_or_else(|| panic!("ready pick disappeared from maintenance catalog"));
     assert!(ready.replacement_ready());
+    assert_eq!(ready.admission(), &Ok(()));
+    deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_WOOD, crate::content::FORM_LOG),
+        Mass::from_milligrams(3_000_000),
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    crate::crafting::validate_start_player_manual_craft(
+        &registries,
+        &state,
+        crate::content::PROCESS_SHAPE_WOOD_BOARDS,
+        std::num::NonZeroU64::new(1).unwrap(),
+        None,
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let before = state.clone();
+    let busy = player_equipment_maintenance_options(&registries, &state)
+        .unwrap()
+        .into_iter()
+        .find(|option| option.equipment() == pick)
+        .unwrap();
+    assert!(busy.replacement_ready());
+    assert!(matches!(
+        busy.admission(),
+        Err(PlayerEquipmentMaintenanceStartError::Validation(
+            EquipmentMaintenanceError::PlayerWork(crate::labor::PlayerWorkStartError::Busy { .. })
+        ))
+    ));
+    assert_eq!(
+        busy.admission().as_ref().err(),
+        validate_start_player_equipment_maintenance(&registries, &state, pick)
+            .err()
+            .as_ref()
+    );
+    assert_eq!(state, before);
 }
 
 #[test]
