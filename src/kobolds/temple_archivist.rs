@@ -49,11 +49,11 @@ pub(super) fn archivist_position(home: VoxelCoord, step: u8) -> Option<VoxelCoor
     ))
 }
 
-fn resident_body_cells(anchor: VoxelCoord) -> impl Iterator<Item = VoxelCoord> {
+pub(super) fn resident_body_cells(anchor: VoxelCoord) -> impl Iterator<Item = VoxelCoord> {
     (0..=1).flat_map(move |dx| {
-        (0..=1).flat_map(move |dz| {
-            (0..=2)
-                .map(move |dy| VoxelCoord::new(anchor.x() + dx, anchor.y() + dy, anchor.z() - dz))
+        (0..=2).flat_map(move |dy| {
+            (0..=1)
+                .map(move |dz| VoxelCoord::new(anchor.x() + dx, anchor.y() + dy, anchor.z() - dz))
         })
     })
 }
@@ -322,9 +322,8 @@ fn resident_can_depart(registries: &Registries, state: &AppState, anchor: VoxelC
     clear_body_cells(registries, state, anchor) && has_supporting_floor(registries, state, anchor)
 }
 
-/// A loaded cursor must name a real locally generated sanctuary, valid
-/// excursion step, and clear three-high body. Floor excavation may strand it.
-pub(super) fn validate_archivists(
+/// Validate the persisted excursion before the shared current-body occupancy pass.
+pub(super) fn validate_archivist_cursors(
     registries: &Registries,
     state: &AppState,
 ) -> Result<(), &'static str> {
@@ -352,10 +351,8 @@ pub(super) fn validate_archivists(
         else {
             return Err("temple archivist lacks a generated ancestral chamber");
         };
-        if !archivist_position(home, step)
-            .is_some_and(|anchor| clear_body_cells(registries, state, anchor))
-        {
-            return Err("temple archivist is embedded in missing or solid world");
+        if archivist_position(home, step).is_none() {
+            return Err("temple archivist cursor lacks a representable position");
         }
     }
     Ok(())

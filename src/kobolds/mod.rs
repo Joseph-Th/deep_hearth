@@ -572,28 +572,29 @@ pub(crate) fn temple_caste_occupies_voxel(
     state: &AppState,
     voxel: VoxelCoord,
 ) -> bool {
-    let Some([post, archivist]) = crate::world::temple_residents_at(registries, state, voxel)
-    else {
-        return false;
-    };
-    let step = state
-        .kobold_state()
-        .temple_warden_step(crate::world::ChunkCoord::containing(post));
-    let Some(route) = crate::world::temple_warden_route_at(registries, state, post) else {
-        return false;
-    };
-    let Some(warden) = temple_guard::warden_position(route, step) else {
-        return false;
-    };
-    let Some(archivist_actual) = temple_archivist::archivist_position(
-        archivist,
-        state
-            .kobold_state()
-            .temple_archivist_step(crate::world::ChunkCoord::containing(post)),
-    ) else {
-        return false;
-    };
-    initial_temple_caste_occupies_voxel(voxel, warden, archivist_actual)
+    crate::world::temple_residents_at(registries, state, voxel)
+        .and_then(|homes| current_temple_caste_positions(registries, state, homes))
+        .is_some_and(|[warden, archivist]| {
+            initial_temple_caste_occupies_voxel(voxel, warden, archivist)
+        })
+}
+
+/// Resolve both physical resident anchors from one generated sanctuary.
+/// Saved cursors name displacements; absent cursors retain the authored homes.
+fn current_temple_caste_positions(
+    registries: &Registries,
+    state: &AppState,
+    [post, home]: [VoxelCoord; 2],
+) -> Option<[VoxelCoord; 2]> {
+    let chunk = crate::world::ChunkCoord::containing(post);
+    let route = crate::world::temple_warden_route_at(registries, state, post)?;
+    let warden =
+        temple_guard::warden_position(route, state.kobold_state().temple_warden_step(chunk))?;
+    let archivist = temple_archivist::archivist_position(
+        home,
+        state.kobold_state().temple_archivist_step(chunk),
+    )?;
+    Some([warden, archivist])
 }
 
 /// Pure body geometry shared by existing castes and the not-yet-instantiated

@@ -27,7 +27,7 @@ const TEMPLE_INSPECTION_LOCAL_REACH: u64 = 8;
 const TEMPLE_ENGINE_INSPECTION_INTERVAL_CYCLES: u64 = 3;
 
 mod infrastructure;
-pub(super) use infrastructure::{first_temple_member_overlap, validate_temple_infrastructure};
+pub(super) use infrastructure::{first_temple_member_overlap, validate_temple_occupancy};
 
 #[cfg(test)]
 #[path = "temple_guard/temporal_validation_tests.rs"]
@@ -79,22 +79,23 @@ pub(super) struct TempleWardenRecord {
     pub(super) step: u8,
 }
 
+fn warden_body_cells(position: VoxelCoord) -> Option<[VoxelCoord; 2]> {
+    Some([
+        position,
+        VoxelCoord::new(position.x(), position.y().checked_add(1)?, position.z()),
+    ])
+}
+
 fn clear_body_cell(registries: &Registries, state: &AppState, position: VoxelCoord) -> bool {
-    let Some(head_y) = position.y().checked_add(1) else {
-        return false;
-    };
     // An air-valued terrain block can contain embodied living timber.
     // Reuse the world's complete physical collision truth for both body cells.
-    [
-        position,
-        VoxelCoord::new(position.x(), head_y, position.z()),
-    ]
-    .into_iter()
-    .all(|cell| {
-        state
-            .world()
-            .full_cell_collision_at(registries.world(), cell)
-            == Some(false)
+    warden_body_cells(position).is_some_and(|cells| {
+        cells.into_iter().all(|cell| {
+            state
+                .world()
+                .full_cell_collision_at(registries.world(), cell)
+                == Some(false)
+        })
     })
 }
 
@@ -378,9 +379,8 @@ pub(super) fn apply_temple_warden_tick(
 }
 
 /// A saved displacement is only a possible step along one real generated
-/// temple lane. Reject arbitrary invented guardians, duplicate keys, absent
-/// columns, obstructed locations and out-of-range cursors on trusted load.
-pub(super) fn validate_temple_wardens(
+/// temple lane. Validate the cursor before the shared current-body occupancy pass.
+pub(super) fn validate_warden_cursors(
     registries: &Registries,
     state: &AppState,
 ) -> Result<(), &'static str> {
@@ -418,13 +418,8 @@ pub(super) fn validate_temple_wardens(
         else {
             return Err("kobold temple warden lacks an authored generated sanctuary");
         };
-        // A player may mine away the supporting floor *after* the warden
-        // occupies this cell. Preserve that stranded location across saves;
-        // movement stays suspended until a real supported step is available.
-        if !warden_position(route, step)
-            .is_some_and(|position| clear_body_cell(registries, state, position))
-        {
-            return Err("kobold temple warden occupies obstructed or absent world geometry");
+        if warden_position(route, step).is_none() {
+            return Err("kobold temple warden cursor lacks a representable position");
         }
     }
     Ok(())

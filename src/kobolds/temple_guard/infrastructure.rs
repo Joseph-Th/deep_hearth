@@ -1,57 +1,22 @@
-//! Physical overlap and trusted constructed-custody validation for generated temple castes.
+//! Physical overlap and trusted occupancy validation for generated temple castes.
 
-use super::warden_position;
+use super::warden_body_cells;
 use crate::core::state::AppState;
+use crate::kobolds::{current_temple_caste_positions, temple_archivist::resident_body_cells};
 use crate::registry::Registries;
 use crate::spatial::{VoxelBounds, VoxelCoord};
 use crate::world::ChunkCoord;
 
-/// Loaded constructed custody must not intersect either generated temple caste.
-/// A forged enclosure location cannot become valid merely because ordinary
-/// pointed placement already rejects that position at runtime.
-pub(in crate::kobolds) fn validate_temple_infrastructure(
+/// Validate the current physical body of every generated caste, including
+/// implicit home posts. A missing supporting floor may strand a resident,
+/// but neither solid terrain nor stationary infrastructure can occupy its body.
+pub(in crate::kobolds) fn validate_temple_occupancy(
     registries: &Registries,
     state: &AppState,
 ) -> Result<(), &'static str> {
-    let logistics = state.logistics();
-    let mut stationary = logistics
-        .stockpile_locations()
-        .map(|(_, position)| position)
-        .chain(
-            logistics
-                .equipment_locations()
-                .map(|(_, position)| position),
-        )
-        .chain(
-            logistics
-                .energy_store_locations()
-                .map(|(_, position)| position),
-        )
-        .chain(
-            logistics
-                .fluid_store_locations()
-                .map(|(_, position)| position),
-        );
-    if stationary.any(|position| {
-        state
-            .world()
-            .get_chunk(ChunkCoord::containing(position))
-            .is_some()
-            && super::super::temple_caste_occupies_voxel(registries, state, position)
-    }) {
-        return Err("stationary infrastructure intersects an occupied temple caste cell");
-    }
-    if !state
-        .structures()
-        .elements()
-        .any(|element| !element.embodied_material().is_empty())
-    {
-        return Ok(());
-    }
-    // Structural bounds may cover more than one voxel. Inspect the finite body
-    // cells of generated temples rather than enumerate potentially immense,
-    // untrusted structure bounds. Occupancy itself remains the caste owner's
-    // canonical predicate.
+    // At trusted load, both cursor collections have already been validated.
+    // Visit each generated sanctuary once, then consult the finite body cells
+    // and the same rebuilt spatial indexes used by movement and placement.
     for chunk in state.world().chunks() {
         let Some(x) = chunk.coord().world_min_x().and_then(|x| x.checked_add(8)) else {
             continue;
@@ -60,73 +25,50 @@ pub(in crate::kobolds) fn validate_temple_infrastructure(
             continue;
         };
         let observer = VoxelCoord::new(x, -19, z);
-        let Some([post, archivist]) =
-            crate::world::temple_residents_at(registries, state, observer)
-        else {
+        let Some(homes) = crate::world::temple_residents_at(registries, state, observer) else {
             continue;
         };
-        validate_structural_clearance_at_temple(registries, state, post, archivist)?;
+        let [warden, archivist] = current_temple_caste_positions(registries, state, homes)
+            .ok_or("temple caste lacks a representable current position")?;
+        validate_body_clearance(
+            registries,
+            state,
+            warden_body_cells(warden)
+                .ok_or("kobold temple warden occupies obstructed or absent world geometry")?,
+            "kobold temple warden occupies obstructed or absent world geometry",
+        )?;
+        validate_body_clearance(
+            registries,
+            state,
+            resident_body_cells(archivist),
+            "temple archivist is embedded in missing or solid world",
+        )?;
     }
     Ok(())
 }
 
-fn validate_structural_clearance_at_temple(
+fn validate_body_clearance(
     registries: &Registries,
     state: &AppState,
-    post: VoxelCoord,
-    archivist: VoxelCoord,
+    cells: impl IntoIterator<Item = VoxelCoord>,
+    terrain_error: &'static str,
 ) -> Result<(), &'static str> {
-    let step = state
-        .kobold_state()
-        .temple_warden_step(ChunkCoord::containing(post));
-    let Some(warden) = crate::world::temple_warden_route_at(registries, state, post)
-        .and_then(|route| warden_position(route, step))
-    else {
-        return Err("temple warden cursor lacks an actual generated corridor");
-    };
-    for dy in 0..=1 {
-        let cell = VoxelCoord::new(warden.x(), warden.y() + dy, warden.z());
-        if structure_intersects_temple_caste_cell(registries, state, cell) {
+    for cell in cells {
+        if state
+            .world()
+            .full_cell_collision_at(registries.world(), cell)
+            != Some(false)
+        {
+            return Err(terrain_error);
+        }
+        if state.logistics().has_stationary_occupant_at(cell) {
+            return Err("stationary infrastructure intersects an occupied temple caste cell");
+        }
+        if state.structures().has_materialized_member_at(cell) {
             return Err("structural member intersects an occupied temple caste cell");
         }
     }
-    let Some(archivist) = super::super::temple_archivist::archivist_position(
-        archivist,
-        state
-            .kobold_state()
-            .temple_archivist_step(ChunkCoord::containing(post)),
-    ) else {
-        return Err("temple archivist has an invalid physical excursion");
-    };
-    for dx in 0..=1 {
-        for dy in 0..=2 {
-            for dz in 0..=1 {
-                let Some(x) = archivist.x().checked_add(dx) else {
-                    return Err("temple archivist extent exceeds representable coordinates");
-                };
-                let Some(z) = archivist.z().checked_sub(dz) else {
-                    return Err("temple archivist extent exceeds representable coordinates");
-                };
-                let cell = VoxelCoord::new(x, archivist.y() + dy, z);
-                if structure_intersects_temple_caste_cell(registries, state, cell) {
-                    return Err("structural member intersects an occupied temple caste cell");
-                }
-            }
-        }
-    }
     Ok(())
-}
-
-fn structure_intersects_temple_caste_cell(
-    registries: &Registries,
-    state: &AppState,
-    cell: VoxelCoord,
-) -> bool {
-    super::super::temple_caste_occupies_voxel(registries, state, cell)
-        && state
-            .structures()
-            .elements_covering(cell)
-            .any(|element| !element.embodied_material().is_empty())
 }
 
 /// Resolves one occupied caste cell within an intended member's bounds.
@@ -192,33 +134,10 @@ fn temple_member_overlap_in_chunk(
     let x = chunk.world_min_x()?.checked_add(8)?;
     let z = chunk.world_min_z()?.checked_add(8)?;
     let observer = VoxelCoord::new(x, -19, z);
-    let [post, archivist] = crate::world::temple_residents_at(registries, state, observer)?;
-    let step = state.kobold_state().temple_warden_step(chunk);
-    let warden = crate::world::temple_warden_route_at(registries, state, post)
-        .and_then(|route| warden_position(route, step))?;
-    for dy in 0..=1 {
-        let cell = VoxelCoord::new(warden.x(), warden.y().checked_add(dy)?, warden.z());
-        if bounds.has_voxel(cell) {
-            return Some(cell);
-        }
-    }
-    let archivist = super::super::temple_archivist::archivist_position(
-        archivist,
-        state.kobold_state().temple_archivist_step(chunk),
-    )?;
-    for dx in 0..=1 {
-        for dy in 0..=2 {
-            for dz in 0..=1 {
-                let cell = VoxelCoord::new(
-                    archivist.x().checked_add(dx)?,
-                    archivist.y().checked_add(dy)?,
-                    archivist.z().checked_sub(dz)?,
-                );
-                if bounds.has_voxel(cell) {
-                    return Some(cell);
-                }
-            }
-        }
-    }
-    None
+    let homes = crate::world::temple_residents_at(registries, state, observer)?;
+    let [warden, archivist] = current_temple_caste_positions(registries, state, homes)?;
+    warden_body_cells(warden)?
+        .into_iter()
+        .chain(resident_body_cells(archivist))
+        .find(|&cell| bounds.has_voxel(cell))
 }

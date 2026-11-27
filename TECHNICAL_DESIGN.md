@@ -981,8 +981,13 @@ terrain changes after validation reject commit before consuming materials.
 Structural materialization also checks real generated kobold occupancy. Heavy
 temple castes reject any embodied member across their complete body footprint;
 member admission checks only generated chunks intersecting the proposed footprint
-(or existing generated chunks for oversized bounds), while trusted caste clearance
-uses the structural per-voxel index instead of scanning all settlement members.
+(or existing generated chunks for oversized bounds). Trusted save admission
+visits each generated sanctuary once, resolving both implicit home residents
+and displaced castes to their current body cells. It rejects missing or solid
+terrain and uses the stationary-custody and structural per-voxel indexes to
+reject embodied infrastructure without scanning all settlement members for
+each resident. A resident stranded by excavation of its supporting floor
+remains admissible; missing footing is distinct from embedded body geometry.
 Small opening residents reject full-footprint members but retain the existing
 allowance for narrow timber posts. Empty plans reserve geometry without
 creating actor collision, and forged saved overlaps remain inadmissible.

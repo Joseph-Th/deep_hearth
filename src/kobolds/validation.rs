@@ -326,9 +326,9 @@ pub(crate) fn validate_loaded_kobolds(
 ) -> Result<(), &'static str> {
     let consumed_food = validate_consumed_matter(registries, state.kobold_state())?;
     validate_consumed_fluids(registries, state.kobold_state())?;
-    temple_guard::validate_temple_wardens(registries, state)?;
-    temple_archivist::validate_archivists(registries, state)?;
-    temple_guard::validate_temple_infrastructure(registries, state)?;
+    temple_guard::validate_warden_cursors(registries, state)?;
+    temple_archivist::validate_archivist_cursors(registries, state)?;
+    temple_guard::validate_temple_occupancy(registries, state)?;
     let Some(colony) = state.kobold_state().colony.as_ref() else {
         return (state.kobold_state().consumed_matter.is_empty()
             && state.kobold_state().consumed_fluids.is_empty())
