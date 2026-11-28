@@ -55,18 +55,17 @@ fn map_physics_error(job: MiningJobId, error: MiningPhysicsError) -> MiningJobVa
 fn validate_working_spatial_access(
     state: &AppState,
     job: &MiningJobRecord,
-    references: &MiningJobReferences<'_>,
 ) -> Result<(), MiningJobValidationError> {
     if !job.is_working() {
         return Ok(());
     }
     if let Some(player) = state.logistics().player().copied()
-        && !references.deposit_bounds.has_voxel(player.position())
+        && !job.target().region().has_voxel(player.position())
     {
-        return Err(MiningJobValidationError::WorkingPlayerOutsideDeposit {
+        return Err(MiningJobValidationError::WorkingPlayerOutsideTarget {
             job: job.id(),
             player_position: player.position(),
-            bounds: references.deposit_bounds,
+            bounds: job.target().region(),
         });
     }
     validate_player_equipment_access(state, job.equipment()).map_err(|error| {
@@ -234,8 +233,26 @@ fn validate_mining_equipment_exclusivity(
     Ok(())
 }
 
+fn replay_target_hardness(
+    state: &AppState,
+    job: &MiningJobRecord,
+    actual_hardness: crate::core::quantity::Pressure,
+) -> Result<crate::core::quantity::Pressure, MiningJobValidationError> {
+    let target = crate::mining::target_resolution::resolve_mining_target_at(
+        state,
+        job.target(),
+        job.started_at(),
+    )
+    .map_err(|_| MiningJobValidationError::TargetEvidenceMismatch { job: job.id() })?;
+    if target.deposit != job.deposit() || target.region() != job.target().region() {
+        return Err(MiningJobValidationError::TargetEvidenceMismatch { job: job.id() });
+    }
+    Ok(target.admission_hardness(actual_hardness))
+}
+
 fn validate_mining_job_physics(
     registries: &Registries,
+    state: &AppState,
     job: &MiningJobRecord,
     references: &MiningJobReferences<'_>,
 ) -> Result<(), MiningJobValidationError> {
@@ -244,7 +261,7 @@ fn validate_mining_job_physics(
         references.method,
         references.equipment_definition,
         job.equipment_condition_before(),
-        references.excavation_hardness,
+        replay_target_hardness(state, job, references.excavation_hardness)?,
         job.requested_mass(),
     )
     .map_err(|error| map_physics_error(job.id(), error))?;
@@ -299,11 +316,11 @@ pub(super) fn validate_loaded_mining_job(
     let references = resolve_mining_job_references(registries, state, job)?;
     // A working job is player-owned active work. Prove locality before any validation branch
     // consults the live equipment condition/support/occupancy or destination contents/profile.
-    validate_working_spatial_access(state, job, &references)?;
+    validate_working_spatial_access(state, job)?;
     validate_working_completion_revision_capacity(state, job)?;
     validate_working_mining_equipment(state, job, &references)?;
     validate_mining_source_ownership(job, &references)?;
     validate_mining_output(registries, job, &references)?;
     validate_mining_equipment_exclusivity(state, job)?;
-    validate_mining_job_physics(registries, job, &references)
+    validate_mining_job_physics(registries, state, job, &references)
 }

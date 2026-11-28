@@ -43,7 +43,10 @@ pub enum MiningJobValidationError {
     WorkingEquipmentMounted {
         job: MiningJobId,
     },
-    WorkingPlayerOutsideDeposit {
+    TargetEvidenceMismatch {
+        job: MiningJobId,
+    },
+    WorkingPlayerOutsideTarget {
         job: MiningJobId,
         player_position: VoxelCoord,
         bounds: VoxelBounds,

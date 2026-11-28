@@ -5,6 +5,7 @@ mod observation;
 mod state;
 mod validation;
 
+pub(crate) use assessment::assess_geological_knowledge_through;
 pub use assessment::{
     GeologicalEvidenceConsistency, GeologicalKnowledgeAssessment, GeologicalKnowledgeMap,
     assess_geological_knowledge, build_geological_knowledge_map,

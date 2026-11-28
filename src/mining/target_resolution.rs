@@ -4,10 +4,12 @@
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 
+use crate::core::quantity::Pressure;
 use crate::core::state::AppState;
+use crate::core::time::SimulationTick;
 use crate::geology::{
-    ExcavationHardnessEstimate, GeologicalDepositId, GeologicalDepositLifecycle,
-    GeologicalEvidenceConsistency, assess_geological_knowledge,
+    ExcavationHardnessEstimate, GeologicalDepositId, GeologicalEvidenceConsistency,
+    assess_geological_knowledge_through,
 };
 use crate::material::MaterialId;
 use crate::spatial::VoxelBounds;
@@ -87,11 +89,18 @@ impl MiningTargetResolution {
 
     /// Returns the best acquired excavation-resistance evidence for this target, when available.
     ///
-    /// This is acquired player knowledge, not hidden geological truth. Mining admission requires
-    /// this evidence before it evaluates extraction-tool hardness capability.
+    /// This is acquired player knowledge, not hidden geological truth. When available,
+    /// admission uses the conservative upper bound rather than the hidden exact hardness.
     #[must_use]
     pub const fn excavation_hardness(self) -> Option<ExcavationHardnessEstimate> {
         self.excavation_hardness
+    }
+
+    /// Shared physical admission/replay policy. Unsampled attempts can consult the
+    /// actual resistance internally, but cannot expose it as acquired knowledge.
+    pub(super) fn admission_hardness(self, actual: Pressure) -> Pressure {
+        self.excavation_hardness
+            .map_or(actual, |estimate| estimate.upper())
     }
 
     pub(super) fn has_same_authorization_binding(self, other: Self) -> bool {
@@ -189,10 +198,20 @@ pub fn resolve_mining_target(
     state: &AppState,
     request: MiningTargetRequest,
 ) -> Result<MiningTargetResolution, MiningTargetResolutionError> {
-    let assessment = assess_geological_knowledge(
+    resolve_mining_target_at(state, request, state.tick())
+}
+
+/// Replay target authority at admission without consulting later observations or current depletion.
+pub(super) fn resolve_mining_target_at(
+    state: &AppState,
+    request: MiningTargetRequest,
+    admitted_at: SimulationTick,
+) -> Result<MiningTargetResolution, MiningTargetResolutionError> {
+    let assessment = assess_geological_knowledge_through(
         state.geological_knowledge(),
         request.region,
         request.material,
+        Some(admitted_at),
     );
     let (_, lower_ppm, upper_ppm) = match assessment.consistency() {
         GeologicalEvidenceConsistency::NoEvidence => {
@@ -283,7 +302,7 @@ pub fn resolve_mining_target(
         .deposits_intersecting(acquired_region)
         .filter(|deposit| {
             let abundance = deposit.composition().parts_per_million(request.material);
-            deposit.lifecycle() == GeologicalDepositLifecycle::Available
+            deposit.was_extractable_at(admitted_at)
                 && deposit.generated_at() <= earliest_observed_at
                 && abundance != 0
                 && abundance >= lower_ppm

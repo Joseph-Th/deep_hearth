@@ -12,7 +12,12 @@ impl Display for MiningJobValidationError {
                 "mining job {} references an unknown method",
                 job.value()
             ),
-            Self::WorkingPlayerOutsideDeposit {
+            Self::TargetEvidenceMismatch { job } => write!(
+                formatter,
+                "mining job {} does not match the acquired target at admission",
+                job.value()
+            ),
+            Self::WorkingPlayerOutsideTarget {
                 job,
                 player_position,
                 bounds,
@@ -21,7 +26,7 @@ impl Display for MiningJobValidationError {
                 let max = bounds.max_exclusive();
                 write!(
                     formatter,
-                    "active mining job {} player at voxel ({},{},{}) is outside deposit bounds [({},{},{}),({},{},{}))",
+                    "active mining job {} player at voxel ({},{},{}) is outside acquired target bounds [({},{},{}),({},{},{}))",
                     job.value(),
                     player_position.x(),
                     player_position.y(),

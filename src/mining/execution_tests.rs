@@ -1761,7 +1761,7 @@ fn mining_token_rejects_logistics_change_before_commit() {
 }
 
 #[test]
-fn trusted_load_rejects_working_mining_with_player_outside_deposit() {
+fn trusted_load_rejects_working_mining_with_player_outside_target() {
     let (registries, mut state, deposit, destination, pick) = ordinary_unstarted_mining_fixture();
     let bounds = state
         .geology()
@@ -1798,10 +1798,18 @@ fn trusted_load_rejects_working_mining_with_player_outside_deposit() {
     assert_eq!(
         decoded.into_state(&registries),
         Err(LoadError::InvalidState(StateValidationError::MiningJob(
-            MiningJobValidationError::WorkingPlayerOutsideDeposit {
+            MiningJobValidationError::WorkingPlayerOutsideTarget {
                 job,
                 player_position: remote_position,
-                bounds,
+                bounds: VoxelBounds::new(
+                    bounds.min(),
+                    VoxelCoord::new(
+                        bounds.min().x() + 1,
+                        bounds.min().y() + 1,
+                        bounds.min().z() + 1,
+                    )
+                )
+                .unwrap(),
             }
         )))
     );
@@ -1874,6 +1882,9 @@ mod start_commit;
 
 #[path = "execution_tests/continuation.rs"]
 mod continuation;
+
+#[path = "execution_tests/target_history.rs"]
+mod target_history;
 
 fn assemble_pick_for_test(registries: &Registries, state: &mut AppState) -> EquipmentId {
     let source = add_solid_stockpile_for_test(state, Mass::from_milligrams(1_000_000))

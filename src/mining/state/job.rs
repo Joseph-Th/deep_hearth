@@ -10,7 +10,9 @@ use crate::equipment::{EquipmentDefinitionId, EquipmentId, EquipmentOperationTra
 use crate::geology::GeologicalDepositId;
 use crate::inventory::StockpileId;
 use crate::maintenance::Condition;
-use crate::material::MaterialLotSpec;
+use crate::material::{MaterialId, MaterialLotSpec};
+use crate::mining::MiningTargetRequest;
+use crate::spatial::VoxelBounds;
 
 use super::super::MiningMethodId;
 
@@ -36,6 +38,8 @@ pub(in crate::mining) struct MiningJobIdentity {
     pub(in crate::mining) id: MiningJobId,
     pub(in crate::mining) method: MiningMethodId,
     pub(in crate::mining) deposit: GeologicalDepositId,
+    pub(in crate::mining) target_region: VoxelBounds,
+    pub(in crate::mining) target_material: MaterialId,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -129,6 +133,10 @@ impl MiningJobRecord {
     #[must_use]
     pub(crate) const fn deposit(&self) -> GeologicalDepositId {
         self.identity.deposit
+    }
+
+    pub(in crate::mining) const fn target(&self) -> MiningTargetRequest {
+        MiningTargetRequest::new(self.identity.target_region, self.identity.target_material)
     }
 
     #[must_use]

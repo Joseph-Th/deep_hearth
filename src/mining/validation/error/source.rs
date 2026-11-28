@@ -19,7 +19,8 @@ impl Error for MiningJobValidationError {
             | Self::WorkingEquipmentDefinitionMismatch { .. }
             | Self::WorkingEquipmentRequiresStructuralSupport { .. }
             | Self::WorkingEquipmentMounted { .. }
-            | Self::WorkingPlayerOutsideDeposit { .. }
+            | Self::TargetEvidenceMismatch { .. }
+            | Self::WorkingPlayerOutsideTarget { .. }
             | Self::EquipmentConditionMismatch { .. }
             | Self::OutputProfileMismatch { .. }
             | Self::ZeroRequestedMass { .. }

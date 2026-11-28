@@ -47,6 +47,12 @@ fn mining_settlement_returns_merge_aware_inventory_landing_identity() {
             id: job,
             method: MiningMethodId::new(1),
             deposit: GeologicalDepositId::new(1),
+            target_region: crate::spatial::VoxelBounds::new(
+                crate::spatial::VoxelCoord::new(0, 0, 0),
+                crate::spatial::VoxelCoord::new(1, 1, 1),
+            )
+            .unwrap(),
+            target_material: MATERIAL_COPPER,
         },
         MiningJobResources {
             destination,

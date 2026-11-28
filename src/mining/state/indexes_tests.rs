@@ -27,6 +27,12 @@ fn job_record_for(
             id: MiningJobId::new(u64::from(id)),
             method: MiningMethodId::new(1),
             deposit: GeologicalDepositId::new(id),
+            target_region: crate::spatial::VoxelBounds::new(
+                crate::spatial::VoxelCoord::new(0, 0, 0),
+                crate::spatial::VoxelCoord::new(1, 1, 1),
+            )
+            .unwrap(),
+            target_material: MaterialId::new(1),
         },
         MiningJobResources {
             destination: StockpileId::new(id),

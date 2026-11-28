@@ -369,6 +369,16 @@ pub fn assess_geological_knowledge(
     region: VoxelBounds,
     material: MaterialId,
 ) -> GeologicalKnowledgeAssessment {
+    assess_geological_knowledge_through(state, region, material, None)
+}
+
+/// Historical assessment for replaying a durable admission, excluding later evidence.
+pub(crate) fn assess_geological_knowledge_through(
+    state: &GeologicalKnowledgeState,
+    region: VoxelBounds,
+    material: MaterialId,
+    through: Option<SimulationTick>,
+) -> GeologicalKnowledgeAssessment {
     let mut aggregate = GeologicalEvidenceAggregate::new(region);
 
     for id in state.observation_ids_for_material(material) {
@@ -378,6 +388,9 @@ pub fn assess_geological_knowledge(
                 id.value()
             )
         });
+        if through.is_some_and(|tick| record.observed_at() > tick) {
+            continue;
+        }
         let Some(overlap) = record.region().intersection(region) else {
             continue;
         };

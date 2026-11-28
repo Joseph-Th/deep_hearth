@@ -234,6 +234,12 @@ impl GeologicalDepositRecord {
         self.generated_at
     }
 
+    /// Extraction is admitted against the settled state, after depletion at this tick.
+    #[must_use]
+    pub(crate) fn was_extractable_at(&self, tick: SimulationTick) -> bool {
+        self.generated_at <= tick && self.depleted_at.is_none_or(|depleted| tick < depleted)
+    }
+
     /// Returns whether this body was physically available to an observation decided on `tick`.
     ///
     /// Depletion is applied at the end of its completion tick, while observations for that tick are

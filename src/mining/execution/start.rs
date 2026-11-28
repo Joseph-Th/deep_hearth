@@ -71,11 +71,8 @@ fn validate_mining_target(
         .geology()
         .get_deposit(deposit)
         .unwrap_or_else(|| panic!("re-resolved mining target deposit disappeared"));
-    let (excavation_hardness, hardness_is_acquired) = current
-        .excavation_hardness()
-        .map_or((record.excavation_hardness(), false), |estimate| {
-            (estimate.upper(), true)
-        });
+    let excavation_hardness = current.admission_hardness(record.excavation_hardness());
+    let hardness_is_acquired = current.excavation_hardness().is_some();
     Ok(MiningTargetPlan {
         deposit,
         region: current.region(),
@@ -415,6 +412,8 @@ pub fn validate_start_mining(
                 id: job,
                 method,
                 deposit: target_plan.deposit,
+                target_region: target_plan.region,
+                target_material: target.material(),
             },
             MiningJobResources {
                 destination,

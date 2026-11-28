@@ -1648,8 +1648,13 @@ remainder batches, and per-batch tick rounding, but does not promise hidden supp
 capacity, or authorization.
 
 Mining start binds target, requested effort, equipment, destination reservation, labor, access, wear/capability,
-and relevant owner revisions in `MiningJobRecord`. Because deposit temperature is not acquired target knowledge,
-admission permits only a destination whose containment accepts every representable temperature; a finite storage
+and relevant owner revisions in `MiningJobRecord`. The durable record preserves the acquired single-voxel locality
+and requested constituent, separately from the hidden deposit identity. Trusted loading replays the same target
+resolver using observations acquired through admission and bodies extractable at that settled tick, validates the
+same conservative hardness policy, and requires a working actor to remain at the acquired voxel. Later surveys
+or depletion cannot invalidate an already extracted but unsettled batch. Because deposit temperature is not
+acquired target knowledge, admission permits only a destination whose containment accepts every representable
+temperature; a finite storage
 temperature limit cannot be used as a read-only probe of hidden geology. Geology retains matter custody during
 labor. Completion extracts the slice and ordinarily settles it directly into the reserved inventory destination,
 returning the exact contribution and merge-aware landing identity through `TickOutcome::mining_output()`. If a
