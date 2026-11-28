@@ -49,16 +49,17 @@ pub(crate) fn generated_position_lacks_fixed_footing(
     if !state.world().has_generated_terrain_at(position) {
         return false;
     }
-    !position.y().checked_sub(1).is_some_and(|y| {
-        let floor = VoxelCoord::new(position.x(), y, position.z());
-        (super::WORLD_MIN_Y..super::WORLD_MAX_Y_EXCLUSIVE).contains(&floor.y())
-            && !fixed_floor_reserved_for_removal(state, floor)
-            && (state
-                .world()
-                .full_cell_collision_at(registries.world(), floor)
-                == Some(true)
-                || state.structures().blocks_full_cell(floor))
-    })
+    !(super::WORLD_MIN_Y..super::WORLD_MAX_Y_EXCLUSIVE).contains(&position.y())
+        || !position.y().checked_sub(1).is_some_and(|y| {
+            let floor = VoxelCoord::new(position.x(), y, position.z());
+            (super::WORLD_MIN_Y..super::WORLD_MAX_Y_EXCLUSIVE).contains(&floor.y())
+                && !fixed_floor_reserved_for_removal(state, floor)
+                && (state
+                    .world()
+                    .full_cell_collision_at(registries.world(), floor)
+                    == Some(true)
+                    || state.structures().blocks_full_cell(floor))
+        })
 }
 
 pub(crate) fn unsupported_loose_stockpile_position(

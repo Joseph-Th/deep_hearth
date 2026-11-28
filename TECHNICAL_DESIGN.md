@@ -2088,9 +2088,12 @@ and sapling transplantation share the
 local fixed-footing assessment: stationary material-backed custody, inbound stockpile promises,
 live natural surface opportunities or loose drops, rooted biomass, and opening residents cannot lose
 their floor through these operations. Direct and neighborhood terrain generation reject live surface
-matter without fixed footing in the prospective chunk, including surviving roots. The same floor
-assessment checks loose stockpile obligations and includes prospective trunks and existing full-cell
-members; a floor reserved for removal is not valid support. Surface creation, scavenger relocation,
+matter without fixed footing in the prospective chunk, including surviving roots. Both stored matter
+and inbound reservations in a loose stationary stockpile require fixed footing during terrain admission,
+trusted loading, and ordinary material landing. Empty unenclosed markers do not claim footing.
+Generated sites must lie within the supported vertical world range. The prospective assessment includes
+seeded trunks and existing full-cell members; a floor reserved for removal is not valid support.
+Surface creation, scavenger relocation,
 portion settlement and trusted load share that same committed-world footing contract and reject
 unsupported live matter. Validated surface creation binds the player-work revision as well as terrain
 and structural revisions, so a floor-removal reservation cannot invalidate a retained creation token.

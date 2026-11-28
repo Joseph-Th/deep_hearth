@@ -188,7 +188,7 @@ fn generation_cannot_bury_a_nonempty_loose_ground_stockpile() {
 fn trusted_load_rejects_loose_ground_matter_embedded_in_solid_terrain() {
     let registries = build_registries();
     let mut state = AppState::new();
-    let at = VoxelCoord::new(5, WORLD_MIN_Y, 5);
+    let at = VoxelCoord::new(5, WORLD_MIN_Y + 1, 5);
     validate_generate_chunk(
         &registries,
         &state,
@@ -271,10 +271,18 @@ fn empty_ground_allocation_has_no_physical_terrain_footprint() {
 }
 
 #[test]
-fn loose_ground_matter_in_open_air_remains_available_after_generation_and_load() {
+fn supported_loose_ground_matter_remains_available_after_generation_and_load() {
     let registries = build_registries();
     let mut state = AppState::new();
-    let at = VoxelCoord::new(5, 100, 5);
+    let seed = WorldGenerationSeed::new(0x5749_4C44_4552_4E53);
+    let chunk = ChunkCoord::new(0, 0);
+    let preview =
+        validate_generate_chunk(&registries, &state, seed, chunk, BLOCK_STATE_STONE).unwrap();
+    let floor_y = (WORLD_MIN_Y..WORLD_MAX_Y_EXCLUSIVE)
+        .rev()
+        .find(|&y| preview.chunk().block_at(VoxelCoord::new(5, y, 5)) == BLOCK_STATE_STONE)
+        .unwrap();
+    let at = VoxelCoord::new(5, floor_y + 1, 5);
     let amount = Mass::from_milligrams(250_000);
     let pile = add_solid_stockpile_for_test(&mut state, Mass::from_milligrams(1_000_000)).unwrap();
     deposit_lot_for_test(

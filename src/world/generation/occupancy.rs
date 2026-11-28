@@ -181,9 +181,9 @@ fn validate_existing_fixed_footing(
         return Err(ChunkGenerationError::SurfaceResourceRequiresFixedFloor { voxel });
     }
     if let Some(voxel) =
-        first_unsupported_reserved_output_in_generated_chunk(registry, state, tree, chunk)
+        first_unsupported_ground_matter_in_generated_chunk(registry, state, tree, chunk)
     {
-        return Err(ChunkGenerationError::ReservedOutputRequiresFixedFloor { voxel });
+        return Err(ChunkGenerationError::GroundMatterRequiresFixedFloor { voxel });
     }
     Ok(())
 }
@@ -267,9 +267,9 @@ fn prospective_position_has_fixed_floor(
         })
 }
 
-/// A material reservation admitted in abstract space must retain a real
+/// Stored matter and material reservations admitted in abstract space must retain a real
 /// floor when its column acquires terrain authority.
-fn first_unsupported_reserved_output_in_generated_chunk(
+fn first_unsupported_ground_matter_in_generated_chunk(
     registry: &WorldRegistry,
     state: &AppState,
     tree: Option<TreeRecord>,
@@ -280,10 +280,9 @@ fn first_unsupported_reserved_output_in_generated_chunk(
         .stockpiles_in_chunk(chunk.coord())
         .filter(|&(id, position)| {
             crate::world::loose_stockpile_position(state, id) == Some(position)
-                && state
-                    .inventory()
-                    .get_stockpile(id)
-                    .is_some_and(|pile| !pile.reserved_inbound().is_zero())
+                && state.inventory().get_stockpile(id).is_some_and(|pile| {
+                    !pile.stored_mass().is_zero() || !pile.reserved_inbound().is_zero()
+                })
                 && !prospective_position_has_fixed_floor(registry, state, tree, chunk, position)
         })
         .min_by_key(|(id, _)| *id)

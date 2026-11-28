@@ -100,10 +100,17 @@ fn a_prevalidated_empty_location_must_not_bury_later_added_matter() {
 }
 
 #[test]
-fn material_ground_placement_succeeds_in_open_generated_air_and_survives_save_load() {
+fn material_ground_placement_succeeds_above_fixed_floor_and_survives_save_load() {
     use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+    use crate::world::set_generated_block_for_test;
     let (registries, mut state, rock) = generated_rock();
     let at = VoxelCoord::new(rock.x(), 100, rock.z());
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(rock.x(), 99, rock.z()),
+        BLOCK_STATE_STONE,
+    );
     assert_eq!(
         state.world().block_at(at),
         Some(crate::world::BlockStateId::AIR)
@@ -125,10 +132,63 @@ fn material_ground_placement_succeeds_in_open_generated_air_and_survives_save_lo
 }
 
 #[test]
+fn trusted_load_rejects_ground_matter_above_the_generated_world_ceiling() {
+    use crate::core::state::StateValidationError;
+    use crate::logistics::LogisticsValidationError;
+    use crate::persistence::{LoadError, LoadedSaveEnvelope, SaveEnvelope};
+    use crate::world::{WORLD_MAX_Y_EXCLUSIVE, set_generated_block_for_test};
+
+    let (registries, mut state, rock) = generated_rock();
+    let position = VoxelCoord::new(rock.x(), WORLD_MAX_Y_EXCLUSIVE, rock.z());
+    let floor = VoxelCoord::new(rock.x(), WORLD_MAX_Y_EXCLUSIVE - 1, rock.z());
+    set_generated_block_for_test(registries.world(), &mut state, floor, BLOCK_STATE_STONE);
+    assert_eq!(
+        state
+            .world()
+            .full_cell_collision_at(registries.world(), floor),
+        Some(true)
+    );
+    let supported = VoxelCoord::new(rock.x(), 100, rock.z());
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(rock.x(), 99, rock.z()),
+        BLOCK_STATE_STONE,
+    );
+    let stockpile = timber_stockpile(&registries, &mut state);
+    validate_place_ground_stockpile(&state, stockpile, supported)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    // Forge only the world location. Even solid terrain immediately below
+    // cannot support stored matter outside the generated vertical domain.
+    let mut encoded = serde_json::to_value(SaveEnvelope::new(&registries, &state)).unwrap();
+    encoded["state"]["systems"]["logistics"]["stockpile_locations"]
+        [stockpile.value().to_string()] = serde_json::to_value(position).unwrap();
+    let loaded = serde_json::from_value::<LoadedSaveEnvelope>(encoded).unwrap();
+    assert_eq!(
+        loaded.into_state(&registries).err(),
+        Some(LoadError::InvalidState(StateValidationError::Logistics(
+            LogisticsValidationError::GroundMatterRequiresFixedFloor {
+                stockpile,
+                voxel: position,
+            }
+        )))
+    );
+}
+
+#[test]
 fn validated_ground_placement_rechecks_new_terrain_before_commit() {
     use crate::world::set_generated_block_for_test;
     let (registries, mut state, rock) = generated_rock();
     let at = VoxelCoord::new(rock.x(), 100, rock.z());
+    set_generated_block_for_test(
+        registries.world(),
+        &mut state,
+        VoxelCoord::new(rock.x(), 99, rock.z()),
+        BLOCK_STATE_STONE,
+    );
     let stockpile = timber_stockpile(&registries, &mut state);
     let admitted = validate_place_ground_stockpile(&state, stockpile, at).unwrap();
     set_generated_block_for_test(registries.world(), &mut state, at, BLOCK_STATE_STONE);

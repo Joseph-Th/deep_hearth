@@ -175,6 +175,19 @@ fn player_heating_fixture() -> (
         .commit(&mut state)
         .unwrap()
         .carried_stockpile();
+    let selection = {
+        let lot = state
+            .inventory()
+            .lots()
+            .find(|lot| lot.stockpile() == source)
+            .unwrap();
+        MaterialLotSelection::new(lot.id(), lot.mass())
+    };
+    crate::logistics::validate_pickup_from_ground(&registries, &state, source, &[selection])
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    let source = carried;
     let lot = state
         .inventory()
         .lots()
@@ -485,7 +498,7 @@ fn reserved_production_output_prevents_generation_without_footing() {
             BLOCK_STATE_STONE,
         )
         .err(),
-        Some(crate::world::ChunkGenerationError::ReservedOutputRequiresFixedFloor { voxel: at })
+        Some(crate::world::ChunkGenerationError::GroundMatterRequiresFixedFloor { voxel: at })
     );
     assert_eq!(state, before);
 }
@@ -527,7 +540,7 @@ fn production_output_footing_is_rechecked_at_commit_and_trusted_load() {
     assert_eq!(
         validate_loaded_state(&registries, &forged),
         Err(crate::core::state::StateValidationError::Logistics(
-            crate::logistics::LogisticsValidationError::ReservedGroundMatterRequiresFixedFloor {
+            crate::logistics::LogisticsValidationError::GroundMatterRequiresFixedFloor {
                 stockpile: destination,
                 voxel: at,
             }

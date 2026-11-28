@@ -7,7 +7,7 @@ use deep_hearth::registry::ProcessExecutionFamily;
 use deep_hearth::spatial::VoxelCoord;
 use deep_hearth::{AppState, Registries};
 
-use super::super::view;
+use super::{local_output_destination, view};
 
 pub(super) struct ProductionFeedback {
     pub(super) message: String,
@@ -42,8 +42,7 @@ pub(super) fn completion(
     };
     let mut parcels = String::new();
     for landing in receipt.landings() {
-        let Some(destination) =
-            super::local_output_destination(state, observer, landing.destination())
+        let Some(destination) = local_output_destination(state, observer, landing.destination())
         else {
             continue;
         };

@@ -359,7 +359,7 @@ fn undermined_generated_junction_cannot_fit_a_pry_tool_until_footing_returns() {
 }
 
 #[test]
-fn undermined_generated_worksite_cannot_raid_exposed_inventory_until_supported() {
+fn undermined_populated_worksite_is_invalid_and_repair_preserves_raid_continuation() {
     use crate::content::{
         BLOCK_STATE_STONE, ENERGY_ELECTRICAL_BUFFER, FORM_REINFORCEMENT, MATERIAL_COPPER,
         STORAGE_ROUGH_TIMBER_FIELD_BOX,
@@ -450,7 +450,6 @@ fn undermined_generated_worksite_cannot_raid_exposed_inventory_until_supported()
             .has_standing_clearance(registries.world(), junction)
     );
     let matter_stranded = calculate_matter_accounting(&state).unwrap().total();
-    advance_to_tick(&registries, &mut state, raid_tick);
     assert_eq!(colony(&state).scout_position(), junction);
     assert_eq!(
         state
@@ -459,22 +458,37 @@ fn undermined_generated_worksite_cannot_raid_exposed_inventory_until_supported()
             .unwrap()
             .get_mass(commodity),
         total,
-        "an unsupported scavenger cannot extract material from the ground stockpile"
+        "removing the floor in the fixture must not change inventory"
     );
     assert_eq!(
         calculate_matter_accounting(&state).unwrap().total(),
         matter_stranded
     );
+    assert_eq!(
+        validate_loaded_state(&registries, &state),
+        Err(crate::core::state::StateValidationError::Logistics(
+            crate::logistics::LogisticsValidationError::GroundMatterRequiresFixedFloor {
+                stockpile: source,
+                voxel: junction
+            }
+        ))
+    );
+    let invalid = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    assert!(
+        serde_json::from_slice::<LoadedSaveEnvelope>(&invalid)
+            .unwrap()
+            .into_state(&registries)
+            .is_err()
+    );
+    set_generated_block_for_test(registries.world(), &mut state, floor, BLOCK_STATE_STONE);
     assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
-
     let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
     let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
         .unwrap()
         .into_state(&registries)
         .unwrap();
     for actor in [&mut state, &mut replay] {
-        set_generated_block_for_test(registries.world(), actor, floor, BLOCK_STATE_STONE);
-        advance_to_tick(&registries, actor, raid_tick + 5);
+        advance_to_tick(&registries, actor, raid_tick);
         assert!(
             actor
                 .inventory()

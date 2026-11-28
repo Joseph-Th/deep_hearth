@@ -63,7 +63,7 @@ pub enum ChunkGenerationError {
     GroundMatterBuriedByTerrain {
         voxel: VoxelCoord,
     },
-    ReservedOutputRequiresFixedFloor {
+    GroundMatterRequiresFixedFloor {
         voxel: VoxelCoord,
     },
     FluidStoreBuriedByTerrain {
@@ -217,9 +217,9 @@ impl Display for ChunkGenerationError {
                 voxel.y(),
                 voxel.z()
             ),
-            Self::ReservedOutputRequiresFixedFloor { voxel } => write!(
+            Self::GroundMatterRequiresFixedFloor { voxel } => write!(
                 formatter,
-                "terrain generation would leave reserved material output without fixed footing at voxel ({},{},{})",
+                "terrain generation would leave stored or reserved ground matter without fixed footing at voxel ({},{},{})",
                 voxel.x(), voxel.y(), voxel.z()
             ),
             Self::FluidStoreBuriedByTerrain { voxel } => write!(

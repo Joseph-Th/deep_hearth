@@ -58,16 +58,14 @@ pub(super) fn validate_ground_terrain(
         if state
             .inventory()
             .get_stockpile(stockpile)
-            .is_some_and(|pile| !pile.reserved_inbound().is_zero())
+            .is_some_and(|pile| !pile.stored_mass().is_zero() || !pile.reserved_inbound().is_zero())
             && let Some(voxel) =
                 crate::world::unsupported_loose_stockpile_position(registries, state, stockpile)
         {
-            return Err(
-                LogisticsValidationError::ReservedGroundMatterRequiresFixedFloor {
-                    stockpile,
-                    voxel,
-                },
-            );
+            return Err(LogisticsValidationError::GroundMatterRequiresFixedFloor {
+                stockpile,
+                voxel,
+            });
         }
     }
     Ok(())

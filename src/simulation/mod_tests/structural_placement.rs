@@ -192,6 +192,100 @@ fn selected_boards_use_terrain_for_fuel_rack_placement() {
 }
 
 #[test]
+fn boards_without_a_construction_target_can_fuel_the_local_fire() {
+    use crate::content::{
+        CAMPFIRE_BOARD_FUEL_MASS, CAMPFIRE_BOARD_FUEL_THERMAL_ENERGY, ENERGY_STONE_RING_CAMPFIRE,
+        FORM_LUMP,
+    };
+    use crate::energy::validate_assemble_energy_store;
+    use crate::persistence::{LoadedSaveEnvelope, SaveEnvelope};
+
+    let (registries, mut state, _) = generated_grounded_player_at(0, 0);
+    let carried = state.logistics().player().unwrap().carried_stockpile();
+    let boards = CommodityKey::new(MATERIAL_WOOD, FORM_BOARD);
+    let logs = CommodityKey::new(MATERIAL_WOOD, FORM_LOG);
+    for (commodity, mass) in [
+        (
+            CommodityKey::new(MATERIAL_STONE, FORM_LUMP),
+            Mass::from_milligrams(1_000_000),
+        ),
+        (boards, Mass::from_milligrams(750_000)),
+        (logs, Mass::from_milligrams(1_000_000)),
+    ] {
+        deposit_lot_for_test(
+            &registries,
+            &mut state,
+            carried,
+            commodity,
+            mass,
+            Temperature::from_millikelvin(293_150),
+        )
+        .unwrap();
+    }
+    let fire =
+        validate_assemble_energy_store(&registries, &state, ENERGY_STONE_RING_CAMPFIRE, carried)
+            .unwrap()
+            .commit(&mut state)
+            .unwrap();
+    validate_set_active_selection(
+        &registries,
+        &state,
+        Some(PlayerActiveSelection::material(boards)),
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    let direction = ViewDirection::new(0, 1_000_000, 0).unwrap();
+    assert_eq!(
+        crate::world::raycast_player_block(&registries, &state, direction),
+        Ok(None)
+    );
+    let conserved = calculate_matter_accounting(&state).unwrap().total();
+    let structure_revision = state.structures().revision();
+    let saved = serde_json::to_vec(&SaveEnvelope::new(&registries, &state)).unwrap();
+    let mut replay = serde_json::from_slice::<LoadedSaveEnvelope>(&saved)
+        .unwrap()
+        .into_state(&registries)
+        .unwrap();
+    let input = PlayerDirectControlInput::NEUTRAL
+        .with_secondary(SecondaryControlIntent::use_active(direction));
+    for game in [&mut state, &mut replay] {
+        let outcome = advance_control_tick_with_direct_input(&registries, game, input).unwrap();
+        assert_eq!(
+            outcome.secondary_action(),
+            Some(&SecondaryActionOutcome::CombustionFuelAdded {
+                store: fire,
+                released: CAMPFIRE_BOARD_FUEL_THERMAL_ENERGY,
+            }),
+        );
+        let stock = game.inventory().get_stockpile(carried).unwrap();
+        assert_eq!(
+            stock.get_mass(boards),
+            Mass::from_milligrams(750_000)
+                .checked_sub(CAMPFIRE_BOARD_FUEL_MASS)
+                .unwrap()
+        );
+        assert_eq!(stock.get_mass(logs), Mass::from_milligrams(1_000_000));
+        assert_eq!(
+            game.energy().get_store(fire).unwrap().stored(),
+            CAMPFIRE_BOARD_FUEL_THERMAL_ENERGY
+        );
+        assert_eq!(game.structures().revision(), structure_revision);
+        assert!(game.player_work().active().is_none());
+        assert!(game.logistics().pending_secondary_use().is_none());
+        assert_eq!(
+            calculate_matter_accounting(game).unwrap().total(),
+            conserved
+        );
+        assert_eq!(
+            crate::core::state::validate_loaded_state(&registries, game),
+            Ok(())
+        );
+    }
+    assert_eq!(state, replay);
+}
+
+#[test]
 fn impossible_timber_use_rejects_on_input_tick_instead_of_queuing() {
     for form in [FORM_LOG, FORM_BOARD, FORM_HANDLE] {
         let (registries, mut state, _) = generated_grounded_player_at(0, 0);

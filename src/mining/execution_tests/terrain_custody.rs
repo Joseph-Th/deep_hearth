@@ -121,7 +121,7 @@ fn mining_reservation_prevents_generation_without_footing() {
             BLOCK_STATE_STONE
         )
         .err(),
-        Some(ChunkGenerationError::ReservedOutputRequiresFixedFloor { voxel: at })
+        Some(ChunkGenerationError::GroundMatterRequiresFixedFloor { voxel: at })
     );
     assert_eq!(state, before);
 }

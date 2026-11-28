@@ -166,6 +166,63 @@ fn validated_ground_cache_rejects_removed_footing_before_commit() {
 }
 
 #[test]
+fn populated_ground_cache_requires_footing_when_terrain_is_materialized() {
+    let registries = build_registries();
+    let mut state = AppState::new();
+    let at = VoxelCoord::new(5, 100, 5);
+    let carried = validate_admit_player(&registries, &state, at)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap()
+        .carried_stockpile();
+    let mass = Mass::from_milligrams(100_000);
+    let lot = deposit_lot_for_test(
+        &registries,
+        &mut state,
+        carried,
+        CommodityKey::new(MATERIAL_STONE, FORM_CHIP),
+        mass,
+        Temperature::from_millikelvin(293_150),
+    )
+    .unwrap();
+    let ground = validate_allocate_player_ground_stockpile(&registries, &state, mass)
+        .unwrap()
+        .commit(&mut state)
+        .unwrap();
+    validate_drop_to_ground(
+        &registries,
+        &state,
+        ground,
+        &[MaterialLotSelection::new(lot, mass)],
+    )
+    .unwrap()
+    .commit(&mut state)
+    .unwrap();
+    assert_eq!(
+        state
+            .inventory()
+            .get_stockpile(ground)
+            .unwrap()
+            .stored_mass(),
+        mass
+    );
+    assert_eq!(validate_loaded_state(&registries, &state), Ok(()));
+    let before = state.clone();
+    assert_eq!(
+        validate_generate_chunk(
+            &registries,
+            &state,
+            WorldGenerationSeed::new(41),
+            ChunkCoord::containing(at),
+            BLOCK_STATE_STONE,
+        )
+        .err(),
+        Some(crate::world::ChunkGenerationError::GroundMatterRequiresFixedFloor { voxel: at })
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
 fn ground_transfer_authorized_before_generation_cannot_fill_an_unsupported_cache() {
     let registries = build_registries();
     let mut state = AppState::new();

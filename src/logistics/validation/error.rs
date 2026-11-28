@@ -53,7 +53,7 @@ pub enum LogisticsValidationError {
     GroundMatterIntersectsSolidTerrain {
         voxel: VoxelCoord,
     },
-    ReservedGroundMatterRequiresFixedFloor {
+    GroundMatterRequiresFixedFloor {
         stockpile: StockpileId,
         voxel: VoxelCoord,
     },
@@ -371,9 +371,9 @@ impl Display for LogisticsValidationError {
                 voxel.y(),
                 voxel.z()
             ),
-            Self::ReservedGroundMatterRequiresFixedFloor { stockpile, voxel } => write!(
+            Self::GroundMatterRequiresFixedFloor { stockpile, voxel } => write!(
                 formatter,
-                "reserved loose ground stockpile {} lacks fixed footing at ({},{},{})",
+                "occupied or reserved loose ground stockpile {} lacks fixed footing at ({},{},{})",
                 stockpile.value(), voxel.x(), voxel.y(), voxel.z()
             ),
             Self::LocatedFluidStoreIntersectsSolidTerrain { voxel } => write!(
